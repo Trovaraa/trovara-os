@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Builds
+dist/
+**/dist/
+.turbo
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+
+# Logs & runtime data
+*.log
+logs/
+backups/
+uploads/
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+
+
+.cursor/
+*.canvas.tsx
+CONTEXT.md
+

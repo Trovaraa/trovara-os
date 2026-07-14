@@ -1,0 +1,196 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+function defaultHome(role?: string) {
+  return role === 'field_worker' ? '/today' : '/dashboard'
+}
+
+const workerAllowedNames = new Set(['today', 'worker'])
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    {
+      path: '/',
+      redirect: () => {
+        const auth = useAuthStore()
+        return defaultHome(auth.user?.role)
+      },
+    },
+    {
+      path: '/change-password',
+      name: 'change-password',
+      component: () => import('@/views/ChangePasswordView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { guest: true },
+    },
+    {
+      path: '/today',
+      name: 'today',
+      component: () => import('@/views/TodayView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/worker',
+      name: 'worker',
+      component: () => import('@/views/WorkerTasksView.vue'),
+      meta: { requiresAuth: true, fieldWorker: true },
+    },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: () => import('@/views/DashboardView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tasks',
+      name: 'tasks',
+      component: () => import('@/views/TasksView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tasks/post-approval',
+      name: 'post-approval-tasks',
+      component: () => import('@/views/PostApprovalTasksView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/inventory',
+      name: 'inventory',
+      component: () => import('@/views/InventoryView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/crops',
+      name: 'crops',
+      component: () => import('@/views/CropsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/livestock',
+      name: 'livestock',
+      component: () => import('@/views/LivestockView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/whatsapp',
+      name: 'whatsapp',
+      component: () => import('@/views/WhatsAppView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/sales',
+      name: 'sales',
+      component: () => import('@/views/SalesView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/finance',
+      name: 'finance',
+      component: () => import('@/views/FinanceView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/traceability',
+      name: 'traceability',
+      component: () => import('@/views/TraceabilityView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/reports',
+      name: 'reports',
+      component: () => import('@/views/ReportsView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/templates',
+      name: 'templates',
+      component: () => import('@/views/TemplatesView.vue'),
+      meta: { requiresAuth: true, managerOnly: true },
+    },
+    {
+      path: '/zones',
+      name: 'zones',
+      component: () => import('@/views/ZonesView.vue'),
+      meta: { requiresAuth: true, managerOnly: true },
+    },
+    {
+      path: '/settings/security',
+      name: 'settings-security',
+      component: () => import('@/views/SecurityView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/views/SettingsView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/users',
+      name: 'users',
+      component: () => import('@/views/UsersView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/events',
+      name: 'events',
+      component: () => import('@/views/EventsView.vue'),
+      meta: { requiresAuth: true, managerOnly: true },
+    },
+    {
+      path: '/ai',
+      name: 'ai',
+      component: () => import('@/views/AiView.vue'),
+      meta: { requiresAuth: true, managerOnly: true },
+    },
+    {
+      path: '/lot/:lotCode',
+      name: 'public-lot',
+      component: () => import('@/views/PublicLotView.vue'),
+    },
+  ],
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.user && !to.meta.guest) {
+    await auth.fetchMe()
+  }
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    return { name: 'login' }
+  }
+  if (to.meta.guest && auth.isAuthenticated) {
+    return defaultHome(auth.user?.role)
+  }
+  if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
+    return defaultHome(auth.user?.role)
+  }
+  if (to.meta.managerOnly && !auth.canApprove) {
+    return defaultHome(auth.user?.role)
+  }
+  if (to.meta.fieldWorker && auth.user?.role !== 'field_worker') {
+    return defaultHome(auth.user?.role)
+  }
+  if (
+    auth.user?.mustChangePassword &&
+    to.name !== 'change-password'
+  ) {
+    return { name: 'change-password' }
+  }
+  if (
+    auth.user?.role === 'field_worker' &&
+    to.meta.requiresAuth &&
+    to.name &&
+    !workerAllowedNames.has(String(to.name))
+  ) {
+    return { name: 'today' }
+  }
+})
+
+export default router

@@ -1,0 +1,544 @@
+import { hashPassword } from './session.js'
+import { eq, inArray } from 'drizzle-orm'
+import { db } from '../db/index.js'
+import {
+  farms,
+  users,
+  plots,
+  zones,
+  plantingUnits,
+  taskTemplates,
+  recurringSchedules,
+  farmEvents,
+  tasks,
+  inventoryItems,
+  inventoryMovements,
+  auditEvents,
+  sessions,
+  cropCycles,
+  livestockBatches,
+  livestockLogs,
+  harvestLots,
+  orders,
+  expenses,
+  consentRecords,
+  passwordResetTokens,
+  taskInventoryUsage,
+} from '../db/schema.js'
+
+async function deleteFarmScopedData(farmId: string): Promise<void> {
+  const farmUsers = await db.select({ id: users.id }).from(users).where(eq(users.farmId, farmId))
+  const userIds = farmUsers.map((u) => u.id)
+
+  if (userIds.length > 0) {
+    await db.delete(sessions).where(inArray(sessions.userId, userIds))
+    await db.delete(passwordResetTokens).where(inArray(passwordResetTokens.userId, userIds))
+  }
+
+  await db.delete(orders).where(eq(orders.farmId, farmId))
+  await db.delete(expenses).where(eq(expenses.farmId, farmId))
+  await db.delete(harvestLots).where(eq(harvestLots.farmId, farmId))
+  await db.delete(livestockLogs).where(eq(livestockLogs.farmId, farmId))
+  await db.delete(farmEvents).where(eq(farmEvents.farmId, farmId))
+  await db.delete(livestockBatches).where(eq(livestockBatches.farmId, farmId))
+  await db.delete(cropCycles).where(eq(cropCycles.farmId, farmId))
+  await db.delete(auditEvents).where(eq(auditEvents.farmId, farmId))
+  await db.delete(taskInventoryUsage).where(eq(taskInventoryUsage.farmId, farmId))
+  await db.delete(inventoryMovements).where(eq(inventoryMovements.farmId, farmId))
+  await db.delete(tasks).where(eq(tasks.farmId, farmId))
+  await db.delete(recurringSchedules).where(eq(recurringSchedules.farmId, farmId))
+  await db.delete(taskTemplates).where(eq(taskTemplates.farmId, farmId))
+  await db.delete(plantingUnits).where(eq(plantingUnits.farmId, farmId))
+  await db.delete(inventoryItems).where(eq(inventoryItems.farmId, farmId))
+  await db.delete(plots).where(eq(plots.farmId, farmId))
+  await db.delete(zones).where(eq(zones.farmId, farmId))
+  await db.delete(consentRecords).where(eq(consentRecords.farmId, farmId))
+  await db.delete(users).where(eq(users.farmId, farmId))
+}
+
+async function deleteAllData(): Promise<void> {
+  await db.delete(orders)
+  await db.delete(expenses)
+  await db.delete(harvestLots)
+  await db.delete(livestockLogs)
+  await db.delete(farmEvents)
+  await db.delete(livestockBatches)
+  await db.delete(cropCycles)
+  await db.delete(auditEvents)
+  await db.delete(taskInventoryUsage)
+  await db.delete(inventoryMovements)
+  await db.delete(tasks)
+  await db.delete(recurringSchedules)
+  await db.delete(taskTemplates)
+  await db.delete(plantingUnits)
+  await db.delete(inventoryItems)
+  await db.delete(plots)
+  await db.delete(zones)
+  await db.delete(consentRecords)
+  await db.delete(sessions)
+  await db.delete(passwordResetTokens)
+  await db.delete(users)
+  await db.delete(farms)
+}
+
+async function insertDemoContentForFarm(farmId: string): Promise<void> {
+  const ownerPassword = process.env.SEED_OWNER_PASSWORD
+  const supervisorPassword = process.env.SEED_SUPERVISOR_PASSWORD
+  const workerPassword = process.env.SEED_WORKER_PASSWORD
+
+  if (!ownerPassword || !supervisorPassword || !workerPassword) {
+    throw new Error('Set SEED_OWNER_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD in .env')
+  }
+
+  const [owner, sup1, sup2, worker1, worker2] = await db
+    .insert(users)
+    .values([
+      {
+        farmId,
+        email: 'owner@trovara.farm',
+        name: 'Farm Owner',
+        phone: '2348100000000',
+        passwordHash: await hashPassword(ownerPassword),
+        role: 'owner',
+        mustChangePassword: true,
+      },
+      {
+        farmId: farmId,
+        email: 'supervisor1@trovara.farm',
+        name: 'Ade Supervisor',
+        phone: '2348100000001',
+        passwordHash: await hashPassword(supervisorPassword),
+        role: 'supervisor',
+        dailyWageNgn: 8000,
+        mustChangePassword: true,
+      },
+      {
+        farmId: farmId,
+        email: 'supervisor2@trovara.farm',
+        name: 'Bola Manager',
+        phone: '2348100000003',
+        passwordHash: await hashPassword(supervisorPassword),
+        role: 'supervisor',
+        dailyWageNgn: 8000,
+        mustChangePassword: true,
+      },
+      {
+        farmId: farmId,
+        email: 'worker1@trovara.farm',
+        name: 'Tunde Field',
+        phone: '2348103693426',
+        passwordHash: await hashPassword(workerPassword),
+        role: 'field_worker',
+        dailyWageNgn: 5000,
+        mustChangePassword: true,
+      },
+      {
+        farmId: farmId,
+        email: 'worker2@trovara.farm',
+        name: 'Yemi Field',
+        phone: '2348100000002',
+        passwordHash: await hashPassword(workerPassword),
+        role: 'field_worker',
+        dailyWageNgn: 5000,
+        mustChangePassword: true,
+      },
+    ])
+    .returning()
+
+  const zoneRows = await db
+    .insert(zones)
+    .values([
+      { farmId: farmId, name: 'North Orchard', description: 'Coconut and plantain blocks' },
+      { farmId: farmId, name: 'South Poultry', description: 'Broiler production zone' },
+    ])
+    .returning()
+
+  const [northZone, southZone] = zoneRows
+
+  const plotRows = await db
+    .insert(plots)
+    .values([
+      {
+        farmId: farmId,
+        zoneId: northZone.id,
+        name: 'Coconut Block A',
+        cropType: 'coconut',
+        areaAcres: '12',
+        plantCount: 480,
+      },
+      {
+        farmId: farmId,
+        zoneId: northZone.id,
+        name: 'Plantain Block B',
+        cropType: 'plantain',
+        areaAcres: '8',
+        plantCount: 320,
+      },
+      {
+        farmId: farmId,
+        zoneId: southZone.id,
+        name: 'Poultry Zone C',
+        cropType: 'poultry_prep',
+        areaAcres: '3',
+      },
+    ])
+    .returning()
+
+  const [coconutPlot, plantainPlot, poultryPlot] = plotRows
+
+  await db.insert(plantingUnits).values([
+    {
+      farmId: farmId,
+      plotId: coconutPlot.id,
+      label: 'Row A1',
+      unitType: 'coconut_seedling',
+      status: 'active',
+      plantedAt: new Date(Date.now() - 180 * 86400000),
+    },
+    {
+      farmId: farmId,
+      plotId: plantainPlot.id,
+      label: 'Sucker Block 3',
+      unitType: 'plantain_sucker',
+      status: 'active',
+      plantedAt: new Date(Date.now() - 120 * 86400000),
+    },
+  ])
+
+  const templateRows = await db
+    .insert(taskTemplates)
+    .values([
+      {
+        farmId: farmId,
+        name: 'Plantain weeding',
+        description: 'Clear weeds between plantain rows',
+        cropType: 'plantain',
+        checklist: ['Inspect row spacing', 'Remove weeds by hand', 'Mulch cleared areas'],
+        defaultDurationHours: 4,
+      },
+      {
+        farmId: farmId,
+        name: 'Coconut irrigation',
+        description: 'Scheduled irrigation for coconut block',
+        cropType: 'coconut',
+        checklist: ['Check drip lines', 'Run irrigation cycle', 'Log water usage'],
+        defaultDurationHours: 2,
+      },
+      {
+        farmId: farmId,
+        name: 'Broiler feeding',
+        description: 'Morning and evening feed rounds',
+        cropType: 'poultry',
+        checklist: ['Check feeder levels', 'Distribute feed evenly', 'Record feed bags used'],
+        defaultDurationHours: 1,
+      },
+    ])
+    .returning()
+
+  const [weedingTemplate, irrigationTemplate, feedingTemplate] = templateRows
+
+  await db.insert(recurringSchedules).values([
+    {
+      farmId: farmId,
+      templateId: weedingTemplate.id,
+      recurrence: 'weekly',
+      assignedToId: worker2.id,
+      plotId: plantainPlot.id,
+      active: true,
+      nextRunAt: new Date(Date.now() - 86400000),
+    },
+    {
+      farmId: farmId,
+      templateId: irrigationTemplate.id,
+      recurrence: 'daily',
+      assignedToId: worker1.id,
+      plotId: coconutPlot.id,
+      active: true,
+      nextRunAt: new Date(Date.now() - 3600000),
+    },
+    {
+      farmId: farmId,
+      templateId: feedingTemplate.id,
+      recurrence: 'daily',
+      assignedToId: worker1.id,
+      plotId: poultryPlot.id,
+      active: true,
+      nextRunAt: new Date(Date.now() + 86400000),
+    },
+  ])
+
+  await db.insert(tasks).values([
+    {
+      farmId: farmId,
+      plotId: coconutPlot.id,
+      title: 'Irrigate coconut seedlings',
+      description: 'Morning irrigation for Block A',
+      templateId: irrigationTemplate.id,
+      status: 'in_progress',
+      assignedToId: worker1.id,
+      createdById: sup1.id,
+      dueDate: new Date(Date.now() + 86400000),
+    },
+    {
+      farmId: farmId,
+      plotId: plantainPlot.id,
+      title: 'Weed plantain rows',
+      description: 'Clear weeds between rows in Block B',
+      templateId: weedingTemplate.id,
+      status: 'pending',
+      assignedToId: worker2.id,
+      createdById: sup1.id,
+      dueDate: new Date(Date.now() + 2 * 86400000),
+    },
+    {
+      farmId: farmId,
+      plotId: poultryPlot.id,
+      title: 'Prepare poultry shed flooring',
+      description: 'Level and disinfect before batch arrival',
+      status: 'awaiting_approval',
+      assignedToId: worker1.id,
+      createdById: sup2.id,
+      completionNote: 'Flooring leveled and disinfected',
+      dueDate: new Date(),
+    },
+    {
+      farmId: farmId,
+      plotId: coconutPlot.id,
+      title: 'Apply organic fertilizer',
+      status: 'completed',
+      assignedToId: worker2.id,
+      createdById: owner.id,
+      approvedById: sup1.id,
+      completedAt: new Date(Date.now() - 86400000),
+    },
+    {
+      farmId: farmId,
+      title: 'Weekly inventory count',
+      status: 'pending',
+      assignedToId: sup2.id,
+      createdById: owner.id,
+    },
+    {
+      farmId: farmId,
+      plotId: plantainPlot.id,
+      title: 'Inspect for pests',
+      status: 'in_progress',
+      assignedToId: worker1.id,
+      createdById: sup2.id,
+    },
+    {
+      farmId: farmId,
+      plotId: poultryPlot.id,
+      title: 'Install water lines',
+      status: 'pending',
+      assignedToId: worker2.id,
+      createdById: sup2.id,
+    },
+    {
+      farmId: farmId,
+      title: 'Review supplier quotes for feed',
+      status: 'pending',
+      assignedToId: sup1.id,
+      createdById: owner.id,
+    },
+  ])
+
+  const invRows = await db
+    .insert(inventoryItems)
+    .values([
+      { farmId: farmId, name: 'Poultry Feed', category: 'feed', unit: 'bags', quantity: 45, reorderLevel: 20 },
+      { farmId: farmId, name: 'Organic Fertilizer', category: 'inputs', unit: 'bags', quantity: 3, reorderLevel: 15 },
+      { farmId: farmId, name: 'Coconut Seedlings', category: 'planting', unit: 'units', quantity: 120, reorderLevel: 30 },
+      { farmId: farmId, name: 'Packaging Crates', category: 'packaging', unit: 'crates', quantity: 25, reorderLevel: 10 },
+      { farmId: farmId, name: 'Diesel (generator)', category: 'fuel', unit: 'liters', quantity: 60, reorderLevel: 40 },
+    ])
+    .returning()
+
+  const fertilizer = invRows.find((i) => i.name === 'Organic Fertilizer')!
+
+  await db.insert(inventoryMovements).values({
+    farmId: farmId,
+    itemId: fertilizer.id,
+    delta: -5,
+    reason: 'Applied to coconut Block A',
+    recordedById: sup1.id,
+  })
+
+  const now = Date.now()
+  const [coconutCycle, plantainCycle] = await db
+    .insert(cropCycles)
+    .values([
+      {
+        farmId: farmId,
+        plotId: coconutPlot.id,
+        cropType: 'coconut',
+        stage: 'vegetative',
+        plantedAt: new Date(now - 180 * 86400000),
+        expectedHarvestAt: new Date(now + 365 * 86400000),
+        expectedYieldKg: 2400,
+        notes: 'Year-one coconut seedlings — Block A',
+      },
+      {
+        farmId: farmId,
+        plotId: plantainPlot.id,
+        cropType: 'plantain',
+        stage: 'fruiting',
+        plantedAt: new Date(now - 120 * 86400000),
+        expectedHarvestAt: new Date(now + 60 * 86400000),
+        expectedYieldKg: 1800,
+        notes: 'Second ratoon — Block B',
+      },
+    ])
+    .returning()
+
+  await db.insert(livestockBatches).values({
+    farmId: farmId,
+    plotId: poultryPlot.id,
+    name: 'Poultry Batch 2026-A',
+    species: 'broiler',
+    batchType: 'broiler',
+    headCount: 500,
+    startCount: 500,
+    feedUsedKg: 850,
+    acquiredAt: new Date(now - 14 * 86400000),
+    targetCloseoutAt: new Date(now + 28 * 86400000),
+    notes: 'Active broiler batch — shed stocked',
+    active: true,
+  })
+
+  const [coconutLot, plantainLot] = await db
+    .insert(harvestLots)
+    .values([
+      {
+        farmId: farmId,
+        lotCode: 'TRV-COC-2026-001',
+        plotId: coconutPlot.id,
+        cropCycleId: coconutCycle.id,
+        productName: 'Young coconut (sample harvest)',
+        quantityKg: 120,
+        harvestedAt: new Date(now - 7 * 86400000),
+      },
+      {
+        farmId: farmId,
+        lotCode: 'TRV-PLT-2026-002',
+        plotId: plantainPlot.id,
+        cropCycleId: plantainCycle.id,
+        productName: 'Plantain bunch',
+        quantityKg: 85,
+        harvestedAt: new Date(now - 3 * 86400000),
+      },
+    ])
+    .returning()
+
+  await db.insert(orders).values([
+    {
+      farmId: farmId,
+      customerName: 'Abeokuta Fresh Market',
+      customerPhone: '+2348012345678',
+      status: 'pending',
+      totalAmount: 45000,
+      lotId: plantainLot.id,
+      notes: 'Awaiting pickup confirmation',
+    },
+    {
+      farmId: farmId,
+      customerName: 'Lagos Wholesale Co.',
+      customerPhone: '+2348098765432',
+      status: 'delivered',
+      totalAmount: 72000,
+      lotId: coconutLot.id,
+      notes: 'Delivered via refrigerated van',
+      dispatchedAt: new Date(now - 5 * 86400000),
+    },
+  ])
+
+  await db.insert(farmEvents).values([
+    {
+      farmId: farmId,
+      actorUserId: sup1.id,
+      entityType: 'crop_cycle',
+      entityId: coconutCycle.id,
+      eventType: 'other',
+      beforeValue: { stage: 'germination' },
+      afterValue: { stage: 'vegetative' },
+      source: 'web',
+      metadata: { plotId: coconutPlot.id },
+    },
+    {
+      farmId: farmId,
+      actorUserId: worker2.id,
+      entityType: 'plot',
+      entityId: plantainPlot.id,
+      eventType: 'weeded',
+      afterValue: { rowsCleared: 12 },
+      source: 'web',
+      metadata: { templateName: 'Plantain weeding' },
+    },
+    {
+      farmId: farmId,
+      actorUserId: worker1.id,
+      entityType: 'plot',
+      entityId: coconutPlot.id,
+      eventType: 'watered',
+      afterValue: { durationMinutes: 45 },
+      source: 'web',
+    },
+  ])
+
+  await db.insert(expenses).values([
+    {
+      farmId: farmId,
+      category: 'inputs',
+      description: 'Organic fertilizer — coconut Block A',
+      amount: 18500,
+      recordedById: sup1.id,
+      expenseDate: new Date(now - 10 * 86400000),
+    },
+    {
+      farmId: farmId,
+      category: 'labour',
+      description: 'Weeding crew — plantain Block B',
+      amount: 12000,
+      recordedById: sup2.id,
+      expenseDate: new Date(now - 4 * 86400000),
+    },
+    {
+      farmId: farmId,
+      category: 'transport',
+      description: 'Delivery to Lagos Wholesale Co.',
+      amount: 8500,
+      recordedById: owner.id,
+      expenseDate: new Date(now - 5 * 86400000),
+    },
+  ])
+
+  await db.insert(auditEvents).values({
+    farmId: farmId,
+    userId: owner.id,
+    action: 'seed',
+    entityType: 'farm',
+    entityId: farmId,
+    metadata: { note: 'Initial Trovara dummy data loaded' },
+  })
+}
+
+export async function seedDemoData(): Promise<void> {
+  await deleteAllData()
+  const [farm] = await db
+    .insert(farms)
+    .values({ name: 'Trovara Farm', location: 'Abeokuta' })
+    .returning()
+  await insertDemoContentForFarm(farm.id)
+}
+
+export async function resetDemoData(farmId?: string): Promise<void> {
+  if (farmId) {
+    await deleteFarmScopedData(farmId)
+    await insertDemoContentForFarm(farmId)
+    return
+  }
+  if (process.env.ALLOW_FULL_DB_RESET !== 'true') {
+    throw new Error('Full database reset requires ALLOW_FULL_DB_RESET=true')
+  }
+  await seedDemoData()
+}

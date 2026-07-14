@@ -1,0 +1,36 @@
+{
+  "name": "@trovara-os/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "seed": "tsx src/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@hono/zod-validator": "^0.5.0",
+    "@node-rs/argon2": "^2.0.2",
+    "@types/qrcode": "^1.5.6",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.7.10",
+    "otplib": "^13.4.1",
+    "postgres": "^3.4.7",
+    "qrcode": "^1.5.4",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

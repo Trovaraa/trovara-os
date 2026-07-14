@@ -1,0 +1,124 @@
+import './lib/env.js'
+import { serve } from '@hono/node-server'
+import { Hono } from 'hono'
+import { authRoutes } from './routes/auth.js'
+import { taskRoutes } from './routes/tasks.js'
+import { inventoryRoutes } from './routes/inventory.js'
+import { dashboardRoutes } from './routes/dashboard.js'
+import { todayRoutes } from './routes/today.js'
+import { reportRoutes } from './routes/reports.js'
+import { cropRoutes } from './routes/crops.js'
+import { livestockRoutes } from './routes/livestock.js'
+import { salesRoutes } from './routes/sales.js'
+import { financeRoutes } from './routes/finance.js'
+import { traceabilityRoutes } from './routes/traceability.js'
+import { aiRoutes } from './routes/ai.js'
+import { whatsappRoutes } from './routes/whatsapp.js'
+import { telegramRoutes } from './routes/telegram.js'
+import { startTelegramPolling } from './lib/telegram-inbound.js'
+import { userRoutes } from './routes/users.js'
+import { eventRoutes } from './routes/events.js'
+import { publicRoutes } from './routes/public.js'
+import { templateRoutes } from './routes/templates.js'
+import { zoneRoutes } from './routes/zones.js'
+import { onboardingRoutes } from './routes/onboarding.js'
+import { billingRoutes } from './routes/billing.js'
+import { systemRoutes } from './routes/system.js'
+import { dayCloseRoutes } from './routes/day-close.js'
+import { alertsRoutes } from './routes/alerts.js'
+import { exportRoutes } from './routes/exports.js'
+import { consentRoutes } from './routes/consent.js'
+import { privacyRoutes } from './routes/privacy.js'
+import {
+  apiMutationRateLimit,
+  authMutationRateLimit,
+  securityMiddleware,
+  requestLogger,
+} from './middleware/security.js'
+import { logSecurityEvent } from './lib/security-log.js'
+import { logApiEvent } from './lib/api-log.js'
+
+const app = new Hono()
+
+app.use('*', ...securityMiddleware())
+app.use('/auth/*', authMutationRateLimit)
+app.use('/api/*', apiMutationRateLimit)
+app.use('*', requestLogger)
+
+app.route('/auth', authRoutes)
+app.route('/api/dashboard', dashboardRoutes)
+app.route('/api/today', todayRoutes)
+app.route('/api/tasks', taskRoutes)
+app.route('/api/inventory', inventoryRoutes)
+app.route('/api/reports', reportRoutes)
+app.route('/api/crops', cropRoutes)
+app.route('/api/livestock', livestockRoutes)
+app.route('/api/sales', salesRoutes)
+app.route('/api/finance', financeRoutes)
+app.route('/api/traceability', traceabilityRoutes)
+app.route('/api/ai', aiRoutes)
+app.route('/api/whatsapp', whatsappRoutes)
+app.route('/api/telegram', telegramRoutes)
+app.route('/public', publicRoutes)
+app.route('/api/templates', templateRoutes)
+app.route('/api/zones', zoneRoutes)
+app.route('/api/users', userRoutes)
+app.route('/api/events', eventRoutes)
+app.route('/api/onboarding', onboardingRoutes)
+app.route('/api/billing', billingRoutes)
+app.route('/api/day-close', dayCloseRoutes)
+app.route('/api/alerts', alertsRoutes)
+app.route('/api/exports', exportRoutes)
+app.route('/api/consent', consentRoutes)
+app.route('/api', privacyRoutes)
+// health / ready / version / system-status — no /api prefix for liveness probes
+app.route('/', systemRoutes)
+
+app.notFound((c) => c.json({ error: 'Not found' }, 404))
+app.onError((err, c) => {
+  if (err.message === 'FORBIDDEN') {
+    logSecurityEvent('forbidden_access', {
+      path: c.req.path,
+      method: c.req.method,
+      ip: c.req.header('x-forwarded-for') ?? 'local',
+    })
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  console.error('Unhandled error:', message)
+  logApiEvent('unhandled_error', {
+    path: c.req.path,
+    method: c.req.method,
+    status: c.res.status,
+    message,
+  })
+  if (process.env.NODE_ENV === 'development' && err instanceof Error && err.stack) {
+    console.error(err.stack)
+  }
+  return c.json({ error: 'Internal server error' }, 500)
+})
+
+const host = process.env.API_HOST ?? '127.0.0.1'
+const port = Number(process.env.API_PORT ?? 3000)
+
+if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
+  console.warn('WARNING: CORS_ORIGIN is not set in production')
+}
+
+if (
+  process.env.NODE_ENV === 'production' &&
+  process.env.WHATSAPP_ACCESS_TOKEN &&
+  !process.env.META_APP_SECRET?.trim()
+) {
+  console.warn(
+    'WARNING: WhatsApp is configured without META_APP_SECRET — inbound webhook signatures are NOT verified. Set META_APP_SECRET (Meta app dashboard → App settings → Basic).',
+  )
+}
+
+console.log(`Trovara OS API listening on http://${host}:${port}`)
+
+serve({ fetch: app.fetch, hostname: host, port })
+
+// Start the Telegram butler's long-poll loop (no-op unless TELEGRAM_BOT_TOKEN set
+// and TELEGRAM_MODE is polling). Webhook mode uses /api/telegram/webhook instead.
+startTelegramPolling()

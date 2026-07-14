@@ -1,0 +1,29 @@
+{
+  "name": "trovara-os",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "api",
+    "app"
+  ],
+  "engines": {
+    "node": ">=20.17.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,app -c green,blue \"npm run dev -w api\" \"npm run dev -w app\"",
+    "build": "npm run build -w api && npm run build -w app",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w api",
+    "seed": "npm run seed -w api",
+    "generate-tasks": "bash scripts/generate-recurring-tasks.sh",
+    "send-proactive-alerts": "bash scripts/send-proactive-alerts.sh",
+    "send-evening-digest": "bash scripts/send-evening-digest.sh",
+    "run-data-retention": "bash scripts/run-data-retention.sh",
+    "backup:encrypted": "bash scripts/backup-db-encrypted.sh",
+    "audit": "npm audit --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

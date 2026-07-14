@@ -1,0 +1,172 @@
+import { Hono } from 'hono'
+import type { Context } from 'hono'
+import { getCookie } from 'hono/cookie'
+import { sql } from 'drizzle-orm'
+import { db } from '../db/index.js'
+import { authMiddleware, type AppVariables } from '../middleware/auth.js'
+import { requireRole } from '../lib/rbac.js'
+import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
+import { isLlmConfigured } from '../lib/llm.js'
+import { isWhatsAppConfigured } from '../lib/whatsapp-meta.js'
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { resolve, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { execSync } from 'node:child_process'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const rootDir = resolve(__dirname, '../../..')
+
+function getGitCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: rootDir, timeout: 2000 })
+      .toString()
+      .trim()
+  } catch {
+    return 'unknown'
+  }
+}
+
+function getLastBackupInfo(): { lastBackup: string | null; backupCount: number } {
+  try {
+    const backupDir = resolve(rootDir, 'backups')
+    const files = readdirSync(backupDir).filter((f) => f.endsWith('.sql'))
+    if (!files.length) return { lastBackup: null, backupCount: 0 }
+    files.sort().reverse()
+    const stat = statSync(resolve(backupDir, files[0]))
+    return { lastBackup: stat.mtime.toISOString(), backupCount: files.length }
+  } catch {
+    return { lastBackup: null, backupCount: 0 }
+  }
+}
+
+async function checkDbConnection(): Promise<{ ok: boolean; latencyMs: number }> {
+  const start = Date.now()
+  try {
+    await db.execute(sql`SELECT 1`)
+    return { ok: true, latencyMs: Date.now() - start }
+  } catch {
+    return { ok: false, latencyMs: Date.now() - start }
+  }
+}
+
+export const systemRoutes = new Hono<{ Variables: AppVariables }>()
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
+async function isOwnerInProduction(c: Context): Promise<boolean> {
+  if (!isProduction()) return true
+  const token = getCookie(c, SESSION_COOKIE)
+  const user = await getUserFromSession(token)
+  return user?.role === 'owner'
+}
+
+// Public: basic liveness probe
+systemRoutes.get('/health', (c) => {
+  return c.json({ status: 'ok', service: 'trovara-os-api', ts: new Date().toISOString() })
+})
+
+// Public: readiness probe (needs DB)
+systemRoutes.get('/ready', async (c) => {
+  const db_ = await checkDbConnection()
+  if (!db_.ok) {
+    return c.json({ status: 'not_ready', db: 'error' }, 503)
+  }
+  return c.json({ status: 'ready', db: 'ok', latencyMs: db_.latencyMs })
+})
+
+// Public: version info (minimal in production unless owner)
+systemRoutes.get('/version', async (c) => {
+  if (!(await isOwnerInProduction(c))) {
+    return c.json({ ok: true })
+  }
+
+  let version = '0.1.0'
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8'))
+    version = pkg.version ?? version
+  } catch {
+    // no-op
+  }
+  return c.json({
+    version,
+    commit: getGitCommit(),
+    env: process.env.NODE_ENV ?? 'development',
+  })
+})
+
+// Owner/supervisor only: full system status
+systemRoutes.get('/system-status', authMiddleware, async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'owner' && user.role !== 'supervisor') {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const [dbCheck, backup] = await Promise.all([
+    checkDbConnection(),
+    Promise.resolve(getLastBackupInfo()),
+  ])
+
+  const whatsappConfigured = isWhatsAppConfigured()
+  const aiMode = isLlmConfigured()
+    ? process.env.OLLAMA_URL?.trim()
+      ? 'ollama'
+      : 'openai'
+    : 'stub'
+
+  return c.json({
+    api: 'ok',
+    db: dbCheck.ok ? 'ok' : 'error',
+    dbLatencyMs: dbCheck.latencyMs,
+    lastBackup: backup.lastBackup,
+    backupCount: backup.backupCount,
+    whatsappConfigured,
+    aiMode,
+    commit: getGitCommit(),
+    env: process.env.NODE_ENV ?? 'development',
+    ts: new Date().toISOString(),
+  })
+})
+
+// Owner only: recent security log entries (JSONL tail)
+systemRoutes.get('/api/system/security-events', authMiddleware, async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const logPath = join(rootDir, 'logs', 'security.log')
+  if (!existsSync(logPath)) {
+    return c.json({ events: [] })
+  }
+
+  const raw = readFileSync(logPath, 'utf8')
+  const lines = raw.split('\n').filter((line) => line.trim())
+  const tail = lines.slice(-100)
+
+  const events = tail
+    .map((line) => {
+      try {
+        const parsed = JSON.parse(line) as {
+          ts?: string
+          type?: string
+          metadata?: Record<string, unknown>
+        }
+        if (!parsed.ts || !parsed.type) return null
+        return {
+          ts: parsed.ts,
+          type: parsed.type,
+          metadata: parsed.metadata ?? {},
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter((row): row is { ts: string; type: string; metadata: Record<string, unknown> } => !!row)
+    .reverse()
+
+  return c.json({ events })
+})
