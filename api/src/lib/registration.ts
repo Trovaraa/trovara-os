@@ -3,9 +3,24 @@ import { secureCompare } from './secure-compare.js'
 
 export const DEFAULT_BREAK_GLASS_EMAIL = 'owner@trovara.farm'
 
+/** Founder self-signup emails must be on this exact domain (no subdomains). */
+export const OWNER_EMAIL_DOMAIN = 'trovara.farm'
+
+export function isAllowedOwnerEmail(email: string): boolean {
+  const normalized = normalizeRegisterEmail(email)
+  const at = normalized.lastIndexOf('@')
+  if (at < 1) return false
+  return normalized.slice(at + 1) === OWNER_EMAIL_DOMAIN
+}
+
 export const registerBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
-  email: z.string().email(),
+  email: z
+    .string()
+    .email()
+    .refine(isAllowedOwnerEmail, {
+      message: `Email must use @${OWNER_EMAIL_DOMAIN}`,
+    }),
   phone: z.string().trim().min(7).max(30),
   password: z.string().min(8).max(128),
   registrationSecret: z.string().min(1).max(256),

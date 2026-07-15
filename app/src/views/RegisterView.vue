@@ -37,6 +37,11 @@ async function submitRegister() {
     formError.value = t('register.passwordTooShort')
     return
   }
+  const emailDomain = email.value.trim().toLowerCase().split('@').pop()
+  if (emailDomain !== 'trovara.farm') {
+    formError.value = t('register.emailDomain')
+    return
+  }
 
   submitting.value = true
   try {
@@ -106,8 +111,12 @@ async function submitRegister() {
             type="email"
             required
             autocomplete="email"
+            placeholder="you@trovara.farm"
+            pattern="[^@\s]+@trovara\.farm"
+            title="@trovara.farm only"
             class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
+          <p class="text-[11px] text-slate-500 mt-1">{{ t('register.emailHint') }}</p>
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-400 mb-1.5">{{ t('register.phone') }}</label>

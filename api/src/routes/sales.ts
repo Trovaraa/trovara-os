@@ -1,9 +1,15 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { harvestLots, orderItems, orders } from '../db/schema.js'
+import {
+  customerContacts,
+  customerInquiries,
+  harvestLots,
+  orderItems,
+  orders,
+} from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAssignTasks } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
@@ -48,6 +54,7 @@ salesRoutes.get('/', async (c) => {
       lotId: orders.lotId,
       lotCode: harvestLots.lotCode,
       source: orders.source,
+      customerContactId: orders.customerContactId,
       notes: orders.notes,
       dispatchedAt: orders.dispatchedAt,
       createdAt: orders.createdAt,
@@ -85,6 +92,91 @@ salesRoutes.get('/', async (c) => {
   }))
 
   return c.json({ orders: result })
+})
+
+// Customer profile: identity (channel + handle) plus their full order history and
+// inquiry count for this farm. Powers the Sales drill-down for bot customers.
+salesRoutes.get('/contacts/:id', async (c) => {
+  const user = c.get('user')
+  const contactId = c.req.param('id')
+
+  const [contact] = await db
+    .select()
+    .from(customerContacts)
+    .where(and(eq(customerContacts.id, contactId), eq(customerContacts.farmId, user.farmId)))
+    .limit(1)
+
+  if (!contact) return c.json({ error: 'Not found' }, 404)
+
+  const orderRows = await db
+    .select({
+      id: orders.id,
+      customerName: orders.customerName,
+      customerPhone: orders.customerPhone,
+      status: orders.status,
+      totalAmount: orders.totalAmount,
+      currency: orders.currency,
+      source: orders.source,
+      notes: orders.notes,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .where(and(eq(orders.farmId, user.farmId), eq(orders.customerContactId, contactId)))
+    .orderBy(desc(orders.createdAt))
+
+  const orderIds = orderRows.map((o) => o.id)
+  const itemsByOrder: Record<string, unknown[]> = {}
+  if (orderIds.length) {
+    const itemRows = await db
+      .select({
+        orderId: orderItems.orderId,
+        productName: orderItems.productName,
+        unit: orderItems.unit,
+        quantity: orderItems.quantity,
+        unitPriceKobo: orderItems.unitPriceKobo,
+        lineTotalKobo: orderItems.lineTotalKobo,
+      })
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds))
+    for (const it of itemRows) {
+      ;(itemsByOrder[it.orderId] ??= []).push(it)
+    }
+  }
+
+  const [{ count: inquiryCount } = { count: 0 }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(customerInquiries)
+    .where(
+      and(eq(customerInquiries.farmId, user.farmId), eq(customerInquiries.contactId, contactId)),
+    )
+
+  // Lifetime value counts only orders that reached delivered (money in the door).
+  const lifetimeValue = orderRows
+    .filter((o) => o.status === 'delivered')
+    .reduce((sum, o) => sum + (o.totalAmount ?? 0), 0)
+
+  return c.json({
+    contact: {
+      id: contact.id,
+      channel: contact.channel,
+      externalId: contact.externalId,
+      name: contact.name,
+      phone: contact.phone,
+      firstSeen: contact.createdAt,
+      lastSeen: contact.updatedAt,
+    },
+    stats: {
+      orderCount: orderRows.length,
+      inquiryCount,
+      lifetimeValue,
+      currency: orderRows[0]?.currency ?? 'NGN',
+    },
+    orders: orderRows.map((o) => ({
+      ...o,
+      reference: orderReference(o.id),
+      items: itemsByOrder[o.id] ?? [],
+    })),
+  })
 })
 
 salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {

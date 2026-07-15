@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   customerChatSessions,
@@ -40,6 +40,38 @@ const MENU_WORDS = ['hi', 'hello', 'help', 'menu', 'start', '/start', '']
 const YES_WORDS = ['yes', 'y', 'confirm', 'ok', 'okay']
 
 const ASK_WORDS = ['3', 'ask', 'question', 'questions', 'faq', 'info', 'enquiry', 'inquiry']
+
+/**
+ * Does this message look like a request to see/track EXISTING orders?
+ * Must be checked before ordering intent, because phrases like "status of my
+ * order" or "track my order" contain the word "order".
+ */
+function isTrackingIntent(text: string, lower: string): boolean {
+  return (
+    lower === '2' ||
+    /\btrack\b/.test(lower) ||
+    /\bstatus\b/.test(lower) ||
+    /\bbacklog\b/.test(lower) ||
+    /\bmy\s+orders?\b/.test(lower) ||
+    /\border\s*(no\.?|number|status|ref(?:erence)?|id)\b/.test(lower) ||
+    /\btrv-ord-[a-z0-9]+/i.test(text)
+  )
+}
+
+/**
+ * Does this message EXPLICITLY ask to start placing a new order? The bare word
+ * "order" inside a question (e.g. "any order in backlog?") must NOT trigger this,
+ * so we require the "1" shortcut, a buy/checkout verb, or an ordering verb sitting
+ * next to the word "order".
+ */
+function isOrderingIntent(lower: string): boolean {
+  if (lower === '1') return true
+  if (/\b(buy|purchase|checkout)\b/.test(lower)) return true
+  if (/^order( now| food| please)?$/.test(lower)) return true
+  return /\b(place|make|start|create|begin|new|want|need|like|take|give)\b[^?]*\border\b/.test(
+    lower,
+  )
+}
 
 function mainMenu(farmName: string): string {
   return [
@@ -304,6 +336,58 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
   return `Your recent orders:\n\n${lines.join('\n')}`
 }
 
+/** Prior-order summary used to recognise a returning customer by their contact. */
+async function customerHistory(
+  farmId: string,
+  contactId: string,
+): Promise<{ count: number; last?: { reference: string; status: string; when: string } }> {
+  const [last] = await db
+    .select({ id: orders.id, status: orders.status, createdAt: orders.createdAt })
+    .from(orders)
+    .where(and(eq(orders.farmId, farmId), eq(orders.customerContactId, contactId)))
+    .orderBy(desc(orders.createdAt))
+    .limit(1)
+
+  if (!last) return { count: 0 }
+
+  const [{ count } = { count: 1 }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(and(eq(orders.farmId, farmId), eq(orders.customerContactId, contactId)))
+
+  return {
+    count,
+    last: {
+      reference: orderReference(last.id),
+      status: orderStatusLabel(last.status),
+      when: new Date(last.createdAt).toLocaleDateString('en-NG'),
+    },
+  }
+}
+
+/** Main menu, personalised with a "welcome back" line for returning customers. */
+async function welcomeMessage(params: {
+  farmId: string
+  farmName: string
+  contactId: string
+  contactName?: string | null
+}): Promise<string> {
+  const menu = mainMenu(params.farmName)
+  const history = await customerHistory(params.farmId, params.contactId)
+  if (!history.count || !history.last) return menu
+
+  const name = params.contactName?.trim()
+  const greeting = name ? `Welcome back, ${name}! 🌱` : 'Welcome back! 🌱'
+  const orderWord = history.count === 1 ? 'order' : 'orders'
+  return [
+    greeting,
+    `You've placed ${history.count} ${orderWord} with us. Latest: ${history.last.reference} — ${history.last.status} (${history.last.when}).`,
+    'Reply "2" any time to track it.',
+    '',
+    menu,
+  ].join('\n')
+}
+
 /**
  * Advance a customer's deterministic order conversation by one message and
  * return the reply to send. Channel-agnostic: the Telegram/WhatsApp inbound
@@ -357,19 +441,24 @@ async function advanceOrderConversation(params: {
   }
   if (MENU_WORDS.includes(lower)) {
     await reset()
-    return mainMenu(params.farmName)
+    return welcomeMessage({
+      farmId,
+      farmName: params.farmName,
+      contactId: params.contactId,
+      contactName: params.contactName,
+    })
   }
 
   switch (state.step) {
     case 'idle': {
-      if (lower === '1' || lower.includes('order')) {
+      if (isTrackingIntent(text, lower)) {
+        return trackOrders(farmId, params.contactId)
+      }
+      if (isOrderingIntent(lower)) {
         await saveSession(farmId, channel, externalId, { ...state, step: 'ordering' })
         return `Here’s what we have:\n\n${formatCatalog(
           catalog,
         )}\n\nReply with the item number to add it to your order.`
-      }
-      if (lower === '2' || lower.includes('track')) {
-        return trackOrders(farmId, params.contactId)
       }
       if (ASK_WORDS.includes(lower)) {
         const { text: prompt, suggestions } = await askPrompt(farmId)
@@ -410,6 +499,17 @@ async function advanceOrderConversation(params: {
         const draft: OrderDraft = { ...state.draft, pendingProductId: product.id }
         await saveSession(farmId, channel, externalId, { ...state, step: 'awaiting_qty', draft })
         return `How many ${product.unit} of ${product.name}? Reply with a number.`
+      }
+      // Don't trap a customer who hasn't added anything yet: if they ask to track
+      // or ask a question instead of picking an item, honour that intent.
+      if (!state.cart.length) {
+        if (isTrackingIntent(text, lower)) {
+          await reset()
+          return trackOrders(farmId, params.contactId)
+        }
+        if (!isOrderingIntent(lower)) {
+          return handleInquiry(text)
+        }
       }
       return `Please reply with an item number (1–${catalog.length}), or "done" to check out.`
     }

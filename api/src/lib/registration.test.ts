@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BREAK_GLASS_EMAIL,
+  isAllowedOwnerEmail,
   isBreakGlassEmail,
   normalizeRegisterEmail,
   normalizeRegisterPhone,
+  OWNER_EMAIL_DOMAIN,
   registerBodySchema,
   validateRegistrationSecret,
 } from './registration.js'
@@ -18,6 +20,20 @@ describe('normalizeRegisterPhone', () => {
   it('strips non-digits for Telegram matching', () => {
     expect(normalizeRegisterPhone('+31 6 13 32 17 04')).toBe('31613321704')
     expect(normalizeRegisterPhone('234-810-000-0000')).toBe('2348100000000')
+  })
+})
+
+describe('isAllowedOwnerEmail', () => {
+  it(`accepts only the exact @${OWNER_EMAIL_DOMAIN} domain`, () => {
+    expect(isAllowedOwnerEmail('ada@trovara.farm')).toBe(true)
+    expect(isAllowedOwnerEmail('  Owner@Trovara.Farm ')).toBe(true)
+  })
+
+  it('rejects other domains and subdomains', () => {
+    expect(isAllowedOwnerEmail('ada@gmail.com')).toBe(false)
+    expect(isAllowedOwnerEmail('ada@example.com')).toBe(false)
+    expect(isAllowedOwnerEmail('ada@mail.trovara.farm')).toBe(false)
+    expect(isAllowedOwnerEmail('ada@not-trovara.farm')).toBe(false)
   })
 })
 
@@ -48,7 +64,7 @@ describe('validateRegistrationSecret', () => {
 describe('registerBodySchema', () => {
   const valid = {
     name: 'Ada Founder',
-    email: 'ada@example.com',
+    email: 'ada@trovara.farm',
     phone: '+2348100000099',
     password: 'SecurePass1',
     registrationSecret: 'gate-secret',
@@ -58,9 +74,13 @@ describe('registerBodySchema', () => {
   it('accepts a complete founder registration payload', () => {
     expect(registerBodySchema.parse(valid)).toMatchObject({
       name: 'Ada Founder',
-      email: 'ada@example.com',
+      email: 'ada@trovara.farm',
       consentAccepted: true,
     })
+  })
+
+  it('rejects non-trovara.farm emails', () => {
+    expect(() => registerBodySchema.parse({ ...valid, email: 'ada@gmail.com' })).toThrow()
   })
 
   it('requires consentAccepted to be true', () => {
