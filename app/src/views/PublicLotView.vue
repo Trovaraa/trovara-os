@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/lib/api'
 
+// Only public fields - the /public endpoint intentionally never returns internal notes.
 type PublicLot = {
   lotCode: string
   productName: string
@@ -11,11 +12,11 @@ type PublicLot = {
   plotName?: string | null
   cropType?: string | null
   publicNotes?: string | null
-  internalNotes?: string | null
-  farm: { name: string; location?: string | null }
+  farm: { slug?: string | null; name: string; location?: string | null }
 }
 
 const route = useRoute()
+const farmSlug = computed(() => String(route.params.farmSlug ?? ''))
 const lotCode = computed(() => String(route.params.lotCode ?? ''))
 
 const lot = ref<PublicLot | null>(null)
@@ -24,7 +25,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 
 const publicUrl = computed(() =>
-  `${window.location.origin}/lot/${lotCode.value}`,
+  `${window.location.origin}/lot/${farmSlug.value}/${lotCode.value}`,
 )
 
 onMounted(async () => {
@@ -32,7 +33,7 @@ onMounted(async () => {
   error.value = null
   try {
     const data = await api<{ lot: PublicLot; verified: boolean }>(
-      `/public/lots/${encodeURIComponent(lotCode.value)}`,
+      `/public/lots/${encodeURIComponent(farmSlug.value)}/${encodeURIComponent(lotCode.value)}`,
     )
     lot.value = data.lot
     verified.value = data.verified
@@ -88,6 +89,10 @@ onMounted(async () => {
           <div class="flex justify-between gap-4">
             <span class="text-slate-500">Farm</span>
             <span class="text-slate-300 text-right">{{ lot.farm.name }}</span>
+          </div>
+          <div v-if="lot.farm.location" class="flex justify-between gap-4">
+            <span class="text-slate-500">Location</span>
+            <span class="text-slate-300 text-right">{{ lot.farm.location }}</span>
           </div>
           <div v-if="lot.publicNotes" class="pt-1">
             <p class="text-slate-500 mb-1">Public notes</p>

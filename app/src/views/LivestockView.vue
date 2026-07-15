@@ -206,7 +206,7 @@ const vaccStatusColor: Record<string, string> = {
                 <dt class="text-slate-500">Weight gain</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.weightGainKg }} kg</dd>
                 <dt class="text-slate-500">FCR</dt>
-                <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.fcr ?? '—' }}</dd>
+                <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.fcr ?? '-' }}</dd>
               </dl>
             </div>
             <div v-if="vaccination[batch.id]" class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
@@ -222,7 +222,7 @@ const vaccStatusColor: Record<string, string> = {
                   :key="entry.day"
                   class="flex items-center justify-between gap-2 text-xs"
                 >
-                  <span class="text-slate-300">Day {{ entry.day }} — {{ entry.name }}</span>
+                  <span class="text-slate-300">Day {{ entry.day }} - {{ entry.name }}</span>
                   <span
                     class="font-bold px-2 py-0.5 rounded-full capitalize shrink-0"
                     :class="vaccStatusColor[entry.status] ?? 'bg-slate-700 text-slate-400'"

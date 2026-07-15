@@ -1,7 +1,7 @@
 {
   "name": "Trovara OS",
   "short_name": "Trovara",
-  "description": "Trovara Farm operations — mobile field worker app",
+  "description": "Trovara Farm operations - mobile field worker app",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

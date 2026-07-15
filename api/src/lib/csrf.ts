@@ -10,9 +10,10 @@ export const CSRF_HEADER = 'X-CSRF-Token'
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
 
 // Webhooks are authenticated by their own mechanisms (Meta HMAC signature,
-// Telegram secret token) — they carry no cookies, so CSRF doesn't apply.
+// Telegram secret token) - they carry no cookies, so CSRF doesn't apply.
 export const CSRF_EXEMPT_PATHS = new Set([
   '/auth/login',
+  '/auth/register',
   '/auth/totp/complete-login',
   '/auth/forgot-password',
   '/auth/reset-password',

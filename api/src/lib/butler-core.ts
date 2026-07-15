@@ -15,7 +15,7 @@ import {
 } from './llm.js'
 
 export const HELP_TEXT = [
-  'Trovara Butler — how I can help:',
+  'Trovara Butler - how I can help:',
   '• Ask anything: "How many birds are alive?", "What needs restocking?", "Revenue today?"',
   '• Report a problem: "3 broilers are weak with green droppings"',
   '• Send a photo of a sick plant or animal and I will diagnose it',
@@ -78,7 +78,7 @@ export async function recordChatMessage(params: {
 async function buildBriefReply(user: SessionUser): Promise<string> {
   const context = await buildFarmContext(user)
   const { text } = await completeChatHistory(
-    buildButlerPrompt(context),
+    buildButlerPrompt(context, { plainText: true }),
     [],
     'Give me a very short briefing of what needs attention today. Max 5 short lines, use "-" bullets.',
   )
@@ -97,7 +97,7 @@ export async function answerText(
   const lower = text.toLowerCase().trim()
 
   if (!isLlmConfigured()) {
-    return `Hi ${user.name.split(' ')[0]}, I received: "${text.slice(0, 160)}". The AI assistant is not switched on yet — a supervisor will follow up.`
+    return `Hi ${user.name.split(' ')[0]}, I received: "${text.slice(0, 160)}". The AI assistant is not switched on yet - a supervisor will follow up.`
   }
   if (['help', 'menu', 'hi', 'hello', '/start', 'start'].includes(lower)) {
     return HELP_TEXT
@@ -114,7 +114,11 @@ export async function answerText(
     const history = await loadConversation(user.id, entityType)
     const sanitized = sanitizeForLlm(text)
     const userPrompt = `User message (untrusted): ${sanitized || '[empty after sanitization]'}`
-    const { text: aiText } = await completeChatHistory(buildButlerPrompt(context), history, userPrompt)
+    const { text: aiText } = await completeChatHistory(
+      buildButlerPrompt(context, { plainText: true }),
+      history,
+      userPrompt,
+    )
     return aiText
   } catch {
     return 'I had trouble answering that just now. Please try again in a moment.'
@@ -143,7 +147,7 @@ export async function transcribeVoice(
 /** Channel-agnostic photo diagnosis. Does NOT record or send. */
 export async function answerPhoto(caption: string, imageDataUrl: string): Promise<string> {
   if (!isLlmConfigured()) {
-    return 'Photo received. The AI diagnosis service is not switched on yet — a supervisor will review it.'
+    return 'Photo received. The AI diagnosis service is not switched on yet - a supervisor will review it.'
   }
   try {
     const safeCaption = sanitizeForLlm(caption)

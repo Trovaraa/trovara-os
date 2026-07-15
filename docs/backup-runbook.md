@@ -1,4 +1,4 @@
-# Trovara OS — Backup & Restore Runbook (Laptop Dev)
+# Trovara OS - Backup & Restore Runbook (Laptop Dev)
 
 This runbook covers local PostgreSQL backup and restore for Trovara OS development on a laptop.
 

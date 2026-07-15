@@ -4,7 +4,7 @@ const buckets = new Map<string, Bucket>()
 
 /**
  * Simple in-memory fixed-window rate limiter. Single-node only (resets on
- * restart) — swap for a Redis-backed limiter if the API ever runs multi-instance.
+ * restart) - swap for a Redis-backed limiter if the API ever runs multi-instance.
  */
 export function checkRateLimit(
   key: string,

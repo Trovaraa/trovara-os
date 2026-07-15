@@ -1,12 +1,10 @@
 # Trovara OS
 
-Trovara Farm operations command center — laptop-runnable MVP with dummy data.
-
-> **AI / handoff context:** see [`CONTEXT.md`](./CONTEXT.md) (auto-loaded via `.cursor/rules/`).
+Trovara Farm operations command center - laptop-runnable MVP with dummy data.
 
 ## Prerequisites
 
-- **Node.js 20.17+** or **22 LTS** (see `.nvmrc`) — required; Node 19 is not supported
+- **Node.js 20.17+** or **22 LTS** (see `.nvmrc`) - required; Node 19 is not supported
 - **Docker Desktop** or **OrbStack** (for Postgres)
 
 ## Quick Start
@@ -14,17 +12,19 @@ Trovara Farm operations command center — laptop-runnable MVP with dummy data.
 ```bash
 cd trovara-os
 cp .env.example .env
-# Edit .env — set strong passwords for POSTGRES_PASSWORD, SESSION_SECRET, and SEED_* passwords
+# Edit .env - set strong passwords for POSTGRES_PASSWORD, SESSION_SECRET, and SEED_* passwords
 
 docker compose up -d
 npm install
 npm run db:migrate
 npm run seed
+npm run sync-catalog -w api   # optional: catalogue from farm-knowledge (mirrors trovera)
 npm run dev
 ```
 
 - **Frontend:** http://127.0.0.1:5173
 - **API:** http://127.0.0.1:3000/health
+- **Production:** https://os.trovara.farm
 
 ## Demo Accounts
 
@@ -50,8 +50,8 @@ Passwords are set in `.env` (`SEED_OWNER_PASSWORD`, etc.):
 trovara-os/
   api/     Hono + Drizzle + Postgres
   app/     Vue 3 + Vite + Tailwind
-  docs/    ROADMAP, security, integrations, API, backup runbook
-  whatsapp/ Message templates (Phase 4)
+  docs/    security, integrations, API, copilots, backup runbook
+  whatsapp/ Message templates
 ```
 
 ## Modules
@@ -65,13 +65,17 @@ trovara-os/
 | Inventory | `/inventory` | All (movements: supervisor+) |
 | Crops | `/crops` | All |
 | Livestock | `/livestock` | All |
+| Assets | `/assets` | All (verify: supervisor+) |
 | Sales | `/sales` | All |
-| WhatsApp | `/whatsapp` | All (send: supervisor+; API: `POST /api/whatsapp/send`) |
+| Products | `/products` | Owner |
+| Customer questions | `/customer-insights` | Owner |
+| WhatsApp | `/whatsapp` | All (send: supervisor+) |
 | Finance | `/finance` | Owner |
-| Traceability | `/traceability` | Owner |
+| Traceability | `/traceability` | All (create/verify gated by role) |
 | Reports | `/reports` | Owner |
-| Public lot lookup | `/lot/:lotCode` | Public (API: `GET /public/lots/:lotCode`) |
+| Register | `/register` | Public (secret-gated) |
+| Public lot lookup | `/lot/:lotCode` | Public (verified lots only) |
 
-Integrations (WhatsApp, AI, cron, QR traceability): `docs/INTEGRATIONS.md`
+Integrations (WhatsApp, AI, cron, QR traceability): `docs/INTEGRATIONS.md`  
+Product roadmap (OS + farm + site): `../ROADMAP.md`
 
-Roadmap: `docs/ROADMAP.md`

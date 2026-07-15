@@ -14,18 +14,18 @@
       "name": "Incident Report",
       "category": "alerts",
       "placeholders": ["{incidentType}", "{location}", "{description}", "{reportedBy}", "{reportedAt}"],
-      "en": "⚠️ INCIDENT REPORT — Trovara Farm\n\nType: {incidentType}\nLocation: {location}\nDetails: {description}\nReported by: {reportedBy}\nTime: {reportedAt}\n\nAction required. Check Trovara OS for full details.",
-      "yo": "⚠️ ÌRÒYÌN ÌṢÒRÒ — Oko Trovara\n\nIrú: {incidentType}\nIbù: {location}\nÀlàyé: {description}\nOlùròyìn: {reportedBy}\nÀkókò: {reportedAt}\n\nÈtò nílò. Wo Trovara OS fún àlàyé kíkún.",
-      "pcm": "⚠️ INCIDENT REPORT — Trovara Farm\n\nType: {incidentType}\nLocation: {location}\nWetin happen: {description}\nPerson wey report: {reportedBy}\nTime: {reportedAt}\n\nWe need action. Check Trovara OS for full gist."
+      "en": "⚠️ INCIDENT REPORT - Trovara Farm\n\nType: {incidentType}\nLocation: {location}\nDetails: {description}\nReported by: {reportedBy}\nTime: {reportedAt}\n\nAction required. Check Trovara OS for full details.",
+      "yo": "⚠️ ÌRÒYÌN ÌṢÒRÒ - Oko Trovara\n\nIrú: {incidentType}\nIbù: {location}\nÀlàyé: {description}\nOlùròyìn: {reportedBy}\nÀkókò: {reportedAt}\n\nÈtò nílò. Wo Trovara OS fún àlàyé kíkún.",
+      "pcm": "⚠️ INCIDENT REPORT - Trovara Farm\n\nType: {incidentType}\nLocation: {location}\nWetin happen: {description}\nPerson wey report: {reportedBy}\nTime: {reportedAt}\n\nWe need action. Check Trovara OS for full gist."
     },
     {
       "id": "low_stock_alert",
       "name": "Low Stock Alert",
       "category": "inventory",
       "placeholders": ["{itemName}", "{quantity}", "{unit}", "{reorderLevel}"],
-      "en": "📦 LOW STOCK ALERT — Trovara Farm\n\nItem: {itemName}\nCurrent stock: {quantity} {unit}\nReorder level: {reorderLevel} {unit}\n\nPlease restock soon. View inventory in Trovara OS.",
-      "yo": "📦 ÌKÌLÒ ÌNÀWÓ KÉKÉÈRÍ — Oko Trovara\n\nNkan: {itemName}\nIye lọ́wọ́lọ́wọ́: {quantity} {unit}\nIpele títún: {reorderLevel} {unit}\n\nJọ̀wọ́ ṣe àtúnṣe kíákíá. Wo àkójọpọ̀ nínú Trovara OS.",
-      "pcm": "📦 LOW STOCK ALERT — Trovara Farm\n\nItem: {itemName}\nWetin remain: {quantity} {unit}\nReorder level: {reorderLevel} {unit}\n\nAbeg restock quick quick. Check inventory for Trovara OS."
+      "en": "📦 LOW STOCK ALERT - Trovara Farm\n\nItem: {itemName}\nCurrent stock: {quantity} {unit}\nReorder level: {reorderLevel} {unit}\n\nPlease restock soon. View inventory in Trovara OS.",
+      "yo": "📦 ÌKÌLÒ ÌNÀWÓ KÉKÉÈRÍ - Oko Trovara\n\nNkan: {itemName}\nIye lọ́wọ́lọ́wọ́: {quantity} {unit}\nIpele títún: {reorderLevel} {unit}\n\nJọ̀wọ́ ṣe àtúnṣe kíákíá. Wo àkójọpọ̀ nínú Trovara OS.",
+      "pcm": "📦 LOW STOCK ALERT - Trovara Farm\n\nItem: {itemName}\nWetin remain: {quantity} {unit}\nReorder level: {reorderLevel} {unit}\n\nAbeg restock quick quick. Check inventory for Trovara OS."
     }
   ]
 }

@@ -16,6 +16,7 @@
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate -w api",
     "seed": "npm run seed -w api",
+    "sync-catalog": "npm run sync-catalog -w api",
     "generate-tasks": "bash scripts/generate-recurring-tasks.sh",
     "send-proactive-alerts": "bash scripts/send-proactive-alerts.sh",
     "send-evening-digest": "bash scripts/send-evening-digest.sh",

@@ -8,7 +8,7 @@ config({ path: resolve(rootDir, '.env') })
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.CRON_SECRET?.trim()) {
     console.warn(
-      'WARNING: CRON_SECRET is not set — cron scripts (retention, proactive alerts, evening digest) cannot authenticate.',
+      'WARNING: CRON_SECRET is not set - cron scripts (retention, proactive alerts, evening digest) cannot authenticate.',
     )
   }
 
@@ -20,7 +20,16 @@ if (process.env.NODE_ENV === 'production') {
 
   if (process.env.TELEGRAM_BOT_TOKEN?.trim() && !process.env.TELEGRAM_WEBHOOK_SECRET?.trim()) {
     console.warn(
-      'WARNING: TELEGRAM_BOT_TOKEN is set but TELEGRAM_WEBHOOK_SECRET is unset in production — webhook mode will not verify inbound requests.',
+      'WARNING: TELEGRAM_BOT_TOKEN is set but TELEGRAM_WEBHOOK_SECRET is unset in production - webhook mode will not verify inbound requests.',
+    )
+  }
+
+  if (
+    process.env.TELEGRAM_CUSTOMER_BOT_TOKEN?.trim() &&
+    !process.env.TELEGRAM_CUSTOMER_WEBHOOK_SECRET?.trim()
+  ) {
+    console.warn(
+      'WARNING: TELEGRAM_CUSTOMER_BOT_TOKEN is set but TELEGRAM_CUSTOMER_WEBHOOK_SECRET is unset in production - the customer bot webhook will not verify inbound requests.',
     )
   }
 }

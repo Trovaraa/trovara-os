@@ -4,6 +4,14 @@ import AppLayout from '@/components/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 
+type OrderItem = {
+  productName: string
+  unit: string
+  quantity: number
+  unitPriceKobo: number
+  lineTotalKobo: number
+}
+
 type Order = {
   id: string
   customerName: string
@@ -13,9 +21,24 @@ type Order = {
   currency: string
   lotId?: string
   lotCode?: string
+  source?: string
+  reference?: string
+  items?: OrderItem[]
   notes?: string
   dispatchedAt?: string
   createdAt: string
+}
+
+const sourceLabel: Record<string, string> = {
+  staff: 'Staff',
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp',
+}
+
+const sourceColor: Record<string, string> = {
+  telegram: 'bg-sky-900/50 text-sky-300',
+  whatsapp: 'bg-emerald-900/50 text-emerald-300',
+  staff: 'bg-slate-700 text-slate-300',
 }
 
 const auth = useAuthStore()
@@ -88,13 +111,37 @@ async function cancelOrder(id: string) {
       >
         <div class="flex items-start justify-between gap-4">
           <div>
-            <h3 class="font-bold text-white">{{ order.customerName }}</h3>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-bold text-white">{{ order.customerName }}</h3>
+              <span
+                v-if="order.source && order.source !== 'staff'"
+                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                :class="sourceColor[order.source] ?? 'bg-slate-700 text-slate-300'"
+              >
+                {{ sourceLabel[order.source] ?? order.source }}
+              </span>
+            </div>
+            <p v-if="order.reference" class="text-xs font-mono text-slate-500 mt-0.5">
+              {{ order.reference }}
+            </p>
             <p v-if="order.customerPhone" class="text-slate-400 text-sm mt-1">
               {{ order.customerPhone }}
             </p>
             <p class="text-lg font-mono text-farm-gold mt-2">
               {{ formatAmount(order.totalAmount, order.currency) }}
             </p>
+
+            <ul v-if="order.items && order.items.length" class="mt-2 space-y-0.5">
+              <li
+                v-for="(item, i) in order.items"
+                :key="i"
+                class="text-sm text-slate-300"
+              >
+                {{ item.quantity }} × {{ item.productName }}
+                <span class="text-slate-600">({{ item.unit }})</span>
+              </li>
+            </ul>
+
             <p class="text-xs text-slate-500 mt-2">
               <span v-if="order.lotCode">Lot: {{ order.lotCode }} · </span>
               Created {{ new Date(order.createdAt).toLocaleDateString() }}

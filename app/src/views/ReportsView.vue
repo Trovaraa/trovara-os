@@ -140,6 +140,8 @@ type DigestReport = {
     mortalityToday: number
     ordersPending: number
     rejectedTasks: number
+    assetLogsMissing: number
+    assetVerificationPending: number
     total: number
   }
   sections: Record<string, { count: number; items: unknown[] }>
@@ -233,8 +235,8 @@ function formatDate(iso: string) {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Owner Reports</h2>
-      <p class="text-slate-400 text-sm mt-1">Full farm visibility — owner only</p>
+      <h2 class="text-2xl font-black text-white">Founder Reports</h2>
+      <p class="text-slate-400 text-sm mt-1">Full farm visibility - Founder only</p>
     </div>
 
     <div v-if="loading" class="mt-8 text-slate-400">Loading reports…</div>
@@ -275,6 +277,14 @@ function formatDate(iso: string) {
           <div class="bg-slate-800/50 rounded-xl p-3">
             <p class="text-xs text-slate-500">Rejected</p>
             <p class="text-xl font-black text-slate-300">{{ digest.summary.rejectedTasks }}</p>
+          </div>
+          <div class="bg-slate-800/50 rounded-xl p-3">
+            <p class="text-xs text-slate-500">Not logged today</p>
+            <p class="text-xl font-black text-amber-400">{{ digest.summary.assetLogsMissing }}</p>
+          </div>
+          <div class="bg-slate-800/50 rounded-xl p-3">
+            <p class="text-xs text-slate-500">Assets to verify</p>
+            <p class="text-xl font-black text-cyan-400">{{ digest.summary.assetVerificationPending }}</p>
           </div>
         </div>
       </section>
@@ -455,7 +465,7 @@ function formatDate(iso: string) {
             <div class="text-xs text-slate-500">
               <span v-if="task.plotName">{{ task.plotName }} · </span>
               <span v-if="task.assignedToName">{{ task.assignedToName }} · </span>
-              <span class="text-red-400">Due {{ task.dueDate ? formatDate(task.dueDate) : '—' }}</span>
+              <span class="text-red-400">Due {{ task.dueDate ? formatDate(task.dueDate) : '-' }}</span>
             </div>
           </li>
         </ul>
@@ -544,12 +554,12 @@ function formatDate(iso: string) {
               :key="cycle.id"
               class="text-sm flex justify-between"
             >
-              <span class="text-slate-300">{{ cycle.plotName }} — {{ cycle.cropType }}</span>
+              <span class="text-slate-300">{{ cycle.plotName }} - {{ cycle.cropType }}</span>
               <span class="text-slate-500 capitalize">{{ cycle.stage.replace('_', ' ') }}</span>
             </li>
           </ul>
         </div>
-        <p v-else class="text-slate-500 text-sm">No crop cycles tracked yet — plot layout shown above</p>
+        <p v-else class="text-slate-500 text-sm">No crop cycles tracked yet - plot layout shown above</p>
       </section>
 
       <!-- 5. Livestock -->
@@ -579,7 +589,7 @@ function formatDate(iso: string) {
             </li>
           </ul>
         </template>
-        <p v-else class="text-slate-500 text-sm">Livestock tracking coming in Phase 2 — poultry zone prep in progress</p>
+        <p v-else class="text-slate-500 text-sm">Livestock tracking coming in Phase 2 - poultry zone prep in progress</p>
       </section>
 
       <!-- 6. Sales -->
@@ -679,12 +689,12 @@ function formatDate(iso: string) {
           >
             <span class="text-slate-300">
               {{ incident.batchName }}
-              <span v-if="incident.notes" class="text-slate-500"> — {{ incident.notes }}</span>
+              <span v-if="incident.notes" class="text-slate-500"> - {{ incident.notes }}</span>
             </span>
             <span class="text-slate-600 text-xs flex-shrink-0">{{ formatDate(incident.createdAt) }}</span>
           </li>
         </ul>
-        <p v-else class="text-slate-500 text-sm">No incidents logged — incident reporting available in Phase 2</p>
+        <p v-else class="text-slate-500 text-sm">No incidents logged - incident reporting available in Phase 2</p>
       </section>
 
       <!-- 9. Audit Trail -->

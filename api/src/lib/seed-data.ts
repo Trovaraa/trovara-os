@@ -1,4 +1,5 @@
 import { hashPassword } from './session.js'
+import { slugify } from './slug.js'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
@@ -20,6 +21,13 @@ import {
   livestockLogs,
   harvestLots,
   orders,
+  orderItems,
+  products,
+  customerContacts,
+  customerChatSessions,
+  customerInquiries,
+  assets,
+  assetLogs,
   expenses,
   consentRecords,
   passwordResetTokens,
@@ -35,7 +43,21 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
     await db.delete(passwordResetTokens).where(inArray(passwordResetTokens.userId, userIds))
   }
 
+  await db
+    .delete(orderItems)
+    .where(
+      inArray(
+        orderItems.orderId,
+        db.select({ id: orders.id }).from(orders).where(eq(orders.farmId, farmId)),
+      ),
+    )
   await db.delete(orders).where(eq(orders.farmId, farmId))
+  await db.delete(assetLogs).where(eq(assetLogs.farmId, farmId))
+  await db.delete(assets).where(eq(assets.farmId, farmId))
+  await db.delete(customerInquiries).where(eq(customerInquiries.farmId, farmId))
+  await db.delete(customerChatSessions).where(eq(customerChatSessions.farmId, farmId))
+  await db.delete(customerContacts).where(eq(customerContacts.farmId, farmId))
+  await db.delete(products).where(eq(products.farmId, farmId))
   await db.delete(expenses).where(eq(expenses.farmId, farmId))
   await db.delete(harvestLots).where(eq(harvestLots.farmId, farmId))
   await db.delete(livestockLogs).where(eq(livestockLogs.farmId, farmId))
@@ -57,7 +79,14 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
 }
 
 async function deleteAllData(): Promise<void> {
+  await db.delete(orderItems)
   await db.delete(orders)
+  await db.delete(assetLogs)
+  await db.delete(assets)
+  await db.delete(customerInquiries)
+  await db.delete(customerChatSessions)
+  await db.delete(customerContacts)
+  await db.delete(products)
   await db.delete(expenses)
   await db.delete(harvestLots)
   await db.delete(livestockLogs)
@@ -96,7 +125,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       {
         farmId,
         email: 'owner@trovara.farm',
-        name: 'Farm Owner',
+        name: 'Farm Founder',
         phone: '2348100000000',
         passwordHash: await hashPassword(ownerPassword),
         role: 'owner',
@@ -376,7 +405,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         plantedAt: new Date(now - 180 * 86400000),
         expectedHarvestAt: new Date(now + 365 * 86400000),
         expectedYieldKg: 2400,
-        notes: 'Year-one coconut seedlings — Block A',
+        notes: 'Year-one coconut seedlings - Block A',
       },
       {
         farmId: farmId,
@@ -386,7 +415,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         plantedAt: new Date(now - 120 * 86400000),
         expectedHarvestAt: new Date(now + 60 * 86400000),
         expectedYieldKg: 1800,
-        notes: 'Second ratoon — Block B',
+        notes: 'Second ratoon - Block B',
       },
     ])
     .returning()
@@ -402,7 +431,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     feedUsedKg: 850,
     acquiredAt: new Date(now - 14 * 86400000),
     targetCloseoutAt: new Date(now + 28 * 86400000),
-    notes: 'Active broiler batch — shed stocked',
+    notes: 'Active broiler batch - shed stocked',
     active: true,
   })
 
@@ -427,6 +456,17 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         quantityKg: 85,
         harvestedAt: new Date(now - 3 * 86400000),
       },
+      {
+        farmId: farmId,
+        lotCode: 'TRV-PLT-2026-003',
+        plotId: plantainPlot.id,
+        cropCycleId: plantainCycle.id,
+        productName: 'Plantain bunch (field report)',
+        quantityKg: 40,
+        harvestedAt: new Date(now - 1 * 86400000),
+        reportedById: worker1.id,
+        verificationStatus: 'reported',
+      },
     ])
     .returning()
 
@@ -449,6 +489,56 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       lotId: coconutLot.id,
       notes: 'Delivered via refrigerated van',
       dispatchedAt: new Date(now - 5 * 86400000),
+    },
+  ])
+
+  // Customer-bot catalog. Prices seed at 0 ("price on request") - a Founder sets
+  // real prices in the Products admin. Units are sensible defaults, editable.
+  await db.insert(products).values([
+    { farmId, name: 'Trovara Farm Plantain', unit: 'bunch', sortOrder: 1 },
+    { farmId, name: 'Trovara Farm Coconut', unit: 'piece', sortOrder: 2 },
+    { farmId, name: 'Trovara Farm Plantain Flour', unit: 'pack', sortOrder: 3 },
+    { farmId, name: 'Trovara Farm Dried Plantain', unit: 'pack', sortOrder: 4 },
+    { farmId, name: 'Trovara Farm Chicken', unit: 'bird', sortOrder: 5 },
+    { farmId, name: 'Trovara Farm Eggs', unit: 'crate', sortOrder: 6 },
+  ])
+
+  // Equipment/asset register (pool model). A Founder/supervisor maintains these;
+  // workers log daily state and a supervisor verifies.
+  const assetRows = await db
+    .insert(assets)
+    .values([
+      { farmId, name: 'Rubber boots', category: 'ppe', unit: 'pair', quantityOwned: 8, createdById: owner.id },
+      { farmId, name: 'Knapsack sprayer', category: 'tool', unit: 'unit', quantityOwned: 3, createdById: sup1.id },
+      { farmId, name: 'Cutlass', category: 'tool', unit: 'unit', quantityOwned: 6, createdById: sup1.id },
+      { farmId, name: 'Pickup truck', category: 'vehicle', unit: 'unit', quantityOwned: 1, createdById: owner.id },
+    ])
+    .returning()
+
+  const bootsAsset = assetRows.find((a) => a.name === 'Rubber boots')
+  const sprayerAsset = assetRows.find((a) => a.name === 'Knapsack sprayer')
+
+  await db.insert(assetLogs).values([
+    {
+      farmId,
+      assetId: bootsAsset!.id,
+      countAvailable: 7,
+      countDamaged: 1,
+      condition: 'fair',
+      note: 'One pair torn at the sole',
+      recordedById: worker1.id,
+      verificationStatus: 'reported',
+    },
+    {
+      farmId,
+      assetId: sprayerAsset!.id,
+      countAvailable: 3,
+      countDamaged: 0,
+      condition: 'good',
+      recordedById: sup1.id,
+      verificationStatus: 'verified',
+      verifiedById: sup1.id,
+      verifiedAt: new Date(now - 3600000),
     },
   ])
 
@@ -489,7 +579,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     {
       farmId: farmId,
       category: 'inputs',
-      description: 'Organic fertilizer — coconut Block A',
+      description: 'Organic fertilizer - coconut Block A',
       amount: 18500,
       recordedById: sup1.id,
       expenseDate: new Date(now - 10 * 86400000),
@@ -497,7 +587,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     {
       farmId: farmId,
       category: 'labour',
-      description: 'Weeding crew — plantain Block B',
+      description: 'Weeding crew - plantain Block B',
       amount: 12000,
       recordedById: sup2.id,
       expenseDate: new Date(now - 4 * 86400000),
@@ -526,7 +616,7 @@ export async function seedDemoData(): Promise<void> {
   await deleteAllData()
   const [farm] = await db
     .insert(farms)
-    .values({ name: 'Trovara Farm', location: 'Abeokuta' })
+    .values({ name: 'Trovara Farm', slug: slugify('Trovara Farm'), location: 'Abeokuta' })
     .returning()
   await insertDemoContentForFarm(farm.id)
 }

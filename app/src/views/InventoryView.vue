@@ -205,15 +205,15 @@ async function recordMovement() {
               {{ item.quantity }} {{ item.unit }}
             </td>
             <td class="py-4 font-mono text-slate-500">{{ item.reorderLevel }}</td>
-            <td v-if="hasSupplier" class="py-4 text-slate-400">{{ item.supplier ?? '—' }}</td>
+            <td v-if="hasSupplier" class="py-4 text-slate-400">{{ item.supplier ?? '-' }}</td>
             <td v-if="hasCostPerUnit" class="py-4 font-mono text-slate-400">
-              {{ item.costPerUnit != null ? item.costPerUnit : '—' }}
+              {{ item.costPerUnit != null ? item.costPerUnit : '-' }}
             </td>
             <td v-if="hasExpiryDate" class="py-4 text-slate-400">
-              {{ item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : '—' }}
+              {{ item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : '-' }}
             </td>
             <td v-if="hasStorageLocation" class="py-4 text-slate-400">
-              {{ item.storageLocation ?? '—' }}
+              {{ item.storageLocation ?? '-' }}
             </td>
             <td class="py-4">
               <span

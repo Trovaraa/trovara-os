@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 export type SecurityEventType =
   | 'failed_login'
+  | 'failed_registration'
+  | 'break_glass_login'
   | 'password_reset_requested'
   | 'password_reset_failed'
   | 'password_reset_completed'

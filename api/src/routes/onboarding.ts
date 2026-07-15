@@ -108,7 +108,7 @@ onboardingRoutes.post('/reset-demo', async (c) => {
     return c.json({ error: message }, 500)
   }
 
-  // Seed wipes all sessions and farm/user rows — client must sign in again.
+  // Seed wipes all sessions and farm/user rows - client must sign in again.
   return c.json({
     ok: true,
     requiresReLogin: true,

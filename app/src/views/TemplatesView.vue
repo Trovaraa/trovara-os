@@ -219,12 +219,12 @@ async function generateTasks() {
                 :key="sched.id"
                 class="border-b border-slate-800/50"
               >
-                <td class="py-4 text-white">{{ sched.templateName ?? '—' }}</td>
+                <td class="py-4 text-white">{{ sched.templateName ?? '-' }}</td>
                 <td class="py-4 text-slate-400 capitalize">{{ sched.recurrence.replace('_', ' ') }}</td>
-                <td class="py-4 text-slate-400">{{ sched.plotName ?? '—' }}</td>
-                <td class="py-4 text-slate-400">{{ sched.assignedToName ?? '—' }}</td>
+                <td class="py-4 text-slate-400">{{ sched.plotName ?? '-' }}</td>
+                <td class="py-4 text-slate-400">{{ sched.assignedToName ?? '-' }}</td>
                 <td class="py-4 text-slate-400">
-                  {{ sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : '—' }}
+                  {{ sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : '-' }}
                 </td>
                 <td class="py-4">
                   <span

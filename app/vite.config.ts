@@ -14,7 +14,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [
           {
-            // API calls — network first, fall back to cached response (stale data ok for GET)
+            // API calls - network first, fall back to cached response (stale data ok for GET)
             urlPattern: ({ url }) => {
               const path = url.pathname
               return path === '/api/tasks' || path.startsWith('/api/today')

@@ -19,7 +19,7 @@ const revokeMessage = ref<string | null>(null)
 
 function formatDetails(metadata: Record<string, unknown>): string {
   const keys = Object.keys(metadata)
-  if (keys.length === 0) return '—'
+  if (keys.length === 0) return '-'
   return keys
     .slice(0, 4)
     .map((k) => `${k}: ${String(metadata[k])}`)

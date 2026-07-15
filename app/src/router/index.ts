@@ -5,10 +5,15 @@ function defaultHome(role?: string) {
   return role === 'field_worker' ? '/today' : '/dashboard'
 }
 
-const workerAllowedNames = new Set(['today', 'worker'])
+const workerAllowedNames = new Set(['today', 'worker', 'assets', 'traceability'])
 
 const router = createRouter({
   history: createWebHistory(),
+  // Every tab navigation should open at the top of the page. The window is the
+  // scroll container, so reset it on navigation (honour back/forward saved position).
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition ?? { top: 0, left: 0 }
+  },
   routes: [
     {
       path: '/',
@@ -27,6 +32,12 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),
+      meta: { guest: true },
+    },
+    {
+      path: '/register',
+      name: 'register',
+      component: () => import('@/views/RegisterView.vue'),
       meta: { guest: true },
     },
     {
@@ -90,6 +101,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/products',
+      name: 'products',
+      component: () => import('@/views/ProductsView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/customer-insights',
+      name: 'customer-insights',
+      component: () => import('@/views/CustomerInsightsView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
       path: '/finance',
       name: 'finance',
       component: () => import('@/views/FinanceView.vue'),
@@ -99,7 +122,13 @@ const router = createRouter({
       path: '/traceability',
       name: 'traceability',
       component: () => import('@/views/TraceabilityView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/assets',
+      name: 'assets',
+      component: () => import('@/views/AssetsView.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/reports',
@@ -150,7 +179,7 @@ const router = createRouter({
       meta: { requiresAuth: true, managerOnly: true },
     },
     {
-      path: '/lot/:lotCode',
+      path: '/lot/:farmSlug/:lotCode',
       name: 'public-lot',
       component: () => import('@/views/PublicLotView.vue'),
     },

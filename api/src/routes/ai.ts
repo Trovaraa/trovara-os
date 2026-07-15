@@ -66,7 +66,7 @@ function buildStructuredBriefing(data: BriefingPayload) {
   for (const item of data.lowStockItems) {
     priorities.push({
       label: `Restock ${item.name}`,
-      detail: `${item.quantity} ${item.unit} left — reorder at ${item.reorderLevel}`,
+      detail: `${item.quantity} ${item.unit} left - reorder at ${item.reorderLevel}`,
       urgency: 'high',
     })
   }
@@ -124,7 +124,7 @@ aiRoutes.use('*', async (c, next) => {
     const { allowed, retryAfterSec } = checkRateLimit(`ai:${user.id}`, AI_LIMIT_PER_HOUR, 60 * 60 * 1000)
     if (!allowed) {
       c.header('Retry-After', String(retryAfterSec))
-      return c.json({ error: 'Too many AI requests — please wait a bit and try again.' }, 429)
+      return c.json({ error: 'Too many AI requests - please wait a bit and try again.' }, 429)
     }
   }
   await next()
@@ -135,7 +135,7 @@ aiRoutes.get('/status', (c) => {
     configured: isLlmConfigured(),
     hint: isLlmConfigured()
       ? 'LLM ready'
-      : 'Set OPENAI_API_KEY (or LLM_API_KEY + LLM_BASE_URL) — see docs/INTEGRATIONS.md',
+      : 'Set OPENAI_API_KEY (or LLM_API_KEY + LLM_BASE_URL) - see docs/INTEGRATIONS.md',
   })
 })
 
@@ -206,11 +206,11 @@ function validateAskImageUrl(imageUrl: string): string | null {
   if (isAllowedEvidenceImageDataUrl(imageUrl)) return null
   if (imageUrl.startsWith('https://')) {
     if (process.env.NODE_ENV === 'production') {
-      return 'External image URLs are not allowed in production — upload a photo instead.'
+      return 'External image URLs are not allowed in production - upload a photo instead.'
     }
     return null
   }
-  return 'Invalid image URL — use a JPEG, PNG, or WebP photo.'
+  return 'Invalid image URL - use a JPEG, PNG, or WebP photo.'
 }
 
 const VAGUE_INCIDENT_PATTERNS = [
@@ -227,7 +227,7 @@ function validateIncidentText(text: string): string | null {
     return 'Write at least a sentence or two: what happened, where on the farm, and what you saw.'
   }
   if (VAGUE_INCIDENT_PATTERNS.some((pattern) => pattern.test(trimmed))) {
-    return 'Please describe the actual incident — e.g. "3 birds died in pen B after lethargy yesterday".'
+    return 'Please describe the actual incident - e.g. "3 birds died in pen B after lethargy yesterday".'
   }
   if (trimmed.split(/\s+/).length < 8) {
     return 'Add more detail so AI can summarize accurately (who, where, what, when).'
@@ -309,7 +309,7 @@ aiRoutes.post('/summarize-incident', zValidator('json', summarizeSchema), async 
 const askSchema = z
   .object({
     question: z.string().max(2000).optional().default(''),
-    // data URL (data:image/jpeg;base64,...) or https URL — for crop/animal photos
+    // data URL (data:image/jpeg;base64,...) or https URL - for crop/animal photos
     imageUrl: z.string().min(10).max(8_000_000).optional(),
     history: z
       .array(
@@ -358,7 +358,7 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
     if (imageUrl) {
       const prompt = safeQuestion.trim()
         ? safeQuestion
-        : 'Look at this farm photo and tell me what you see and any problem or advice. Do not announce whether it is a plant or animal — just answer naturally.'
+        : 'Look at this farm photo and tell me what you see and any problem or advice. Do not announce whether it is a plant or animal - just answer naturally.'
       result = await completeChatVision(systemPrompt, prompt, [imageUrl])
     } else {
       result = await completeChatHistory(systemPrompt, safeHistory, safeQuestion)
@@ -411,10 +411,10 @@ aiRoutes.post('/confirm-task', zValidator('json', confirmTaskSchema), async (c) 
 
   const stored = takeTaskDraft(body.draftId, user.id)
   if (!stored) {
-    return c.json({ error: 'Task draft expired or invalid — please draft again.' }, 400)
+    return c.json({ error: 'Task draft expired or invalid - please draft again.' }, 400)
   }
   if (stored.farmId !== user.farmId) {
-    return c.json({ error: 'Task draft expired or invalid — please draft again.' }, 400)
+    return c.json({ error: 'Task draft expired or invalid - please draft again.' }, 400)
   }
 
   if (body.plotId) {
@@ -474,7 +474,7 @@ aiRoutes.post('/diagnose-livestock', zValidator('json', livestockSchema), async 
   const body = c.req.valid('json')
 
   if (!isLlmConfigured()) {
-    return c.json({ placeholder: true, disclaimer: ADVISORY_DISCLAIMER, error: 'AI not configured — add OPENAI_API_KEY to .env' }, 200)
+    return c.json({ placeholder: true, disclaimer: ADVISORY_DISCLAIMER, error: 'AI not configured - add OPENAI_API_KEY to .env' }, 200)
   }
 
   try {
@@ -510,7 +510,7 @@ aiRoutes.post('/diagnose-crop', zValidator('json', cropSchema), async (c) => {
   const body = c.req.valid('json')
 
   if (!isLlmConfigured()) {
-    return c.json({ placeholder: true, disclaimer: ADVISORY_DISCLAIMER, error: 'AI not configured — add OPENAI_API_KEY to .env' }, 200)
+    return c.json({ placeholder: true, disclaimer: ADVISORY_DISCLAIMER, error: 'AI not configured - add OPENAI_API_KEY to .env' }, 200)
   }
 
   const imageError = validateAskImageUrl(body.imageUrl)

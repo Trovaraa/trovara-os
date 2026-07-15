@@ -1,4 +1,4 @@
-# Trovara OS — Operating Model & State Machines
+# Trovara OS - Operating Model & State Machines
 
 This document defines the rules that make Trovara OS behave like an operating system, not just a set of screens. Based on product review feedback (Perplexity + internal plan).
 
@@ -6,7 +6,7 @@ This document defines the rules that make Trovara OS behave like an operating sy
 
 | Time | Who | Action | System surface |
 |------|-----|--------|----------------|
-| **06:00** | Supervisor | Open **Today** home — review overdue + pending approvals | Exception dashboard |
+| **06:00** | Supervisor | Open **Today** home - review overdue + pending approvals | Exception dashboard |
 | **06:15** | Supervisor | Assign or confirm field tasks for the day | Tasks |
 | **07:00–16:00** | Worker | One-tap: start task → submit for approval | Tasks (mobile) |
 | **12:00** | Supervisor | Log inventory consumption from morning work | Inventory |
@@ -102,7 +102,7 @@ pending → in_progress → awaiting_approval → completed
 **Rules:** Workers cannot skip states. Supervisors cannot complete without approval step unless they performed the work themselves.
 
 ### Inventory movement
-- Movements are **append-only** — no edit/delete in MVP
+- Movements are **append-only** - no edit/delete in MVP
 - Negative delta blocked if result quantity < 0
 - Partial delivery: multiple movements with reason "partial delivery batch X"
 
@@ -135,9 +135,9 @@ cancelled   cancelled
 | pending/confirmed → cancelled | supervisor, owner |
 
 ### Livestock log types
-- `feeding`, `vaccination`, `health_check` — append only
-- `mortality` — decrements `headCount`; cannot exceed current count
-- `incident` — triggers exception digest entry
+- `feeding`, `vaccination`, `health_check` - append only
+- `mortality` - decrements `headCount`; cannot exceed current count
+- `incident` - triggers exception digest entry
 
 ---
 
@@ -176,12 +176,12 @@ Each report states: **purpose**, **metrics**, **frequency**, **audience**.
 
 ## UX principles (mobile-first, bilingual)
 
-- **Today home** — only urgent items; max 5 cards
-- **One-tap actions** — Start, Submit, Approve on task cards
-- **Large touch targets** — min 44px tap areas on field screens
-- **Languages** — English primary; Yoruba + Pidgin for worker-facing labels and WhatsApp templates
-- **Search/filters** — tasks by status/plot/assignee; inventory by category
-- **Saved views** — "My tasks today", "Pending approvals" (supervisor)
+- **Today home** - only urgent items; max 5 cards
+- **One-tap actions** - Start, Submit, Approve on task cards
+- **Large touch targets** - min 44px tap areas on field screens
+- **Languages** - English primary; Yoruba + Pidgin for worker-facing labels and WhatsApp templates
+- **Search/filters** - tasks by status/plot/assignee; inventory by category
+- **Saved views** - "My tasks today", "Pending approvals" (supervisor)
 
 ---
 
@@ -220,9 +220,9 @@ Phase 4 AI should automate operations, not generic chat:
 
 ## Priority next build items (recommended order)
 
-1. **Formal state machines in code** — enforce transitions server-side (tasks partially done)
-2. **Report definition layer** — `/api/reports/digest`, burn rate, action list
-3. **Manager exception dashboard** — replace generic dashboard with Today home
-4. **Mobile-first + bilingual UI** — worker task screen, i18n scaffold
-5. **Backup/recovery runbook** — `docs/backup.md` + pg_dump script
-6. **Tenant onboarding + demo reset** — for SaaS path
+1. **Formal state machines in code** - enforce transitions server-side (tasks partially done)
+2. **Report definition layer** - `/api/reports/digest`, burn rate, action list
+3. **Manager exception dashboard** - replace generic dashboard with Today home
+4. **Mobile-first + bilingual UI** - worker task screen, i18n scaffold
+5. **Backup/recovery runbook** - `docs/backup.md` + pg_dump script
+6. **Tenant onboarding + demo reset** - for SaaS path

@@ -5,7 +5,8 @@ import { cropCycles, farms, harvestLots, plots } from '../db/schema.js'
 
 export const publicRoutes = new Hono()
 
-publicRoutes.get('/lots/:lotCode', async (c) => {
+publicRoutes.get('/lots/:farmSlug/:lotCode', async (c) => {
+  const farmSlug = c.req.param('farmSlug')
   const lotCode = c.req.param('lotCode')
 
   const [lot] = await db
@@ -17,6 +18,7 @@ publicRoutes.get('/lots/:lotCode', async (c) => {
       harvestedAt: harvestLots.harvestedAt,
       plotName: plots.name,
       cropType: cropCycles.cropType,
+      farmSlug: farms.slug,
       farmName: farms.name,
       farmLocation: farms.location,
     })
@@ -24,7 +26,15 @@ publicRoutes.get('/lots/:lotCode', async (c) => {
     .innerJoin(farms, eq(harvestLots.farmId, farms.id))
     .leftJoin(plots, eq(harvestLots.plotId, plots.id))
     .leftJoin(cropCycles, eq(harvestLots.cropCycleId, cropCycles.id))
-    .where(eq(harvestLots.lotCode, lotCode))
+    .where(
+      and(
+        eq(farms.slug, farmSlug),
+        eq(harvestLots.lotCode, lotCode),
+        // Only verified lots are public - unverified/rejected field reports must
+        // never reach buyers.
+        eq(harvestLots.verificationStatus, 'verified'),
+      ),
+    )
     .limit(1)
 
   if (!lot) return c.json({ error: 'Lot not found' }, 404)
@@ -38,7 +48,7 @@ publicRoutes.get('/lots/:lotCode', async (c) => {
       harvestedAt: lot.harvestedAt,
       plotName: lot.plotName,
       cropType: lot.cropType,
-      farm: { name: lot.farmName, location: lot.farmLocation },
+      farm: { slug: lot.farmSlug, name: lot.farmName, location: lot.farmLocation },
     },
     verified: true,
     scannedAt: new Date().toISOString(),

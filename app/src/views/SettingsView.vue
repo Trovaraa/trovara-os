@@ -52,6 +52,12 @@ const systemStatus = ref<SystemStatus | null>(null)
 
 const resetting = ref(false)
 const resetMessage = ref<string | null>(null)
+const showResetConfirm = ref(false)
+const resetConfirmText = ref('')
+const RESET_CONFIRM_PHRASE = 'I agree'
+const resetConfirmValid = computed(
+  () => resetConfirmText.value.trim().toLowerCase() === RESET_CONFIRM_PHRASE.toLowerCase(),
+)
 const generating = ref(false)
 const generateMessage = ref<string | null>(null)
 const goingLive = ref(false)
@@ -83,7 +89,7 @@ const goLiveItems = computed(() => {
   if (!checklist.value) return []
   const c = checklist.value
   const items: { label: string; done: boolean; hint?: string }[] = [
-    { label: 'Owner account created', done: true },
+    { label: 'Founder account created', done: true },
     {
       label: `Supervisors/workers added (${c.usersCount} user${c.usersCount !== 1 ? 's' : ''})`,
       done: c.hasUsers,
@@ -239,7 +245,7 @@ async function copyLinkCode() {
     await navigator.clipboard.writeText(linkCode.value)
     linkCodeMessage.value = 'Code copied to clipboard.'
   } catch {
-    linkCodeMessage.value = 'Could not copy — select the code manually.'
+    linkCodeMessage.value = 'Could not copy - select the code manually.'
   }
 }
 
@@ -264,10 +270,21 @@ onUnmounted(() => {
   if (linkCodeTimer) clearInterval(linkCodeTimer)
 })
 
+function openResetConfirm() {
+  resetConfirmText.value = ''
+  resetMessage.value = null
+  showResetConfirm.value = true
+}
+
+function cancelResetConfirm() {
+  showResetConfirm.value = false
+  resetConfirmText.value = ''
+}
+
 async function resetDemo() {
-  if (!window.confirm('Reset all demo data? This will re-seed the farm with default records.')) {
-    return
-  }
+  // Founder-only, destructive: require the exact confirmation phrase before wiping data.
+  if (!auth.isOwner || !resetConfirmValid.value) return
+  showResetConfirm.value = false
   resetting.value = true
   resetMessage.value = null
   try {
@@ -276,7 +293,7 @@ async function resetDemo() {
       { method: 'POST' },
     )
     if (data.requiresReLogin) {
-      sessionStorage.setItem('trovara_flash', data.message ?? 'Demo data reset — sign in again.')
+      sessionStorage.setItem('trovara_flash', data.message ?? 'Demo data reset - sign in again.')
       await auth.logout()
       return
     }
@@ -286,6 +303,7 @@ async function resetDemo() {
     resetMessage.value = e instanceof Error ? e.message : 'Reset failed'
   } finally {
     resetting.value = false
+    resetConfirmText.value = ''
   }
 }
 
@@ -361,7 +379,7 @@ async function disableTotp() {
     totpMessage.value = 'Enter your current password to disable 2FA.'
     return
   }
-  if (!window.confirm('Disable 2FA for your owner account?')) return
+  if (!window.confirm('Disable 2FA for your Founder account?')) return
   totpLoading.value = true
   totpMessage.value = null
   try {
@@ -433,7 +451,7 @@ function formatBackupTime(iso: string | null): string {
   <AppLayout>
     <div>
       <h2 class="text-2xl font-black text-white">Settings</h2>
-      <p class="text-slate-400 text-sm mt-1">Farm setup, integrations, and admin actions — owner only</p>
+      <p class="text-slate-400 text-sm mt-1">Farm setup, integrations, and admin actions - Founder only</p>
       <RouterLink
         to="/settings/security"
         class="inline-flex mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
@@ -460,7 +478,7 @@ function formatBackupTime(iso: string | null): string {
             :class="goLiveReady ? 'bg-farm-green/20 text-farm-green' : 'bg-amber-900/30 text-amber-300'"
           >
             {{ goLiveDoneCount }}/{{ goLiveItems.length }}
-            {{ goLiveReady ? '— Ready' : '— Not ready' }}
+            {{ goLiveReady ? '- Ready' : '- Not ready' }}
           </span>
         </div>
         <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -662,7 +680,7 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <h3 class="font-bold text-white text-sm">Owner security</h3>
+        <h3 class="font-bold text-white text-sm">Founder security</h3>
         <div class="flex items-center gap-3">
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full"
@@ -757,7 +775,7 @@ function formatBackupTime(iso: string | null): string {
         <p class="text-xs text-slate-400 mt-2">{{ billingStatus.message }}</p>
         <p class="text-xs mt-2">
           <span class="font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">
-            {{ billingStatus.enabled ? 'Enabled' : 'Placeholder — single farm mode' }}
+            {{ billingStatus.enabled ? 'Enabled' : 'Placeholder - single farm mode' }}
           </span>
         </p>
         <ul class="mt-3 space-y-1 text-xs text-slate-500">
@@ -828,16 +846,16 @@ function formatBackupTime(iso: string | null): string {
         <h3 class="font-bold text-white text-sm">Admin actions</h3>
         <div class="flex flex-wrap gap-3">
           <button
-            v-if="!liveMode"
+            v-if="auth.isOwner && !liveMode"
             type="button"
             class="text-sm font-bold px-4 py-2 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 disabled:opacity-50"
             :disabled="resetting"
-            @click="resetDemo"
+            @click="openResetConfirm"
           >
             {{ resetting ? 'Resetting…' : 'Reset demo data' }}
           </button>
           <p
-            v-else
+            v-else-if="auth.isOwner && liveMode"
             class="text-xs px-3 py-2 rounded-lg border border-slate-800 text-slate-500"
           >
             Reset demo data is disabled in live mode.
@@ -880,5 +898,51 @@ function formatBackupTime(iso: string | null): string {
         </p>
       </div>
     </template>
+
+    <!-- Reset demo data: destructive, Founder-only, type-to-confirm -->
+    <div
+      v-if="showResetConfirm && auth.isOwner"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="absolute inset-0 bg-black/70" @click="cancelResetConfirm" />
+      <div class="relative w-full max-w-md rounded-2xl border border-red-800/50 bg-slate-900 p-6 shadow-2xl">
+        <h3 class="text-lg font-black text-red-300">Reset all demo data?</h3>
+        <p class="mt-2 text-sm text-slate-300">
+          This permanently wipes this farm's records and re-seeds the default demo data.
+          All users, tasks, inventory, sales and other data will be deleted, and everyone
+          will be signed out. <span class="font-semibold text-red-300">This cannot be undone.</span>
+        </p>
+        <label class="mt-4 block text-xs font-semibold text-slate-400">
+          Type <span class="font-mono text-white">{{ RESET_CONFIRM_PHRASE }}</span> to confirm
+        </label>
+        <input
+          v-model="resetConfirmText"
+          type="text"
+          autocomplete="off"
+          :placeholder="RESET_CONFIRM_PHRASE"
+          class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-red-500 focus:outline-none"
+          @keyup.enter="resetDemo"
+        />
+        <div class="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            class="text-sm font-semibold px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+            @click="cancelResetConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="text-sm font-bold px-4 py-2 rounded-lg bg-red-700 text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="!resetConfirmValid || resetting"
+            @click="resetDemo"
+          >
+            {{ resetting ? 'Resetting…' : 'Reset data' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </AppLayout>
 </template>

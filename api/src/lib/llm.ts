@@ -110,7 +110,7 @@ export async function completeChat(
 ): Promise<{ text: string; model: string }> {
   const config = getLlmConfig()
   if (!config) {
-    throw new Error('LLM not configured — set OPENAI_API_KEY or LLM_API_KEY in .env')
+    throw new Error('LLM not configured - set OPENAI_API_KEY or LLM_API_KEY in .env')
   }
   return callChat(config, [
     { role: 'system', content: systemPrompt },
@@ -126,7 +126,7 @@ export async function completeChatHistory(
 ): Promise<{ text: string; model: string }> {
   const config = getLlmConfig()
   if (!config) {
-    throw new Error('LLM not configured — set OPENAI_API_KEY or LLM_API_KEY in .env')
+    throw new Error('LLM not configured - set OPENAI_API_KEY or LLM_API_KEY in .env')
   }
   return callChat(config, [
     { role: 'system', content: systemPrompt },
@@ -136,7 +136,7 @@ export async function completeChatHistory(
 }
 
 /**
- * Vision chat — pass one or more images (data URLs or https URLs) plus text.
+ * Vision chat - pass one or more images (data URLs or https URLs) plus text.
  * Requires a vision-capable model (gpt-4o-mini and gpt-4o both support it).
  */
 export async function completeChatVision(
@@ -146,7 +146,7 @@ export async function completeChatVision(
 ): Promise<{ text: string; model: string }> {
   const config = getLlmConfig()
   if (!config) {
-    throw new Error('LLM not configured — set OPENAI_API_KEY or LLM_API_KEY in .env')
+    throw new Error('LLM not configured - set OPENAI_API_KEY or LLM_API_KEY in .env')
   }
 
   const content: unknown[] = [{ type: 'text', text: userPrompt }]
@@ -168,13 +168,13 @@ export async function completeChatVision(
 export async function transcribeAudio(audio: Buffer, filename: string): Promise<string> {
   const config = getLlmConfig()
   if (!config) {
-    throw new Error('LLM not configured — set OPENAI_API_KEY or LLM_API_KEY in .env')
+    throw new Error('LLM not configured - set OPENAI_API_KEY or LLM_API_KEY in .env')
   }
 
   const model = process.env.LLM_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-transcribe'
 
   // The API accepts a fixed set of extensions. Telegram voice notes arrive as
-  // ".oga" (Ogg/Opus) which is rejected even though ".ogg" — the same container —
+  // ".oga" (Ogg/Opus) which is rejected even though ".ogg" - the same container -
   // is supported, so normalise known aliases.
   const safeName = filename.replace(/\.oga$/i, '.ogg').replace(/\.opus$/i, '.ogg')
 
@@ -209,7 +209,7 @@ export async function transcribeAudio(audio: Buffer, filename: string): Promise<
 export async function synthesizeSpeech(text: string): Promise<Buffer> {
   const config = getLlmConfig()
   if (!config) {
-    throw new Error('LLM not configured — set OPENAI_API_KEY or LLM_API_KEY in .env')
+    throw new Error('LLM not configured - set OPENAI_API_KEY or LLM_API_KEY in .env')
   }
 
   const model = process.env.LLM_TTS_MODEL?.trim() || 'tts-1'

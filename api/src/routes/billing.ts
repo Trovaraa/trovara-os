@@ -6,7 +6,7 @@ export const billingRoutes = new Hono<{ Variables: AppVariables }>()
 
 billingRoutes.use('*', authMiddleware)
 
-/** SaaS billing placeholder — not active for single-farm laptop deploy */
+/** SaaS billing placeholder - not active for single-farm laptop deploy */
 billingRoutes.get('/status', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)

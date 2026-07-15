@@ -1,11 +1,12 @@
 import { Hono } from 'hono'
-import { and, eq, gte, lt, ne, count, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, lt, ne, or, count, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   tasks,
   users,
   plots,
   inventoryItems,
+  inventoryMovements,
   livestockLogs,
   livestockBatches,
   expenses,
@@ -28,7 +29,7 @@ function startOfTomorrow(): Date {
   return d
 }
 
-// GET /api/day-close — owner/supervisor only
+// GET /api/day-close - owner/supervisor only
 dayCloseRoutes.get('/', async (c) => {
   const user = c.get('user')
   if (user.role === 'field_worker') {
@@ -58,7 +59,14 @@ dayCloseRoutes.get('/', async (c) => {
       .where(
         and(
           eq(tasks.farmId, farmId),
-          sql`(${tasks.dueDate} >= ${todayStart} AND ${tasks.dueDate} < ${tomorrowStart}) OR ${tasks.completedAt} >= ${todayStart}`,
+          or(
+            and(
+              isNotNull(tasks.dueDate),
+              gte(tasks.dueDate, todayStart),
+              lt(tasks.dueDate, tomorrowStart),
+            ),
+            gte(tasks.completedAt, todayStart),
+          ),
         ),
       )
       .groupBy(tasks.status),
@@ -94,7 +102,8 @@ dayCloseRoutes.get('/', async (c) => {
       .where(
         and(
           eq(tasks.farmId, farmId),
-          sql`${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < ${tomorrowStart}`,
+          isNotNull(tasks.dueDate),
+          lt(tasks.dueDate, tomorrowStart),
           ne(tasks.status, 'completed'),
           ne(tasks.status, 'awaiting_approval'),
         ),
@@ -141,16 +150,25 @@ dayCloseRoutes.get('/', async (c) => {
       ),
 
     // Inventory movements today
-    db.execute(
-      sql`SELECT im.id, ii.name, im.delta, im.reason, im.created_at
-          FROM inventory_movements im
-          JOIN inventory_items ii ON ii.id = im.item_id
-          WHERE im.farm_id = ${farmId}
-            AND im.created_at >= ${todayStart}
-            AND im.created_at < ${tomorrowStart}
-          ORDER BY im.created_at DESC
-          LIMIT 20`,
-    ),
+    db
+      .select({
+        id: inventoryMovements.id,
+        name: inventoryItems.name,
+        delta: inventoryMovements.delta,
+        reason: inventoryMovements.reason,
+        createdAt: inventoryMovements.createdAt,
+      })
+      .from(inventoryMovements)
+      .innerJoin(inventoryItems, eq(inventoryMovements.itemId, inventoryItems.id))
+      .where(
+        and(
+          eq(inventoryMovements.farmId, farmId),
+          gte(inventoryMovements.createdAt, todayStart),
+          lt(inventoryMovements.createdAt, tomorrowStart),
+        ),
+      )
+      .orderBy(desc(inventoryMovements.createdAt))
+      .limit(20),
 
     // Expenses today
     db
@@ -187,7 +205,7 @@ dayCloseRoutes.get('/', async (c) => {
   const totalExpenses = expensesToday.reduce((sum, e) => sum + (e.amount ?? 0), 0)
   const currency = expensesToday[0]?.currency ?? 'NGN'
 
-  // Tomorrow's checklist — carry-forward overdue + pending approvals
+  // Tomorrow's checklist - carry-forward overdue + pending approvals
   const tomorrowActions: string[] = []
   if (overdueTasks.length > 0) {
     tomorrowActions.push(`${overdueTasks.length} overdue task(s) to reschedule or follow up`)
@@ -231,7 +249,7 @@ dayCloseRoutes.get('/', async (c) => {
     inventory: {
       lowStockCount: lowStock.length,
       lowStockItems: lowStock,
-      movementsToday: (inventoryMovementsToday as Record<string, unknown>[]).length,
+      movementsToday: inventoryMovementsToday.length,
     },
     livestock: {
       mortalityToday: mortalityToday.reduce((s, l) => s + (l.headCount ?? 0), 0),

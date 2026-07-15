@@ -59,7 +59,7 @@ export function renderTemplate(
 export async function sendWhatsAppText(to: string, body: string): Promise<{ messageId: string }> {
   const config = getWhatsAppConfig()
   if (!config) {
-    throw new Error('WhatsApp not configured — set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
+    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
   }
 
   const normalizedTo = to.replace(/\D/g, '')
@@ -96,7 +96,7 @@ export async function uploadWhatsAppMedia(
 ): Promise<{ mediaId: string }> {
   const config = getWhatsAppConfig()
   if (!config) {
-    throw new Error('WhatsApp not configured — set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
+    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
   }
 
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/media`
@@ -126,7 +126,7 @@ export async function sendWhatsAppAudio(
 ): Promise<{ messageId: string }> {
   const config = getWhatsAppConfig()
   if (!config) {
-    throw new Error('WhatsApp not configured — set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
+    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
   }
 
   const normalizedTo = to.replace(/\D/g, '')

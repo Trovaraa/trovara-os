@@ -8,7 +8,12 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
 import { checkProactiveAlerts } from '../lib/proactive-alerts.js'
 import { gatherExceptions } from '../lib/exceptions.js'
-import { notifyOwner, notifyOwnerTelegram } from '../lib/farm-notify.js'
+import {
+  notifyOwner,
+  notifyOwnerTelegram,
+  notifySupervisors,
+  notifySupervisorsTelegram,
+} from '../lib/farm-notify.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 
@@ -81,21 +86,46 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
 
   const alerts = await checkProactiveAlerts(auth.user.farmId)
   const msg = formatProactiveAlertMessage(auth.user.farmId, alerts)
+  const reason = auth.usedCronSecret ? 'cron_proactive' : 'manual_proactive'
   const tg = await notifyOwnerTelegram(auth.user.farmId, msg, {
     actorUserId: auth.user.id,
-    reason: auth.usedCronSecret ? 'cron_proactive' : 'manual_proactive',
+    reason,
   })
   const wa = await notifyOwner(auth.user.farmId, msg, {
     actorUserId: auth.user.id,
-    reason: auth.usedCronSecret ? 'cron_proactive' : 'manual_proactive',
+    reason,
   })
+
+  // Field-ops reminders (equipment not logged / awaiting verification) are the
+  // supervisor's job - send those lines straight to supervisors as well.
+  const assetAlerts = alerts.filter(
+    (a) => a.type === 'asset_log_missing' || a.type === 'asset_verification_pending',
+  )
+  let supervisorNotified = { telegram: 0, whatsapp: 0 }
+  if (assetAlerts.length > 0) {
+    const supMsg = ['🧰 Equipment reminder:', ...assetAlerts.map((a) => `- ${a.title}: ${a.message}`)].join(
+      '\n',
+    )
+    const supTg = await notifySupervisorsTelegram(auth.user.farmId, supMsg, {
+      actorUserId: auth.user.id,
+      reason: `${reason}_assets`,
+    })
+    const supWa = await notifySupervisors(auth.user.farmId, supMsg, {
+      actorUserId: auth.user.id,
+      reason: `${reason}_assets`,
+    })
+    supervisorNotified = { telegram: supTg.notified, whatsapp: supWa.notified }
+  }
 
   return c.json({
     ok: true,
     farmId: auth.user.farmId,
     alertsCount: alerts.length,
     alerts,
-    notified: { telegram: tg.notified, whatsapp: wa.notified },
+    notified: {
+      owner: { telegram: tg.notified, whatsapp: wa.notified },
+      supervisors: supervisorNotified,
+    },
   })
 })
 
@@ -114,6 +144,8 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
     `- Mortality today: ${summary.mortalityToday}`,
     `- Orders pending: ${summary.ordersPending}`,
     `- Rejected tasks: ${summary.rejectedTasks}`,
+    `- Equipment not logged today: ${summary.assetLogsMissing}`,
+    `- Asset logs to verify: ${summary.assetVerificationPending}`,
   ]
   const message = digestLines.join('\n')
 

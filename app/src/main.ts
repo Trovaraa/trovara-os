@@ -24,7 +24,7 @@ if (import.meta.env.PROD) {
           'display:flex;align-items:center;gap:0.75rem;white-space:nowrap',
         ].join(';')
         banner.innerHTML =
-          'New version available — <button id="sw-update-btn" style="background:#fff;color:#1f6b42;border:none;border-radius:0.5rem;padding:0.25rem 0.75rem;font-weight:700;cursor:pointer">Update now</button>'
+          'New version available - <button id="sw-update-btn" style="background:#fff;color:#1f6b42;border:none;border-radius:0.5rem;padding:0.25rem 0.75rem;font-weight:700;cursor:pointer">Update now</button>'
         document.body.appendChild(banner)
         document.getElementById('sw-update-btn')?.addEventListener('click', () => {
           void updateSW(true)
@@ -32,10 +32,20 @@ if (import.meta.env.PROD) {
         })
       },
       onOfflineReady() {
-        console.log('[Trovara OS] App shell cached — ready for offline use')
+        console.log('[Trovara OS] App shell cached - ready for offline use')
       },
     })
   })
+} else if ('serviceWorker' in navigator) {
+  // Dev: unregister any service worker left over from a previous production build on
+  // this origin. A stale SW intercepts API calls and serves the cached app shell,
+  // breaking JSON responses (e.g. "Unexpected token '<'" when enabling 2FA).
+  void navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => void reg.unregister())
+  })
+  if ('caches' in window) {
+    void caches.keys().then((keys) => keys.forEach((key) => void caches.delete(key)))
+  }
 }
 
 createApp(App).use(createPinia()).use(router).use(i18n).use(MotionPlugin).mount('#app')

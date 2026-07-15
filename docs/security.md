@@ -1,4 +1,6 @@
-# Trovara OS Security Notes
+# Trovara OS Security
+
+Reference for what is implemented, plus the release gate used before internet-facing deployment.
 
 ## Phase 1 Controls (implemented)
 
@@ -21,7 +23,7 @@
 - TOTP 2FA for owner accounts (setup/enable/disable in Settings)
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)
 - Data retention: `DATA_RETENTION_DAYS` + `npm run run-data-retention`
-- Secrets in `.env` only — `.env.example` has placeholders
+- Secrets in `.env` only - `.env.example` has placeholders
 - All queries scoped by `farm_id`
 - WhatsApp webhook: `X-Hub-Signature-256` HMAC verification (`META_APP_SECRET`)
 - Telegram webhook: `secret_token` verification (`TELEGRAM_WEBHOOK_SECRET`)
@@ -36,9 +38,9 @@
 | Resource | owner | supervisor | field_worker |
 |----------|-------|------------|--------------|
 | Dashboard | read | read | read (limited) |
-| Tasks — assign | yes | yes | no |
-| Tasks — log completion | yes | yes | own only |
-| Tasks — approve | yes | yes | no |
+| Tasks - assign | yes | yes | no |
+| Tasks - log completion | yes | yes | own only |
+| Tasks - approve | yes | yes | no |
 | Inventory | read/write | read/write | read |
 | Reports / finance | yes | zone only | no |
 | Audit / CSV export | yes | no | no |
@@ -50,11 +52,7 @@
 - Postgres published to `127.0.0.1:5432` for host API access (dev only)
 - Do not expose `0.0.0.0` without explicit need
 - Use ngrok/Tailscale for temporary remote demos only
-- `logs/` directory is gitignored — review locally before sharing
-
-## Release Checklist
-
-See [`SECURITY-RELEASE-CHECKLIST.md`](./SECURITY-RELEASE-CHECKLIST.md) before internet deployment.
+- `logs/` directory is gitignored - review locally before sharing
 
 ## Still manual / ops (production is live)
 
@@ -62,3 +60,55 @@ See [`SECURITY-RELEASE-CHECKLIST.md`](./SECURITY-RELEASE-CHECKLIST.md) before in
 - Confirm HTTPS is enabled for `os.trovara.farm`
 - Configure off-server encrypted backups + logrotate for `logs/*.log`
 - Set `META_APP_SECRET` when WhatsApp goes live
+
+---
+
+## Release Checklist
+
+Use this as a release gate before internet-facing deployment (or each production push).
+
+### V1. Authentication & Session
+
+- [ ] Default/dev passwords rotated; no shared credentials remain.
+- [ ] `SESSION_SECRET` and DB credentials rotated from any previously exposed values.
+- [ ] Disabled users cannot keep active sessions.
+- [ ] Login failures are rate-limited and recorded in `logs/security.log`.
+
+### V2. Access Control
+
+- [ ] Owner-only endpoints return 403 for supervisor/field worker access attempts.
+- [ ] Cross-farm resource access is denied (404/403) across key routes.
+- [ ] Sensitive routes use explicit role checks (`requireRole`, `canAccessFinance`, etc.).
+- [ ] Forbidden access attempts are logged for review.
+
+### V3. Request Integrity & Input Safety
+
+- [ ] CSRF token is required for mutating browser-session requests.
+- [ ] CSRF failures are logged and monitored.
+- [ ] Mutating API routes have rate limiting (120 writes per 15 min per user/IP).
+- [ ] Request body size limits are enforced at app and reverse-proxy levels.
+
+### V4. Webhook Trust Boundary
+
+- [ ] WhatsApp webhook signature verification is active (`META_APP_SECRET` set in production).
+- [ ] Telegram webhook secret verification is active for webhook mode.
+- [ ] Invalid webhook signatures/secrets are logged in `logs/security.log`.
+
+### V5. Cryptography & Data Protection
+
+- [ ] Backup encryption is enabled (`backup-db-encrypted.sh` with GPG passphrase).
+- [ ] Backup files are stored off-machine securely and not committed to git.
+- [ ] TLS termination (HTTPS) is enabled in deployed environments.
+
+### V6. Monitoring, Audit & Response
+
+- [ ] Security logs are reviewed before each release.
+- [ ] Audit events export is available and validated for owner role.
+- [ ] Proactive alerting and evening digest jobs are configured and tested.
+- [ ] Incident response contacts/runbook are documented for pilot operations.
+
+### V7. Verification & Hygiene
+
+- [ ] Negative security tests pass in CI (RBAC, CSRF, rate limits, urgent triggers).
+- [ ] `npm audit` reviewed; unresolved findings documented with risk acceptance.
+- [ ] Secrets are not present in docs, scripts, or repository history.

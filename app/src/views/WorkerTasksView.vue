@@ -131,7 +131,7 @@ async function submitTask(id: string) {
     if (isOffline && photos.value[id]) {
       const queued = queueOfflinePhoto(id, photos.value[id])
       if (!queued) {
-        queueError.value = 'Could not save photo offline — queue full or storage full.'
+        queueError.value = 'Could not save photo offline - queue full or storage full.'
         return
       }
     }

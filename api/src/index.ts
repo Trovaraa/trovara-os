@@ -10,12 +10,16 @@ import { reportRoutes } from './routes/reports.js'
 import { cropRoutes } from './routes/crops.js'
 import { livestockRoutes } from './routes/livestock.js'
 import { salesRoutes } from './routes/sales.js'
+import { productRoutes } from './routes/products.js'
 import { financeRoutes } from './routes/finance.js'
 import { traceabilityRoutes } from './routes/traceability.js'
+import { assetRoutes } from './routes/assets.js'
+import { customerInsightsRoutes } from './routes/customer-insights.js'
 import { aiRoutes } from './routes/ai.js'
 import { whatsappRoutes } from './routes/whatsapp.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { startTelegramPolling } from './lib/telegram-inbound.js'
+import { startCustomerTelegramPolling } from './lib/customer-telegram-inbound.js'
 import { userRoutes } from './routes/users.js'
 import { eventRoutes } from './routes/events.js'
 import { publicRoutes } from './routes/public.js'
@@ -54,8 +58,11 @@ app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)
 app.route('/api/sales', salesRoutes)
+app.route('/api/products', productRoutes)
+app.route('/api/customer-insights', customerInsightsRoutes)
 app.route('/api/finance', financeRoutes)
 app.route('/api/traceability', traceabilityRoutes)
+app.route('/api/assets', assetRoutes)
 app.route('/api/ai', aiRoutes)
 app.route('/api/whatsapp', whatsappRoutes)
 app.route('/api/telegram', telegramRoutes)
@@ -71,7 +78,7 @@ app.route('/api/alerts', alertsRoutes)
 app.route('/api/exports', exportRoutes)
 app.route('/api/consent', consentRoutes)
 app.route('/api', privacyRoutes)
-// health / ready / version / system-status — no /api prefix for liveness probes
+// health / ready / version / system-status - no /api prefix for liveness probes
 app.route('/', systemRoutes)
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404))
@@ -111,7 +118,7 @@ if (
   !process.env.META_APP_SECRET?.trim()
 ) {
   console.warn(
-    'WARNING: WhatsApp is configured without META_APP_SECRET — inbound webhook signatures are NOT verified. Set META_APP_SECRET (Meta app dashboard → App settings → Basic).',
+    'WARNING: WhatsApp is configured without META_APP_SECRET - inbound webhook signatures are NOT verified. Set META_APP_SECRET (Meta app dashboard → App settings → Basic).',
   )
 }
 
@@ -122,3 +129,6 @@ serve({ fetch: app.fetch, hostname: host, port })
 // Start the Telegram butler's long-poll loop (no-op unless TELEGRAM_BOT_TOKEN set
 // and TELEGRAM_MODE is polling). Webhook mode uses /api/telegram/webhook instead.
 startTelegramPolling()
+// Start the customer order bot's long-poll loop (no-op unless
+// TELEGRAM_CUSTOMER_BOT_TOKEN set). Webhook mode uses /api/telegram/customer/webhook.
+startCustomerTelegramPolling()

@@ -1,32 +1,35 @@
-import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farmEvents, users } from '../db/schema.js'
+import type { UserRole } from '../db/schema.js'
 import { recordFarmEvent } from './farm-events.js'
 import { isWhatsAppConfigured, sendWhatsAppText } from './whatsapp-meta.js'
 import { sendTelegramMessage } from './telegram.js'
 
-/**
- * Push a WhatsApp message to the farm owner(s). Used by the butler to escalate
- * urgent issues (sick animals, incidents, low stock) reported by workers.
- * No-op (returns notified: 0) when WhatsApp isn't configured or no owner phone.
- */
-export async function notifyOwner(
-  farmId: string,
-  message: string,
-  opts?: { actorUserId?: string; reason?: string },
-): Promise<{ notified: number }> {
-  if (!isWhatsAppConfigured()) return { notified: 0 }
+type NotifyOpts = { actorUserId?: string; reason?: string; kind?: string }
 
-  const owners = await db
+/**
+ * Push a WhatsApp message to every user on the farm holding one of `roles`.
+ * No-op (returns notified: 0) when WhatsApp isn't configured or nobody has a phone.
+ */
+export async function notifyRoles(
+  farmId: string,
+  roles: UserRole[],
+  message: string,
+  opts?: NotifyOpts,
+): Promise<{ notified: number }> {
+  if (!isWhatsAppConfigured() || roles.length === 0) return { notified: 0 }
+
+  const recipients = await db
     .select()
     .from(users)
-    .where(and(eq(users.farmId, farmId), eq(users.role, 'owner'), isNotNull(users.phone)))
+    .where(and(eq(users.farmId, farmId), inArray(users.role, roles), isNotNull(users.phone)))
 
   let notified = 0
-  for (const owner of owners) {
-    if (!owner.phone) continue
+  for (const recipient of recipients) {
+    if (!recipient.phone) continue
     try {
-      const res = await sendWhatsAppText(owner.phone, message)
+      const res = await sendWhatsAppText(recipient.phone, message)
       notified++
       await recordFarmEvent({
         farmId,
@@ -35,11 +38,15 @@ export async function notifyOwner(
         entityId: res.messageId,
         eventType: 'other',
         source: 'butler',
-        afterValue: { to: owner.phone, text: message, role: 'assistant' },
-        metadata: { direction: 'outbound', kind: 'owner_alert', reason: opts?.reason ?? null },
+        afterValue: { to: recipient.phone, text: message, role: 'assistant' },
+        metadata: {
+          direction: 'outbound',
+          kind: opts?.kind ?? 'role_alert',
+          reason: opts?.reason ?? null,
+        },
       })
     } catch {
-      // owner offline / quota — alert is best-effort
+      // recipient offline / quota - alert is best-effort
     }
   }
 
@@ -47,19 +54,22 @@ export async function notifyOwner(
 }
 
 /**
- * Send a Telegram alert to all linked farm owners. Uses Telegram chat links
- * stored in farm_events (entityType: telegram_link).
+ * Send a Telegram alert to every user on the farm holding one of `roles`.
+ * Uses Telegram chat links stored in farm_events (entityType: telegram_link).
  */
-export async function notifyOwnerTelegram(
+export async function notifyRolesTelegram(
   farmId: string,
+  roles: UserRole[],
   message: string,
-  opts?: { actorUserId?: string; reason?: string },
+  opts?: NotifyOpts,
 ): Promise<{ notified: number }> {
-  const owners = await db
+  if (roles.length === 0) return { notified: 0 }
+
+  const recipients = await db
     .select()
     .from(users)
-    .where(and(eq(users.farmId, farmId), eq(users.role, 'owner')))
-  if (!owners.length) return { notified: 0 }
+    .where(and(eq(users.farmId, farmId), inArray(users.role, roles)))
+  if (!recipients.length) return { notified: 0 }
 
   const links = await db
     .select()
@@ -67,13 +77,13 @@ export async function notifyOwnerTelegram(
     .where(and(eq(farmEvents.farmId, farmId), eq(farmEvents.entityType, 'telegram_link')))
     .orderBy(desc(farmEvents.createdAt))
 
-  const ownerIds = new Set(owners.map((o) => o.id))
+  const recipientIds = new Set(recipients.map((r) => r.id))
   const seen = new Set<string>()
   let notified = 0
 
   for (const link of links) {
     const v = link.afterValue as { userId?: string; chatId?: number } | null
-    if (!v?.userId || !v.chatId || !ownerIds.has(v.userId) || seen.has(v.userId)) continue
+    if (!v?.userId || !v.chatId || !recipientIds.has(v.userId) || seen.has(v.userId)) continue
     seen.add(v.userId)
     try {
       await sendTelegramMessage(v.chatId, message)
@@ -88,7 +98,7 @@ export async function notifyOwnerTelegram(
         afterValue: { text: message, role: 'assistant' },
         metadata: {
           direction: 'outbound',
-          kind: 'owner_alert',
+          kind: opts?.kind ?? 'role_alert',
           reason: opts?.reason ?? null,
         },
       })
@@ -98,6 +108,42 @@ export async function notifyOwnerTelegram(
   }
 
   return { notified }
+}
+
+/** WhatsApp alert to the farm owner(s). */
+export function notifyOwner(
+  farmId: string,
+  message: string,
+  opts?: { actorUserId?: string; reason?: string },
+): Promise<{ notified: number }> {
+  return notifyRoles(farmId, ['owner'], message, { ...opts, kind: 'owner_alert' })
+}
+
+/** Telegram alert to the farm owner(s). */
+export function notifyOwnerTelegram(
+  farmId: string,
+  message: string,
+  opts?: { actorUserId?: string; reason?: string },
+): Promise<{ notified: number }> {
+  return notifyRolesTelegram(farmId, ['owner'], message, { ...opts, kind: 'owner_alert' })
+}
+
+/** Telegram alert to the farm supervisor(s) - used for field-ops reminders. */
+export function notifySupervisorsTelegram(
+  farmId: string,
+  message: string,
+  opts?: { actorUserId?: string; reason?: string },
+): Promise<{ notified: number }> {
+  return notifyRolesTelegram(farmId, ['supervisor'], message, { ...opts, kind: 'supervisor_alert' })
+}
+
+/** WhatsApp alert to the farm supervisor(s). */
+export function notifySupervisors(
+  farmId: string,
+  message: string,
+  opts?: { actorUserId?: string; reason?: string },
+): Promise<{ notified: number }> {
+  return notifyRoles(farmId, ['supervisor'], message, { ...opts, kind: 'supervisor_alert' })
 }
 
 /** Keywords that suggest a worker message should be escalated to the owner. */

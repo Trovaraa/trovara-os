@@ -151,7 +151,7 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
   if (existing.role === 'owner' && targetId !== user.id && (body.active === false || body.role)) {
-    return c.json({ error: 'Cannot modify owner account' }, 400)
+    return c.json({ error: 'Cannot modify Founder account' }, 400)
   }
 
   const updates: Partial<typeof existing> = {}

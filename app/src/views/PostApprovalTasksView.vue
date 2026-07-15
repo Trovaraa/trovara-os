@@ -23,7 +23,7 @@ async function load() {
   error.value = null
   try {
     const data = await api<{ changes: PostApprovalChange[] }>('/api/tasks/post-approval-changes')
-    changes.value = data.changes
+    changes.value = data.changes ?? []
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load post-approval changes'
   } finally {

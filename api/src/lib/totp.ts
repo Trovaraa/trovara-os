@@ -1,14 +1,9 @@
 import { randomBytes } from 'node:crypto'
-import * as otplib from 'otplib'
-
-type OtpAuthenticator = {
-  generateSecret: () => string
-  check: (token: string, secret: string) => boolean
-  keyuri: (email: string, issuer: string, secret: string) => string
-}
-
-const authenticator = ((otplib as any).authenticator ??
-  (otplib as any).default?.authenticator) as OtpAuthenticator
+import {
+  generateSecret as otpGenerateSecret,
+  generateURI,
+  verifySync,
+} from 'otplib'
 
 type TotpChallengeEntry = {
   userId: string
@@ -33,16 +28,26 @@ function currentTotpStep(now = Date.now()): number {
 }
 
 export function generateSecret(): string {
-  return authenticator.generateSecret()
+  return otpGenerateSecret()
+}
+
+function tokenIsValid(secret: string, token: string): boolean {
+  const normalized = token.replace(/\s+/g, '')
+  if (!normalized) return false
+  try {
+    return verifySync({ secret, token: normalized }).valid
+  } catch {
+    // Guardrails throw on malformed input (e.g. bad length); treat as invalid.
+    return false
+  }
 }
 
 export function verifyToken(secret: string, token: string): boolean {
-  return authenticator.check(token.replace(/\s+/g, ''), secret)
+  return tokenIsValid(secret, token)
 }
 
 export function verifyTokenForUser(userId: string, secret: string, token: string): boolean {
-  const normalized = token.replace(/\s+/g, '')
-  if (!authenticator.check(normalized, secret)) return false
+  if (!tokenIsValid(secret, token)) return false
 
   const step = currentTotpStep()
   const last = lastAcceptedStep.get(userId)
@@ -54,7 +59,7 @@ export function verifyTokenForUser(userId: string, secret: string, token: string
 
 export function buildOtpAuthUrl(params: { email: string; secret: string; issuer?: string }): string {
   const issuer = params.issuer?.trim() || 'Trovara OS'
-  return authenticator.keyuri(params.email, issuer, params.secret)
+  return generateURI({ issuer, label: params.email, secret: params.secret })
 }
 
 export function createTotpChallenge(userId: string): string {

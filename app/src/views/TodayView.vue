@@ -33,6 +33,8 @@ type ExceptionSummary = {
   mortalityToday: number
   ordersPending: number
   rejectedTasks: number
+  assetLogsMissing: number
+  assetVerificationPending: number
   total: number
 }
 
@@ -107,6 +109,8 @@ const exceptionIcon: Record<string, string> = {
   mortality_today: 'text-red-500',
   order_pending: 'text-orange-400',
   rejected_task: 'text-rose-400',
+  asset_log_missing: 'text-amber-400',
+  asset_verification_pending: 'text-cyan-400',
 }
 
 const exceptionLabel: Record<string, string> = {
@@ -116,6 +120,8 @@ const exceptionLabel: Record<string, string> = {
   mortality_today: 'Mortality',
   order_pending: 'Order pending',
   rejected_task: 'Rejected',
+  asset_log_missing: 'Not logged',
+  asset_verification_pending: 'Verify asset',
 }
 
 const summaryCards = computed(() => {
@@ -128,6 +134,8 @@ const summaryCards = computed(() => {
     { key: 'mortalityToday', label: 'Mortality', color: 'text-red-500' },
     { key: 'ordersPending', label: 'Orders', color: 'text-orange-400' },
     { key: 'rejectedTasks', label: 'Rejected', color: 'text-rose-400' },
+    { key: 'assetLogsMissing', label: 'Not logged', color: 'text-amber-400' },
+    { key: 'assetVerificationPending', label: 'Verify assets', color: 'text-cyan-400' },
   ]
   return cards.filter((card) => s[card.key] > 0 || !isWorker.value)
 })
@@ -277,7 +285,7 @@ function formatCurrency(amount: number, currency: string) {
           </li>
         </ul>
         <p v-else class="text-slate-500 text-sm bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          {{ isWorker ? "No blockers — you're clear" : 'No exceptions — farm is on track' }}
+          {{ isWorker ? "No blockers - you're clear" : 'No exceptions - farm is on track' }}
         </p>
       </section>
 
@@ -292,7 +300,7 @@ function formatCurrency(amount: number, currency: string) {
             <span class="text-farm-green text-lg">🌙</span>
             <div class="text-left">
               <p class="font-bold text-white text-sm">Farm Day Close</p>
-              <p class="text-xs text-slate-400 mt-0.5">End-of-day summary — tasks, approvals, inventory, finance</p>
+              <p class="text-xs text-slate-400 mt-0.5">End-of-day summary - tasks, approvals, inventory, finance</p>
             </div>
           </div>
           <svg
@@ -431,7 +439,7 @@ function formatCurrency(amount: number, currency: string) {
                 </li>
               </ul>
             </div>
-            <p v-else class="text-xs text-slate-500 px-1">No carry-forward actions — clean day close.</p>
+            <p v-else class="text-xs text-slate-500 px-1">No carry-forward actions - clean day close.</p>
           </template>
         </div>
       </section>

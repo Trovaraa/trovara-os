@@ -6,7 +6,15 @@ import { and, eq, gt, isNull } from 'drizzle-orm'
 import { setCookie, deleteCookie, getCookie } from 'hono/cookie'
 import QRCode from 'qrcode'
 import { db } from '../db/index.js'
-import { passwordResetTokens, users } from '../db/schema.js'
+import { consentRecords, farms, passwordResetTokens, users } from '../db/schema.js'
+import { CONSENT_TYPES, CURRENT_CONSENT_VERSION } from '../lib/consent.js'
+import {
+  isBreakGlassEmail,
+  normalizeRegisterEmail,
+  normalizeRegisterPhone,
+  registerBodySchema,
+  validateRegistrationSecret,
+} from '../lib/registration.js'
 import {
   SESSION_COOKIE,
   countActiveSessions,
@@ -200,6 +208,21 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   setCookie(c, SESSION_COOKIE, token, sessionCookieOptions(secure))
   setCsrfCookie(c, generateCsrfToken())
 
+  if (isBreakGlassEmail(user.email)) {
+    logSecurityEvent('break_glass_login', {
+      userId: user.id,
+      email: user.email,
+      ip,
+    })
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'break_glass_login',
+      entityType: 'session',
+      metadata: { email: user.email },
+    })
+  }
+
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -219,6 +242,105 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     },
     mustChangePassword: user.mustChangePassword,
   })
+})
+
+authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) => {
+  const mutation = checkAuthMutationRateLimit(authMutationKey(c))
+  if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
+
+  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const body = c.req.valid('json')
+  const secretCheck = validateRegistrationSecret(
+    body.registrationSecret,
+    process.env.OWNER_REGISTRATION_SECRET,
+  )
+  if (!secretCheck.ok) {
+    if (secretCheck.reason === 'disabled') {
+      return c.json({ error: 'Founder registration is disabled' }, 503)
+    }
+    logSecurityEvent('failed_registration', {
+      reason: 'invalid_secret',
+      email: normalizeRegisterEmail(body.email),
+      ip,
+    })
+    return c.json({ error: 'Invalid registration secret' }, 401)
+  }
+
+  const [farm] = await db.select({ id: farms.id }).from(farms).limit(1)
+  if (!farm) {
+    return c.json({ error: 'No farm provisioned. Seed or create a farm first.' }, 409)
+  }
+
+  const email = normalizeRegisterEmail(body.email)
+  const phone = normalizeRegisterPhone(body.phone)
+  if (phone.length < 7) {
+    return c.json({ error: 'Phone number looks invalid' }, 400)
+  }
+
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
+  if (existing) return c.json({ error: 'Email already in use' }, 400)
+
+  const [created] = await db
+    .insert(users)
+    .values({
+      farmId: farm.id,
+      email,
+      name: body.name.trim(),
+      phone,
+      passwordHash: await hashPassword(body.password),
+      role: 'owner',
+      mustChangePassword: false,
+      active: true,
+    })
+    .returning()
+
+  if (!created) return c.json({ error: 'Could not create account' }, 500)
+
+  const acceptedAt = new Date()
+  await db.insert(consentRecords).values(
+    CONSENT_TYPES.map((consentType) => ({
+      userId: created.id,
+      farmId: farm.id,
+      consentType,
+      version: CURRENT_CONSENT_VERSION,
+      acceptedAt,
+    })),
+  )
+
+  const userAgent = c.req.header('user-agent')
+  const hashedIp = hashIp(ip)
+  const sessionToken = await createSession(created.id, {
+    userAgent,
+    ipHash: hashedIp,
+  })
+  const secure = process.env.NODE_ENV === 'production'
+  setCookie(c, SESSION_COOKIE, sessionToken, sessionCookieOptions(secure))
+  setCsrfCookie(c, generateCsrfToken())
+
+  await logAudit({
+    farmId: farm.id,
+    userId: created.id,
+    action: 'register',
+    entityType: 'user',
+    entityId: created.id,
+    metadata: { role: 'owner', via: 'founder_registration' },
+  })
+
+  return c.json(
+    {
+      user: {
+        id: created.id,
+        email: created.email,
+        name: created.name,
+        role: created.role,
+        farmId: created.farmId,
+        totpEnabled: created.totpEnabled,
+        butlerTtsMode: created.butlerTtsMode,
+      },
+      mustChangePassword: created.mustChangePassword,
+    },
+    201,
+  )
 })
 
 authRoutes.post('/totp/complete-login', zValidator('json', totpCompleteLoginSchema), async (c) => {
@@ -269,6 +391,22 @@ authRoutes.post('/totp/complete-login', zValidator('json', totpCompleteLoginSche
   const secure = process.env.NODE_ENV === 'production'
   setCookie(c, SESSION_COOKIE, sessionToken, sessionCookieOptions(secure))
   setCsrfCookie(c, generateCsrfToken())
+
+  if (isBreakGlassEmail(user.email)) {
+    logSecurityEvent('break_glass_login', {
+      userId: user.id,
+      email: user.email,
+      ip,
+      via: 'totp',
+    })
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'break_glass_login',
+      entityType: 'session',
+      metadata: { email: user.email, via: 'totp' },
+    })
+  }
 
   await logAudit({
     farmId: user.farmId,
@@ -381,7 +519,7 @@ authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), asyn
       .where(eq(passwordResetTokens.id, tokenRow.id))
   })
 
-  // No active session after reset — revoke all sessions for this user
+  // No active session after reset - revoke all sessions for this user
   await revokeOtherSessions(tokenRow.userId, undefined)
 
   logSecurityEvent('password_reset_completed', { userId: tokenRow.userId })
@@ -482,7 +620,7 @@ authRoutes.post('/totp/setup', authMiddleware, async (c) => {
   return c.json({
     secret,
     qrUrl,
-    otpauthUrl,
+    otpAuthUrl: otpauthUrl,
   })
 })
 

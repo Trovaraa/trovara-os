@@ -7,6 +7,7 @@ import {
   pgEnum,
   jsonb,
   boolean,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker'])
@@ -72,6 +73,9 @@ export const poultryBatchTypeEnum = pgEnum('poultry_batch_type', ['broiler', 'la
 export const farms = pgTable('farms', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
+  // Stable, human-readable identifier used to scope public traceability links
+  // (e.g. /lot/:slug/:lotCode). Unique across farms.
+  slug: text('slug').notNull().unique(),
   location: text('location').notNull(),
   liveMode: boolean('live_mode').default(false).notNull(),
   liveStartedAt: timestamp('live_started_at', { withTimezone: true }),
@@ -317,7 +321,19 @@ export const harvestLots = pgTable('harvest_lots', {
   quantityKg: integer('quantity_kg').notNull(),
   publicNotes: text('public_notes'),
   internalNotes: text('internal_notes'),
+  // Optional field evidence (allowlisted data URL) attached when a worker or
+  // supervisor reports the harvest from the field.
+  photoUrl: text('photo_url'),
   harvestedAt: timestamp('harvested_at', { withTimezone: true }).notNull(),
+  // Who created the lot (staff member). Founder-created lots keep this null for
+  // legacy rows; new reports always record the reporter.
+  reportedById: uuid('reported_by_id').references(() => users.id),
+  // Verification gate: 'reported' (worker submission, hidden from buyers) ->
+  // 'verified' (public) or 'rejected'. Owner/supervisor-created lots are
+  // 'verified' immediately. Public traceability shows verified lots only.
+  verificationStatus: text('verification_status').default('verified').notNull(),
+  verifiedById: uuid('verified_by_id').references(() => users.id),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -330,10 +346,133 @@ export const orders = pgTable('orders', {
   totalAmount: integer('total_amount').default(0).notNull(),
   currency: text('currency').default('NGN').notNull(),
   lotId: uuid('lot_id').references(() => harvestLots.id),
+  // Set when the order was placed by a customer via a chat bot; null for
+  // staff-entered orders. `source` records the channel it came in on.
+  customerContactId: uuid('customer_contact_id').references(() => customerContacts.id),
+  source: text('source').default('staff').notNull(),
   notes: text('notes'),
   dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// Sellable catalog shown by the customer order bot. Prices are in kobo (integer
+// minor units); price_kobo = 0 means "price on request" until a Founder sets it.
+export const products = pgTable('products', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  name: text('name').notNull(),
+  unit: text('unit').default('unit').notNull(),
+  priceKobo: integer('price_kobo').default(0).notNull(),
+  currency: text('currency').default('NGN').notNull(),
+  active: boolean('active').default(true).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// A buyer who reached the farm through a chat bot. Anonymous (no login / RBAC);
+// the customer analogue of the staff telegram_link. Scoped per farm + channel.
+export const customerContacts = pgTable(
+  'customer_contacts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    channel: text('channel').notNull(),
+    externalId: text('external_id').notNull(),
+    name: text('name'),
+    phone: text('phone'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('customer_contacts_farm_channel_external_uq').on(t.farmId, t.channel, t.externalId)],
+)
+
+export const orderItems = pgTable('order_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  orderId: uuid('order_id').references(() => orders.id).notNull(),
+  productId: uuid('product_id').references(() => products.id),
+  productName: text('product_name').notNull(),
+  unit: text('unit').default('unit').notNull(),
+  unitPriceKobo: integer('unit_price_kobo').default(0).notNull(),
+  quantity: integer('quantity').notNull(),
+  lineTotalKobo: integer('line_total_kobo').default(0).notNull(),
+})
+
+// Ephemeral shopping-cart / conversation state for a customer chat. One row per
+// (farm, channel, external_id); rewritten as the buyer moves through the flow.
+export const customerChatSessions = pgTable(
+  'customer_chat_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    channel: text('channel').notNull(),
+    externalId: text('external_id').notNull(),
+    step: text('step').default('idle').notNull(),
+    cart: jsonb('cart'),
+    draft: jsonb('draft'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_chat_sessions_farm_channel_external_uq').on(t.farmId, t.channel, t.externalId),
+  ],
+)
+
+// Register of equipment/tools/PPE the farm owns. Founders + supervisors define
+// entries; daily state is tracked in asset_logs. Pool model: one row per item
+// type with a quantity_owned; assigned_to_id optionally ties PPE to a worker.
+export const assets = pgTable('assets', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  name: text('name').notNull(),
+  // 'ppe' | 'tool' | 'vehicle' | 'irrigation' | 'other'
+  category: text('category').default('other').notNull(),
+  unit: text('unit').default('unit').notNull(),
+  quantityOwned: integer('quantity_owned').default(0).notNull(),
+  assignedToId: uuid('assigned_to_id').references(() => users.id),
+  notes: text('notes'),
+  active: boolean('active').default(true).notNull(),
+  createdById: uuid('created_by_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// One daily check per asset: how many are present/working, damaged count and
+// condition, optional photo evidence. Verified by a supervisor/owner (mirrors
+// the task approval shape) so the Founder sees a trusted availability picture.
+export const assetLogs = pgTable('asset_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id).notNull(),
+  logDate: timestamp('log_date', { withTimezone: true }).defaultNow().notNull(),
+  countAvailable: integer('count_available').default(0).notNull(),
+  countDamaged: integer('count_damaged').default(0).notNull(),
+  // 'good' | 'fair' | 'damaged' | free text
+  condition: text('condition').default('good').notNull(),
+  note: text('note'),
+  photoUrl: text('photo_url'),
+  recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
+  // 'reported' | 'verified' | 'rejected'
+  verificationStatus: text('verification_status').default('reported').notNull(),
+  verifiedById: uuid('verified_by_id').references(() => users.id),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// Every question a customer asks the order bot (product availability, farm info,
+// general enquiries). Powers the Founder "most asked" view and the bot's
+// suggested-questions prompt. No login - tied to a customer_contact when known.
+export const customerInquiries = pgTable('customer_inquiries', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  contactId: uuid('contact_id').references(() => customerContacts.id),
+  channel: text('channel').notNull(),
+  question: text('question').notNull(),
+  // Lowercased/normalized form used to group "same" questions for counts.
+  normalized: text('normalized').notNull(),
+  // How we answered: 'catalog' | 'llm' | 'faq' | 'suggested'
+  answeredVia: text('answered_via').default('faq').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const expenses = pgTable('expenses', {

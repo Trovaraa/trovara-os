@@ -1,4 +1,4 @@
-# Trovara OS — API Contract
+# Trovara OS - API Contract
 
 Base URL (local dev): `http://127.0.0.1:3000`
 
@@ -14,7 +14,7 @@ Roles: `owner` | `supervisor` | `field_worker`
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
-| GET | `/health` | No | — | `{ status, service }` |
+| GET | `/health` | No | - | `{ status, service }` |
 
 ---
 
@@ -22,9 +22,9 @@ Roles: `owner` | `supervisor` | `field_worker`
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| POST | `/auth/login` | No | — | `{ email, password }` | `{ user: { id, email, name, role, farmId } }` + sets session + CSRF cookies |
-| POST | `/auth/logout` | Yes | any | — | `{ ok: true }` |
-| GET | `/auth/me` | Yes | any | — | `{ user }` |
+| POST | `/auth/login` | No | - | `{ email, password }` | `{ user: { id, email, name, role, farmId } }` + sets session + CSRF cookies |
+| POST | `/auth/logout` | Yes | any | - | `{ ok: true }` |
+| GET | `/auth/me` | Yes | any | - | `{ user }` |
 
 Login rate limit: 5 attempts per IP per 15 minutes.
 
@@ -56,10 +56,10 @@ Workers also receive `myTasksToday` for assigned open tasks due today or earlier
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/tasks/` | Yes | all (worker: own) | — | `{ tasks[] }` |
+| GET | `/api/tasks/` | Yes | all (worker: own) | - | `{ tasks[] }` |
 | POST | `/api/tasks/` | Yes | owner, supervisor | `{ title, description?, plotId?, assignedToId?, dueDate? }` | `{ task }` |
 | PATCH | `/api/tasks/:id` | Yes | role-dependent | `{ status?, completionNote? }` | `{ task }` |
-| GET | `/api/tasks/pending-approvals` | Yes | owner, supervisor | — | `{ tasks[] }` |
+| GET | `/api/tasks/pending-approvals` | Yes | owner, supervisor | - | `{ tasks[] }` |
 
 Task status state machine: `pending → in_progress → awaiting_approval → completed | rejected`.
 
@@ -69,9 +69,9 @@ Task status state machine: `pending → in_progress → awaiting_approval → co
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/inventory/` | Yes | all | — | `{ items[] }` with `lowStock` flag |
+| GET | `/api/inventory/` | Yes | all | - | `{ items[] }` with `lowStock` flag |
 | POST | `/api/inventory/movements` | Yes | owner, supervisor | `{ itemId, delta, reason }` | `{ item }` |
-| GET | `/api/inventory/low-stock` | Yes | all | — | `{ items[] }` |
+| GET | `/api/inventory/low-stock` | Yes | all | - | `{ items[] }` |
 
 Negative delta blocked if quantity would go below zero.
 
@@ -127,8 +127,8 @@ Negative delta blocked if quantity would go below zero.
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/onboarding/status` | Yes | all | — | `{ checklist, ready }` |
-| POST | `/api/onboarding/reset-demo` | Yes | owner | — | `{ ok, message }` |
+| GET | `/api/onboarding/status` | Yes | all | - | `{ checklist, ready }` |
+| POST | `/api/onboarding/reset-demo` | Yes | owner | - | `{ ok, message }` |
 
 `checklist`: `{ hasZones, hasTemplates, hasUsers, zonesCount, templatesCount, usersCount }`.
 
@@ -140,11 +140,11 @@ Negative delta blocked if quantity would go below zero.
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/crops/` | Yes | all | — | `{ cropCycles[] }` |
-| GET | `/api/crops/:id` | Yes | all | — | `{ cropCycle }` |
+| GET | `/api/crops/` | Yes | all | - | `{ cropCycles[] }` |
+| GET | `/api/crops/:id` | Yes | all | - | `{ cropCycle }` |
 | POST | `/api/crops/` | Yes | owner, supervisor | create schema | `{ cropCycle }` |
 | PATCH | `/api/crops/:id` | Yes | all | update schema | `{ cropCycle }` |
-| DELETE | `/api/crops/:id` | Yes | owner, supervisor | — | `{ ok: true }` |
+| DELETE | `/api/crops/:id` | Yes | owner, supervisor | - | `{ ok: true }` |
 
 Crop stages advance one step: `planted → … → harvested`.
 
@@ -168,10 +168,10 @@ Crop stages advance one step: `planted → … → harvested`.
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/sales/` | Yes | all | — | `{ orders[] }` |
+| GET | `/api/sales/` | Yes | all | - | `{ orders[] }` |
 | POST | `/api/sales/` | Yes | owner, supervisor | order create | `{ order }` |
 | PATCH | `/api/sales/:id` | Yes | owner, supervisor | order update + status | `{ order }` |
-| DELETE | `/api/sales/:id` | Yes | owner, supervisor | — | `{ ok: true }` |
+| DELETE | `/api/sales/:id` | Yes | owner, supervisor | - | `{ ok: true }` |
 
 Order status: `pending → confirmed → dispatched → delivered` or `cancelled`.
 
@@ -214,8 +214,8 @@ Order status: `pending → confirmed → dispatched → delivered` or `cancelled
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
-| GET | `/api/whatsapp/templates` | No | — | `{ templates[], configured }` |
-| POST | `/api/whatsapp/webhook` | No | — | `501` not configured |
+| GET | `/api/whatsapp/templates` | No | - | `{ templates[], configured }` |
+| POST | `/api/whatsapp/webhook` | No | - | `501` not configured |
 
 ---
 
@@ -225,18 +225,18 @@ Implemented in `api/src/routes/zones.ts` and `api/src/routes/templates.ts`. Moun
 
 ### Zones
 
-- `GET /` — list zones
-- `POST /` — create zone (owner, supervisor)
+- `GET /` - list zones
+- `POST /` - create zone (owner, supervisor)
 - `GET /:id`, `PATCH /:id`, `DELETE /:id`
 - Planting units: `GET /planting-units/list`, `POST /planting-units`, `PATCH /planting-units/:id`, `DELETE /planting-units/:id`
-- `GET /plots/:plotId/timeline` — plot activity timeline
+- `GET /plots/:plotId/timeline` - plot activity timeline
 
 ### Templates
 
-- `GET /lifecycles` — crop lifecycle definitions
+- `GET /lifecycles` - crop lifecycle definitions
 - Task templates CRUD at `/templates`, `/templates/:id`
 - Recurring schedules CRUD at `/schedules`, `/schedules/:id`
-- `POST /generate-tasks` — materialize due recurring tasks
+- `POST /generate-tasks` - materialize due recurring tasks
 
 ---
 

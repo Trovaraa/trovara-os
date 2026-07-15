@@ -6,6 +6,7 @@ node_modules/
 dist/
 **/dist/
 .turbo
+*.tsbuildinfo
 
 # Secrets & local env
 .env

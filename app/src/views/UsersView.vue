@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { roleLabel } from '@/lib/roles'
 import type { UserRole } from '@/stores/auth'
 
 type FarmUser = {
@@ -136,7 +137,7 @@ async function saveEdit() {
   <AppLayout>
     <div>
       <h2 class="text-2xl font-black text-white">Users</h2>
-      <p class="text-slate-400 text-sm mt-1">Manage farm team members — owner only</p>
+      <p class="text-slate-400 text-sm mt-1">Manage farm team members - Founder only</p>
     </div>
 
     <form
@@ -174,7 +175,7 @@ async function saveEdit() {
           >
             <option value="supervisor">Supervisor</option>
             <option value="field_worker">Field worker</option>
-            <option value="owner">Owner</option>
+            <option value="owner">Founder</option>
           </select>
         </div>
         <div>
@@ -245,10 +246,10 @@ async function saveEdit() {
           >
             <td class="py-4 font-medium text-white">{{ user.name }}</td>
             <td class="py-4 text-slate-400">{{ user.email }}</td>
-            <td class="py-4 text-slate-300 capitalize">{{ user.role.replace('_', ' ') }}</td>
-            <td class="py-4 text-slate-400">{{ user.phone ?? '—' }}</td>
+            <td class="py-4 text-slate-300">{{ roleLabel(user.role) }}</td>
+            <td class="py-4 text-slate-400">{{ user.phone ?? '-' }}</td>
             <td class="py-4 text-slate-400 font-mono">
-              {{ user.dailyWageNgn != null ? `₦${user.dailyWageNgn}` : '—' }}
+              {{ user.dailyWageNgn != null ? `₦${user.dailyWageNgn}` : '-' }}
             </td>
             <td class="py-4">
               <span
@@ -306,7 +307,7 @@ async function saveEdit() {
           >
             <option value="supervisor">Supervisor</option>
             <option value="field_worker">Field worker</option>
-            <option value="owner">Owner</option>
+            <option value="owner">Founder</option>
           </select>
           <input
             v-model="editPhone"

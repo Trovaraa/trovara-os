@@ -206,7 +206,7 @@ async function selectPlot(plotId: string) {
 
       <div v-if="selectedPlotId" class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white">
-          Timeline — {{ selectedPlotName }}
+          Timeline - {{ selectedPlotName }}
         </h3>
         <div v-if="timelineLoading" class="mt-4 text-slate-400 text-sm">Loading timeline…</div>
         <div v-else-if="timeline.length" class="mt-4 space-y-3">
@@ -253,11 +253,11 @@ async function selectPlot(plotId: string) {
                 class="border-b border-slate-800/50"
               >
                 <td class="py-4 font-medium text-white">{{ unit.label }}</td>
-                <td class="py-4 text-slate-400">{{ unit.plotName ?? '—' }}</td>
+                <td class="py-4 text-slate-400">{{ unit.plotName ?? '-' }}</td>
                 <td class="py-4 text-slate-400">{{ unit.unitType.replace(/_/g, ' ') }}</td>
                 <td class="py-4 text-slate-400 capitalize">{{ unit.status }}</td>
                 <td class="py-4 text-slate-400">
-                  {{ unit.plantedAt ? new Date(unit.plantedAt).toLocaleDateString() : '—' }}
+                  {{ unit.plantedAt ? new Date(unit.plantedAt).toLocaleDateString() : '-' }}
                 </td>
               </tr>
             </tbody>

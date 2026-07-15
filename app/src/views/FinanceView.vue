@@ -52,7 +52,7 @@ onMounted(async () => {
   <AppLayout>
     <div>
       <h2 class="text-2xl font-black text-white">Finance</h2>
-      <p class="text-slate-400 text-sm mt-1">Expenses and P&amp;L snapshot — owner only</p>
+      <p class="text-slate-400 text-sm mt-1">Expenses and P&amp;L snapshot - Founder only</p>
     </div>
 
     <div v-if="loading" class="mt-8 text-slate-400">Loading finance data…</div>
@@ -126,8 +126,8 @@ onMounted(async () => {
               </td>
               <td class="py-4 text-slate-300 capitalize">{{ expense.category }}</td>
               <td class="py-4 text-white">{{ expense.description }}</td>
-              <td class="py-4 text-slate-400">{{ expense.vendor ?? '—' }}</td>
-              <td class="py-4 text-slate-400 font-mono text-xs">{{ expense.receiptRef ?? '—' }}</td>
+              <td class="py-4 text-slate-400">{{ expense.vendor ?? '-' }}</td>
+              <td class="py-4 text-slate-400 font-mono text-xs">{{ expense.receiptRef ?? '-' }}</td>
               <td class="py-4 font-mono text-red-300 text-right">
                 {{ formatAmount(expense.amount, expense.currency) }}
               </td>

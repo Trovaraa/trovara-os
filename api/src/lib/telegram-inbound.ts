@@ -11,9 +11,8 @@ import { looksUrgent, notifyOwnerTelegram } from './farm-notify.js'
 import {
   downloadTelegramFile,
   downloadTelegramFileBuffer,
-  getTelegramUpdates,
-  isTelegramConfigured,
   sendTelegramMessage,
+  startTelegramPollLoop,
   type TelegramUpdate,
 } from './telegram.js'
 
@@ -219,7 +218,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
   if (!linkedUser) {
     if (!checkButlerChatRateLimit(String(chatId))) {
-      await sendTelegramMessage(chatId, 'Too many messages — please wait before trying again.')
+      await sendTelegramMessage(chatId, 'Too many messages - please wait before trying again.')
       return
     }
 
@@ -240,7 +239,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       } else {
         await sendTelegramMessage(
           chatId,
-          'That number is not on any Trovara profile. Ask the owner to add your phone, or use a link code from Settings.',
+          'That number is not on any Trovara profile. Ask the Founder to add your phone, or use a link code from Settings.',
         )
       }
       return
@@ -288,29 +287,6 @@ export async function handleTelegramWebhook(payload: unknown): Promise<{ handled
   return { handled: 1 }
 }
 
-let polling = false
-
 export function startTelegramPolling(): void {
-  if (polling || !isTelegramConfigured()) return
-  if ((process.env.TELEGRAM_MODE ?? 'polling') !== 'polling') return
-  polling = true
-
-  let offset = 0
-  console.log('Telegram butler: long-polling started')
-
-  const loop = async () => {
-    while (polling) {
-      try {
-        const updates = await getTelegramUpdates(offset)
-        for (const u of updates) {
-          offset = u.update_id + 1
-          await handleTelegramUpdate(u)
-        }
-      } catch (err) {
-        console.error('Telegram poll error:', err instanceof Error ? err.message : err)
-        await new Promise((r) => setTimeout(r, 3000))
-      }
-    }
-  }
-  void loop()
+  startTelegramPollLoop('staff', handleTelegramUpdate)
 }

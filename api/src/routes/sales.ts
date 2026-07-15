@@ -1,14 +1,15 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { harvestLots, orders } from '../db/schema.js'
+import { harvestLots, orderItems, orders } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAssignTasks } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { canTransitionOrder, type OrderStatus } from '../lib/state-machines.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
+import { orderReference } from '../lib/customer-cart.js'
 
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(200),
@@ -46,6 +47,7 @@ salesRoutes.get('/', async (c) => {
       currency: orders.currency,
       lotId: orders.lotId,
       lotCode: harvestLots.lotCode,
+      source: orders.source,
       notes: orders.notes,
       dispatchedAt: orders.dispatchedAt,
       createdAt: orders.createdAt,
@@ -56,7 +58,33 @@ salesRoutes.get('/', async (c) => {
     .where(eq(orders.farmId, user.farmId))
     .orderBy(desc(orders.updatedAt))
 
-  return c.json({ orders: rows })
+  // Attach line items (for bot orders; staff orders usually have none).
+  const orderIds = rows.map((r) => r.id)
+  const itemsByOrder: Record<string, unknown[]> = {}
+  if (orderIds.length) {
+    const itemRows = await db
+      .select({
+        orderId: orderItems.orderId,
+        productName: orderItems.productName,
+        unit: orderItems.unit,
+        quantity: orderItems.quantity,
+        unitPriceKobo: orderItems.unitPriceKobo,
+        lineTotalKobo: orderItems.lineTotalKobo,
+      })
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds))
+    for (const it of itemRows) {
+      ;(itemsByOrder[it.orderId] ??= []).push(it)
+    }
+  }
+
+  const result = rows.map((r) => ({
+    ...r,
+    reference: orderReference(r.id),
+    items: itemsByOrder[r.id] ?? [],
+  }))
+
+  return c.json({ orders: result })
 })
 
 salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import router from '@/router'
 import { api } from '@/lib/api'
+import type { ConsentStatus } from '@/lib/consent'
 
 const auth = useAuthStore()
 const { t } = useI18n()
-const email = ref('owner@trovara.farm')
+const email = ref('')
 const password = ref('')
 const flash = ref<string | null>(null)
 const privacyAccepted = ref(false)
-const consentStatus = ref<{ accepted: boolean; acceptedAt?: string } | null>(null)
+const consentStatus = ref<ConsentStatus | null>(null)
+const consentError = ref<string | null>(null)
 const forgotOpen = ref(false)
 const forgotEmail = ref('')
 const forgotMessage = ref<string | null>(null)
@@ -43,15 +46,43 @@ onMounted(() => {
 
 async function loadConsentStatus() {
   try {
-    consentStatus.value = await api<{ accepted: boolean; acceptedAt?: string }>('/api/consent/status')
-    privacyAccepted.value = !!consentStatus.value.accepted
+    consentStatus.value = await api<ConsentStatus>('/api/consent/status')
+    privacyAccepted.value = !!consentStatus.value.acceptedLatest
   } catch {
-    // optional endpoint for public login view
+    // Requires auth - only succeeds when a session cookie is already present.
+  }
+}
+
+// Records consent after a successful sign-in. Version and required types come
+// from the API so the client cannot drift from the server contract. Failures
+// here must never block login: the session is already established.
+async function recordConsentIfNeeded() {
+  if (!privacyAccepted.value) return
+  try {
+    const status = consentStatus.value?.currentVersion
+      ? consentStatus.value
+      : await api<ConsentStatus>('/api/consent/status')
+    consentStatus.value = status
+    if (status.acceptedLatest) return
+
+    for (const consentType of status.requiredTypes) {
+      await api('/api/consent', {
+        method: 'POST',
+        body: JSON.stringify({ consentType, version: status.currentVersion }),
+      })
+    }
+  } catch {
+    // Consent is best-effort at login; do not interrupt navigation.
   }
 }
 
 async function submitLogin() {
   forceError.value = null
+  consentError.value = null
+  if (!privacyAccepted.value) {
+    consentError.value = t('login.consentRequired')
+    return
+  }
   try {
     const data = await auth.login(email.value, password.value, { skipRedirect: true })
     if ('requiresTotp' in data && data.requiresTotp) {
@@ -60,15 +91,7 @@ async function submitLogin() {
       return
     }
     if (!('user' in data)) return
-    if (privacyAccepted.value && !consentStatus.value?.accepted) {
-      await api('/api/consent', {
-        method: 'POST',
-        body: JSON.stringify({
-          accepted: true,
-          channel: 'login',
-        }),
-      })
-    }
+    await recordConsentIfNeeded()
     if ('mustChangePassword' in data && data.mustChangePassword) {
       await router.push('/change-password')
       return
@@ -103,15 +126,7 @@ async function submitTotp() {
 
     auth.user = data.user
 
-    if (privacyAccepted.value && !consentStatus.value?.accepted) {
-      await api('/api/consent', {
-        method: 'POST',
-        body: JSON.stringify({
-          accepted: true,
-          channel: 'login',
-        }),
-      })
-    }
+    await recordConsentIfNeeded()
 
     if ('mustChangePassword' in data && data.mustChangePassword) {
       await router.push('/change-password')
@@ -237,11 +252,16 @@ async function applyForcedPasswordChange() {
           />
         </div>
 
-        <label class="flex items-start gap-2.5 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5">
+        <label
+          class="flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+          :class="consentError ? 'border-red-500/50 bg-red-950/20' : 'border-slate-800 bg-slate-950'"
+        >
           <input
             v-model="privacyAccepted"
             type="checkbox"
+            required
             class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-farm-green focus:ring-farm-green/50"
+            @change="consentError = null"
           />
           <span class="text-xs text-slate-400 leading-5">
             I agree to Trovara's data processing and privacy terms.
@@ -256,12 +276,13 @@ async function applyForcedPasswordChange() {
           </span>
         </label>
 
+        <p v-if="consentError" class="text-red-400 text-sm">{{ consentError }}</p>
         <p v-if="auth.error" class="text-red-400 text-sm">{{ auth.error }}</p>
 
         <button
           type="submit"
-          :disabled="auth.loading"
-          class="w-full min-h-[3rem] py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60"
+          :disabled="auth.loading || !privacyAccepted"
+          class="w-full min-h-[3rem] py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {{ auth.loading ? t('login.signingIn') : t('login.signIn') }}
         </button>
@@ -303,17 +324,18 @@ async function applyForcedPasswordChange() {
         </button>
       </form>
 
-      <button
-        type="button"
-        class="mt-3 text-xs text-slate-400 hover:text-farm-green underline"
-        @click="forgotOpen = true"
-      >
-        Forgot password?
-      </button>
-
-      <p class="text-center text-xs text-slate-600 mt-6">
-        {{ t('login.demoHint') }}
-      </p>
+      <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          class="text-xs text-slate-400 hover:text-farm-green underline"
+          @click="forgotOpen = true"
+        >
+          Forgot password?
+        </button>
+        <RouterLink to="/register" class="text-xs text-slate-400 hover:text-farm-green underline">
+          {{ t('login.registerAsFounder') }}
+        </RouterLink>
+      </div>
     </div>
 
     <div

@@ -1,4 +1,4 @@
-# SaaS Billing — Placeholder Roadmap
+# SaaS Billing - Placeholder Roadmap
 
 Trovara OS currently runs as a **single-farm deployment** on your laptop for Trovara Farm. This document describes what is needed to **sell Trovara OS to other farms** as a SaaS product.
 
@@ -7,7 +7,7 @@ Trovara OS currently runs as a **single-farm deployment** on your laptop for Tro
 | Item | Status |
 |------|--------|
 | Multi-tenant schema (`farm_id`) | ✅ Exists |
-| Tenant isolation in API | ⚠️ Partial — single farm in practice |
+| Tenant isolation in API | ⚠️ Partial - single farm in practice |
 | Stripe / Paystack billing | ❌ Not implemented |
 | Public signup | ❌ Not implemented |
 | `GET /api/billing/status` | ✅ Placeholder roadmap JSON |
@@ -18,14 +18,14 @@ Trovara OS currently runs as a **single-farm deployment** on your laptop for Tro
 ### 1. Product & legal
 - [ ] Pick external brand name (Trovara Origin, FarmOps AI, etc.)
 - [ ] Trademark search (Nigeria + target export markets)
-- [ ] Nigeria NDPA compliance — see `docs/ndpa-compliance.md`
+- [ ] Nigeria NDPA compliance - see `docs/ndpa-compliance.md`
 - [ ] Terms of service + farm data processing agreement
 - [ ] Pricing: per-farm/month vs per-user vs per-hectare
 
 ### 2. Multi-tenant architecture
 - [ ] Signup wizard: farm name, location, owner email, plan selection
 - [ ] Provision new `farms` row + owner user + default zones/templates
-- [ ] Strict tenant scoping audit — every query filters by `farm_id`
+- [ ] Strict tenant scoping audit - every query filters by `farm_id`
 - [ ] Subdomain or path routing: `{farm}.trovara.app` or `/f/{slug}`
 - [ ] Disable `reset-demo` in production multi-tenant mode
 

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
+  auditEvents,
   cropCycles,
   inventoryItems,
   inventoryMovements,
@@ -472,16 +473,43 @@ taskRoutes.get('/post-approval-changes', async (c) => {
   if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const rows = await db
-    .select()
-    .from(tasks)
+    .select({
+      id: auditEvents.id,
+      taskId: auditEvents.entityId,
+      taskTitle: tasks.title,
+      changedByName: users.name,
+      changedByRole: users.role,
+      changedAt: auditEvents.createdAt,
+      metadata: auditEvents.metadata,
+    })
+    .from(auditEvents)
+    .innerJoin(tasks, sql`${tasks.id}::text = ${auditEvents.entityId}`)
+    .leftJoin(users, eq(auditEvents.userId, users.id))
     .where(
       and(
-        eq(tasks.farmId, user.farmId),
-        sql`${tasks.completedAt} is not null`,
-        sql`(${tasks.updatedAt} > ${tasks.completedAt} OR ${tasks.status} <> 'completed')`,
+        eq(auditEvents.farmId, user.farmId),
+        eq(auditEvents.entityType, 'task'),
+        eq(auditEvents.action, 'reopen'),
       ),
     )
-    .orderBy(desc(tasks.updatedAt))
+    .orderBy(desc(auditEvents.createdAt))
 
-  return c.json({ tasks: rows })
+  const changes = rows.map((row) => {
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>
+    return {
+      id: row.id,
+      taskId: row.taskId ?? '',
+      taskTitle: row.taskTitle,
+      changedByName: row.changedByName ?? undefined,
+      changedByRole: row.changedByRole ?? undefined,
+      changedAt: row.changedAt.toISOString(),
+      before: { status: metadata.fromStatus ?? 'completed' },
+      after: {
+        status: metadata.toStatus,
+        reason: metadata.reason,
+      },
+    }
+  })
+
+  return c.json({ changes })
 })

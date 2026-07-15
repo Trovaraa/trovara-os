@@ -125,13 +125,13 @@ export function canAdvanceCropStage(
   return isValidCropStageAdvance(from, to)
 }
 
-/** @deprecated Use isValidTaskTransition — kept for tests */
+/** @deprecated Use isValidTaskTransition - kept for tests */
 export const canTransitionTaskBasic = isValidTaskTransition
 
-/** @deprecated Use isValidOrderTransition — kept for tests */
+/** @deprecated Use isValidOrderTransition - kept for tests */
 export const canTransitionOrderBasic = isValidOrderTransition
 
-/** @deprecated Use isValidCropStageAdvance — kept for tests */
+/** @deprecated Use isValidCropStageAdvance - kept for tests */
 export const canAdvanceCropStageOneStep = isValidCropStageAdvance
 
 export function canSupervisorTransitionTask(from: TaskStatus, to: TaskStatus, role: UserRole): boolean {

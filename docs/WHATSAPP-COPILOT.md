@@ -1,11 +1,11 @@
-# Trovara Butler — WhatsApp Copilot (end-to-end test guide)
+# Trovara Butler - WhatsApp Copilot (end-to-end test guide)
 
 The Butler turns Trovara OS into a conversational farm assistant on WhatsApp, like
 NeuraAgro's "Joaquín". Workers and the owner can:
 
-- **Chat in any language** (English, Pidgin, Yoruba, Hausa, Igbo) — the Butler replies in the same language.
-- **Ask about the farm** — "How many birds are alive?", "What needs restocking?", "How much have we sold?" — answered from live data.
-- **Report a sick animal** — "3 broilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
+- **Chat in any language** (English, Pidgin, Yoruba, Hausa, Igbo) - the Butler replies in the same language.
+- **Ask about the farm** - "How many birds are alive?", "What needs restocking?", "How much have we sold?" - answered from live data.
+- **Report a sick animal** - "3 broilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
 - **Send a photo** of a sick plant or animal → AI vision diagnosis.
 - **Type `brief`** → a short "what needs attention today" summary.
 
@@ -19,7 +19,7 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 
 | Requirement | Where |
 | --- | --- |
-| AI key | `OPENAI_API_KEY` in `.env` (vision needs `gpt-4o-mini` or `gpt-4o` — already the default) |
+| AI key | `OPENAI_API_KEY` in `.env` (vision needs `gpt-4o-mini` or `gpt-4o` - already the default) |
 | Meta WhatsApp app + permanent token | See `docs/INTEGRATIONS.md → 1. Meta WhatsApp Cloud API` |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` | `.env` |
 | A public URL to your laptop | `ngrok http 3000` (or a deployed HTTPS domain) |
@@ -30,7 +30,7 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 
 ---
 
-## Part A — Test the AI brain WITHOUT WhatsApp (fastest)
+## Part A - Test the AI brain WITHOUT WhatsApp (fastest)
 
 You can fully test the intelligence in the web app before wiring Meta.
 
@@ -40,11 +40,11 @@ You can fully test the intelligence in the web app before wiring Meta.
 4. **Why is my animal sick?** enter `broiler` + "weak, not eating, greenish watery droppings since yesterday" → expect likely causes (e.g. Newcastle/coccidiosis), treatments, prevention.
 5. **Why is my crop not growing?** upload a leaf photo → expect a vision diagnosis.
 
-If these work, the AI is good — WhatsApp just adds the channel.
+If these work, the AI is good - WhatsApp just adds the channel.
 
 ---
 
-## Part B — Simulate an inbound WhatsApp message locally (no Meta needed)
+## Part B - Simulate an inbound WhatsApp message locally (no Meta needed)
 
 The webhook accepts the same JSON shape Meta sends, so you can curl it.
 
@@ -88,12 +88,12 @@ Expected: `{"ok":true,"handled":1}`. The Butler runs the AI and records the
 conversation in `farm_events` (entityType `whatsapp_message`). With **real** Meta
 creds the reply is delivered to the number; with placeholders the send is skipped.
 
-**Urgent escalation test:** send `"3 chickens died this morning"` — the owner (a
+**Urgent escalation test:** send `"3 chickens died this morning"` - the owner (a
 user with role `owner` and a phone) should receive an alert message.
 
 ---
 
-## Part C — Go live with Meta (real phones)
+## Part C - Go live with Meta (real phones)
 
 1. **Fill `.env`** with the three `WHATSAPP_*` values + your `OPENAI_API_KEY`; restart the API.
 2. **Expose the API:** `ngrok http 3000` → copy the `https://….ngrok-free.app` URL.
@@ -142,9 +142,9 @@ POST /api/whatsapp/notify-owner   (owner/supervisor)
 | Webhook "Verify and save" fails | `WHATSAPP_VERIFY_TOKEN` mismatch, or API not reachable via ngrok |
 | Inbound returns `501` | `WHATSAPP_*` not set / API not restarted after editing `.env` |
 | No reply received | Number not added as a Meta tester, or token expired (use a *permanent* system-user token) |
-| "from unknown phone" in logs | The sender's number isn't on any user — set it on the Users page |
-| Photo reply says "could not open" | Token lacks media permission, or media expired — resend |
-| AI says it can't answer | `OPENAI_API_KEY` missing/empty — check **AI ready** badge in `/ai` |
+| "from unknown phone" in logs | The sender's number isn't on any user - set it on the Users page |
+| Photo reply says "could not open" | Token lacks media permission, or media expired - resend |
+| AI says it can't answer | `OPENAI_API_KEY` missing/empty - check **AI ready** badge in `/ai` |
 
 ---
 

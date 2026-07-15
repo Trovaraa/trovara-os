@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { assertTenantScope, sanitizeAnonymizedEmail, sanitizeAnonymizedName } from './tenant-scope.js'
 
-const { checkMock } = vi.hoisted(() => ({
-  checkMock: vi.fn(),
+const { verifySyncMock } = vi.hoisted(() => ({
+  verifySyncMock: vi.fn(),
 }))
 
 vi.mock('otplib', () => ({
-  authenticator: {
-    generateSecret: vi.fn(() => 'test-secret'),
-    check: checkMock,
-    keyuri: vi.fn(() => 'otpauth://totp/mock'),
-  },
+  generateSecret: vi.fn(() => 'test-secret'),
+  generateURI: vi.fn(() => 'otpauth://totp/mock'),
+  verifySync: verifySyncMock,
 }))
 
 describe('tenant scoping convention', () => {
@@ -34,11 +32,11 @@ describe('anonymization sanitizers', () => {
 })
 
 describe('totp verification uses otplib', () => {
-  it('delegates token verification to authenticator.check', async () => {
-    checkMock.mockReturnValueOnce(true)
+  it('delegates token verification to verifySync', async () => {
+    verifySyncMock.mockReturnValueOnce({ valid: true, delta: 0 })
     const { verifyToken } = await import('./totp.js')
     const ok = verifyToken('secret', '123456')
     expect(ok).toBe(true)
-    expect(checkMock).toHaveBeenCalledWith('123456', 'secret')
+    expect(verifySyncMock).toHaveBeenCalledWith({ secret: 'secret', token: '123456' })
   })
 })

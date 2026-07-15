@@ -1,6 +1,8 @@
 import { and, eq, lt, ne, or, isNull, sql, gte } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
+  assets,
+  assetLogs,
   inventoryItems,
   livestockBatches,
   livestockLogs,
@@ -18,6 +20,8 @@ export type ExceptionType =
   | 'mortality_today'
   | 'order_pending'
   | 'rejected_task'
+  | 'asset_log_missing'
+  | 'asset_verification_pending'
 
 export type ExceptionItem = {
   type: ExceptionType
@@ -46,6 +50,8 @@ export type ExceptionSummary = {
   mortalityToday: number
   ordersPending: number
   rejectedTasks: number
+  assetLogsMissing: number
+  assetVerificationPending: number
   total: number
 }
 
@@ -81,6 +87,9 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     mortalityRows,
     pendingOrderRows,
     rejectedRows,
+    activeAssetRows,
+    loggedTodayRows,
+    pendingAssetVerificationRows,
   ] = await Promise.all([
     db
       .select({
@@ -183,7 +192,43 @@ export async function gatherExceptions(user: SessionUser): Promise<{
       .leftJoin(users, eq(tasks.assignedToId, users.id))
       .where(and(workerTaskFilter, eq(tasks.status, 'rejected')))
       .orderBy(tasks.updatedAt),
+    // Asset alerts are Founder/supervisor concerns - skipped for workers.
+    isWorker
+      ? Promise.resolve([])
+      : db
+          .select({ id: assets.id, name: assets.name })
+          .from(assets)
+          .where(and(eq(assets.farmId, user.farmId), eq(assets.active, true))),
+    isWorker
+      ? Promise.resolve([])
+      : db
+          .selectDistinct({ assetId: assetLogs.assetId })
+          .from(assetLogs)
+          .where(and(eq(assetLogs.farmId, user.farmId), gte(assetLogs.logDate, todayStart))),
+    isWorker
+      ? Promise.resolve([])
+      : db
+          .select({
+            id: assetLogs.id,
+            assetName: assets.name,
+            recordedByName: users.name,
+            createdAt: assetLogs.createdAt,
+          })
+          .from(assetLogs)
+          .innerJoin(assets, eq(assetLogs.assetId, assets.id))
+          .leftJoin(users, eq(assetLogs.recordedById, users.id))
+          .where(
+            and(eq(assetLogs.farmId, user.farmId), eq(assetLogs.verificationStatus, 'reported')),
+          )
+          .orderBy(assetLogs.createdAt),
   ])
+
+  const loggedTodayAssetIds = new Set(
+    (loggedTodayRows as Array<{ assetId: string }>).map((r) => r.assetId),
+  )
+  const missingAssetRows = (activeAssetRows as Array<{ id: string; name: string }>).filter(
+    (a) => !loggedTodayAssetIds.has(a.id),
+  )
 
   const exceptions: ExceptionItem[] = []
 
@@ -253,7 +298,7 @@ export async function gatherExceptions(user: SessionUser): Promise<{
       type: 'order_pending',
       severity: 'medium',
       title: `Order: ${o.customerName}`,
-      message: `Pending over 48h — ${o.currency} ${o.totalAmount}`,
+      message: `Pending over 48h - ${o.currency} ${o.totalAmount}`,
       entityType: 'order',
       entityId: o.id,
       timestamp: o.createdAt.toISOString(),
@@ -266,11 +311,41 @@ export async function gatherExceptions(user: SessionUser): Promise<{
       type: 'rejected_task',
       severity: 'high',
       title: t.title,
-      message: `Rejected — needs resubmit (${t.assignedToName ?? 'unassigned'})`,
+      message: `Rejected - needs resubmit (${t.assignedToName ?? 'unassigned'})`,
       entityType: 'task',
       entityId: t.id,
       timestamp: t.updatedAt.toISOString(),
       metadata: { assignedToName: t.assignedToName },
+    })
+  }
+
+  for (const a of missingAssetRows) {
+    exceptions.push({
+      type: 'asset_log_missing',
+      severity: 'medium',
+      title: a.name,
+      message: 'No daily log recorded yet today',
+      entityType: 'asset',
+      entityId: a.id,
+      timestamp: now.toISOString(),
+    })
+  }
+
+  for (const log of pendingAssetVerificationRows as Array<{
+    id: string
+    assetName: string | null
+    recordedByName: string | null
+    createdAt: Date
+  }>) {
+    exceptions.push({
+      type: 'asset_verification_pending',
+      severity: 'medium',
+      title: log.assetName ?? 'Asset log',
+      message: `Reported by ${log.recordedByName ?? 'staff'} - needs verification`,
+      entityType: 'asset_log',
+      entityId: log.id,
+      timestamp: log.createdAt.toISOString(),
+      metadata: { recordedByName: log.recordedByName },
     })
   }
 
@@ -283,6 +358,8 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     mortalityToday: mortalityRows.length,
     ordersPending: pendingOrderRows.length,
     rejectedTasks: rejectedRows.length,
+    assetLogsMissing: missingAssetRows.length,
+    assetVerificationPending: pendingAssetVerificationRows.length,
     total: exceptions.length,
   }
 
@@ -347,6 +424,24 @@ function buildActionList(exceptions: ExceptionItem[]): ActionItem[] {
         entityType: ex.entityType,
         entityId: ex.entityId,
         link: '/livestock',
+      })
+    } else if (ex.type === 'asset_log_missing') {
+      actions.push({
+        priority: priority++,
+        action: 'log_asset',
+        label: `Log equipment: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/assets',
+      })
+    } else if (ex.type === 'asset_verification_pending') {
+      actions.push({
+        priority: priority++,
+        action: 'verify_asset',
+        label: `Verify asset log: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/assets',
       })
     }
   }

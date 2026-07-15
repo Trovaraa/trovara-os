@@ -31,5 +31,14 @@ export async function api<T>(
     throw new Error((body as { error?: string }).error ?? `Request failed (${res.status})`)
   }
 
+  // A stale service worker or cache can serve the app shell (HTML) for an API call,
+  // which then fails JSON parsing with a cryptic "Unexpected token '<'". Detect it.
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      'Unexpected non-JSON response from the server. A stale cache or service worker may be intercepting requests - hard refresh (Cmd/Ctrl+Shift+R) and try again.',
+    )
+  }
+
   return res.json() as Promise<T>
 }

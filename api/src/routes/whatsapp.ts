@@ -60,7 +60,7 @@ whatsappRoutes.get('/webhook', (c) => {
 
 /**
  * Verify Meta's X-Hub-Signature-256 header (HMAC-SHA256 of the raw body with the
- * app secret). Enforced whenever META_APP_SECRET is set — always set it in
+ * app secret). Enforced whenever META_APP_SECRET is set - always set it in
  * production, or anyone who discovers the URL can forge inbound messages.
  */
 function verifyMetaSignature(rawBody: string, header: string | undefined): boolean {
@@ -112,7 +112,7 @@ whatsappRoutes.get('/status', async (c) => {
     configured: isWhatsAppConfigured(),
     hint: isWhatsAppConfigured()
       ? 'Ready to send via Meta Cloud API'
-      : 'Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN — see docs/INTEGRATIONS.md',
+      : 'Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN - see docs/INTEGRATIONS.md',
   })
 })
 
@@ -158,7 +158,7 @@ whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
     return c.json(
       {
         error: 'WhatsApp not configured',
-        hint: 'Add Meta credentials to .env — see docs/INTEGRATIONS.md',
+        hint: 'Add Meta credentials to .env - see docs/INTEGRATIONS.md',
       },
       501,
     )

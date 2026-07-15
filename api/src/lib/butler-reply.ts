@@ -9,6 +9,42 @@ import { sendWhatsAppAudio, sendWhatsAppText } from './whatsapp-meta.js'
 
 export type ButlerTtsMode = 'off' | 'voice_replies' | 'always'
 
+/**
+ * Telegram/WhatsApp render plain text, so any markdown the model still emits
+ * (bold, code, headings, pipe tables) shows literally and looks broken. Strip the
+ * markers and flatten pipe tables into " · " lines so replies read cleanly.
+ */
+export function toPlainChatText(input: string): string {
+  const outLines: string[] = []
+  for (const raw of input.split('\n')) {
+    const line = raw.replace(/\s+$/, '')
+    const bars = (line.match(/\|/g) ?? []).length
+    if (bars >= 2) {
+      const compact = line.replace(/[|\s:]/g, '')
+      // Skip markdown table separator rows like | --- | --- |
+      if (compact.length > 0 && /^-+$/.test(compact)) continue
+      const cells = line
+        .split('|')
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+      if (cells.length > 0) {
+        outLines.push(cells.join(' · '))
+        continue
+      }
+    }
+    outLines.push(line)
+  }
+  return outLines
+    .join('\n')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^(\s*)[*+]\s+/gm, '$1- ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 const VALID_TTS_MODES: ButlerTtsMode[] = ['off', 'voice_replies', 'always']
 
 function parseTtsMode(raw: string | null | undefined): ButlerTtsMode | null {
@@ -69,7 +105,8 @@ export async function deliverButlerReply(params: {
   inboundWasVoice: boolean
   entityType: string
 }): Promise<void> {
-  const { user, target, text, inboundWasVoice, entityType } = params
+  const { user, target, inboundWasVoice, entityType } = params
+  const text = toPlainChatText(params.text)
 
   try {
     if (target.channel === 'telegram') {

@@ -1,9 +1,23 @@
 import { and, eq, gte, lt, ne, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { cropCycles, inventoryItems, livestockLogs, plots, tasks } from '../db/schema.js'
+import {
+  assets,
+  assetLogs,
+  cropCycles,
+  inventoryItems,
+  livestockLogs,
+  plots,
+  tasks,
+} from '../db/schema.js'
 
 export type ProactiveAlert = {
-  type: 'low_stock' | 'overdue_tasks' | 'mortality_spike' | 'crop_stage_reminder'
+  type:
+    | 'low_stock'
+    | 'overdue_tasks'
+    | 'mortality_spike'
+    | 'crop_stage_reminder'
+    | 'asset_log_missing'
+    | 'asset_verification_pending'
   severity: 'high' | 'medium'
   title: string
   message: string
@@ -16,8 +30,18 @@ export async function checkProactiveAlerts(farmId: string): Promise<ProactiveAle
   const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const in14Days = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+  const todayStart = new Date(now)
+  todayStart.setHours(0, 0, 0, 0)
 
-  const [lowStockItems, [overdue], [mortality], cropReminders] = await Promise.all([
+  const [
+    lowStockItems,
+    [overdue],
+    [mortality],
+    cropReminders,
+    activeAssets,
+    loggedTodayRows,
+    [pendingVerification],
+  ] = await Promise.all([
     db
       .select({
         id: inventoryItems.id,
@@ -85,6 +109,18 @@ export async function checkProactiveAlerts(farmId: string): Promise<ProactiveAle
           ),
         ),
       ),
+    db
+      .select({ id: assets.id, name: assets.name })
+      .from(assets)
+      .where(and(eq(assets.farmId, farmId), eq(assets.active, true))),
+    db
+      .selectDistinct({ assetId: assetLogs.assetId })
+      .from(assetLogs)
+      .where(and(eq(assetLogs.farmId, farmId), gte(assetLogs.logDate, todayStart))),
+    db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)`.mapWith(Number) })
+      .from(assetLogs)
+      .where(and(eq(assetLogs.farmId, farmId), eq(assetLogs.verificationStatus, 'reported'))),
   ])
 
   const alerts: ProactiveAlert[] = []
@@ -140,6 +176,32 @@ export async function checkProactiveAlerts(farmId: string): Promise<ProactiveAle
           expectedHarvestAt: cycle.expectedHarvestAt,
         })),
       },
+    })
+  }
+
+  const loggedTodayIds = new Set(loggedTodayRows.map((r) => r.assetId))
+  const missingAssets = activeAssets.filter((a) => !loggedTodayIds.has(a.id))
+
+  if (missingAssets.length > 0) {
+    alerts.push({
+      type: 'asset_log_missing',
+      severity: 'medium',
+      title: 'Equipment not logged today',
+      message: `${missingAssets.length} asset(s) have no daily log yet today.`,
+      count: missingAssets.length,
+      metadata: {
+        items: missingAssets.slice(0, 8).map((a) => ({ id: a.id, name: a.name })),
+      },
+    })
+  }
+
+  if ((pendingVerification?.count ?? 0) > 0) {
+    alerts.push({
+      type: 'asset_verification_pending',
+      severity: 'medium',
+      title: 'Asset logs awaiting verification',
+      message: `${pendingVerification.count} asset log(s) reported by staff need a supervisor to verify.`,
+      count: pendingVerification.count,
     })
   }
 

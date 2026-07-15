@@ -1,4 +1,4 @@
-# Trovara OS — NDPA Compliance Plan (Future SaaS)
+# Trovara OS - NDPA Compliance Plan (Future SaaS)
 
 Brief compliance roadmap for Trovara OS when offered as multi-tenant SaaS in Nigeria. This is a planning document, not legal advice.
 
@@ -23,7 +23,7 @@ Personal data includes: names, email addresses, phone numbers (customers/workers
 | CDN / static assets | Non-PII only at edge; API and DB remain in-region |
 | Cross-border transfer | Prohibited unless explicit consent + NDPC adequacy/contractual safeguards |
 
-**Current dev state:** Local Docker on laptop — not in scope for production compliance.
+**Current dev state:** Local Docker on laptop - not in scope for production compliance.
 
 ---
 
@@ -75,7 +75,7 @@ SaaS additions:
 
 | Item | Status |
 |------|--------|
-| DPO appointment | **Placeholder** — appoint before public SaaS launch |
+| DPO appointment | **Placeholder** - appoint before public SaaS launch |
 | Contact | `dpo@trovara.farm` (reserved; not active in dev) |
 | NDPC registration | Required when processing at scale; track employee count + annual turnover thresholds |
 
@@ -100,7 +100,7 @@ Document before launch:
 
 - Cloud host (Postgres, compute)
 - Email / notification provider
-- WhatsApp Business API (Meta) — data processing agreement required
+- WhatsApp Business API (Meta) - data processing agreement required
 - Payment processor (future)
 
 Maintain sub-processor list in customer-facing privacy policy.

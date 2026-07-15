@@ -119,7 +119,7 @@ const statCards = [
         class="block mb-8 bg-farm-green/10 border border-farm-green/30 rounded-2xl p-5 transition-all hover:border-farm-green/50 hover:bg-farm-green/15 min-h-[44px]"
       >
         <p class="text-farm-green text-xs font-bold tracking-widest uppercase">Start here</p>
-        <p class="text-lg font-bold text-white mt-1">Open Today — exception dashboard</p>
+        <p class="text-lg font-bold text-white mt-1">Open Today - exception dashboard</p>
         <p class="text-sm text-slate-400 mt-1">
           Review overdue tasks, approvals, low stock, and orders needing action
         </p>

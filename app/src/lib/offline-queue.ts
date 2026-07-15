@@ -1,5 +1,5 @@
 /**
- * Offline queue stub — localStorage-backed write queue for field workers.
+ * Offline queue stub - localStorage-backed write queue for field workers.
  *
  * Pattern:
  * 1. When `navigator.onLine` is false, enqueue mutations (PATCH task, add note, etc.)
@@ -79,7 +79,7 @@ export function clearQueue() {
 }
 
 /**
- * Drain queue on reconnect — stub: logs items; wire to `api()` when sync is implemented.
+ * Drain queue on reconnect - stub: logs items; wire to `api()` when sync is implemented.
  *
  * ```ts
  * window.addEventListener('online', () => { void syncOfflineQueue(api) })

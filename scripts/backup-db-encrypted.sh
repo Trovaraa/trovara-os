@@ -10,7 +10,7 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   set +a
 else
-  echo "Missing .env at $ENV_FILE — copy from .env.example" >&2
+  echo "Missing .env at $ENV_FILE - copy from .env.example" >&2
   exit 1
 fi
 

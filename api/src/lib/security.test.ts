@@ -100,8 +100,9 @@ describe('secureCompare', () => {
 })
 
 describe('CSRF exempt pre-auth paths', () => {
-  it('exempts login and password reset routes', () => {
+  it('exempts login, register, and password reset routes', () => {
     expect(isCsrfExemptPath('/auth/login')).toBe(true)
+    expect(isCsrfExemptPath('/auth/register')).toBe(true)
     expect(isCsrfExemptPath('/auth/totp/complete-login')).toBe(true)
     expect(isCsrfExemptPath('/auth/forgot-password')).toBe(true)
     expect(isCsrfExemptPath('/auth/reset-password')).toBe(true)

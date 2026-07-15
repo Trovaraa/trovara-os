@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import ChatMarkdown from '@/components/ChatMarkdown.vue'
 import { api } from '@/lib/api'
 
 type IntegrationStatus = { configured: boolean; hint?: string }
@@ -25,7 +26,7 @@ const suggestions = [
   "What's the revenue today?",
   'What needs restocking?',
   'How many birds are alive?',
-  'My chickens are weak with greenish droppings — what could it be?',
+  'My chickens are weak with greenish droppings - what could it be?',
   'Which plots are most profitable?',
 ]
 
@@ -172,7 +173,7 @@ async function draftTaskFromPrompt() {
       <div>
         <h2 class="text-2xl font-black text-white">Farm Copilot</h2>
         <p class="text-slate-400 text-sm mt-1">
-          Ask about your farm, diagnose a sick animal, or send a photo of a crop — all in one chat.
+          Ask about your farm, diagnose a sick animal, or send a photo of a crop - all in one chat.
         </p>
       </div>
       <span
@@ -196,7 +197,7 @@ async function draftTaskFromPrompt() {
         <!-- Empty state -->
         <div v-if="!messages.length" class="h-full flex flex-col items-center justify-center text-center px-6">
           <div class="h-12 w-12 rounded-2xl bg-farm-green/15 text-farm-green flex items-center justify-center text-xl font-black mb-3">T</div>
-          <p class="text-white font-semibold">Hi — I'm your farm copilot.</p>
+          <p class="text-white font-semibold">Hi - I'm your farm copilot.</p>
           <p class="text-slate-500 text-sm mt-1 max-w-sm">
             Ask about money, stock, livestock or tasks. Describe a sick animal, or attach a photo of a struggling crop and I'll diagnose it.
           </p>
@@ -222,9 +223,9 @@ async function draftTaskFromPrompt() {
           :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
         >
           <div
-            class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+            class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
             :class="msg.role === 'user'
-              ? 'bg-farm-green/20 text-farm-green rounded-br-sm'
+              ? 'bg-farm-green/20 text-farm-green rounded-br-sm whitespace-pre-wrap'
               : 'bg-slate-800 text-slate-200 rounded-bl-sm'"
           >
             <img
@@ -233,7 +234,8 @@ async function draftTaskFromPrompt() {
               alt="attachment"
               class="mb-2 max-h-44 rounded-lg border border-black/20"
             />
-            {{ msg.text }}
+            <ChatMarkdown v-if="msg.role === 'assistant'" :text="msg.text" />
+            <template v-else>{{ msg.text }}</template>
           </div>
         </div>
 
@@ -313,7 +315,7 @@ async function draftTaskFromPrompt() {
         <p v-else-if="draftMessage" class="text-xs text-slate-300 mt-2">{{ draftMessage }}</p>
         <p v-else-if="chatError" class="text-xs text-red-400 mt-2">{{ chatError }}</p>
         <p v-else class="text-[10px] text-slate-600 mt-2">
-          Copilot reads your live farm data. Guidance is assistive — confirm serious cases with a vet/agronomist.
+          Copilot reads your live farm data. Guidance is assistive - confirm serious cases with a vet/agronomist.
         </p>
       </div>
     </section>

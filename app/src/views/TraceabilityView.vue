@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 
 type HarvestLot = {
   id: string
+  farmSlug: string
   lotCode: string
   plotName?: string
   productName: string
@@ -13,7 +15,17 @@ type HarvestLot = {
   createdAt: string
   publicNotes?: string | null
   internalNotes?: string | null
+  photoUrl?: string | null
+  verificationStatus: string
+  reportedByName?: string | null
+  verifiedByName?: string | null
+  verifiedAt?: string | null
 }
+
+const auth = useAuthStore()
+const isOwner = computed(() => auth.isOwner)
+const canManage = computed(() => auth.canApprove)
+const verifyingId = ref<string | null>(null)
 
 const lots = ref<HarvestLot[]>([])
 const loading = ref(true)
@@ -28,6 +40,7 @@ const newProductName = ref('')
 const newQuantityKg = ref<number | ''>('')
 const newPublicNotes = ref('')
 const newInternalNotes = ref('')
+const newPhoto = ref<string | null>(null)
 const editing = ref<HarvestLot | null>(null)
 const editPublicNotes = ref('')
 const editInternalNotes = ref('')
@@ -38,8 +51,12 @@ const timelineLoading = ref(false)
 const timelineEvents = ref<Array<{ id: string; type: string; at: string; note?: string }>>([])
 const timelineError = ref<string | null>(null)
 
-function publicLotUrl(lotCode: string) {
-  return `http://127.0.0.1:5173/lot/${lotCode}`
+function publicLotUrl(lot: Pick<HarvestLot, 'farmSlug' | 'lotCode'>) {
+  // Public lot page is served by this same app, so use the current origin.
+  // Prod → https://os.trovara.farm/lot/…, local dev → the dev origin.
+  // Links are scoped by farm slug so lot codes never collide across farms.
+  const base = import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin
+  return `${String(base).replace(/\/+$/, '')}/lot/${lot.farmSlug}/${lot.lotCode}`
 }
 
 async function load() {
@@ -87,6 +104,19 @@ async function saveEdit() {
   }
 }
 
+function onNewPhotoChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) {
+    newPhoto.value = null
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    newPhoto.value = typeof reader.result === 'string' ? reader.result : null
+  }
+  reader.readAsDataURL(file)
+}
+
 async function createLot() {
   if (!newLotCode.value.trim() || !newProductName.value.trim() || newQuantityKg.value === '') return
   creating.value = true
@@ -100,6 +130,7 @@ async function createLot() {
         quantityKg: Number(newQuantityKg.value),
         publicNotes: newPublicNotes.value.trim() || null,
         internalNotes: newInternalNotes.value.trim() || null,
+        photoUrl: newPhoto.value,
       }),
     })
     newLotCode.value = ''
@@ -107,11 +138,38 @@ async function createLot() {
     newQuantityKg.value = ''
     newPublicNotes.value = ''
     newInternalNotes.value = ''
+    newPhoto.value = null
     await load()
   } catch (e) {
     createError.value = e instanceof Error ? e.message : 'Failed to create lot'
   } finally {
     creating.value = false
+  }
+}
+
+async function verifyLot(lot: HarvestLot, status: 'verified' | 'rejected') {
+  verifyingId.value = lot.id
+  try {
+    await api(`/api/traceability/${lot.id}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    })
+    await load()
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : 'Failed to update verification'
+  } finally {
+    verifyingId.value = null
+  }
+}
+
+function statusMeta(status: string): { label: string; cls: string } {
+  switch (status) {
+    case 'verified':
+      return { label: 'Verified', cls: 'bg-farm-green/20 text-farm-green' }
+    case 'rejected':
+      return { label: 'Rejected', cls: 'bg-red-900/40 text-red-300' }
+    default:
+      return { label: 'Awaiting verification', cls: 'bg-amber-500/15 text-amber-300' }
   }
 }
 
@@ -139,7 +197,7 @@ async function fetchQr(lotId: string) {
     const lot = lots.value.find((row) => row.id === lotId)
     qrByLotId.value[lotId] = {
       imgUrl,
-      url: lot ? publicLotUrl(lot.lotCode) : '',
+      url: lot ? publicLotUrl(lot) : '',
     }
   } finally {
     loadingQrFor.value = null
@@ -197,9 +255,12 @@ async function exportAudit() {
     <div class="flex items-start justify-between gap-4">
       <div>
         <h2 class="text-2xl font-black text-white">Traceability</h2>
-        <p class="text-slate-400 text-sm mt-1">Harvest lots and audit chain — owner only</p>
+        <p class="text-slate-400 text-sm mt-1">
+          Harvest lots and audit chain. Only verified lots appear on public buyer links.
+        </p>
       </div>
       <button
+        v-if="isOwner"
         class="text-sm px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         :disabled="exporting"
         @click="exportAudit"
@@ -209,7 +270,12 @@ async function exportAudit() {
     </div>
 
     <form class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4" @submit.prevent="createLot">
-      <h3 class="font-bold text-white text-sm">Create harvest lot</h3>
+      <h3 class="font-bold text-white text-sm">
+        {{ canManage ? 'Create harvest lot' : 'Report a harvest' }}
+      </h3>
+      <p v-if="!canManage" class="text-xs text-slate-400 -mt-2">
+        Your report is sent to a supervisor to verify before it goes public.
+      </p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <input
           v-model="newLotCode"
@@ -242,12 +308,23 @@ async function exportAudit() {
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
         />
         <textarea
+          v-if="canManage"
           v-model="newInternalNotes"
           rows="2"
           maxlength="1000"
-          placeholder="Internal notes (owner/team only)"
+          placeholder="Internal notes (Founder/team only)"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
         />
+        <label class="block">
+          <span class="text-xs text-slate-400">Photo evidence (optional)</span>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="mt-1 w-full text-xs text-slate-400"
+            @change="onNewPhotoChange"
+          />
+        </label>
       </div>
       <div class="flex items-center gap-3">
         <button
@@ -274,8 +351,9 @@ async function exportAudit() {
             <th class="pb-3 font-semibold">Plot</th>
             <th class="pb-3 font-semibold">Quantity</th>
             <th class="pb-3 font-semibold">Harvested</th>
+            <th class="pb-3 font-semibold">Status</th>
             <th class="pb-3 font-semibold">Public link</th>
-            <th class="pb-3 font-semibold">QR</th>
+            <th v-if="isOwner" class="pb-3 font-semibold">QR</th>
             <th class="pb-3 font-semibold">Notes</th>
             <th class="pb-3 font-semibold">Actions</th>
           </tr>
@@ -288,22 +366,35 @@ async function exportAudit() {
           >
             <td class="py-4 font-mono font-bold text-farm-gold">{{ lot.lotCode }}</td>
             <td class="py-4 text-white">{{ lot.productName }}</td>
-            <td class="py-4 text-slate-400">{{ lot.plotName ?? '—' }}</td>
+            <td class="py-4 text-slate-400">{{ lot.plotName ?? '-' }}</td>
             <td class="py-4 font-mono text-slate-300">{{ lot.quantityKg }} kg</td>
             <td class="py-4 text-slate-400">
               {{ new Date(lot.harvestedAt).toLocaleDateString() }}
             </td>
             <td class="py-4">
+              <span
+                class="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+                :class="statusMeta(lot.verificationStatus).cls"
+              >
+                {{ statusMeta(lot.verificationStatus).label }}
+              </span>
+              <p v-if="lot.reportedByName" class="text-[10px] text-slate-500 mt-1">
+                by {{ lot.reportedByName }}
+              </p>
+            </td>
+            <td class="py-4">
               <a
-                :href="publicLotUrl(lot.lotCode)"
+                v-if="lot.verificationStatus === 'verified'"
+                :href="publicLotUrl(lot)"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-xs font-mono text-farm-green hover:underline break-all"
               >
-                {{ publicLotUrl(lot.lotCode) }}
+                {{ publicLotUrl(lot) }}
               </a>
+              <span v-else class="text-xs text-slate-600">Not public yet</span>
             </td>
-            <td class="py-4">
+            <td v-if="isOwner" class="py-4">
               <button
                 type="button"
                 class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -329,12 +420,31 @@ async function exportAudit() {
               </div>
             </td>
             <td class="py-4 text-xs text-slate-400">
-              <p><span class="text-slate-500">Public:</span> {{ lot.publicNotes || '—' }}</p>
-              <p class="mt-1"><span class="text-slate-500">Internal:</span> {{ lot.internalNotes || '—' }}</p>
+              <p><span class="text-slate-500">Public:</span> {{ lot.publicNotes || '-' }}</p>
+              <p class="mt-1"><span class="text-slate-500">Internal:</span> {{ lot.internalNotes || '-' }}</p>
             </td>
             <td class="py-4">
               <div class="flex flex-wrap gap-2">
+                <template v-if="canManage && lot.verificationStatus === 'reported'">
+                  <button
+                    type="button"
+                    :disabled="verifyingId === lot.id"
+                    class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30 disabled:opacity-50"
+                    @click="verifyLot(lot, 'verified')"
+                  >
+                    Verify
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="verifyingId === lot.id"
+                    class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 disabled:opacity-50"
+                    @click="verifyLot(lot, 'rejected')"
+                  >
+                    Reject
+                  </button>
+                </template>
                 <button
+                  v-if="canManage"
                   type="button"
                   class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                   @click="openEdit(lot)"
@@ -342,6 +452,7 @@ async function exportAudit() {
                   Edit notes
                 </button>
                 <button
+                  v-if="canManage"
                   type="button"
                   class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                   @click="openTimeline(lot)"
@@ -349,6 +460,7 @@ async function exportAudit() {
                   Timeline
                 </button>
                 <a
+                  v-if="isOwner"
                   :href="`/api/traceability/${lot.id}/certificate.html`"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -356,6 +468,7 @@ async function exportAudit() {
                 >
                   Download certificate
                 </a>
+                <span v-if="!canManage" class="text-xs text-slate-600">-</span>
               </div>
             </td>
           </tr>

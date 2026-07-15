@@ -1,4 +1,4 @@
-# Trovara OS — Integrations Guide
+# Trovara OS - Integrations Guide
 
 Step-by-step setup for WhatsApp, AI, cron jobs, public traceability, offline mode, and production deployment.
 
@@ -27,12 +27,12 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 
 Trovara OS sends farm notifications via the [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api). Templates live in `whatsapp/templates.json`; the API renders them and sends plain text messages.
 
-### Step 1 — Meta Business account
+### Step 1 - Meta Business account
 
 1. Go to [Meta Business Suite](https://business.facebook.com/) and create or verify a **Business Portfolio** for your farm or company.
 2. Enable two-step verification on the Meta account that owns the app.
 
-### Step 2 — WhatsApp Business Platform app
+### Step 2 - WhatsApp Business Platform app
 
 1. Open [Meta for Developers](https://developers.facebook.com/) → **My Apps** → **Create App** → type **Business**.
 2. Add the **WhatsApp** product to the app.
@@ -55,7 +55,7 @@ WHATSAPP_API_VERSION=v21.0
 
 Restart the API after changing env vars.
 
-### Step 3 — Webhook URL
+### Step 3 - Webhook URL
 
 Meta requires a **public HTTPS** endpoint.
 
@@ -67,7 +67,7 @@ Meta requires a **public HTTPS** endpoint.
 **Local dev with ngrok:**
 
 ```bash
-# Terminal 1 — API already running on :3000
+# Terminal 1 - API already running on :3000
 ngrok http 3000
 
 # In Meta Developer Console → WhatsApp → Configuration:
@@ -76,7 +76,7 @@ ngrok http 3000
 # Subscribe to: messages
 ```
 
-### Step 4 — Webhook verification (GET)
+### Step 4 - Webhook verification (GET)
 
 Meta sends a GET request before activating the webhook:
 
@@ -95,14 +95,14 @@ curl "http://127.0.0.1:3000/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_t
 
 Inbound POST webhooks are acknowledged with `{ ok: true }` and logged to the server console (async processing / DB storage is future work).
 
-### Step 5 — Check status
+### Step 5 - Check status
 
 ```bash
 curl http://127.0.0.1:3000/api/whatsapp/status
 # { "configured": true, "hint": "Ready to send via Meta Cloud API" }
 ```
 
-### Step 6 — Send messages (POST /api/whatsapp/send)
+### Step 6 - Send messages (POST /api/whatsapp/send)
 
 Requires an authenticated session as **owner** or **supervisor**.
 
@@ -120,7 +120,7 @@ curl -b cookies.txt -X POST http://127.0.0.1:3000/api/whatsapp/send \
     "templateId": "task_complete",
     "lang": "en",
     "variables": {
-      "taskTitle": "Weeding — Plot B",
+      "taskTitle": "Weeding - Plot B",
       "workerName": "Ade",
       "plotName": "Plot B",
       "completedAt": "21 Jun 2026, 14:30"
@@ -152,7 +152,7 @@ WhatsApp Cloud API uses **conversation-based pricing** (24-hour windows), not pe
 
 | Feature | Without `WHATSAPP_*` env | With credentials |
 |---------|--------------------------|------------------|
-| `GET /api/whatsapp/templates` | Works — local JSON | Works |
+| `GET /api/whatsapp/templates` | Works - local JSON | Works |
 | Vue `/whatsapp` page | Copy/share templates manually | Same + API send when UI calls send |
 | `POST /api/whatsapp/send` | `501 Not configured` | Sends via Meta |
 | Webhook GET/POST | `501 Not configured` | Verification + inbound ack |
@@ -168,14 +168,14 @@ Trovara OS uses an OpenAI-compatible chat completions API for the daily briefing
 
 ### Configuration
 
-**Option A — OpenAI (simplest):**
+**Option A - OpenAI (simplest):**
 
 ```bash
 OPENAI_API_KEY=sk-...
 LLM_MODEL=gpt-4o-mini   # optional, this is the default
 ```
 
-**Option B — OpenAI-compatible proxy (Anthropic, Azure, etc.):**
+**Option B - OpenAI-compatible proxy (Anthropic, Azure, etc.):**
 
 ```bash
 LLM_API_KEY=your_proxy_key
@@ -183,7 +183,7 @@ LLM_BASE_URL=https://your-proxy.example.com/v1
 LLM_MODEL=claude-3-5-haiku-20241022
 ```
 
-**Option C — Ollama (local, no cloud cost):**
+**Option C - Ollama (local, no cloud cost):**
 
 ```bash
 LLM_API_KEY=ollama          # Ollama ignores the key but one must be set
@@ -279,7 +279,7 @@ CRON_OWNER_PASSWORD=strong_production_password
 API_URL=https://your-domain.com
 ```
 
-If `CRON_OWNER_PASSWORD` is unset, the script falls back to `SEED_OWNER_PASSWORD` (local dev only — **set explicit production credentials**).
+If `CRON_OWNER_PASSWORD` is unset, the script falls back to `SEED_OWNER_PASSWORD` (local dev only - **set explicit production credentials**).
 
 ### Crontab example
 
@@ -361,7 +361,7 @@ npm install -g qrcode
 qrcode -o lot-TRV-COC-2026-001.png "https://YOUR_DOMAIN/lot/TRV-COC-2026-001"
 ```
 
-**Node (optional):** the [`qrcode`](https://www.npmjs.com/package/qrcode) npm package can generate PNG/SVG in a build script or traceability export — not bundled in Trovara OS by default.
+**Node (optional):** the [`qrcode`](https://www.npmjs.com/package/qrcode) npm package can generate PNG/SVG in a build script or traceability export - not bundled in Trovara OS by default.
 
 Print QR on lot labels, invoice PDFs, or market stall signage. Use short, stable lot codes (e.g. `TRV-COC-2026-001`).
 
@@ -373,9 +373,9 @@ Print QR on lot labels, invoice PDFs, or market stall signage. Use short, stable
 
 **Implemented today:**
 
-- `enqueue()` — store `{ path, method, body }` while offline
+- `enqueue()` - store `{ path, method, body }` while offline
 - `dequeue()`, `queueLength()`, `clearQueue()`
-- `syncOfflineQueue(send)` — replay queue on reconnect (stub wired to a generic `send` function)
+- `syncOfflineQueue(send)` - replay queue on reconnect (stub wired to a generic `send` function)
 
 **Not yet implemented (full offline):**
 
@@ -394,9 +394,9 @@ Until sync is wired, the queue module is safe to import but unused in production
 
 ### Stack
 
-- **Postgres 17** — `docker compose up -d` (or managed Postgres)
-- **API** — Node 20.17+ / 22 LTS, `npm run build -w api`, run compiled server
-- **Frontend** — `npm run build -w app`, serve `app/dist` via nginx/Caddy or static host
+- **Postgres 17** - `docker compose up -d` (or managed Postgres)
+- **API** - Node 20.17+ / 22 LTS, `npm run build -w api`, run compiled server
+- **Frontend** - `npm run build -w app`, serve `app/dist` via nginx/Caddy or static host
 
 ### Critical env vars
 
@@ -442,16 +442,16 @@ Seed data (`npm run seed`) creates **Trovara Demo Farm** with zones, plots, task
 
 Adopt modules in order so each layer has master data before downstream features:
 
-1. **Users & roles** — Create real owner, supervisors, field workers; disable or change demo passwords.
-2. **Zones & plots** — Replace demo zones/plots with your farm layout (`/api/zones`).
-3. **Task templates & schedules** — Define recurring work; enable cron (`npm run generate-tasks`).
-4. **Today / Tasks** — Workers use `/today`; supervisors approve on `/tasks`.
-5. **Inventory** — Stock counts and reorder levels; log movements after field work.
-6. **Crops & livestock** — Active cycles and batches tied to real plots.
-7. **Harvest lots & traceability** — Create real lot codes; print QR linking to `/lot/:lotCode`.
-8. **Sales & finance** — Orders linked to lots; owner reviews P&L on `/finance` and `/reports`.
-9. **WhatsApp** — Pilot supervisors first; add worker phone numbers with consent.
-10. **AI briefing** — Enable after real data exists so summaries are meaningful.
+1. **Users & roles** - Create real owner, supervisors, field workers; disable or change demo passwords.
+2. **Zones & plots** - Replace demo zones/plots with your farm layout (`/api/zones`).
+3. **Task templates & schedules** - Define recurring work; enable cron (`npm run generate-tasks`).
+4. **Today / Tasks** - Workers use `/today`; supervisors approve on `/tasks`.
+5. **Inventory** - Stock counts and reorder levels; log movements after field work.
+6. **Crops & livestock** - Active cycles and batches tied to real plots.
+7. **Harvest lots & traceability** - Create real lot codes; print QR linking to `/lot/:lotCode`.
+8. **Sales & finance** - Orders linked to lots; owner reviews P&L on `/finance` and `/reports`.
+9. **WhatsApp** - Pilot supervisors first; add worker phone numbers with consent.
+10. **AI briefing** - Enable after real data exists so summaries are meaningful.
 
 Check readiness anytime:
 
@@ -464,7 +464,7 @@ When migrating from demo: export anything you need (`/api/traceability/export`, 
 
 ---
 
-## Quick reference — integration endpoints
+## Quick reference - integration endpoints
 
 | Integration | Method | Path | Auth |
 |-------------|--------|------|------|
