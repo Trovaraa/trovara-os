@@ -37,6 +37,7 @@ import { evidenceRoutes } from './routes/evidence.js'
 import { censusRoutes, taskCensusRoutes } from './routes/census.js'
 import { handoverRoutes } from './routes/handover.js'
 import { farmRoutes } from './routes/farm.js'
+import { attendanceRoutes } from './routes/attendance.js'
 import { supplierRoutes } from './routes/suppliers.js'
 import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import {
@@ -64,6 +65,7 @@ app.route('/api/tasks', taskCensusRoutes)
 app.route('/api/census', censusRoutes)
 app.route('/api/handover', handoverRoutes)
 app.route('/api/farm', farmRoutes)
+app.route('/api/attendance', attendanceRoutes)
 app.route('/api/evidence', evidenceRoutes)
 app.route('/api/inventory', inventoryRoutes)
 app.route('/api/suppliers', supplierRoutes)
