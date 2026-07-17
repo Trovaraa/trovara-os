@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Trovara OS production backup nightly
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=trovara-backup.service
+
+[Install]
+WantedBy=timers.target

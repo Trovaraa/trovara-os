@@ -16,6 +16,7 @@ import {
 } from '../lib/farm-notify.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
+import { deliverCriticalAlert } from '../lib/notifications.js'
 
 const cronSchema = z.object({
   farmId: z.string().uuid().optional(),
@@ -96,6 +97,35 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
     reason,
   })
 
+  const criticalAlerts = alerts.filter((alert) => alert.severity === 'high')
+  let criticalDelivery = { email: 0, sms: 0 }
+  if (criticalAlerts.length > 0) {
+    const recipients = await db
+      .select({ email: users.email, phone: users.phone })
+      .from(users)
+      .where(
+        and(
+          eq(users.farmId, auth.user.farmId),
+          eq(users.role, 'owner'),
+          eq(users.active, true),
+        ),
+      )
+    const criticalMessage = formatProactiveAlertMessage(auth.user.farmId, criticalAlerts)
+    const deliveries = await deliverCriticalAlert(
+      recipients,
+      `Critical Trovara alert (${auth.user.farmId})`,
+      criticalMessage,
+    )
+    criticalDelivery = {
+      email: deliveries.filter(
+        (delivery) => delivery.channel === 'email' && delivery.status === 'delivered',
+      ).length,
+      sms: deliveries.filter(
+        (delivery) => delivery.channel === 'sms' && delivery.status === 'delivered',
+      ).length,
+    }
+  }
+
   // Field-ops reminders (equipment not logged / awaiting verification) are the
   // supervisor's job - send those lines straight to supervisors as well.
   const assetAlerts = alerts.filter(
@@ -123,7 +153,12 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
     alertsCount: alerts.length,
     alerts,
     notified: {
-      owner: { telegram: tg.notified, whatsapp: wa.notified },
+      owner: {
+        telegram: tg.notified,
+        whatsapp: wa.notified,
+        email: criticalDelivery.email,
+        sms: criticalDelivery.sms,
+      },
       supervisors: supervisorNotified,
     },
   })

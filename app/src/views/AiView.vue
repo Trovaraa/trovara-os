@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import ChatMarkdown from '@/components/ChatMarkdown.vue'
 import { api } from '@/lib/api'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 type IntegrationStatus = { configured: boolean; hint?: string }
 type ChatMessage = { role: 'user' | 'assistant'; text: string; image?: string }
@@ -25,6 +25,12 @@ const draftId = ref<string | null>(null)
 const confirmingDraft = ref(false)
 const draftMessage = ref<string | null>(null)
 
+const recording = ref(false)
+const transcribing = ref(false)
+let mediaRecorder: MediaRecorder | null = null
+let mediaStream: MediaStream | null = null
+const recordedChunks: BlobPart[] = []
+
 const suggestions = computed(() => [
   t('ai.suggestions.revenue'),
   t('ai.suggestions.restocking'),
@@ -32,6 +38,12 @@ const suggestions = computed(() => [
   t('ai.suggestions.chickens'),
   t('ai.suggestions.plots'),
 ])
+
+function appLocale(): 'en' | 'yo' | 'pcm' | 'fr' {
+  const l = String(locale.value)
+  if (l === 'yo' || l === 'pcm' || l === 'fr') return l
+  return 'en'
+}
 
 async function load() {
   loading.value = true
@@ -43,6 +55,24 @@ async function load() {
 }
 
 onMounted(load)
+
+onUnmounted(() => {
+  stopTracks()
+})
+
+function stopTracks() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try {
+      mediaRecorder.stop()
+    } catch {
+      /* ignore */
+    }
+  }
+  mediaRecorder = null
+  mediaStream?.getTracks().forEach((track) => track.stop())
+  mediaStream = null
+  recording.value = false
+}
 
 async function scrollToBottom() {
   await nextTick()
@@ -89,6 +119,85 @@ function removeImage() {
   attachedImage.value = null
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error(t('ai.couldNotReadFile')))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function toggleVoice() {
+  if (transcribing.value || sending.value || !aiStatus.value?.configured) return
+  if (recording.value) {
+    mediaRecorder?.stop()
+    return
+  }
+
+  chatError.value = null
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    chatError.value = t('ai.micUnsupported')
+    return
+  }
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch {
+    chatError.value = t('ai.micDenied')
+    return
+  }
+
+  recordedChunks.length = 0
+  const mimeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+  const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+  mediaRecorder = mimeType
+    ? new MediaRecorder(mediaStream, { mimeType })
+    : new MediaRecorder(mediaStream)
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordedChunks.push(e.data)
+  }
+
+  mediaRecorder.onstop = () => {
+    void finishRecording(mediaRecorder?.mimeType || mimeType || 'audio/webm')
+  }
+
+  mediaRecorder.start()
+  recording.value = true
+}
+
+async function finishRecording(mimeType: string) {
+  recording.value = false
+  mediaStream?.getTracks().forEach((track) => track.stop())
+  mediaStream = null
+  mediaRecorder = null
+
+  if (!recordedChunks.length) return
+
+  transcribing.value = true
+  chatError.value = null
+  try {
+    const blob = new Blob(recordedChunks, { type: mimeType })
+    recordedChunks.length = 0
+    const audioDataUrl = await blobToDataUrl(blob)
+    const data = await api<{ transcript: string }>('/api/ai/transcribe', {
+      method: 'POST',
+      body: JSON.stringify({ audioDataUrl }),
+    })
+    const transcript = data.transcript.trim()
+    if (!transcript) {
+      chatError.value = t('ai.transcribeFailed')
+      return
+    }
+    await send(transcript)
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : t('ai.transcribeFailed')
+  } finally {
+    transcribing.value = false
+  }
+}
+
 async function send(presetQuestion?: string) {
   const question = (presetQuestion ?? input.value).trim()
   const image = attachedImage.value
@@ -108,7 +217,12 @@ async function send(presetQuestion?: string) {
   try {
     const data = await api<{ answer: string; llmError?: string; draft?: TaskDraft }>('/api/ai/ask', {
       method: 'POST',
-      body: JSON.stringify({ question, imageUrl: image ?? undefined, history }),
+      body: JSON.stringify({
+        question,
+        imageUrl: image ?? undefined,
+        history,
+        locale: appLocale(),
+      }),
     })
     messages.value.push({ role: 'assistant', text: data.answer })
     draft.value = data.draft ?? null
@@ -244,9 +358,9 @@ async function draftTaskFromPrompt() {
           </div>
         </div>
 
-        <div v-if="sending" class="flex justify-start">
+        <div v-if="sending || transcribing" class="flex justify-start">
           <div class="bg-slate-800 text-slate-400 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm">
-            {{ t('ai.thinking') }}
+            {{ transcribing ? t('ai.transcribing') : t('ai.thinking') }}
           </div>
         </div>
       </div>
@@ -286,23 +400,36 @@ async function draftTaskFromPrompt() {
         <form class="flex items-end gap-2" @submit.prevent="send()">
           <label
             class="shrink-0 h-10 w-10 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center justify-center cursor-pointer text-lg"
-            :class="{ 'opacity-40 pointer-events-none': !aiStatus?.configured }"
+            :class="{ 'opacity-40 pointer-events-none': !aiStatus?.configured || recording || transcribing }"
             :title="t('ai.attachPhotoTitle')"
           >
             📎
             <input type="file" accept="image/*" capture="environment" class="hidden" @change="onImageSelected" />
           </label>
+          <button
+            type="button"
+            class="shrink-0 h-10 w-10 rounded-lg flex items-center justify-center text-lg"
+            :class="recording
+              ? 'bg-red-900/50 text-red-300 animate-pulse'
+              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'"
+            :disabled="!aiStatus?.configured || sending || transcribing"
+            :title="recording ? t('ai.stopRecording') : t('ai.voiceTitle')"
+            :aria-label="recording ? t('ai.stopRecording') : t('ai.voiceTitle')"
+            @click="toggleVoice"
+          >
+            {{ recording ? '⏹' : '🎙' }}
+          </button>
           <textarea
             v-model="input"
             rows="1"
-            :disabled="!aiStatus?.configured"
-            :placeholder="t('ai.placeholder')"
+            :disabled="!aiStatus?.configured || recording || transcribing"
+            :placeholder="recording ? t('ai.recording') : t('ai.placeholder')"
             class="flex-1 resize-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 disabled:opacity-50 max-h-32"
             @keydown.enter.exact.prevent="send()"
           />
           <button
             type="button"
-            :disabled="sending || !input.trim() || !aiStatus?.configured"
+            :disabled="sending || transcribing || recording || !input.trim() || !aiStatus?.configured"
             class="shrink-0 h-10 px-3 rounded-lg bg-slate-800 text-slate-300 font-semibold text-xs hover:bg-slate-700 disabled:opacity-50"
             @click="draftTaskFromPrompt"
           >
@@ -310,7 +437,7 @@ async function draftTaskFromPrompt() {
           </button>
           <button
             type="submit"
-            :disabled="sending || (!input.trim() && !attachedImage) || !aiStatus?.configured"
+            :disabled="sending || transcribing || recording || (!input.trim() && !attachedImage) || !aiStatus?.configured"
             class="shrink-0 h-10 px-4 rounded-lg bg-farm-green/20 text-farm-green font-bold text-sm hover:bg-farm-green/30 disabled:opacity-50"
           >
             {{ t('ai.send') }}

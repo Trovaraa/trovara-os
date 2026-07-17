@@ -52,7 +52,7 @@ Support requests within 30 days (NDPA-aligned):
 |-------|---------------------|
 | Access | Owner exports audit + entity JSON per farm |
 | Rectification | In-app edit + audit trail |
-| Erasure | Tenant offboarding workflow; anonymize where legal retention applies |
+| Erasure | Tenant offboarding workflow; **pseudonymize** (not hard-delete) workers, customer contacts, and chat text where legal retention applies; audit log rows are never deleted |
 | Portability | JSON export (orders, tasks, inventory snapshots) |
 | Object / restrict | Feature flags to pause non-essential processing |
 
@@ -93,7 +93,10 @@ DPO responsibilities: privacy impact assessments, staff training, NDPC liaison, 
 |-----------|-----------|
 | Active farm operational data | Duration of subscription + 90 days export window |
 | Audit events | 7 years (finance/compliance) or as required by customer contract |
-| Session records | 7 days after expiry |
+| Session records | Purged `SESSION_RETENTION_DAYS` after expiry (default 7) |
+| Butler chat text (`farm_events`) | Redacted to `[redacted]` after `DATA_RETENTION_DAYS`; event row kept |
+| Customer contact phones | Nulled after `CUSTOMER_CONTACT_RETENTION_DAYS` (defaults to `DATA_RETENTION_DAYS`) |
+| Worker/customer erasure requests | Pseudonymize name/email/phone via owner API; retain orders and audit trail |
 | Backups | 30 days rolling; encrypted |
 
 ---

@@ -13,11 +13,21 @@ type SecurityEvent = {
   metadata: Record<string, unknown>
 }
 
+type SessionRow = {
+  id: string
+  createdAt: string
+  expiresAt: string
+  userAgent: string | null
+  current: boolean
+}
+
 const loading = ref(true)
 const events = ref<SecurityEvent[]>([])
 const loadError = ref<string | null>(null)
 const activeSessions = ref<number | null>(null)
+const sessionRows = ref<SessionRow[]>([])
 const revoking = ref(false)
+const revokingId = ref<string | null>(null)
 const revokeMessage = ref<string | null>(null)
 
 function formatDetails(metadata: Record<string, unknown>): string {
@@ -33,13 +43,14 @@ async function load() {
   loading.value = true
   loadError.value = null
   try {
-    const [eventsData, meData] = await Promise.all([
+    const [eventsData, sessionsData] = await Promise.all([
       api<{ events: SecurityEvent[] }>('/api/system/security-events'),
-      api<{ user: unknown; activeSessions?: number }>('/auth/me'),
+      api<{ activeSessions?: number; sessions?: SessionRow[] }>('/auth/sessions'),
     ])
     events.value = eventsData.events
     activeSessions.value =
-      typeof meData.activeSessions === 'number' ? meData.activeSessions : null
+      typeof sessionsData.activeSessions === 'number' ? sessionsData.activeSessions : null
+    sessionRows.value = sessionsData.sessions ?? []
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('security.loadFailed')
   } finally {
@@ -64,6 +75,20 @@ async function revokeAllSessions() {
     revokeMessage.value = e instanceof Error ? e.message : t('security.revokeFailed')
   } finally {
     revoking.value = false
+  }
+}
+
+async function revokeOne(sessionId: string) {
+  revokingId.value = sessionId
+  revokeMessage.value = null
+  try {
+    await api(`/auth/sessions/${sessionId}`, { method: 'DELETE' })
+    revokeMessage.value = t('security.sessionRevoked')
+    await load()
+  } catch (e) {
+    revokeMessage.value = e instanceof Error ? e.message : t('security.revokeFailed')
+  } finally {
+    revokingId.value = null
   }
 }
 
@@ -95,6 +120,30 @@ onMounted(load)
     <div v-if="activeSessions !== null" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
       <p class="text-xs text-slate-500">{{ t('security.activeSessionsLabel') }}</p>
       <p class="text-2xl font-black text-white mt-1">{{ activeSessions }}</p>
+      <ul v-if="sessionRows.length" class="mt-4 space-y-2">
+        <li
+          v-for="s in sessionRows"
+          :key="s.id"
+          class="flex items-center justify-between gap-3 text-xs border border-slate-800 rounded-lg px-3 py-2"
+        >
+          <div class="min-w-0">
+            <p class="text-slate-200 truncate">{{ s.userAgent || t('security.unknownDevice') }}</p>
+            <p class="text-slate-500 mt-0.5">
+              {{ new Date(s.createdAt).toLocaleString() }}
+              <span v-if="s.current" class="ml-2 text-farm-green font-semibold">{{ t('security.thisDevice') }}</span>
+            </p>
+          </div>
+          <button
+            v-if="!s.current"
+            type="button"
+            class="shrink-0 px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+            :disabled="revokingId === s.id"
+            @click="revokeOne(s.id)"
+          >
+            {{ revokingId === s.id ? '…' : t('security.revokeSession') }}
+          </button>
+        </li>
+      </ul>
     </div>
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('security.loading') }}</div>

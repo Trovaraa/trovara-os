@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { getCookie } from 'hono/cookie'
 import { csrfMiddleware } from '../lib/csrf.js'
+import { clientIpFromHeaders } from '../lib/client-ip.js'
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>()
 const mutationAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -14,13 +15,53 @@ const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
 
 // Photo/voice uploads arrive as base64 JSON (~8 MB worst case); anything bigger
 // is abuse. A reverse proxy (Caddy/nginx) should enforce the same cap in front.
-const MAX_BODY_BYTES = 12 * 1024 * 1024
+export const MAX_BODY_BYTES = 12 * 1024 * 1024
 
 async function bodySizeLimit(c: Context, next: Next) {
-  const len = Number(c.req.header('content-length'))
+  const lenHeader = c.req.header('content-length')
+  const len = Number(lenHeader)
   if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
     return c.json({ error: 'Payload too large' }, 413)
   }
+
+  // Chunked uploads without Content-Length: stream with a hard byte cap and
+  // re-wrap the Request so downstream JSON parsers still work.
+  const method = c.req.method.toUpperCase()
+  if (
+    !Number.isFinite(len) &&
+    MUTATING_METHODS.has(method) &&
+    c.req.raw.body
+  ) {
+    const reader = c.req.raw.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return c.json({ error: 'Payload too large' }, 413)
+      }
+      chunks.push(value)
+    }
+    const merged = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    const headers = new Headers(c.req.raw.headers)
+    headers.set('content-length', String(total))
+    const rebuilt = new Request(c.req.url, {
+      method: c.req.method,
+      headers,
+      body: total > 0 ? merged : undefined,
+      duplex: 'half',
+    } as RequestInit)
+    Object.defineProperty(c.req, 'raw', { value: rebuilt, writable: true })
+  }
+
   await next()
 }
 
@@ -36,7 +77,7 @@ export function securityMiddleware() {
     cors({
       origin: (origin) => {
         if (!origin) return allowedOrigins[0] ?? 'http://127.0.0.1:5173'
-        return allowedOrigins.includes(origin) ? origin : allowedOrigins[0]
+        return allowedOrigins.includes(origin) ? origin : null
       },
       credentials: true,
       allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -125,7 +166,7 @@ export async function authMutationRateLimit(c: Context, next: Next) {
     return
   }
 
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   const { allowed, retryAfterSec } = checkAuthMutationRateLimit(`ip:${ip}`)
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
@@ -145,7 +186,7 @@ export async function apiMutationRateLimit(c: Context, next: Next) {
   const { SESSION_COOKIE, getUserFromSession } = await import('../lib/session.js')
   const token = getCookie(c, SESSION_COOKIE)
   const user = token ? await getUserFromSession(token) : null
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   const key = user?.id ? `user:${user.id}` : `ip:${ip}`
   const { allowed, retryAfterSec } = checkMutationRateLimit(key)
   if (!allowed) {

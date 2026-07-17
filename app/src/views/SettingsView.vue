@@ -69,6 +69,49 @@ const revokingSessions = ref(false)
 const revokeMessage = ref<string | null>(null)
 const exportingFarmData = ref(false)
 const farmExportMessage = ref<string | null>(null)
+const exportReason = ref('')
+
+type FarmProfile = {
+  id: string
+  name: string
+  location: string
+  latitude: string | null
+  longitude: string | null
+  timezone: string | null
+}
+const farmProfile = ref<FarmProfile | null>(null)
+const farmName = ref('')
+const farmLocation = ref('')
+const farmLatitude = ref('')
+const farmLongitude = ref('')
+const farmTimezone = ref('Africa/Lagos')
+const savingFarm = ref(false)
+const farmMessage = ref<string | null>(null)
+
+const retentionStatus = ref<{
+  config: {
+    retentionDays: number
+    sessionRetentionDays: number
+    customerContactRetentionDays: number
+  }
+  pendingTaskEvidence: number
+  pendingExpiredSessions: number
+  pendingChatMessages: number
+  pendingContactPhones: number
+} | null>(null)
+const retentionLoading = ref(false)
+const retentionRunning = ref(false)
+const retentionMessage = ref<string | null>(null)
+const anonymizeTargets = ref<{
+  workers: Array<{ id: string; name: string; email: string }>
+  contacts: Array<{ id: string; name: string | null; phone: string | null; channel: string }>
+} | null>(null)
+const selectedWorkerId = ref('')
+const selectedContactId = ref('')
+const anonymizeReason = ref('')
+const anonymizingWorker = ref(false)
+const anonymizingContact = ref(false)
+const anonymizeMessage = ref<string | null>(null)
 const totpStatus = ref<{ enabled: boolean; hasSecret: boolean } | null>(null)
 const totpSetup = ref<{ secret: string; otpAuthUrl: string; qrUrl: string } | null>(null)
 const totpCode = ref('')
@@ -154,6 +197,18 @@ async function load() {
     billingStatus.value = billData
 
     try {
+      const farmData = await api<{ farm: FarmProfile }>('/api/farm')
+      farmProfile.value = farmData.farm
+      farmName.value = farmData.farm.name
+      farmLocation.value = farmData.farm.location
+      farmLatitude.value = farmData.farm.latitude ?? ''
+      farmLongitude.value = farmData.farm.longitude ?? ''
+      farmTimezone.value = farmData.farm.timezone ?? 'Africa/Lagos'
+    } catch {
+      farmProfile.value = null
+    }
+
+    try {
       systemStatus.value = await api<SystemStatus>('/system-status')
     } catch {
       // non-critical
@@ -178,6 +233,19 @@ async function load() {
     } catch {
       telegramLinked.value = false
     }
+
+    if (auth.isOwner) {
+      try {
+        retentionStatus.value = await api('/api/privacy/retention-status')
+      } catch {
+        retentionStatus.value = null
+      }
+      try {
+        anonymizeTargets.value = await api('/api/privacy/anonymize-targets')
+      } catch {
+        anonymizeTargets.value = null
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -197,6 +265,30 @@ async function goLive() {
     goLiveMessage.value = e instanceof Error ? e.message : t('settings.goLiveFailed')
   } finally {
     goingLive.value = false
+  }
+}
+
+async function saveFarmLocation() {
+  if (!auth.isOwner) return
+  savingFarm.value = true
+  farmMessage.value = null
+  try {
+    const data = await api<{ farm: FarmProfile }>('/api/farm', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: farmName.value.trim(),
+        location: farmLocation.value.trim(),
+        latitude: farmLatitude.value.trim() || null,
+        longitude: farmLongitude.value.trim() || null,
+        timezone: farmTimezone.value.trim() || 'Africa/Lagos',
+      }),
+    })
+    farmProfile.value = data.farm
+    farmMessage.value = t('settings.farmSaved')
+  } catch (e) {
+    farmMessage.value = e instanceof Error ? e.message : t('settings.farmSaveFailed')
+  } finally {
+    savingFarm.value = false
   }
 }
 
@@ -425,7 +517,11 @@ async function exportFarmData() {
   exportingFarmData.value = true
   farmExportMessage.value = null
   try {
-    const res = await fetch('/api/exports/farm-data.json', {
+    const params = new URLSearchParams()
+    const reason = exportReason.value.trim()
+    if (reason) params.set('reason', reason)
+    const query = params.toString()
+    const res = await fetch(`/api/privacy/export${query ? `?${query}` : ''}`, {
       credentials: 'include',
     })
     if (!res.ok) throw new Error(t('settings.exportFailed', { status: res.status }))
@@ -433,7 +529,7 @@ async function exportFarmData() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `farm-data-export-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `privacy-export-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
     farmExportMessage.value = t('settings.farmExportDownloaded')
@@ -441,6 +537,84 @@ async function exportFarmData() {
     farmExportMessage.value = e instanceof Error ? e.message : t('settings.exportFarmFailed')
   } finally {
     exportingFarmData.value = false
+  }
+}
+
+async function refreshRetentionStatus() {
+  if (!auth.isOwner) return
+  retentionLoading.value = true
+  try {
+    retentionStatus.value = await api('/api/privacy/retention-status')
+  } catch (e) {
+    retentionMessage.value = e instanceof Error ? e.message : t('settings.retentionLoadFailed')
+  } finally {
+    retentionLoading.value = false
+  }
+}
+
+async function runRetentionNow() {
+  if (!auth.isOwner) return
+  if (!window.confirm(t('settings.confirmRunRetention'))) return
+  retentionRunning.value = true
+  retentionMessage.value = null
+  try {
+    const result = await api<{
+      purgedTaskEvidence: number
+      purgedExpiredSessions: number
+      redactedChatMessages: number
+      nulledContactPhones: number
+    }>('/api/system/run-retention', { method: 'POST', body: JSON.stringify({}) })
+    retentionMessage.value = t('settings.retentionRunDone', {
+      evidence: result.purgedTaskEvidence,
+      sessions: result.purgedExpiredSessions,
+      chat: result.redactedChatMessages,
+      phones: result.nulledContactPhones,
+    })
+    await refreshRetentionStatus()
+  } catch (e) {
+    retentionMessage.value = e instanceof Error ? e.message : t('settings.retentionRunFailed')
+  } finally {
+    retentionRunning.value = false
+  }
+}
+
+async function anonymizeSelectedWorker() {
+  if (!selectedWorkerId.value) return
+  if (!window.confirm(t('settings.confirmAnonymizeWorker'))) return
+  anonymizingWorker.value = true
+  anonymizeMessage.value = null
+  try {
+    await api(`/api/privacy/anonymize-user/${selectedWorkerId.value}`, { method: 'POST' })
+    anonymizeMessage.value = t('settings.workerAnonymized')
+    selectedWorkerId.value = ''
+    anonymizeTargets.value = await api('/api/privacy/anonymize-targets')
+  } catch (e) {
+    anonymizeMessage.value = e instanceof Error ? e.message : t('settings.anonymizeFailed')
+  } finally {
+    anonymizingWorker.value = false
+  }
+}
+
+async function anonymizeSelectedContact() {
+  if (!selectedContactId.value) return
+  if (!window.confirm(t('settings.confirmAnonymizeContact'))) return
+  anonymizingContact.value = true
+  anonymizeMessage.value = null
+  try {
+    const body = anonymizeReason.value.trim()
+      ? JSON.stringify({ reason: anonymizeReason.value.trim() })
+      : '{}'
+    await api(`/api/privacy/anonymize-contact/${selectedContactId.value}`, {
+      method: 'POST',
+      body,
+    })
+    anonymizeMessage.value = t('settings.contactAnonymized')
+    selectedContactId.value = ''
+    anonymizeTargets.value = await api('/api/privacy/anonymize-targets')
+  } catch (e) {
+    anonymizeMessage.value = e instanceof Error ? e.message : t('settings.anonymizeFailed')
+  } finally {
+    anonymizingContact.value = false
   }
 }
 
@@ -466,6 +640,62 @@ function formatBackupTime(iso: string | null): string {
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('settings.loading') }}</div>
 
     <template v-else>
+      <!-- Farm location (weather) -->
+      <div
+        v-if="auth.isOwner"
+        class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
+      >
+        <div>
+          <h3 class="font-bold text-white">{{ t('settings.farmLocationTitle') }}</h3>
+          <p class="text-xs text-slate-400 mt-0.5">{{ t('settings.farmLocationSubtitle') }}</p>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <input
+            v-model="farmName"
+            type="text"
+            :placeholder="t('settings.farmName')"
+            class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="farmLocation"
+            type="text"
+            :placeholder="t('settings.farmLocationLabel')"
+            class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="farmLatitude"
+            type="text"
+            inputmode="decimal"
+            :placeholder="t('settings.farmLatitude')"
+            class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+          />
+          <input
+            v-model="farmLongitude"
+            type="text"
+            inputmode="decimal"
+            :placeholder="t('settings.farmLongitude')"
+            class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+          />
+          <input
+            v-model="farmTimezone"
+            type="text"
+            :placeholder="t('settings.farmTimezone')"
+            class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white sm:col-span-2"
+          />
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            :disabled="savingFarm || !farmName.trim() || !farmLocation.trim()"
+            class="text-xs font-bold px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+            @click="saveFarmLocation"
+          >
+            {{ savingFarm ? t('settings.saving') : t('settings.saveFarmLocation') }}
+          </button>
+          <p v-if="farmMessage" class="text-xs text-slate-400">{{ farmMessage }}</p>
+        </div>
+      </div>
+
       <!-- Go-Live Checklist -->
       <div
         class="mt-8 bg-slate-900 border rounded-xl p-5"
@@ -823,15 +1053,98 @@ function formatBackupTime(iso: string | null): string {
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm">{{ t('settings.privacy') }}</h3>
         <p class="text-xs text-slate-500 mt-1">{{ t('settings.privacyDesc') }}</p>
-        <div class="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
-            :disabled="exportingFarmData"
-            @click="exportFarmData"
-          >
-            {{ exportingFarmData ? t('settings.exporting') : t('settings.exportFarmData') }}
-          </button>
+        <div v-if="auth.isOwner" class="mt-4 space-y-4">
+          <label class="block text-xs text-slate-400">
+            {{ t('settings.exportReasonLabel') }}
+            <input
+              v-model="exportReason"
+              type="text"
+              maxlength="500"
+              class="mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white"
+              :placeholder="t('settings.exportReasonPlaceholder')"
+            />
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              :disabled="exportingFarmData"
+              @click="exportFarmData"
+            >
+              {{ exportingFarmData ? t('settings.exporting') : t('settings.exportFarmData') }}
+            </button>
+            <a
+              href="/ndpa-compliance.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+            >
+              {{ t('settings.ndpaDoc') }}
+            </a>
+          </div>
+          <div v-if="retentionStatus" class="rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400 space-y-1">
+            <p class="font-semibold text-slate-300">{{ t('settings.retentionStatus') }}</p>
+            <p>{{ t('settings.retentionConfig', retentionStatus.config) }}</p>
+            <p>{{ t('settings.retentionPending', retentionStatus) }}</p>
+            <button
+              type="button"
+              class="mt-2 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+              :disabled="retentionRunning || retentionLoading"
+              @click="runRetentionNow"
+            >
+              {{ retentionRunning ? t('settings.runningRetention') : t('settings.runRetention') }}
+            </button>
+          </div>
+          <div v-if="anonymizeTargets" class="rounded-lg border border-slate-800 bg-slate-950/40 p-3 space-y-3">
+            <p class="text-xs font-semibold text-slate-300">{{ t('settings.anonymizeTitle') }}</p>
+            <div class="flex flex-wrap items-end gap-2">
+              <label class="text-xs text-slate-400">
+                {{ t('settings.anonymizeWorker') }}
+                <select
+                  v-model="selectedWorkerId"
+                  class="mt-1 block rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-white"
+                >
+                  <option value="">{{ t('settings.selectWorker') }}</option>
+                  <option v-for="worker in anonymizeTargets.workers" :key="worker.id" :value="worker.id">
+                    {{ worker.name }} ({{ worker.email }})
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-900/40 text-amber-200 hover:bg-amber-900/60 disabled:opacity-50"
+                :disabled="!selectedWorkerId || anonymizingWorker"
+                @click="anonymizeSelectedWorker"
+              >
+                {{ anonymizingWorker ? t('settings.anonymizing') : t('settings.anonymizeWorkerBtn') }}
+              </button>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+              <label class="text-xs text-slate-400">
+                {{ t('settings.anonymizeContact') }}
+                <select
+                  v-model="selectedContactId"
+                  class="mt-1 block rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-white"
+                >
+                  <option value="">{{ t('settings.selectContact') }}</option>
+                  <option v-for="contact in anonymizeTargets.contacts" :key="contact.id" :value="contact.id">
+                    {{ contact.name || contact.phone || contact.id }} ({{ contact.channel }})
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-900/40 text-amber-200 hover:bg-amber-900/60 disabled:opacity-50"
+                :disabled="!selectedContactId || anonymizingContact"
+                @click="anonymizeSelectedContact"
+              >
+                {{ anonymizingContact ? t('settings.anonymizing') : t('settings.anonymizeContactBtn') }}
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500">{{ t('settings.anonymizeNote') }}</p>
+          </div>
+        </div>
+        <div v-else class="mt-4 flex flex-wrap gap-2">
           <a
             href="/ndpa-compliance.md"
             target="_blank"
@@ -842,6 +1155,8 @@ function formatBackupTime(iso: string | null): string {
           </a>
         </div>
         <p v-if="farmExportMessage" class="mt-2 text-xs text-slate-400">{{ farmExportMessage }}</p>
+        <p v-if="retentionMessage" class="mt-2 text-xs text-slate-400">{{ retentionMessage }}</p>
+        <p v-if="anonymizeMessage" class="mt-2 text-xs text-slate-400">{{ anonymizeMessage }}</p>
       </div>
 
       <!-- Admin actions -->

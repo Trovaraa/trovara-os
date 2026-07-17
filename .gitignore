@@ -18,6 +18,7 @@ dist/
 logs/
 backups/
 uploads/
+api/data/evidence/
 
 # OS / editor
 .DS_Store

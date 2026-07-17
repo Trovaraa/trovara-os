@@ -4,7 +4,7 @@ import type { UserRole } from '@/stores/auth'
 export function roleLabel(role: UserRole | string): string {
   switch (role) {
     case 'owner':
-      return 'Founder'
+      return 'Admin'
     case 'supervisor':
       return 'Supervisor'
     case 'field_worker':

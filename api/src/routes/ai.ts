@@ -18,15 +18,23 @@ import { buildFarmContext } from '../lib/farm-context.js'
 import {
   buildButlerPrompt,
   CROP_DIAGNOSIS_PROMPT,
+  INCIDENT_SUMMARY_PROMPT,
   LIVESTOCK_DIAGNOSIS_PROMPT,
   ADVISORY_DISCLAIMER,
   type CropDiagnosis,
   type LivestockDiagnosis,
 } from '../lib/ai-advisor.js'
+import { checkLlmBudget, consumeLlmBudget } from '../lib/llm-budget.js'
 import { parseTaskDraft } from '../lib/butler-actions.js'
 import { logAudit } from '../lib/audit.js'
-import { sanitizeForLlm, isAllowedEvidenceImageDataUrl } from '../lib/sanitize-input.js'
+import { sanitizeForLlm, isAllowedEvidenceImageDataUrl, isAllowedAudioDataUrl, parseAudioDataUrl } from '../lib/sanitize-input.js'
 import { storeTaskDraft, takeTaskDraft } from '../lib/task-drafts.js'
+import { transcribeVoice } from '../lib/butler-core.js'
+import {
+  detectReplyLocale,
+  webCopilotLlmOffMessage,
+  webCopilotUnavailableMessage,
+} from '../lib/reply-locale.js'
 
 type BriefingPriority = {
   label: string
@@ -235,8 +243,7 @@ function validateIncidentText(text: string): string | null {
   return null
 }
 
-const incidentSummaryPrompt =
-  'You summarize real farm incidents for Trovara OS managers in Nigeria. Use only facts from the report. Respond ONLY with valid JSON (no markdown): {"summaryText":"2-3 sentence plain English summary using specific details from the report","severity":"low|medium|high","category":"short_category_slug","recommendedActions":["concrete farm action"]}. Never say details are missing if the report contains them.'
+const incidentSummaryPrompt = INCIDENT_SUMMARY_PROMPT
 
 type IncidentLlmResult = {
   summaryText?: string
@@ -279,6 +286,18 @@ aiRoutes.post('/summarize-incident', zValidator('json', summarizeSchema), async 
     })
   }
 
+  const budget = checkLlmBudget(user.farmId)
+  if (!budget.allowed) {
+    return c.json({
+      placeholder: true,
+      budgetExceeded: true,
+      summary: buildIncidentSummary(body),
+      incidentText: body.incidentText,
+      plotId: body.plotId ?? null,
+      batchId: body.batchId ?? null,
+    })
+  }
+
   try {
     const incidentText = sanitizeForLlm(body.incidentText)
     const { text, model } = await completeChat(
@@ -286,6 +305,7 @@ aiRoutes.post('/summarize-incident', zValidator('json', summarizeSchema), async 
       `Incident report:\n${incidentText}\nPlot: ${body.plotId ?? 'n/a'}\nBatch: ${body.batchId ?? 'n/a'}`,
     )
     const parsed = parseJsonFromLlm<IncidentLlmResult>(text)
+    consumeLlmBudget(user.farmId)
     return c.json({
       placeholder: false,
       model,
@@ -311,6 +331,8 @@ const askSchema = z
     question: z.string().max(2000).optional().default(''),
     // data URL (data:image/jpeg;base64,...) or https URL - for crop/animal photos
     imageUrl: z.string().min(10).max(8_000_000).optional(),
+    /** Optional UI locale hint (en|yo|pcm|fr) used for offline fallbacks. */
+    locale: z.enum(['en', 'yo', 'pcm', 'fr']).optional(),
     history: z
       .array(
         z.object({
@@ -329,7 +351,8 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
   const user = c.get('user')
   requireRole(user, 'owner', 'supervisor')
 
-  const { question, imageUrl, history } = c.req.valid('json')
+  const { question, imageUrl, history, locale: localeHint } = c.req.valid('json')
+  const locale = detectReplyLocale(question, localeHint)
 
   if (imageUrl) {
     const imageError = validateAskImageUrl(imageUrl)
@@ -339,8 +362,17 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
   if (!isLlmConfigured()) {
     return c.json({
       placeholder: true,
-      answer:
-        'The Copilot needs an AI key to answer questions. Add OPENAI_API_KEY (or LLM_API_KEY) to your .env and restart the API. Until then, use the dashboard and Reports pages to find this information.',
+      answer: webCopilotLlmOffMessage(locale),
+      question,
+    })
+  }
+
+  const budget = checkLlmBudget(user.farmId)
+  if (!budget.allowed) {
+    return c.json({
+      placeholder: true,
+      budgetExceeded: true,
+      answer: webCopilotUnavailableMessage(locale),
       question,
     })
   }
@@ -364,15 +396,60 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
       result = await completeChatHistory(systemPrompt, safeHistory, safeQuestion)
     }
 
+    consumeLlmBudget(user.farmId)
     return c.json({ placeholder: false, model: result.model, answer: result.text, question: safeQuestion })
   } catch {
     return c.json({
       placeholder: true,
       error: 'AI service temporarily unavailable',
-      answer: 'The Copilot could not reach the AI service. Please try again in a moment.',
+      answer: webCopilotUnavailableMessage(locale),
       question,
     })
   }
+})
+
+const transcribeSchema = z.object({
+  /** Browser MediaRecorder clip as data:audio/...;base64,... */
+  audioDataUrl: z.string().min(30).max(6_000_000),
+  filename: z.string().max(200).optional(),
+})
+
+aiRoutes.post('/transcribe', zValidator('json', transcribeSchema), async (c) => {
+  const user = c.get('user')
+  requireRole(user, 'owner', 'supervisor')
+
+  const { allowed, retryAfterSec } = checkRateLimit(`ai-transcribe:${user.id}`, 20, 60_000)
+  if (!allowed) {
+    return c.json(
+      { error: `Too many transcription requests - wait ${retryAfterSec}s and try again.` },
+      429,
+    )
+  }
+
+  if (!isLlmConfigured()) {
+    return c.json({ error: 'AI not configured - add OPENAI_API_KEY to .env' }, 503)
+  }
+
+  const { audioDataUrl, filename } = c.req.valid('json')
+  if (!isAllowedAudioDataUrl(audioDataUrl)) {
+    return c.json({ error: 'Invalid audio - use a WebM, OGG, MP4, MP3, or WAV recording.' }, 400)
+  }
+
+  const parsed = parseAudioDataUrl(audioDataUrl)
+  if (!parsed) {
+    return c.json({ error: 'Could not read audio data.' }, 400)
+  }
+  // ~4 MB decoded; keeps abuse surface small while covering ~2–3 min of speech
+  if (parsed.buffer.length > 4_000_000) {
+    return c.json({ error: 'Voice clip is too large - keep it under about 2 minutes.' }, 400)
+  }
+
+  const transcript = await transcribeVoice(parsed.buffer, filename?.trim() || parsed.filename)
+  if (!transcript) {
+    return c.json({ error: 'Could not understand that voice note. Try again or type your question.' }, 422)
+  }
+
+  return c.json({ transcript })
 })
 
 const draftTaskSchema = z.object({
@@ -395,7 +472,7 @@ aiRoutes.post('/draft-task', zValidator('json', draftTaskSchema), async (c) => {
   const draft = parseTaskDraft(question) ?? {
     title: question.trim().slice(0, 200),
   }
-  const stored = storeTaskDraft(user.id, user.farmId, draft)
+  const stored = await storeTaskDraft(user.id, user.farmId, draft)
 
   return c.json({
     draftId: stored.draftId,
@@ -409,7 +486,7 @@ aiRoutes.post('/confirm-task', zValidator('json', confirmTaskSchema), async (c) 
   requireRole(user, 'owner', 'supervisor')
   const body = c.req.valid('json')
 
-  const stored = takeTaskDraft(body.draftId, user.id)
+  const stored = await takeTaskDraft(body.draftId, user.id)
   if (!stored) {
     return c.json({ error: 'Task draft expired or invalid - please draft again.' }, 400)
   }
@@ -477,6 +554,16 @@ aiRoutes.post('/diagnose-livestock', zValidator('json', livestockSchema), async 
     return c.json({ placeholder: true, disclaimer: ADVISORY_DISCLAIMER, error: 'AI not configured - add OPENAI_API_KEY to .env' }, 200)
   }
 
+  const budget = checkLlmBudget(user.farmId)
+  if (!budget.allowed) {
+    return c.json({
+      placeholder: true,
+      budgetExceeded: true,
+      disclaimer: ADVISORY_DISCLAIMER,
+      error: 'Daily AI budget exceeded for this farm - try again tomorrow.',
+    }, 200)
+  }
+
   try {
     const symptoms = sanitizeForLlm(body.symptoms)
     const species = body.species ? sanitizeForLlm(body.species) : 'poultry/livestock'
@@ -485,6 +572,7 @@ aiRoutes.post('/diagnose-livestock', zValidator('json', livestockSchema), async 
       `Animal: ${species}\nSymptoms observed:\n${symptoms}`,
     )
     const parsed = parseJsonFromLlm<LivestockDiagnosis>(text)
+    consumeLlmBudget(user.farmId)
     return c.json({ placeholder: false, model, diagnosis: parsed, disclaimer: ADVISORY_DISCLAIMER })
   } catch {
     return c.json({
@@ -516,6 +604,16 @@ aiRoutes.post('/diagnose-crop', zValidator('json', cropSchema), async (c) => {
   const imageError = validateAskImageUrl(body.imageUrl)
   if (imageError) return c.json({ error: imageError }, 400)
 
+  const budget = checkLlmBudget(user.farmId)
+  if (!budget.allowed) {
+    return c.json({
+      placeholder: true,
+      budgetExceeded: true,
+      disclaimer: ADVISORY_DISCLAIMER,
+      error: 'Daily AI budget exceeded for this farm - try again tomorrow.',
+    }, 200)
+  }
+
   try {
     const cropType = body.cropType ? sanitizeForLlm(body.cropType) : 'unknown'
     const notes = body.notes ? sanitizeForLlm(body.notes) : 'none'
@@ -525,6 +623,7 @@ aiRoutes.post('/diagnose-crop', zValidator('json', cropSchema), async (c) => {
       [body.imageUrl],
     )
     const parsed = parseJsonFromLlm<CropDiagnosis>(text)
+    consumeLlmBudget(user.farmId)
     return c.json({ placeholder: false, model, diagnosis: parsed, disclaimer: ADVISORY_DISCLAIMER })
   } catch {
     return c.json({

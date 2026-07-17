@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Trovara OS isolated restore test weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=trovara-restore-test.service
+
+[Install]
+WantedBy=timers.target

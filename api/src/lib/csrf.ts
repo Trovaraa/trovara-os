@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { logSecurityEvent } from './security-log.js'
 import { secureCompare } from './secure-compare.js'
+import { clientIpFromHeaders } from './client-ip.js'
 
 export const CSRF_COOKIE = 'trovara_csrf'
 export const CSRF_HEADER = 'X-CSRF-Token'
@@ -21,6 +22,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/health',
   '/api/whatsapp/webhook',
   '/api/telegram/webhook',
+  '/api/telegram/customer/webhook',
   '/api/system/run-retention',
   '/api/alerts/run-proactive',
   '/api/alerts/evening-digest',
@@ -66,7 +68,7 @@ export async function csrfMiddleware(c: Context, next: Next) {
       path: c.req.path,
       hasCookie: Boolean(cookieToken),
       hasHeader: Boolean(headerToken),
-      ip: c.req.header('x-forwarded-for') ?? 'local',
+      ip: clientIpFromHeaders((name) => c.req.header(name)),
     })
     return c.json({ error: 'Invalid or missing CSRF token' }, 403)
   }

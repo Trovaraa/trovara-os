@@ -4,7 +4,7 @@ Trovara Farm operations command center - laptop-runnable MVP with dummy data.
 
 ## Prerequisites
 
-- **Node.js 20.17+** or **22 LTS** (see `.nvmrc`) - required; Node 19 is not supported
+- **Node.js 22** (see `.nvmrc`)
 - **Docker Desktop** or **OrbStack** (for Postgres)
 
 ## Quick Start
@@ -12,7 +12,7 @@ Trovara Farm operations command center - laptop-runnable MVP with dummy data.
 ```bash
 cd trovara-os
 cp .env.example .env
-# Edit .env - set strong passwords for POSTGRES_PASSWORD, SESSION_SECRET, and SEED_* passwords
+# Edit .env - set strong local-only POSTGRES_PASSWORD and SEED_* passwords
 
 docker compose up -d
 npm install

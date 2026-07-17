@@ -115,6 +115,12 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/api/alerts/evening-digest')).toBe(true)
   })
 
+  it('exempts staff and customer Telegram webhooks', () => {
+    expect(isCsrfExemptPath('/api/telegram/webhook')).toBe(true)
+    expect(isCsrfExemptPath('/api/telegram/customer/webhook')).toBe(true)
+    expect(isCsrfExemptPath('/api/whatsapp/webhook')).toBe(true)
+  })
+
   it('does not exempt protected API routes', () => {
     expect(isCsrfExemptPath('/api/tasks')).toBe(false)
     expect(isCsrfExemptPath('/auth/change-password')).toBe(false)

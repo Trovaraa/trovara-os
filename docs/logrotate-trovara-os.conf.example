@@ -1,0 +1,18 @@
+# Example logrotate config for Trovara OS on a production host.
+# Install: sudo cp docs/logrotate-trovara-os.conf.example /etc/logrotate.d/trovara-os
+# Adjust paths if the app is not deployed under /opt/trovara-os.
+
+/opt/trovara-os/logs/*.log {
+  daily
+  rotate 14
+  compress
+  delaycompress
+  missingok
+  notifempty
+  create 0640 trovara trovara
+  sharedscripts
+  postrotate
+    # Optional: reload process manager if it caches file handles
+    # systemctl reload trovara-os-api.service 2>/dev/null || true
+  endscript
+}

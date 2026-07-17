@@ -45,6 +45,7 @@ type Asset = {
   latestLog: AssetLog | null
   loggedToday: boolean
   verifiedToday: boolean
+  todayVerificationStatus?: string | null
 }
 
 const CATEGORY_OPTIONS = ['ppe', 'tool', 'vehicle', 'irrigation', 'other']
@@ -63,6 +64,15 @@ const newName = ref('')
 const newCategory = ref('tool')
 const newUnit = ref('unit')
 const newQty = ref<number | ''>('')
+const newAssetTag = ref('')
+const newLocation = ref('')
+const newTrackingMode = ref<'pool' | 'individual'>('pool')
+const newManufacturer = ref('')
+const newModel = ref('')
+const newSerialNumber = ref('')
+const newAcquisitionCost = ref<number | ''>('')
+const newOperationalStatus = ref('operational')
+const newMaintenanceDays = ref<number | ''>('')
 const creating = ref(false)
 
 // Log-today modal
@@ -96,7 +106,7 @@ function categoryClass(category: string): string {
 
 function statusBadge(asset: Asset): { label: string; cls: string } {
   if (!asset.loggedToday) return { label: t('assets.notLoggedToday'), cls: 'bg-slate-700/40 text-slate-400' }
-  if (asset.latestLog?.verificationStatus === 'rejected')
+  if (asset.todayVerificationStatus === 'rejected')
     return { label: t('assets.rejected'), cls: 'bg-red-900/40 text-red-300' }
   if (asset.verifiedToday) return { label: t('assets.verifiedToday'), cls: 'bg-farm-green/20 text-farm-green' }
   return { label: t('assets.awaitingVerification'), cls: 'bg-amber-500/15 text-amber-300' }
@@ -129,10 +139,32 @@ async function createAsset() {
         category: newCategory.value,
         unit: newUnit.value.trim() || 'unit',
         quantityOwned: newQty.value === '' ? 0 : Number(newQty.value),
+        trackingMode: newTrackingMode.value,
+        assetTag: newAssetTag.value.trim() || undefined,
+        manufacturer: newManufacturer.value.trim() || undefined,
+        model: newModel.value.trim() || undefined,
+        serialNumber: newSerialNumber.value.trim() || undefined,
+        acquisitionCostMinor:
+          newAcquisitionCost.value === ''
+            ? undefined
+            : Math.round(Number(newAcquisitionCost.value) * 100),
+        locationText: newLocation.value.trim() || undefined,
+        operationalStatus: newOperationalStatus.value.trim() || 'operational',
+        maintenanceIntervalDays:
+          newMaintenanceDays.value === '' ? undefined : Number(newMaintenanceDays.value),
       }),
     })
     newName.value = ''
     newQty.value = ''
+    newAssetTag.value = ''
+    newLocation.value = ''
+    newTrackingMode.value = 'pool'
+    newManufacturer.value = ''
+    newModel.value = ''
+    newSerialNumber.value = ''
+    newAcquisitionCost.value = ''
+    newOperationalStatus.value = 'operational'
+    newMaintenanceDays.value = ''
     newCategory.value = 'tool'
     newUnit.value = 'unit'
     showAdd.value = false
@@ -254,7 +286,7 @@ function formatDate(value: string): string {
     <!-- Add asset -->
     <div v-if="showAdd && canManage" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
       <h3 class="font-bold text-white text-sm">{{ t('assets.addAnAsset') }}</h3>
-      <div class="mt-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <input
           v-model="newName"
           :placeholder="t('assets.namePlaceholder')"
@@ -266,6 +298,13 @@ function formatDate(value: string): string {
         >
           <option v-for="cat in CATEGORY_OPTIONS" :key="cat" :value="cat">{{ categoryLabel(cat) }}</option>
         </select>
+        <select
+          v-model="newTrackingMode"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        >
+          <option value="pool">Pool</option>
+          <option value="individual">Individual</option>
+        </select>
         <input
           v-model="newUnit"
           :placeholder="t('assets.unit')"
@@ -276,6 +315,51 @@ function formatDate(value: string): string {
           type="number"
           min="0"
           :placeholder="t('assets.qtyOwned')"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newAssetTag"
+          :placeholder="t('assets.assetTag')"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newManufacturer"
+          placeholder="Manufacturer"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newModel"
+          placeholder="Model"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newSerialNumber"
+          placeholder="Serial number"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model.number="newAcquisitionCost"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Acquisition cost (NGN)"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newLocation"
+          :placeholder="t('assets.location')"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newOperationalStatus"
+          placeholder="Operational status"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model.number="newMaintenanceDays"
+          type="number"
+          min="0"
+          placeholder="Maintenance interval (days)"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <button

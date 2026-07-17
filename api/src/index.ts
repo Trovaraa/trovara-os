@@ -33,6 +33,12 @@ import { alertsRoutes } from './routes/alerts.js'
 import { exportRoutes } from './routes/exports.js'
 import { consentRoutes } from './routes/consent.js'
 import { privacyRoutes } from './routes/privacy.js'
+import { evidenceRoutes } from './routes/evidence.js'
+import { censusRoutes, taskCensusRoutes } from './routes/census.js'
+import { handoverRoutes } from './routes/handover.js'
+import { farmRoutes } from './routes/farm.js'
+import { supplierRoutes } from './routes/suppliers.js'
+import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import {
   apiMutationRateLimit,
   authMutationRateLimit,
@@ -41,6 +47,7 @@ import {
 } from './middleware/security.js'
 import { logSecurityEvent } from './lib/security-log.js'
 import { logApiEvent } from './lib/api-log.js'
+import { clientIpFromHeaders } from './lib/client-ip.js'
 
 const app = new Hono()
 
@@ -53,7 +60,14 @@ app.route('/auth', authRoutes)
 app.route('/api/dashboard', dashboardRoutes)
 app.route('/api/today', todayRoutes)
 app.route('/api/tasks', taskRoutes)
+app.route('/api/tasks', taskCensusRoutes)
+app.route('/api/census', censusRoutes)
+app.route('/api/handover', handoverRoutes)
+app.route('/api/farm', farmRoutes)
+app.route('/api/evidence', evidenceRoutes)
 app.route('/api/inventory', inventoryRoutes)
+app.route('/api/suppliers', supplierRoutes)
+app.route('/api/purchase-orders', purchaseOrderRoutes)
 app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)
@@ -87,7 +101,7 @@ app.onError((err, c) => {
     logSecurityEvent('forbidden_access', {
       path: c.req.path,
       method: c.req.method,
-      ip: c.req.header('x-forwarded-for') ?? 'local',
+      ip: clientIpFromHeaders((name) => c.req.header(name)) ?? 'local',
     })
     return c.json({ error: 'Forbidden' }, 403)
   }

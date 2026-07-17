@@ -10,6 +10,9 @@ import {
 } from '../db/schema.js'
 
 const FALLBACK_TASK_LABOUR_NGN = 5000
+/** Approximate working days per month used to convert monthly wage → task labour. */
+const WORKING_DAYS_PER_MONTH = 22
+const HOURS_PER_WORKING_DAY = 8
 
 export type PlotProfitRow = {
   plotId: string
@@ -50,11 +53,11 @@ export async function computePlotProfitability(farmId: string): Promise<PlotProf
   ]
   const workerRows = workerIds.length
     ? await db
-        .select({ id: users.id, dailyWageNgn: users.dailyWageNgn })
+        .select({ id: users.id, monthlyWageNgn: users.monthlyWageNgn })
         .from(users)
         .where(inArray(users.id, workerIds))
     : []
-  const wageByWorker = new Map(workerRows.map((row) => [row.id, row.dailyWageNgn]))
+  const wageByWorker = new Map(workerRows.map((row) => [row.id, row.monthlyWageNgn]))
 
   const taskCountByPlot = new Map<string, number>()
   const labourByPlot = new Map<string, number>()
@@ -63,7 +66,9 @@ export async function computePlotProfitability(farmId: string): Promise<PlotProf
     taskCountByPlot.set(task.plotId, (taskCountByPlot.get(task.plotId) ?? 0) + 1)
 
     const wage = task.assignedToId ? wageByWorker.get(task.assignedToId) : null
-    const taskLabour = wage ? Math.round(wage / 8) : FALLBACK_TASK_LABOUR_NGN
+    const taskLabour = wage
+      ? Math.round(wage / (WORKING_DAYS_PER_MONTH * HOURS_PER_WORKING_DAY))
+      : FALLBACK_TASK_LABOUR_NGN
     labourByPlot.set(task.plotId, (labourByPlot.get(task.plotId) ?? 0) + taskLabour)
   }
 

@@ -13,6 +13,12 @@ import {
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAccessFinance } from '../lib/rbac.js'
+import {
+  exportJsonMeta,
+  exportWatermarkComment,
+  logDataExport,
+  parseExportReason,
+} from '../lib/export-audit.js'
 
 export const exportRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -32,15 +38,17 @@ function csvValue(value: unknown): string {
   return `"${raw.replaceAll('"', '""')}"`
 }
 
-function toCsv(headers: string[], rows: Array<Record<string, unknown>>): string {
+function toCsv(headers: string[], rows: Array<Record<string, unknown>>, watermark?: string): string {
   const headerLine = headers.map(csvValue).join(',')
   const bodyLines = rows.map((row) => headers.map((header) => csvValue(row[header])).join(','))
-  return `${headerLine}\n${bodyLines.join('\n')}\n`
+  const prefix = watermark ? `${watermark}\n` : ''
+  return `${prefix}${headerLine}\n${bodyLines.join('\n')}\n`
 }
 
 exportRoutes.get('/tasks.csv', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const reason = parseExportReason(c)
 
   const rows = await db
     .select({
@@ -73,15 +81,20 @@ exportRoutes.get('/tasks.csv', async (c) => {
       'updatedAt',
     ],
     rows,
+    exportWatermarkComment(user, reason),
   )
+  await logDataExport({ user, exportType: 'tasks', reason, format: 'csv' })
   c.header('Content-Type', 'text/csv; charset=utf-8')
   c.header('Content-Disposition', 'attachment; filename="tasks.csv"')
+  c.header('X-Export-Actor', user.email)
+  c.header('X-Export-Reason', reason ?? '')
   return c.body(csv)
 })
 
 exportRoutes.get('/inventory.csv', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const reason = parseExportReason(c)
 
   const rows = await db
     .select({
@@ -100,15 +113,20 @@ exportRoutes.get('/inventory.csv', async (c) => {
   const csv = toCsv(
     ['id', 'name', 'category', 'unit', 'quantity', 'reorderLevel', 'updatedAt'],
     rows,
+    exportWatermarkComment(user, reason),
   )
+  await logDataExport({ user, exportType: 'inventory', reason, format: 'csv' })
   c.header('Content-Type', 'text/csv; charset=utf-8')
   c.header('Content-Disposition', 'attachment; filename="inventory.csv"')
+  c.header('X-Export-Actor', user.email)
+  c.header('X-Export-Reason', reason ?? '')
   return c.body(csv)
 })
 
 exportRoutes.get('/expenses.csv', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const reason = parseExportReason(c)
 
   const rows = await db
     .select({
@@ -139,15 +157,20 @@ exportRoutes.get('/expenses.csv', async (c) => {
       'createdAt',
     ],
     rows,
+    exportWatermarkComment(user, reason),
   )
+  await logDataExport({ user, exportType: 'expenses', reason, format: 'csv' })
   c.header('Content-Type', 'text/csv; charset=utf-8')
   c.header('Content-Disposition', 'attachment; filename="expenses.csv"')
+  c.header('X-Export-Actor', user.email)
+  c.header('X-Export-Reason', reason ?? '')
   return c.body(csv)
 })
 
 exportRoutes.get('/audit.csv', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const reason = parseExportReason(c)
 
   const rows = await db
     .select({
@@ -163,15 +186,23 @@ exportRoutes.get('/audit.csv', async (c) => {
     .where(eq(auditEvents.farmId, user.farmId))
     .orderBy(desc(auditEvents.createdAt))
 
-  const csv = toCsv(['id', 'userId', 'action', 'entityType', 'entityId', 'metadata', 'createdAt'], rows)
+  const csv = toCsv(
+    ['id', 'userId', 'action', 'entityType', 'entityId', 'metadata', 'createdAt'],
+    rows,
+    exportWatermarkComment(user, reason),
+  )
+  await logDataExport({ user, exportType: 'audit', reason, format: 'csv' })
   c.header('Content-Type', 'text/csv; charset=utf-8')
   c.header('Content-Disposition', 'attachment; filename="audit.csv"')
+  c.header('X-Export-Actor', user.email)
+  c.header('X-Export-Reason', reason ?? '')
   return c.body(csv)
 })
 
 exportRoutes.get('/farm-data.json', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const reason = parseExportReason(c)
 
   const [tasksRows, inventoryRows, expenseRows, lotsRows, cropRows, plotRows, userRows] = await Promise.all([
     db.select().from(tasks).where(eq(tasks.farmId, user.farmId)).orderBy(desc(tasks.updatedAt)),
@@ -195,12 +226,16 @@ exportRoutes.get('/farm-data.json', async (c) => {
       .orderBy(users.name),
   ])
 
+  await logDataExport({ user, exportType: 'farm-data', reason, format: 'json' })
   c.header('Content-Type', 'application/json; charset=utf-8')
   c.header(
     'Content-Disposition',
     `attachment; filename="farm-data-export-${new Date().toISOString().slice(0, 10)}.json"`,
   )
+  c.header('X-Export-Actor', user.email)
+  c.header('X-Export-Reason', reason ?? '')
   return c.json({
+    _export: exportJsonMeta(user, reason),
     exportedAt: new Date().toISOString(),
     farmId: user.farmId,
     data: {

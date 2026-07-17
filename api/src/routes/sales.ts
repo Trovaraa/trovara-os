@@ -16,6 +16,11 @@ import { logAudit } from '../lib/audit.js'
 import { canTransitionOrder, type OrderStatus } from '../lib/state-machines.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { orderReference } from '../lib/customer-cart.js'
+import {
+  redactContactForRole,
+  redactOrderForRole,
+  shouldRedactSalesPii,
+} from '../lib/sales-redaction.js'
 
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(200),
@@ -85,11 +90,16 @@ salesRoutes.get('/', async (c) => {
     }
   }
 
-  const result = rows.map((r) => ({
-    ...r,
-    reference: orderReference(r.id),
-    items: itemsByOrder[r.id] ?? [],
-  }))
+  const result = rows.map((r) =>
+    redactOrderForRole(
+      {
+        ...r,
+        reference: orderReference(r.id),
+        items: itemsByOrder[r.id] ?? [],
+      },
+      user,
+    ),
+  )
 
   return c.json({ orders: result })
 })
@@ -98,6 +108,9 @@ salesRoutes.get('/', async (c) => {
 // inquiry count for this farm. Powers the Sales drill-down for bot customers.
 salesRoutes.get('/contacts/:id', async (c) => {
   const user = c.get('user')
+  if (shouldRedactSalesPii(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const contactId = c.req.param('id')
 
   const [contact] = await db
@@ -156,26 +169,34 @@ salesRoutes.get('/contacts/:id', async (c) => {
     .reduce((sum, o) => sum + (o.totalAmount ?? 0), 0)
 
   return c.json({
-    contact: {
-      id: contact.id,
-      channel: contact.channel,
-      externalId: contact.externalId,
-      name: contact.name,
-      phone: contact.phone,
-      firstSeen: contact.createdAt,
-      lastSeen: contact.updatedAt,
-    },
+    contact: redactContactForRole(
+      {
+        id: contact.id,
+        channel: contact.channel,
+        externalId: contact.externalId,
+        name: contact.name,
+        phone: contact.phone,
+        firstSeen: contact.createdAt,
+        lastSeen: contact.updatedAt,
+      },
+      user,
+    ),
     stats: {
       orderCount: orderRows.length,
       inquiryCount,
       lifetimeValue,
       currency: orderRows[0]?.currency ?? 'NGN',
     },
-    orders: orderRows.map((o) => ({
-      ...o,
-      reference: orderReference(o.id),
-      items: itemsByOrder[o.id] ?? [],
-    })),
+    orders: orderRows.map((o) =>
+      redactOrderForRole(
+        {
+          ...o,
+          reference: orderReference(o.id),
+          items: itemsByOrder[o.id] ?? [],
+        },
+        user,
+      ),
+    ),
   })
 })
 

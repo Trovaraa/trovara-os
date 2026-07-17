@@ -20,10 +20,6 @@ const forgotOpen = ref(false)
 const forgotEmail = ref('')
 const forgotMessage = ref<string | null>(null)
 const forgotSubmitting = ref(false)
-const resetToken = ref('')
-const resetNewPassword = ref('')
-const resetMessage = ref<string | null>(null)
-const resettingPassword = ref(false)
 const forceChangeOpen = ref(false)
 const changingPassword = ref(false)
 const forceNewPassword = ref('')
@@ -157,28 +153,6 @@ async function sendForgotPassword() {
     forgotMessage.value = e instanceof Error ? e.message : 'Could not send reset email.'
   } finally {
     forgotSubmitting.value = false
-  }
-}
-
-async function resetWithToken() {
-  if (!resetToken.value.trim() || resetNewPassword.value.length < 8) return
-  resettingPassword.value = true
-  resetMessage.value = null
-  try {
-    const data = await api<{ message?: string }>('/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({
-        token: resetToken.value.trim(),
-        newPassword: resetNewPassword.value,
-      }),
-    })
-    resetToken.value = ''
-    resetNewPassword.value = ''
-    resetMessage.value = data.message ?? 'Password reset successful. You can sign in now.'
-  } catch (e) {
-    resetMessage.value = e instanceof Error ? e.message : 'Reset failed.'
-  } finally {
-    resettingPassword.value = false
   }
 }
 
@@ -363,32 +337,6 @@ async function applyForcedPasswordChange() {
           </button>
         </form>
         <p v-if="forgotMessage" class="text-xs text-slate-300 mt-3">{{ forgotMessage }}</p>
-
-        <div class="mt-5 pt-4 border-t border-slate-800 space-y-3">
-          <p class="text-xs text-slate-500">Have a reset token already? Set a new password now.</p>
-          <input
-            v-model="resetToken"
-            type="text"
-            placeholder="Reset token"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
-          />
-          <input
-            v-model="resetNewPassword"
-            type="password"
-            minlength="8"
-            placeholder="New password (min 8 chars)"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
-          />
-          <button
-            type="button"
-            :disabled="resettingPassword"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700 disabled:opacity-50"
-            @click="resetWithToken"
-          >
-            {{ resettingPassword ? 'Resetting…' : 'Reset password' }}
-          </button>
-          <p v-if="resetMessage" class="text-xs text-slate-300">{{ resetMessage }}</p>
-        </div>
       </div>
     </div>
 

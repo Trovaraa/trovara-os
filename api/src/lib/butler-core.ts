@@ -13,14 +13,19 @@ import {
   transcribeAudio,
   type ChatMessage,
 } from './llm.js'
+import {
+  butlerAnswerFailedMessage,
+  butlerBriefFailedMessage,
+  butlerHelpText,
+  butlerLlmOffMessage,
+  butlerPhotoFailedMessage,
+  butlerPhotoLlmOffMessage,
+  detectReplyLocale,
+  type ReplyLocale,
+} from './reply-locale.js'
 
-export const HELP_TEXT = [
-  'Trovara Butler - how I can help:',
-  '• Ask anything: "How many birds are alive?", "What needs restocking?", "Revenue today?"',
-  '• Report a problem: "3 broilers are weak with green droppings"',
-  '• Send a photo of a sick plant or animal and I will diagnose it',
-  '• Type "brief" for today\'s summary',
-].join('\n')
+/** @deprecated Prefer butlerHelpText(locale) - kept for callers that need English. */
+export const HELP_TEXT = butlerHelpText('en')
 
 /** Recent chat turns for this user on a given channel, oldest-first. */
 export async function loadConversation(
@@ -93,20 +98,22 @@ export async function answerText(
   user: SessionUser,
   text: string,
   entityType: string,
+  localeHint?: string | null,
 ): Promise<string> {
   const lower = text.toLowerCase().trim()
+  const locale: ReplyLocale = detectReplyLocale(text, localeHint)
 
   if (!isLlmConfigured()) {
-    return `Hi ${user.name.split(' ')[0]}, I received: "${text.slice(0, 160)}". The AI assistant is not switched on yet - a supervisor will follow up.`
+    return butlerLlmOffMessage(locale, user.name.split(' ')[0], text.slice(0, 160))
   }
-  if (['help', 'menu', 'hi', 'hello', '/start', 'start'].includes(lower)) {
-    return HELP_TEXT
+  if (['help', 'menu', 'hi', 'hello', '/start', 'start', 'bonjour', 'salut'].includes(lower)) {
+    return butlerHelpText(locale)
   }
-  if (['brief', 'briefing', 'today'].includes(lower)) {
+  if (['brief', 'briefing', 'today', 'bref'].includes(lower)) {
     try {
       return await buildBriefReply(user)
     } catch {
-      return 'Could not build the briefing right now. Please try again shortly.'
+      return butlerBriefFailedMessage(locale)
     }
   }
   try {
@@ -121,7 +128,7 @@ export async function answerText(
     )
     return aiText
   } catch {
-    return 'I had trouble answering that just now. Please try again in a moment.'
+    return butlerAnswerFailedMessage(locale)
   }
 }
 
@@ -145,9 +152,14 @@ export async function transcribeVoice(
 }
 
 /** Channel-agnostic photo diagnosis. Does NOT record or send. */
-export async function answerPhoto(caption: string, imageDataUrl: string): Promise<string> {
+export async function answerPhoto(
+  caption: string,
+  imageDataUrl: string,
+  localeHint?: string | null,
+): Promise<string> {
+  const locale = detectReplyLocale(caption, localeHint)
   if (!isLlmConfigured()) {
-    return 'Photo received. The AI diagnosis service is not switched on yet - a supervisor will review it.'
+    return butlerPhotoLlmOffMessage(locale)
   }
   try {
     const safeCaption = sanitizeForLlm(caption)
@@ -158,6 +170,6 @@ export async function answerPhoto(caption: string, imageDataUrl: string): Promis
     )
     return text
   } catch {
-    return 'I could not open that photo. Please resend a clear, well-lit picture of the plant or animal.'
+    return butlerPhotoFailedMessage(locale)
   }
 }

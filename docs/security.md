@@ -60,6 +60,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Confirm HTTPS is enabled for `os.trovara.farm`
 - Configure off-server encrypted backups + logrotate for `logs/*.log`
 - Set `META_APP_SECRET` when WhatsApp goes live
+- **Set `CRON_SECRET` in production** — cron scripts (`run-data-retention`, proactive alerts, evening digest) must authenticate with `X-CRON-SECRET`; do not rely on owner password fallbacks in production
 
 ---
 

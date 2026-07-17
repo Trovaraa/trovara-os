@@ -6,14 +6,12 @@ import { clearPhotoQueue } from '@/lib/offline-photo-queue'
 export async function clearSensitiveClientData(): Promise<void> {
   clearQueue()
   clearTasksCache()
-  clearPhotoQueue()
+  await clearPhotoQueue()
 
   if (typeof caches !== 'undefined') {
     try {
       const keys = await caches.keys()
-      await Promise.all(
-        keys.filter((k) => k.includes('trovara')).map((k) => caches.delete(k)),
-      )
+      await Promise.all(keys.map((key) => caches.delete(key)))
     } catch {
       // ignore cache API failures
     }

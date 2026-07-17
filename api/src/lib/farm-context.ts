@@ -25,7 +25,7 @@ function sf(text: string | null | undefined): string {
 }
 
 function formatRole(role: string): string {
-  if (role === 'owner') return 'Founder'
+  if (role === 'owner') return 'Admin'
   if (role === 'field_worker') return 'field worker'
   return role.replace(/_/g, ' ')
 }
@@ -65,6 +65,7 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
       .groupBy(tasks.status),
     db
       .select({
+        id: users.id,
         name: users.name,
         role: users.role,
       })
@@ -122,21 +123,27 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
   // Identity of the person currently chatting (web session or linked Telegram chat).
   // Answers "who am I / what's my role?" without guessing from the staff roster.
   lines.push(
-    `CURRENT USER: name=${sf(user.name)}; email=${sf(user.email)}; role=${formatRole(user.role)} (system key: ${user.role})`,
+    `CURRENT USER: name=${sf(user.name)}; role=${formatRole(user.role)} (system key: ${user.role})`,
   )
   lines.push('')
 
-  // Staff roster (names + roles - answers "all worker names" and similar)
+  // Staff roster - field workers see only themselves + supervisors (no peer names).
+  const visibleStaff = isFieldWorker
+    ? staffRows.filter((s) => s.role === 'supervisor' || s.id === user.id)
+    : staffRows
   const staffByRole = {
-    owner: staffRows.filter((s) => s.role === 'owner'),
-    supervisor: staffRows.filter((s) => s.role === 'supervisor'),
-    field_worker: staffRows.filter((s) => s.role === 'field_worker'),
+    owner: visibleStaff.filter((s) => s.role === 'owner'),
+    supervisor: visibleStaff.filter((s) => s.role === 'supervisor'),
+    field_worker: visibleStaff.filter((s) => s.role === 'field_worker'),
   }
-  lines.push(`STAFF ROSTER (${staffRows.length} active):`)
+  lines.push(`STAFF ROSTER (${visibleStaff.length} listed):`)
+  if (isFieldWorker) {
+    lines.push('  (Field workers see supervisors and self only - no peer worker names.)')
+  }
   lines.push(
-    `  Summary: ${staffByRole.owner.length} Founder(s), ${staffByRole.supervisor.length} supervisor(s), ${staffByRole.field_worker.length} field worker(s)`,
+    `  Summary: ${staffByRole.owner.length} Admin(s), ${staffByRole.supervisor.length} supervisor(s), ${staffByRole.field_worker.length} field worker(s)`,
   )
-  for (const member of staffRows) {
+  for (const member of visibleStaff) {
     lines.push(`  • ${sf(member.name)} (${formatRole(member.role)})`)
   }
   lines.push('')
@@ -307,7 +314,7 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
     }
     lines.push('')
   } else {
-    lines.push('SALES/FINANCE: hidden (only the Founder can view revenue, expenses and profit).')
+    lines.push('SALES/FINANCE: hidden (only the Admin can view revenue, expenses and profit).')
     lines.push('')
   }
 

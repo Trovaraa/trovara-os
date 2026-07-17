@@ -24,10 +24,13 @@ import {
   getUserFromSession,
   hashIp,
   hashPassword,
+  listActiveSessions,
   revokeOtherSessions,
+  revokeSessionById,
   sessionCookieOptions,
   verifyPassword,
 } from '../lib/session.js'
+import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { generateCsrfToken, setCsrfCookie, CSRF_COOKIE } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
@@ -46,6 +49,8 @@ import {
   resetTotpChallengeRateLimit,
   verifyTokenForUser,
 } from '../lib/totp.js'
+import { decryptSecretForVerify, encryptSecret } from '../lib/secret-box.js'
+import { deliverPasswordReset, requiredDeliveryFailed } from '../lib/notifications.js'
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -121,7 +126,19 @@ function generateRecoveryCodes(count = 8): { plaintext: string[]; hashes: string
 
 function authMutationKey(c: { req: { header: (name: string) => string | undefined } }, userId?: string): string {
   if (userId) return `user:${userId}`
-  return `ip:${c.req.header('x-forwarded-for') ?? 'local'}`
+  return `ip:${clientIpFromHeaders((name) => c.req.header(name))}`
+}
+
+async function verifyStoredTotpToken(userId: string, storedSecret: string, token: string): Promise<boolean> {
+  const { plaintext, shouldReencrypt } = decryptSecretForVerify(storedSecret)
+  const valid = verifyTokenForUser(userId, plaintext, token)
+  if (valid && shouldReencrypt) {
+    await db
+      .update(users)
+      .set({ totpSecret: encryptSecret(plaintext) })
+      .where(eq(users.id, userId))
+  }
+  return valid
 }
 
 function denyAuthMutation(c: any, retryAfterSec: number) {
@@ -156,7 +173,7 @@ function hashResetToken(token: string): string {
 }
 
 authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   if (!checkLoginRateLimit(ip)) {
     logSecurityEvent('failed_login', {
       reason: 'rate_limited',
@@ -248,7 +265,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   const mutation = checkAuthMutationRateLimit(authMutationKey(c))
   if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   const body = c.req.valid('json')
   const secretCheck = validateRegistrationSecret(
     body.registrationSecret,
@@ -256,7 +273,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   )
   if (!secretCheck.ok) {
     if (secretCheck.reason === 'disabled') {
-      return c.json({ error: 'Founder registration is disabled' }, 503)
+      return c.json({ error: 'Admin registration is disabled' }, 503)
     }
     logSecurityEvent('failed_registration', {
       reason: 'invalid_secret',
@@ -344,7 +361,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
 })
 
 authRoutes.post('/totp/complete-login', zValidator('json', totpCompleteLoginSchema), async (c) => {
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   const userAgent = c.req.header('user-agent')
   const hashedIp = hashIp(ip)
   const { totpChallenge, token: totpToken } = c.req.valid('json')
@@ -366,7 +383,7 @@ authRoutes.post('/totp/complete-login', zValidator('json', totpCompleteLoginSche
     return c.json({ error: 'Invalid login challenge' }, 401)
   }
 
-  if (!verifyTokenForUser(user.id, user.totpSecret, totpToken)) {
+  if (!(await verifyStoredTotpToken(user.id, user.totpSecret, totpToken))) {
     const locked = recordTotpChallengeFailure(totpChallenge, ip)
     logSecurityEvent('failed_login', {
       reason: locked ? 'totp_rate_limited' : 'invalid_totp',
@@ -453,12 +470,26 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
 
     const rawToken = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    await db.insert(passwordResetTokens).values({
+    const [resetToken] = await db.insert(passwordResetTokens).values({
       userId: user.id,
       tokenHash: hashResetToken(rawToken),
       expiresAt,
-    })
+    }).returning({ id: passwordResetTokens.id })
     logSecurityEvent('password_reset_requested', { email: normalizedEmail, userId: user.id })
+
+    const delivery = await deliverPasswordReset(user.email, rawToken, user.phone)
+    if (requiredDeliveryFailed(delivery) && resetToken) {
+      await db
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, resetToken.id))
+      logSecurityEvent('password_reset_delivery_failed', {
+        userId: user.id,
+        requiredChannels: delivery
+          .filter((result) => result.required && result.status !== 'delivered')
+          .map((result) => result.channel),
+      })
+    }
 
     await logAudit({
       farmId: user.farmId,
@@ -473,7 +504,7 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
 
   return c.json({
     ok: true,
-    message: 'If that email exists, password reset instructions were created.',
+    message: 'If that email exists, password reset instructions were sent.',
   })
 })
 
@@ -605,7 +636,10 @@ authRoutes.post('/totp/setup', authMiddleware, async (c) => {
   }
 
   const secret = generateSecret()
-  await db.update(users).set({ totpSecret: secret, totpEnabled: false }).where(eq(users.id, user.id))
+  await db
+    .update(users)
+    .set({ totpSecret: encryptSecret(secret), totpEnabled: false })
+    .where(eq(users.id, user.id))
 
   const otpauthUrl = buildOtpAuthUrl({ secret, email: user.email, issuer: 'Trovara OS' })
   const qrUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 256 })
@@ -645,7 +679,7 @@ authRoutes.post('/totp/enable', authMiddleware, zValidator('json', totpCodeSchem
   if (!existing?.totpSecret) {
     return c.json({ error: 'Run setup first' }, 400)
   }
-  if (!verifyTokenForUser(user.id, existing.totpSecret, token)) {
+  if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
     return c.json({ error: 'Invalid authentication code' }, 400)
   }
 
@@ -693,7 +727,7 @@ authRoutes.post('/totp/disable', authMiddleware, zValidator('json', totpDisableS
   if (!existing.totpSecret || !existing.totpEnabled) {
     return c.json({ error: '2FA is not enabled' }, 400)
   }
-  if (!verifyTokenForUser(user.id, existing.totpSecret, token)) {
+  if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
     return c.json({ error: 'Invalid authentication code' }, 400)
   }
 
@@ -713,7 +747,7 @@ authRoutes.post('/totp/disable', authMiddleware, zValidator('json', totpDisableS
 })
 
 authRoutes.post('/totp/use-recovery-code', zValidator('json', useRecoveryCodeSchema), async (c) => {
-  const ip = c.req.header('x-forwarded-for') ?? 'local'
+  const ip = clientIpFromHeaders((name) => c.req.header(name))
   const userAgent = c.req.header('user-agent')
   const hashedIp = hashIp(ip)
   const { totpChallenge, token: recoveryCode, password } = c.req.valid('json')
@@ -842,7 +876,7 @@ authRoutes.post('/totp/regenerate-recovery-codes', authMiddleware, zValidator('j
   if (!existing?.totpEnabled || !existing.totpSecret) {
     return c.json({ error: '2FA is not enabled' }, 400)
   }
-  if (!verifyTokenForUser(user.id, existing.totpSecret, token)) {
+  if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
     return c.json({ error: 'Invalid authentication code' }, 400)
   }
 
@@ -910,8 +944,38 @@ authRoutes.post('/revoke-all-sessions', authMiddleware, async (c) => {
 
 authRoutes.get('/sessions', authMiddleware, async (c) => {
   const user = c.get('user')
-  const activeSessions = await countActiveSessions(user.id)
-  return c.json({ activeSessions })
+  const currentToken = getCookie(c, SESSION_COOKIE)
+  const sessionList = await listActiveSessions(user.id, currentToken)
+  return c.json({
+    activeSessions: sessionList.length,
+    sessions: sessionList.map((s) => ({
+      id: s.id,
+      createdAt: s.createdAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      userAgent: s.userAgent,
+      current: s.current,
+    })),
+  })
+})
+
+authRoutes.delete('/sessions/:id', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const sessionId = c.req.param('id')
+  if (!sessionId) return c.json({ error: 'Session not found' }, 404)
+  const currentToken = getCookie(c, SESSION_COOKIE)
+  const result = await revokeSessionById(user.id, sessionId, currentToken)
+  if (result === 'not_found') return c.json({ error: 'Session not found' }, 404)
+  if (result === 'current') {
+    return c.json({ error: 'Cannot revoke the current session - use Sign out instead.' }, 400)
+  }
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'revoke_session',
+    entityType: 'session',
+    entityId: sessionId,
+  })
+  return c.json({ ok: true })
 })
 
 authRoutes.get('/me', authMiddleware, async (c) => {

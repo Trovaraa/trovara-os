@@ -1,0 +1,17 @@
+[Unit]
+Description=Trovara OS encrypted production backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/trovara-os
+EnvironmentFile=/home/ubuntu/trovara-os/.env
+ExecStart=/usr/bin/bash /home/ubuntu/trovara-os/scripts/backup-production.sh
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0077
+
+# Example only: adjust User, Group, paths, and hardening for the deployment.

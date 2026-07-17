@@ -38,7 +38,47 @@ type ExceptionSummary = {
   rejectedTasks: number
   assetLogsMissing: number
   assetVerificationPending: number
+  censusMissing?: number
+  censusRejected?: number
+  censusStale?: number
+  weatherAlerts?: number
   total: number
+}
+
+type WeatherDay = {
+  date: string
+  tempMinC: number
+  tempMaxC: number
+  precipMm: number
+  precipProb: number | null
+  windKmh: number
+  condition: string
+}
+
+type WeatherSnapshot = {
+  status: 'ok' | 'stale' | 'unavailable' | 'unconfigured'
+  provider: string
+  attribution: string
+  fetchedAt: string | null
+  timezone: string | null
+  locationLabel: string | null
+  current: {
+    tempC: number
+    feelsLikeC: number | null
+    humidity: number | null
+    windKmh: number
+    condition: string
+  } | null
+  daily: WeatherDay[]
+  alerts: Array<{ type: string; severity: string; title: string; message: string }>
+  actions?: Array<{
+    id: string
+    priority: 'high' | 'medium' | 'low'
+    title: string
+    detail: string
+    relatedAlert?: string
+  }>
+  message?: string
 }
 
 type TodayData = {
@@ -46,6 +86,7 @@ type TodayData = {
   exceptions: ExceptionItem[]
   actionList: ActionItem[]
   summary: ExceptionSummary
+  weather?: WeatherSnapshot
   myTasksToday?: {
     id: string
     title: string
@@ -114,6 +155,13 @@ const exceptionIcon: Record<string, string> = {
   rejected_task: 'text-rose-400',
   asset_log_missing: 'text-amber-400',
   asset_verification_pending: 'text-cyan-400',
+  census_missing: 'text-amber-400',
+  census_rejected: 'text-rose-400',
+  census_stale: 'text-orange-400',
+  weather_rain: 'text-sky-400',
+  weather_heat: 'text-orange-400',
+  weather_wind: 'text-cyan-300',
+  weather_cold: 'text-blue-300',
 }
 
 const exceptionLabel: Record<string, string> = {
@@ -125,6 +173,13 @@ const exceptionLabel: Record<string, string> = {
   rejected_task: 'today.lblRejected',
   asset_log_missing: 'today.lblNotLogged',
   asset_verification_pending: 'today.lblVerifyAsset',
+  census_missing: 'today.lblCensusMissing',
+  census_rejected: 'today.lblCensusRejected',
+  census_stale: 'today.lblCensusStale',
+  weather_rain: 'today.lblWeatherRain',
+  weather_heat: 'today.lblWeatherHeat',
+  weather_wind: 'today.lblWeatherWind',
+  weather_cold: 'today.lblWeatherCold',
 }
 
 const summaryCards = computed(() => {
@@ -140,7 +195,7 @@ const summaryCards = computed(() => {
     { key: 'assetLogsMissing', labelKey: 'today.lblNotLogged', color: 'text-amber-400' },
     { key: 'assetVerificationPending', labelKey: 'today.lblVerifyAssets', color: 'text-cyan-400' },
   ]
-  return cards.filter((card) => s[card.key] > 0 || !isWorker.value)
+  return cards.filter((card) => (Number(s[card.key] ?? 0) > 0) || !isWorker.value)
 })
 
 onMounted(async () => {
@@ -197,6 +252,112 @@ function formatCurrency(amount: number, currency: string) {
           {{ isWorker ? t('today.workerSubtitle') : t('today.needAttention', { count: data.summary.total }) }}
         </p>
       </div>
+
+      <!-- Weather -->
+      <section
+        v-if="data.weather"
+        class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-white">{{ t('today.weather') }}</h3>
+            <p class="text-xs text-slate-500 mt-0.5">
+              <span v-if="data.weather.locationLabel">{{ data.weather.locationLabel }}</span>
+              <span v-if="data.weather.timezone"> · {{ data.weather.timezone }}</span>
+              <span
+                v-if="data.weather.status === 'stale'"
+                class="text-amber-400"
+              > · {{ t('today.weatherStale') }}</span>
+            </p>
+          </div>
+          <p
+            v-if="data.weather.current"
+            class="text-3xl font-black text-white"
+          >
+            {{ data.weather.current.tempC.toFixed(0) }}°C
+          </p>
+        </div>
+
+        <div v-if="data.weather.current" class="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+          <span class="capitalize">{{ data.weather.current.condition }}</span>
+          <span>{{ t('today.wind') }} {{ data.weather.current.windKmh }} km/h</span>
+          <span v-if="data.weather.current.humidity != null">
+            {{ t('today.humidity') }} {{ data.weather.current.humidity }}%
+          </span>
+        </div>
+
+        <p
+          v-else-if="data.weather.message"
+          class="mt-3 text-sm"
+          :class="data.weather.status === 'unconfigured' ? 'text-amber-300' : 'text-slate-400'"
+        >
+          {{ data.weather.message }}
+          <RouterLink
+            v-if="data.weather.status === 'unconfigured' && !isWorker"
+            to="/settings"
+            class="text-farm-green hover:underline ml-1"
+          >{{ t('today.setFarmLocation') }}</RouterLink>
+        </p>
+
+        <div
+          v-if="data.weather.daily.length"
+          class="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-2"
+        >
+          <div
+            v-for="day in data.weather.daily"
+            :key="day.date"
+            class="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2"
+          >
+            <p class="text-[10px] uppercase tracking-wide text-slate-500">
+              {{ new Date(day.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' }) }}
+            </p>
+            <p class="text-sm text-white font-semibold mt-0.5">
+              {{ day.tempMinC.toFixed(0) }}–{{ day.tempMaxC.toFixed(0) }}°
+            </p>
+            <p class="text-[11px] text-slate-500 mt-0.5">
+              {{ day.precipMm }} mm
+              <span v-if="day.precipProb != null"> · {{ day.precipProb }}%</span>
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-if="data.weather.actions?.length"
+          class="mt-4 border-t border-slate-800 pt-4"
+        >
+          <h4 class="text-xs font-bold uppercase tracking-wide text-slate-400">
+            {{ t('today.weatherActions') }}
+          </h4>
+          <ul class="mt-2 space-y-2">
+            <li
+              v-for="action in data.weather.actions"
+              :key="action.id"
+              class="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2"
+            >
+              <div class="flex items-start gap-2">
+                <span
+                  class="mt-0.5 shrink-0 text-[10px] font-bold uppercase tracking-wide"
+                  :class="
+                    action.priority === 'high'
+                      ? 'text-amber-400'
+                      : action.priority === 'medium'
+                        ? 'text-sky-400'
+                        : 'text-slate-500'
+                  "
+                >{{ t(`today.weatherActionPriority.${action.priority}`) }}</span>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-white">{{ action.title }}</p>
+                  <p class="text-xs text-slate-400 mt-0.5 leading-snug">{{ action.detail }}</p>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <p v-if="data.weather.attribution" class="mt-3 text-[10px] text-slate-600">
+          {{ data.weather.attribution }}
+        </p>
+      </section>
 
       <!-- Worker: my tasks today -->
       <section v-if="isWorker && data.myTasksToday" class="mt-8">

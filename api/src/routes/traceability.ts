@@ -45,6 +45,10 @@ function appBaseUrl() {
   return (process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')
 }
 
+function publicLotUrl(farmSlug: string | null | undefined, publicToken: string): string {
+  return `${appBaseUrl()}/lot/${farmSlug ?? 'farm'}/${publicToken}`
+}
+
 function escapeHtml(value: string | null | undefined): string {
   if (!value) return ''
   return value
@@ -66,6 +70,7 @@ traceabilityRoutes.get('/', async (c) => {
     .select({
       id: harvestLots.id,
       lotCode: harvestLots.lotCode,
+      publicToken: harvestLots.publicToken,
       plotId: harvestLots.plotId,
       plotName: plots.name,
       cropCycleId: harvestLots.cropCycleId,
@@ -299,6 +304,7 @@ traceabilityRoutes.get('/:id/qr', async (c) => {
   const [lot] = await db
     .select({
       lotCode: harvestLots.lotCode,
+      publicToken: harvestLots.publicToken,
       farmSlug: farms.slug,
     })
     .from(harvestLots)
@@ -308,7 +314,7 @@ traceabilityRoutes.get('/:id/qr', async (c) => {
 
   if (!lot) return c.json({ error: 'Not found' }, 404)
 
-  const qrUrl = `${appBaseUrl()}/lot/${lot.farmSlug}/${lot.lotCode}`
+  const qrUrl = publicLotUrl(lot.farmSlug, lot.publicToken)
   const svg = await QRCode.toString(qrUrl, { type: 'svg' })
   c.header('Content-Type', 'image/svg+xml')
   return c.body(svg)
@@ -360,6 +366,7 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
     .select({
       id: harvestLots.id,
       lotCode: harvestLots.lotCode,
+      publicToken: harvestLots.publicToken,
       productName: harvestLots.productName,
       quantityKg: harvestLots.quantityKg,
       publicNotes: harvestLots.publicNotes,
@@ -403,7 +410,7 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
     )
     .orderBy(asc(farmEvents.createdAt))
 
-  const publicUrl = `${appBaseUrl()}/lot/${lot.farmSlug}/${lot.lotCode}`
+  const publicUrl = publicLotUrl(lot.farmSlug, lot.publicToken)
   const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', margin: 1, width: 180 })
 
   const timelineItems = timeline

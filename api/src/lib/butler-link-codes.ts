@@ -92,7 +92,7 @@ export async function verifyAndConsumeLinkCode(
   if (new Date(val.expiresAt) < new Date()) return null
 
   const [user] = await db.select().from(users).where(eq(users.id, val.userId)).limit(1)
-  if (!user) return null
+  if (!user || !user.active) return null
 
   await db
     .update(farmEvents)
@@ -184,5 +184,6 @@ export async function resolveActiveTelegramLink(
   if (!userId) return undefined
 
   const [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  if (!u || !u.active) return undefined
   return u
 }

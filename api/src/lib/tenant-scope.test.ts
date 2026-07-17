@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { assertTenantScope, sanitizeAnonymizedEmail, sanitizeAnonymizedName } from './tenant-scope.js'
+import {
+  assertTenantScope,
+  sanitizeAnonymizedContactName,
+  sanitizeAnonymizedEmail,
+  sanitizeAnonymizedName,
+} from './tenant-scope.js'
 
 const { verifySyncMock } = vi.hoisted(() => ({
   verifySyncMock: vi.fn(),
@@ -28,6 +33,10 @@ describe('anonymization sanitizers', () => {
 
   it('creates deterministic anonymized email', () => {
     expect(sanitizeAnonymizedEmail('worker-123')).toBe('anon@worker-123.invalid')
+  })
+
+  it('creates deterministic anonymized contact name', () => {
+    expect(sanitizeAnonymizedContactName('contact-12345678-abcd')).toBe('Customer contact-')
   })
 })
 

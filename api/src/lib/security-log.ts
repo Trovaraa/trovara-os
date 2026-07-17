@@ -7,12 +7,16 @@ export type SecurityEventType =
   | 'failed_registration'
   | 'break_glass_login'
   | 'password_reset_requested'
+  | 'password_reset_delivery_failed'
   | 'password_reset_failed'
   | 'password_reset_completed'
   | 'password_changed'
   | 'csrf_failure'
   | 'forbidden_access'
   | 'invalid_webhook_signature'
+  | 'customer_order_abuse'
+  | 'customer_order_flagged'
+  | 'whatsapp_recipient_blocked'
 
 const APP_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))
 const SECURITY_LOG_PATH = join(APP_ROOT, 'logs', 'security.log')

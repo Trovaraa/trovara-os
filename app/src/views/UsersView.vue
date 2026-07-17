@@ -16,7 +16,18 @@ type FarmUser = {
   active: boolean
   createdAt: string
   phone?: string | null
-  dailyWageNgn?: number | null
+  monthlyWageNgn?: number | null
+  monthlyWageEffectiveFrom?: string | null
+  monthlyWageConfirmedAt?: string | null
+  nextOfKinName?: string | null
+  nextOfKinPhone?: string | null
+  nextOfKinRelationship?: string | null
+  employeeNumber?: string | null
+  jobTitle?: string | null
+  employmentType?: string | null
+  employmentStartDate?: string | null
+  employmentEndDate?: string | null
+  employmentStatus?: string | null
 }
 
 const users = ref<FarmUser[]>([])
@@ -27,7 +38,17 @@ const newName = ref('')
 const newRole = ref<UserRole>('field_worker')
 const newPassword = ref('')
 const newPhone = ref('')
-const newDailyWageNgn = ref<number | ''>('')
+const newMonthlyWageNgn = ref<number | ''>('')
+const newMonthlyWageEffectiveFrom = ref('')
+const newConfirmMonthlyWage = ref(false)
+const newNextOfKinName = ref('')
+const newNextOfKinPhone = ref('')
+const newNextOfKinRelationship = ref('')
+const newEmployeeNumber = ref('')
+const newJobTitle = ref('')
+const newEmploymentType = ref('')
+const newEmploymentStartDate = ref('')
+const newEmploymentStatus = ref('employed')
 const creating = ref(false)
 const createError = ref<string | null>(null)
 
@@ -36,7 +57,18 @@ const editing = ref<FarmUser | null>(null)
 const editName = ref('')
 const editRole = ref<UserRole>('field_worker')
 const editPhone = ref('')
-const editDailyWageNgn = ref<number | ''>('')
+const editMonthlyWageNgn = ref<number | ''>('')
+const editMonthlyWageEffectiveFrom = ref('')
+const editConfirmMonthlyWage = ref(false)
+const editNextOfKinName = ref('')
+const editNextOfKinPhone = ref('')
+const editNextOfKinRelationship = ref('')
+const editEmployeeNumber = ref('')
+const editJobTitle = ref('')
+const editEmploymentType = ref('')
+const editEmploymentStartDate = ref('')
+const editEmploymentEndDate = ref('')
+const editEmploymentStatus = ref('employed')
 const editSaving = ref(false)
 const editError = ref<string | null>(null)
 
@@ -52,6 +84,25 @@ async function load() {
 
 onMounted(load)
 
+function resetCreateForm() {
+  newEmail.value = ''
+  newName.value = ''
+  newPassword.value = ''
+  newPhone.value = ''
+  newMonthlyWageNgn.value = ''
+  newMonthlyWageEffectiveFrom.value = ''
+  newConfirmMonthlyWage.value = false
+  newNextOfKinName.value = ''
+  newNextOfKinPhone.value = ''
+  newNextOfKinRelationship.value = ''
+  newEmployeeNumber.value = ''
+  newJobTitle.value = ''
+  newEmploymentType.value = ''
+  newEmploymentStartDate.value = ''
+  newEmploymentStatus.value = 'employed'
+  newRole.value = 'field_worker'
+}
+
 async function createUser() {
   if (!newEmail.value.trim() || !newName.value.trim() || !newPassword.value) return
   creating.value = true
@@ -65,16 +116,21 @@ async function createUser() {
         role: newRole.value,
         password: newPassword.value,
         phone: newPhone.value.trim() || undefined,
-        dailyWageNgn:
-          newDailyWageNgn.value === '' ? undefined : Number(newDailyWageNgn.value),
+        monthlyWageNgn:
+          newMonthlyWageNgn.value === '' ? undefined : Number(newMonthlyWageNgn.value),
+        monthlyWageEffectiveFrom: newMonthlyWageEffectiveFrom.value || undefined,
+        confirmMonthlyWage: newConfirmMonthlyWage.value || undefined,
+        nextOfKinName: newNextOfKinName.value.trim() || undefined,
+        nextOfKinPhone: newNextOfKinPhone.value.trim() || undefined,
+        nextOfKinRelationship: newNextOfKinRelationship.value.trim() || undefined,
+        employeeNumber: newEmployeeNumber.value.trim() || undefined,
+        jobTitle: newJobTitle.value.trim() || undefined,
+        employmentType: newEmploymentType.value || undefined,
+        employmentStartDate: newEmploymentStartDate.value || undefined,
+        employmentStatus: newEmploymentStatus.value || undefined,
       }),
     })
-    newEmail.value = ''
-    newName.value = ''
-    newPassword.value = ''
-    newPhone.value = ''
-    newDailyWageNgn.value = ''
-    newRole.value = 'field_worker'
+    resetCreateForm()
     await load()
   } catch (e) {
     createError.value = e instanceof Error ? e.message : t('users.createFailed')
@@ -102,7 +158,18 @@ function openEdit(user: FarmUser) {
   editName.value = user.name
   editRole.value = user.role
   editPhone.value = user.phone ?? ''
-  editDailyWageNgn.value = user.dailyWageNgn ?? ''
+  editMonthlyWageNgn.value = user.monthlyWageNgn ?? ''
+  editMonthlyWageEffectiveFrom.value = user.monthlyWageEffectiveFrom ?? ''
+  editConfirmMonthlyWage.value = !!user.monthlyWageConfirmedAt
+  editNextOfKinName.value = user.nextOfKinName ?? ''
+  editNextOfKinPhone.value = user.nextOfKinPhone ?? ''
+  editNextOfKinRelationship.value = user.nextOfKinRelationship ?? ''
+  editEmployeeNumber.value = user.employeeNumber ?? ''
+  editJobTitle.value = user.jobTitle ?? ''
+  editEmploymentType.value = user.employmentType ?? ''
+  editEmploymentStartDate.value = user.employmentStartDate ?? ''
+  editEmploymentEndDate.value = user.employmentEndDate ?? ''
+  editEmploymentStatus.value = user.employmentStatus ?? 'employed'
   editError.value = null
 }
 
@@ -116,14 +183,30 @@ async function saveEdit() {
   editSaving.value = true
   editError.value = null
   try {
+    const wasConfirmed = !!editing.value.monthlyWageConfirmedAt
     await api(`/api/users/${editing.value.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name: editName.value.trim(),
         role: editRole.value,
         phone: editPhone.value.trim() || null,
-        dailyWageNgn:
-          editDailyWageNgn.value === '' ? null : Number(editDailyWageNgn.value),
+        monthlyWageNgn:
+          editMonthlyWageNgn.value === '' ? null : Number(editMonthlyWageNgn.value),
+        monthlyWageEffectiveFrom: editMonthlyWageEffectiveFrom.value || null,
+        confirmMonthlyWage: editConfirmMonthlyWage.value
+          ? true
+          : wasConfirmed && !editConfirmMonthlyWage.value
+            ? false
+            : undefined,
+        nextOfKinName: editNextOfKinName.value.trim() || null,
+        nextOfKinPhone: editNextOfKinPhone.value.trim() || null,
+        nextOfKinRelationship: editNextOfKinRelationship.value.trim() || null,
+        employeeNumber: editEmployeeNumber.value.trim() || null,
+        jobTitle: editJobTitle.value.trim() || null,
+        employmentType: editEmploymentType.value || null,
+        employmentStartDate: editEmploymentStartDate.value || null,
+        employmentEndDate: editEmploymentEndDate.value || null,
+        employmentStatus: editEmploymentStatus.value || null,
       }),
     })
     editing.value = null
@@ -148,7 +231,7 @@ async function saveEdit() {
       @submit.prevent="createUser"
     >
       <h3 class="font-bold text-white text-sm">{{ t('users.addUser') }}</h3>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.email') }}</label>
           <input
@@ -178,7 +261,6 @@ async function saveEdit() {
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
-            <option value="owner">{{ t('users.founder') }}</option>
           </select>
         </div>
         <div>
@@ -202,9 +284,46 @@ async function saveEdit() {
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.dailyWage') }}</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employeeNumber') }}</label>
           <input
-            v-model.number="newDailyWageNgn"
+            v-model="newEmployeeNumber"
+            type="text"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.jobTitle') }}</label>
+          <input
+            v-model="newJobTitle"
+            type="text"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employmentType') }}</label>
+          <select
+            v-model="newEmploymentType"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          >
+            <option value="">{{ t('users.optional') }}</option>
+            <option value="permanent">{{ t('users.employmentPermanent') }}</option>
+            <option value="temporary">{{ t('users.employmentTemporary') }}</option>
+            <option value="casual">{{ t('users.employmentCasual') }}</option>
+            <option value="contract">{{ t('users.employmentContract') }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employmentStartDate') }}</label>
+          <input
+            v-model="newEmploymentStartDate"
+            type="date"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.monthlyWage') }}</label>
+          <input
+            v-model.number="newMonthlyWageNgn"
             type="number"
             min="0"
             step="1"
@@ -212,7 +331,44 @@ async function saveEdit() {
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.wageEffectiveFrom') }}</label>
+          <input
+            v-model="newMonthlyWageEffectiveFrom"
+            type="date"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinName') }}</label>
+          <input
+            v-model="newNextOfKinName"
+            type="text"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinPhone') }}</label>
+          <input
+            v-model="newNextOfKinPhone"
+            type="tel"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinRelationship') }}</label>
+          <input
+            v-model="newNextOfKinRelationship"
+            type="text"
+            :placeholder="t('users.nextOfKinRelationshipPlaceholder')"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
       </div>
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        <input v-model="newConfirmMonthlyWage" type="checkbox" class="rounded border-slate-600" />
+        {{ t('users.confirmMonthlyWage') }}
+      </label>
       <div class="flex items-center gap-3">
         <button
           type="submit"
@@ -235,7 +391,7 @@ async function saveEdit() {
             <th class="pb-3 font-semibold">{{ t('users.email') }}</th>
             <th class="pb-3 font-semibold">{{ t('users.role') }}</th>
             <th class="pb-3 font-semibold">{{ t('users.phone') }}</th>
-            <th class="pb-3 font-semibold">{{ t('users.dailyWageShort') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.monthlyWageShort') }}</th>
             <th class="pb-3 font-semibold">{{ t('users.status') }}</th>
             <th class="pb-3 font-semibold">{{ t('users.joined') }}</th>
             <th class="pb-3 font-semibold"></th>
@@ -247,12 +403,23 @@ async function saveEdit() {
             :key="user.id"
             class="border-b border-slate-800/50"
           >
-            <td class="py-4 font-medium text-white">{{ user.name }}</td>
+            <td class="py-4 font-medium text-white">
+              {{ user.name }}
+              <span
+                v-if="user.employeeNumber"
+                class="ml-2 text-xs text-slate-500"
+              >#{{ user.employeeNumber }}</span>
+            </td>
             <td class="py-4 text-slate-400">{{ user.email }}</td>
             <td class="py-4 text-slate-300">{{ roleLabel(user.role) }}</td>
             <td class="py-4 text-slate-400">{{ user.phone ?? '-' }}</td>
             <td class="py-4 text-slate-400 font-mono">
-              {{ user.dailyWageNgn != null ? `₦${user.dailyWageNgn}` : '-' }}
+              <span v-if="user.monthlyWageNgn != null">₦{{ user.monthlyWageNgn }}</span>
+              <span v-else>-</span>
+              <span
+                v-if="user.monthlyWageConfirmedAt"
+                class="ml-2 text-[10px] uppercase text-farm-green"
+              >{{ t('users.wageConfirmed') }}</span>
             </td>
             <td class="py-4">
               <span
@@ -291,10 +458,10 @@ async function saveEdit() {
 
     <div
       v-if="editing"
-      class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center"
+      class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center overflow-y-auto"
       @click.self="closeEdit"
     >
-      <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5 my-8">
         <h3 class="text-white font-bold text-lg">{{ t('users.editUser') }}</h3>
         <form class="mt-4 grid sm:grid-cols-2 gap-3" @submit.prevent="saveEdit">
           <input
@@ -310,7 +477,6 @@ async function saveEdit() {
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
-            <option value="owner">{{ t('users.founder') }}</option>
           </select>
           <input
             v-model="editPhone"
@@ -319,13 +485,80 @@ async function saveEdit() {
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <input
-            v-model.number="editDailyWageNgn"
+            v-model="editEmployeeNumber"
+            type="text"
+            :placeholder="t('users.employeeNumber')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="editJobTitle"
+            type="text"
+            :placeholder="t('users.jobTitle')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <select
+            v-model="editEmploymentType"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="">{{ t('users.employmentType') }}</option>
+            <option value="permanent">{{ t('users.employmentPermanent') }}</option>
+            <option value="temporary">{{ t('users.employmentTemporary') }}</option>
+            <option value="casual">{{ t('users.employmentCasual') }}</option>
+            <option value="contract">{{ t('users.employmentContract') }}</option>
+          </select>
+          <input
+            v-model="editEmploymentStartDate"
+            type="date"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="editEmploymentEndDate"
+            type="date"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <select
+            v-model="editEmploymentStatus"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="employed">{{ t('users.employmentEmployed') }}</option>
+            <option value="leave">{{ t('users.employmentLeave') }}</option>
+            <option value="ended">{{ t('users.employmentEnded') }}</option>
+          </select>
+          <input
+            v-model.number="editMonthlyWageNgn"
             type="number"
             min="0"
             step="1"
-            :placeholder="t('users.dailyWage')"
+            :placeholder="t('users.monthlyWage')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
+          <input
+            v-model="editMonthlyWageEffectiveFrom"
+            type="date"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="editNextOfKinName"
+            type="text"
+            :placeholder="t('users.nextOfKinName')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="editNextOfKinPhone"
+            type="tel"
+            :placeholder="t('users.nextOfKinPhone')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <input
+            v-model="editNextOfKinRelationship"
+            type="text"
+            :placeholder="t('users.nextOfKinRelationship')"
+            class="sm:col-span-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-300">
+            <input v-model="editConfirmMonthlyWage" type="checkbox" class="rounded border-slate-600" />
+            {{ t('users.confirmMonthlyWage') }}
+          </label>
           <p v-if="editError" class="sm:col-span-2 text-xs text-red-400">{{ editError }}</p>
           <div class="sm:col-span-2 flex justify-end gap-2">
             <button

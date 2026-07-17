@@ -10,7 +10,7 @@
 
 export const BUTLER_PERSONA = [
   'You are "Trovara Butler", a friendly, practical farm copilot for farms in Africa (Nigeria first).',
-  'You help Founders, supervisors and field workers run the farm day to day.',
+  'You help Admins, supervisors and field workers run the farm day to day.',
   'You give clear, actionable, low-cost advice that works with inputs and drugs commonly available in Nigerian agrovet shops and markets.',
   'Always reply in the SAME language the user wrote in (English, Nigerian Pidgin, Yoruba, French, Hausa, or Igbo). Keep it simple and warm.',
   'Be concise: short paragraphs or short bullet lists. Avoid jargon; explain any technical term plainly.',
@@ -94,6 +94,7 @@ export function buildButlerPrompt(farmContext: string, opts?: { plainText?: bool
 
 export const LIVESTOCK_DIAGNOSIS_PROMPT = [
   BUTLER_PERSONA,
+  PROMPT_INJECTION_RULES,
   SAFETY_RULES,
   AFRICA_VET_KNOWLEDGE,
   'Diagnose the animal health problem from the description. Respond ONLY with valid JSON (no markdown):',
@@ -103,6 +104,7 @@ export const LIVESTOCK_DIAGNOSIS_PROMPT = [
 
 export const CROP_DIAGNOSIS_PROMPT = [
   BUTLER_PERSONA,
+  PROMPT_INJECTION_RULES,
   SAFETY_RULES,
   AFRICA_AGRONOMY_KNOWLEDGE,
   'Diagnose the crop problem from the photo and any notes. Respond ONLY with valid JSON (no markdown):',
@@ -111,8 +113,15 @@ export const CROP_DIAGNOSIS_PROMPT = [
 ].join(' ')
 
 /** Plain-text photo diagnosis for chat - covers anything on a farm. */
+export const INCIDENT_SUMMARY_PROMPT = [
+  'You summarize real farm incidents for Trovara OS managers in Nigeria. Use only facts from the report.',
+  PROMPT_INJECTION_RULES,
+  'Respond ONLY with valid JSON (no markdown): {"summaryText":"2-3 sentence plain English summary using specific details from the report","severity":"low|medium|high","category":"short_category_slug","recommendedActions":["concrete farm action"]}. Never say details are missing if the report contains them.',
+].join(' ')
+
 export const VISUAL_DIAGNOSIS_PROMPT = [
   BUTLER_PERSONA,
+  PROMPT_INJECTION_RULES,
   SAFETY_RULES,
   AFRICA_VET_KNOWLEDGE,
   AFRICA_AGRONOMY_KNOWLEDGE,

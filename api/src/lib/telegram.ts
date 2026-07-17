@@ -67,11 +67,43 @@ const SHARE_CONTACT_KEYBOARD = {
 export async function sendTelegramMessage(
   chatId: number | string,
   text: string,
-  opts?: { withContactButton?: boolean; kind?: TelegramBotKind },
-): Promise<void> {
+  opts?: {
+    withContactButton?: boolean
+    kind?: TelegramBotKind
+    replyMarkup?: Record<string, unknown>
+  },
+): Promise<{ message_id?: number } | void> {
   const body: Record<string, unknown> = { chat_id: chatId, text }
   if (opts?.withContactButton) body.reply_markup = SHARE_CONTACT_KEYBOARD
-  await tgCall('sendMessage', body, opts?.kind ?? 'staff')
+  if (opts?.replyMarkup) body.reply_markup = opts.replyMarkup
+  return tgCall<{ message_id?: number }>('sendMessage', body, opts?.kind ?? 'staff')
+}
+
+export async function answerTelegramCallbackQuery(
+  callbackQueryId: string,
+  text?: string,
+  kind: TelegramBotKind = 'staff',
+): Promise<void> {
+  await tgCall(
+    'answerCallbackQuery',
+    {
+      callback_query_id: callbackQueryId,
+      text: text?.slice(0, 200),
+      show_alert: false,
+    },
+    kind,
+  )
+}
+
+export function confirmCancelKeyboard(draftId: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✅ Confirm', callback_data: `confirm:${draftId}` },
+        { text: '❌ Cancel', callback_data: `cancel:${draftId}` },
+      ],
+    ],
+  }
 }
 
 export async function sendTelegramVoice(
@@ -162,6 +194,16 @@ export type TelegramUpdate = {
     voice?: { file_id: string; duration?: number; mime_type?: string }
     audio?: { file_id: string; duration?: number; mime_type?: string }
   }
+  callback_query?: {
+    id: string
+    from?: { id: number; first_name?: string; username?: string }
+    message?: {
+      message_id: number
+      chat: { id: number }
+      text?: string
+    }
+    data?: string
+  }
 }
 
 /** Long-poll for updates (no public URL needed). */
@@ -174,7 +216,11 @@ export async function getTelegramUpdates(
   const res = await fetch(`${config.apiBase}/getUpdates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ offset, timeout: 50, allowed_updates: ['message'] }),
+    body: JSON.stringify({
+      offset,
+      timeout: 50,
+      allowed_updates: ['message', 'callback_query'],
+    }),
   })
   const data = (await res.json()) as {
     ok: boolean
@@ -198,7 +244,10 @@ export async function setTelegramWebhook(
   url: string,
   kind: TelegramBotKind = 'staff',
 ): Promise<void> {
-  const body: Record<string, unknown> = { url, allowed_updates: ['message'] }
+  const body: Record<string, unknown> = {
+    url,
+    allowed_updates: ['message', 'callback_query'],
+  }
   // Telegram echoes this back as X-Telegram-Bot-Api-Secret-Token on every update,
   // letting the webhook route reject forged requests.
   const secret = webhookSecretFor(kind)

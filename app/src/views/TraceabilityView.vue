@@ -11,6 +11,7 @@ type HarvestLot = {
   id: string
   farmSlug: string
   lotCode: string
+  publicToken?: string
   plotName?: string
   productName: string
   quantityKg: number
@@ -54,12 +55,10 @@ const timelineLoading = ref(false)
 const timelineEvents = ref<Array<{ id: string; type: string; at: string; note?: string }>>([])
 const timelineError = ref<string | null>(null)
 
-function publicLotUrl(lot: Pick<HarvestLot, 'farmSlug' | 'lotCode'>) {
-  // Public lot page is served by this same app, so use the current origin.
-  // Prod → https://os.trovara.farm/lot/…, local dev → the dev origin.
-  // Links are scoped by farm slug so lot codes never collide across farms.
+function publicLotUrl(lot: Pick<HarvestLot, 'farmSlug' | 'lotCode' | 'publicToken'>) {
   const base = import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin
-  return `${String(base).replace(/\/+$/, '')}/lot/${lot.farmSlug}/${lot.lotCode}`
+  const token = lot.publicToken ?? lot.lotCode
+  return `${String(base).replace(/\/+$/, '')}/lot/${lot.farmSlug}/${token}`
 }
 
 async function load() {

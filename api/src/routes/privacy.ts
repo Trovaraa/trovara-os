@@ -3,17 +3,39 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { auditEvents, expenses, inventoryItems, orders, sessions, tasks, users } from '../db/schema.js'
+import {
+  auditEvents,
+  customerContacts,
+  expenses,
+  inventoryItems,
+  orders,
+  sessions,
+  tasks,
+  users,
+} from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
-import { runDataRetention } from '../lib/data-retention.js'
-import { assertTenantScope, sanitizeAnonymizedEmail, sanitizeAnonymizedName } from '../lib/tenant-scope.js'
+import { getRetentionPreview, runDataRetention } from '../lib/data-retention.js'
+import {
+  assertTenantScope,
+  sanitizeAnonymizedContactName,
+  sanitizeAnonymizedEmail,
+  sanitizeAnonymizedName,
+} from '../lib/tenant-scope.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 
 const retentionSchema = z.object({
   farmId: z.string().uuid().optional(),
+})
+
+const exportReasonSchema = z.object({
+  reason: z.string().max(500).optional(),
+})
+
+const anonymizeContactSchema = z.object({
+  reason: z.string().max(500).optional(),
 })
 
 function hasValidCronSecret(c: any): boolean {
@@ -34,13 +56,15 @@ export const privacyRoutes = new Hono<{ Variables: AppVariables }>()
 
 privacyRoutes.use('/privacy/*', authMiddleware)
 
-privacyRoutes.get('/privacy/export', async (c) => {
+privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), async (c) => {
   const user = c.get('user')
   try {
     requireRole(user, 'owner')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
+
+  const { reason } = c.req.valid('query')
 
   const [userRows, taskRows, inventoryRows, orderRows, expenseRows, auditSample] = await Promise.all([
     db
@@ -51,7 +75,18 @@ privacyRoutes.get('/privacy/export', async (c) => {
         name: users.name,
         role: users.role,
         phone: users.phone,
-        dailyWageNgn: users.dailyWageNgn,
+        monthlyWageNgn: users.monthlyWageNgn,
+        monthlyWageEffectiveFrom: users.monthlyWageEffectiveFrom,
+        monthlyWageConfirmedAt: users.monthlyWageConfirmedAt,
+        nextOfKinName: users.nextOfKinName,
+        nextOfKinPhone: users.nextOfKinPhone,
+        nextOfKinRelationship: users.nextOfKinRelationship,
+        employeeNumber: users.employeeNumber,
+        jobTitle: users.jobTitle,
+        employmentType: users.employmentType,
+        employmentStartDate: users.employmentStartDate,
+        employmentEndDate: users.employmentEndDate,
+        employmentStatus: users.employmentStatus,
         active: users.active,
         createdAt: users.createdAt,
       })
@@ -74,17 +109,67 @@ privacyRoutes.get('/privacy/export', async (c) => {
     userId: user.id,
     action: 'privacy_export',
     entityType: 'privacy',
+    metadata: reason ? { reason } : undefined,
   })
 
   return c.json({
     exportedAt: new Date().toISOString(),
     farmId: user.farmId,
+    exportReason: reason ?? null,
     users: userRows,
     tasks: taskRows,
     inventory: inventoryRows,
     orders: orderRows,
     expenses: expenseRows,
     auditSample,
+  })
+})
+
+privacyRoutes.get('/privacy/retention-status', async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const preview = await getRetentionPreview(user.farmId)
+  return c.json({ ok: true, farmId: user.farmId, ...preview })
+})
+
+privacyRoutes.get('/privacy/anonymize-targets', async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const [workerRows, contactRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        active: users.active,
+      })
+      .from(users)
+      .where(and(eq(users.farmId, user.farmId), eq(users.role, 'field_worker'))),
+    db
+      .select({
+        id: customerContacts.id,
+        name: customerContacts.name,
+        phone: customerContacts.phone,
+        channel: customerContacts.channel,
+      })
+      .from(customerContacts)
+      .where(eq(customerContacts.farmId, user.farmId)),
+  ])
+
+  return c.json({
+    workers: workerRows.filter((row) => !row.email.endsWith('.invalid')),
+    contacts: contactRows.filter((row) => row.name || row.phone),
   })
 })
 
@@ -118,6 +203,19 @@ privacyRoutes.post('/privacy/anonymize-user/:id', async (c) => {
         name: sanitizeAnonymizedName(),
         email: anonymizedEmail,
         phone: null,
+        monthlyWageNgn: null,
+        monthlyWageEffectiveFrom: null,
+        monthlyWageConfirmedAt: null,
+        monthlyWageConfirmedById: null,
+        nextOfKinName: null,
+        nextOfKinPhone: null,
+        nextOfKinRelationship: null,
+        employeeNumber: null,
+        jobTitle: null,
+        employmentType: null,
+        employmentStartDate: null,
+        employmentEndDate: null,
+        employmentStatus: 'ended',
         active: false,
         totpSecret: null,
         totpEnabled: false,
@@ -137,6 +235,62 @@ privacyRoutes.post('/privacy/anonymize-user/:id', async (c) => {
 
   return c.json({ ok: true, userId: target.id, anonymizedEmail })
 })
+
+privacyRoutes.post(
+  '/privacy/anonymize-contact/:id',
+  zValidator('json', anonymizeContactSchema),
+  async (c) => {
+    const user = c.get('user')
+    try {
+      requireRole(user, 'owner')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    const contactId = c.req.param('id')
+    const body = c.req.valid('json')
+    const [contact] = await db
+      .select()
+      .from(customerContacts)
+      .where(and(eq(customerContacts.id, contactId), eq(customerContacts.farmId, user.farmId)))
+      .limit(1)
+
+    if (!contact) return c.json({ error: 'Not found' }, 404)
+
+    const anonymizedName = sanitizeAnonymizedContactName(contact.id)
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(customerContacts)
+        .set({
+          name: anonymizedName,
+          phone: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(customerContacts.id, contact.id))
+
+      await tx
+        .update(orders)
+        .set({
+          customerName: anonymizedName,
+          customerPhone: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(orders.farmId, user.farmId), eq(orders.customerContactId, contact.id)))
+    })
+
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'privacy_anonymize_contact',
+      entityType: 'customer_contact',
+      entityId: contact.id,
+      metadata: body.reason ? { reason: body.reason } : undefined,
+    })
+
+    return c.json({ ok: true, contactId: contact.id, anonymizedName })
+  },
+)
 
 privacyRoutes.post('/system/run-retention', zValidator('json', retentionSchema), async (c) => {
   const body = c.req.valid('json')
@@ -164,7 +318,13 @@ privacyRoutes.post('/system/run-retention', zValidator('json', retentionSchema),
       userId: actor.user.id,
       action: 'run_data_retention',
       entityType: 'privacy',
-      metadata: { targetFarmId: farmId ?? null, purgedTaskEvidence: result.purgedTaskEvidence },
+      metadata: {
+        targetFarmId: farmId ?? null,
+        purgedTaskEvidence: result.purgedTaskEvidence,
+        purgedExpiredSessions: result.purgedExpiredSessions,
+        redactedChatMessages: result.redactedChatMessages,
+        nulledContactPhones: result.nulledContactPhones,
+      },
     })
   }
 

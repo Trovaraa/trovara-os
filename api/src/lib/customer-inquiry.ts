@@ -16,8 +16,17 @@ import { db } from '../db/index.js'
 import { customerInquiries } from '../db/schema.js'
 import { PROMPT_INJECTION_RULES } from './ai-advisor.js'
 import { completeChat, isLlmConfigured } from './llm.js'
+import { checkLlmBudget, consumeLlmBudget } from './llm-budget.js'
 import { formatCatalog, type CatalogItem } from './customer-cart.js'
 import { farmKnowledgeText } from './farm-knowledge.js'
+import {
+  CUSTOMER_FAQ_MATCHERS,
+  customerCatalogReply,
+  customerDeliveryReply,
+  customerLocationReply,
+  customerPaymentReply,
+  detectReplyLocale,
+} from './reply-locale.js'
 
 type Channel = 'telegram' | 'whatsapp'
 type AnsweredVia = 'catalog' | 'llm' | 'faq' | 'suggested'
@@ -198,6 +207,7 @@ function deterministicAnswer(params: {
 }): { reply: string; answeredVia: AnsweredVia } {
   const q = params.question.toLowerCase()
   const { catalog, farmName, farmLocation } = params
+  const locale = detectReplyLocale(params.question)
 
   const matched = catalog.filter((p) => {
     const name = p.name.toLowerCase()
@@ -213,51 +223,47 @@ function deterministicAnswer(params: {
         } - available`,
     )
     return {
-      reply: `Yes! Here's what we have:\n\n${lines.join('\n')}\n\nReply "1" to place an order.`,
+      reply: customerCatalogReply(locale, lines.join('\n'), { kind: 'matched' }),
       answeredVia: 'catalog',
     }
   }
 
-  if (/(price|cost|how much|much be|magnitude|₦|naira)/.test(q)) {
+  if (CUSTOMER_FAQ_MATCHERS.price.test(q)) {
     return {
-      reply: `Here's our price list:\n\n${formatCatalog(catalog)}\n\nReply "1" to order.`,
+      reply: customerCatalogReply(locale, formatCatalog(catalog), { kind: 'priceList' }),
       answeredVia: 'catalog',
     }
   }
-  if (/(where|location|located|address|find you|come to|visit)/.test(q)) {
+  if (CUSTOMER_FAQ_MATCHERS.location.test(q)) {
     return {
-      reply: `${farmName} is based in ${farmLocation}. We deliver to you - reply "1" to order.`,
+      reply: customerLocationReply(locale, farmName, farmLocation),
       answeredVia: 'faq',
     }
   }
-  if (/(deliver|delivery|ship|bring|dispatch)/.test(q)) {
+  if (CUSTOMER_FAQ_MATCHERS.delivery.test(q)) {
     return {
-      reply:
-        'We deliver to your address. After you order, we call to confirm, then deliver. Payment is on delivery.',
+      reply: customerDeliveryReply(locale),
       answeredVia: 'faq',
     }
   }
-  if (/(pay|payment|transfer|card|cash)/.test(q)) {
+  if (CUSTOMER_FAQ_MATCHERS.payment.test(q)) {
     return {
-      reply: 'Payment is on delivery for now (card/transfer coming soon).',
+      reply: customerPaymentReply(locale),
       answeredVia: 'faq',
     }
   }
-  if (/(what|which|available|sell|have|stock|catalog|catalogue|produce|product)/.test(q)) {
+  if (CUSTOMER_FAQ_MATCHERS.catalog.test(q)) {
     return {
-      reply: `Here's what we sell:\n\n${formatCatalog(catalog)}\n\nReply "1" to place an order.`,
+      reply: customerCatalogReply(locale, formatCatalog(catalog), { kind: 'whatWeSell' }),
       answeredVia: 'catalog',
     }
   }
 
   return {
-    reply: [
-      `Thanks for reaching out to ${farmName}! Here's what we sell:`,
-      '',
-      formatCatalog(catalog),
-      '',
-      'Reply "1" to place an order, or ask me anything about our produce.',
-    ].join('\n'),
+    reply: customerCatalogReply(locale, formatCatalog(catalog), {
+      kind: 'thanks',
+      farmName,
+    }),
     answeredVia: 'faq',
   }
 }
@@ -280,10 +286,16 @@ export async function answerCustomerInquiry(params: {
   farmLocation: string
   catalog: CatalogItem[]
   question: string
+  farmId?: string
 }): Promise<{ reply: string; answeredVia: AnsweredVia }> {
   const fallback = deterministicAnswer(params)
 
   if (!isLlmConfigured()) return fallback
+
+  if (params.farmId) {
+    const budget = checkLlmBudget(params.farmId)
+    if (!budget.allowed) return fallback
+  }
 
   try {
     const system = [
@@ -293,7 +305,10 @@ export async function answerCustomerInquiry(params: {
       publicInfo(params),
     ].join('\n\n')
     const { text } = await completeChat(system, params.question.slice(0, 500))
-    if (text) return { reply: text, answeredVia: 'llm' }
+    if (text) {
+      if (params.farmId) consumeLlmBudget(params.farmId)
+      return { reply: text, answeredVia: 'llm' }
+    }
   } catch (err) {
     console.error('answerCustomerInquiry LLM failed:', err instanceof Error ? err.message : err)
   }

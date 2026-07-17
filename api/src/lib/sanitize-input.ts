@@ -49,3 +49,30 @@ export function sanitizeFarmDataField(text: string): string {
 export function isAllowedEvidenceImageDataUrl(url: string): boolean {
   return EVIDENCE_IMAGE_DATA_URL_PATTERN.test(url)
 }
+
+/** Matches browser MediaRecorder / chat voice clips (webm, ogg, mp4, mpeg, wav). */
+export const AUDIO_DATA_URL_PATTERN =
+  /^data:audio\/[\w.+-]+(?:;[\w.=+-]+)*;base64,[A-Za-z0-9+/=]+$/i
+
+export function isAllowedAudioDataUrl(url: string): boolean {
+  return AUDIO_DATA_URL_PATTERN.test(url)
+}
+
+/** Parse a data:audio/...;base64,... URL into bytes + a safe filename for OpenAI. */
+export function parseAudioDataUrl(dataUrl: string): { buffer: Buffer; filename: string; mime: string } | null {
+  const match = dataUrl.match(/^data:(audio\/[\w.+-]+(?:;[\w.=+-]+)*);base64,([A-Za-z0-9+/=]+)$/i)
+  if (!match) return null
+  const mimeFull = match[1].toLowerCase()
+  const mime = mimeFull.split(';')[0]
+  const buffer = Buffer.from(match[2], 'base64')
+  if (!buffer.length) return null
+
+  let ext = 'webm'
+  if (mime.includes('ogg') || mime.includes('opus')) ext = 'ogg'
+  else if (mime.includes('mp4') || mime.includes('m4a')) ext = 'm4a'
+  else if (mime.includes('mpeg') || mime.includes('mp3')) ext = 'mp3'
+  else if (mime.includes('wav')) ext = 'wav'
+  else if (mime.includes('webm')) ext = 'webm'
+
+  return { buffer, filename: `voice.${ext}`, mime }
+}

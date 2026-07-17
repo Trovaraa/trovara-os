@@ -23,9 +23,7 @@ if [ -n "${CRON_SECRET:-}" ]; then
   curl -sf -X POST "$API_URL/api/alerts/run-proactive" \
     -H "Content-Type: application/json" \
     -H "X-CRON-SECRET: $CRON_SECRET" \
-    -d @- <<EOF
-{"farmId":"$FARM_ID"}
-EOF
+    -d "$(jq -n --arg farmId "$FARM_ID" '{farmId: $farmId}')"
   echo
   exit 0
 fi
@@ -40,9 +38,8 @@ trap 'rm -f "$COOKIE_JAR"' EXIT
 
 curl -sf -c "$COOKIE_JAR" -b "$COOKIE_JAR" -X POST "$API_URL/auth/login" \
   -H 'Content-Type: application/json' \
-  -d @- <<EOF > /dev/null
-{"email":"$OWNER_EMAIL","password":"$OWNER_PASSWORD"}
-EOF
+  -d "$(jq -n --arg email "$OWNER_EMAIL" --arg password "$OWNER_PASSWORD" '{email: $email, password: $password}')" \
+  > /dev/null
 
 CSRF=$(grep trovara_csrf "$COOKIE_JAR" | awk '{print $NF}')
 

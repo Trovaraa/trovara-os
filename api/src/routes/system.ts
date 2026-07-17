@@ -8,7 +8,8 @@ import { requireRole } from '../lib/rbac.js'
 import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import { isLlmConfigured } from '../lib/llm.js'
 import { isWhatsAppConfigured } from '../lib/whatsapp-meta.js'
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { getLastBackupInfo } from '../lib/backup-status.js'
+import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
@@ -23,19 +24,6 @@ function getGitCommit(): string {
       .trim()
   } catch {
     return 'unknown'
-  }
-}
-
-function getLastBackupInfo(): { lastBackup: string | null; backupCount: number } {
-  try {
-    const backupDir = resolve(rootDir, 'backups')
-    const files = readdirSync(backupDir).filter((f) => f.endsWith('.sql'))
-    if (!files.length) return { lastBackup: null, backupCount: 0 }
-    files.sort().reverse()
-    const stat = statSync(resolve(backupDir, files[0]))
-    return { lastBackup: stat.mtime.toISOString(), backupCount: files.length }
-  } catch {
-    return { lastBackup: null, backupCount: 0 }
   }
 }
 
@@ -105,7 +93,7 @@ systemRoutes.get('/system-status', authMiddleware, async (c) => {
 
   const [dbCheck, backup] = await Promise.all([
     checkDbConnection(),
-    Promise.resolve(getLastBackupInfo()),
+    Promise.resolve(getLastBackupInfo(rootDir)),
   ])
 
   const whatsappConfigured = isWhatsAppConfigured()
@@ -121,6 +109,9 @@ systemRoutes.get('/system-status', authMiddleware, async (c) => {
     dbLatencyMs: dbCheck.latencyMs,
     lastBackup: backup.lastBackup,
     backupCount: backup.backupCount,
+    backupEvidence: backup.backupEvidence,
+    backupReportStatus: backup.backupReportStatus,
+    remoteDeliveryStatus: backup.remoteDeliveryStatus,
     whatsappConfigured,
     aiMode,
     commit: getGitCommit(),

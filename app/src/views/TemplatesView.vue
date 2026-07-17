@@ -13,6 +13,7 @@ type TaskTemplate = {
   cropType?: string | null
   checklist?: string[] | null
   defaultDurationHours?: number | null
+  actionType?: string | null
   createdAt: string
 }
 
@@ -189,6 +190,7 @@ async function generateTasks() {
                 <h4 class="font-bold text-white">{{ tpl.name }}</h4>
                 <p v-if="tpl.description" class="text-slate-400 text-sm mt-1">{{ tpl.description }}</p>
                 <p class="text-xs text-slate-500 mt-2">
+                  <span v-if="tpl.actionType" class="mr-2 font-mono text-farm-green/80">{{ tpl.actionType }}</span>
                   <span v-if="tpl.cropType" class="capitalize">{{ tpl.cropType }}</span>
                   <span v-if="tpl.defaultDurationHours">
                     · {{ t('templates.defaultDuration', { hours: tpl.defaultDurationHours }) }}

@@ -6,6 +6,72 @@ export type LlmConfig = {
   model: string
 }
 
+/** Private/reserved hostnames blocked for LLM_BASE_URL in production. */
+const BLOCKED_LLM_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+  '[::1]',
+  'metadata.google.internal',
+])
+
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split('.').map((p) => Number.parseInt(p, 10))
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return false
+  const [a, b] = parts
+  if (a === 10) return true
+  if (a === 127) return true
+  if (a === 0) return true
+  if (a === 169 && b === 254) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  return false
+}
+
+function isPrivateIpv6(host: string): boolean {
+  const h = host.toLowerCase()
+  return h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')
+}
+
+/**
+ * Validates LLM_BASE_URL. In production: HTTPS only, blocks localhost/private IPs
+ * and link-local/metadata hostnames to reduce SSRF risk.
+ */
+export function validateLlmBaseUrl(raw: string): { ok: true; url: string } | { ok: false; reason: string } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { ok: false, reason: 'LLM_BASE_URL is empty' }
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return { ok: false, reason: 'LLM_BASE_URL is not a valid URL' }
+  }
+
+  const isProd = process.env.NODE_ENV === 'production'
+  if (isProd && parsed.protocol !== 'https:') {
+    return { ok: false, reason: 'LLM_BASE_URL must use https in production' }
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { ok: false, reason: 'LLM_BASE_URL must be http or https' }
+  }
+
+  const host = parsed.hostname.toLowerCase()
+  if (BLOCKED_LLM_HOSTS.has(host)) {
+    return { ok: false, reason: `LLM_BASE_URL host "${host}" is not allowed` }
+  }
+  if (isPrivateIpv4(host) || isPrivateIpv6(host)) {
+    return { ok: false, reason: `LLM_BASE_URL host "${host}" resolves to a private address` }
+  }
+  if (host.endsWith('.local') || host.endsWith('.internal')) {
+    return { ok: false, reason: `LLM_BASE_URL host "${host}" is not allowed` }
+  }
+
+  const normalized = trimmed.replace(/\/+$/, '')
+  return { ok: true, url: normalized }
+}
+
 function readEnvKey(...names: string[]): string | null {
   for (const name of names) {
     const value = process.env[name]?.trim()
@@ -17,9 +83,23 @@ function readEnvKey(...names: string[]): string | null {
 export function getLlmConfig(): LlmConfig | null {
   const apiKey = readEnvKey('OPENAI_API_KEY', 'LLM_API_KEY')
   if (!apiKey) return null
+  const rawBase = process.env.LLM_BASE_URL?.trim() || 'https://api.openai.com/v1'
+  const validated = validateLlmBaseUrl(rawBase)
+  if (!validated.ok) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`FATAL: ${validated.reason}`)
+      process.exit(1)
+    }
+    console.warn(`WARNING: ${validated.reason} - using OpenAI default`)
+    return {
+      apiKey,
+      baseUrl: 'https://api.openai.com/v1',
+      model: process.env.LLM_MODEL?.trim() || 'gpt-4o-mini',
+    }
+  }
   return {
     apiKey,
-    baseUrl: process.env.LLM_BASE_URL?.trim() || 'https://api.openai.com/v1',
+    baseUrl: validated.url,
     model: process.env.LLM_MODEL?.trim() || 'gpt-4o-mini',
   }
 }

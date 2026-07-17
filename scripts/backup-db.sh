@@ -21,22 +21,50 @@ fi
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 OUTPUT_FILE="$BACKUP_DIR/${POSTGRES_DB}_${TIMESTAMP}.sql"
+if [[ -e "$OUTPUT_FILE" ]]; then
+  OUTPUT_FILE="$BACKUP_DIR/${POSTGRES_DB}_${TIMESTAMP}_$$.sql"
+fi
+PARTIAL_FILE="${OUTPUT_FILE}.partial.$$"
 
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR" 2>/dev/null || true
 
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-5432}"
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
-echo "Backing up database '$POSTGRES_DB' to $OUTPUT_FILE"
-pg_dump \
-  --host="$PGHOST" \
-  --port="$PGPORT" \
-  --username="$POSTGRES_USER" \
-  --dbname="$POSTGRES_DB" \
-  --no-owner \
-  --no-acl \
-  --file="$OUTPUT_FILE"
+cleanup_partial() {
+  rm -f "$PARTIAL_FILE"
+}
+trap cleanup_partial EXIT
 
+echo "Backing up database '$POSTGRES_DB' to $OUTPUT_FILE"
+if [[ "${USE_DOCKER_PG_TOOLS:-0}" == "1" ]]; then
+  docker compose -f "$ROOT_DIR/docker-compose.yml" exec -T db \
+    pg_dump \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --no-owner \
+    --no-acl > "$PARTIAL_FILE"
+else
+  PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
+  "$PG_DUMP_BIN" \
+    --host="$PGHOST" \
+    --port="$PGPORT" \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --no-owner \
+    --no-acl \
+    --file="$PARTIAL_FILE"
+fi
+
+if [[ ! -s "$PARTIAL_FILE" ]]; then
+  echo "Backup output is empty; refusing to publish it" >&2
+  exit 1
+fi
+
+chmod 600 "$PARTIAL_FILE" 2>/dev/null || true
+mv "$PARTIAL_FILE" "$OUTPUT_FILE"
+trap - EXIT
 echo "Backup complete: $OUTPUT_FILE"

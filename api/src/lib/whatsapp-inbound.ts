@@ -11,6 +11,7 @@ import { answerPhoto, answerText, recordChatMessage, transcribeVoice } from './b
 import { checkButlerRateLimit } from './butler-rate-limit.js'
 import { deliverButlerReply } from './butler-reply.js'
 import { looksUrgent, notifyOwner } from './farm-notify.js'
+import { voiceNotUnderstoodMessage } from './reply-locale.js'
 
 const ENTITY = 'whatsapp_message'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
@@ -36,7 +37,7 @@ async function findUserByPhone(phone: string): Promise<DbUser | undefined> {
   const allWithPhone = await db
     .select()
     .from(users)
-    .where(sql`${users.phone} IS NOT NULL AND ${users.phone} <> ''`)
+    .where(sql`${users.phone} IS NOT NULL AND ${users.phone} <> '' AND ${users.active} = true`)
 
   return allWithPhone.find((u) => normalizePhone(u.phone ?? '') === normalized)
 }
@@ -155,7 +156,7 @@ async function handleAudio(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     await deliverButlerReply({
       user,
       target: { channel: 'whatsapp', to: phone },
-      text: "I couldn't understand that voice note. Please try again or type your message.",
+      text: voiceNotUnderstoodMessage('en'),
       inboundWasVoice: true,
       entityType: ENTITY,
     })

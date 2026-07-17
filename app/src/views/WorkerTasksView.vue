@@ -11,8 +11,18 @@ type Task = {
   title: string
   description?: string
   status: string
+  plotId?: string | null
   plotName?: string
+  actionType?: string | null
   completionNote?: string
+}
+
+type CensusDraft = {
+  cropType: string
+  plantCount: number | ''
+  minHeight: number | ''
+  maxHeight: number | ''
+  heightUnit: 'cm' | 'm'
 }
 
 type InventoryItem = {
@@ -40,7 +50,25 @@ const inventoryItems = ref<InventoryItem[]>([])
 const inventoryConsumption = ref<Record<string, InventoryConsumption[]>>({})
 const consumptionItemDraft = ref<Record<string, string>>({})
 const consumptionQtyDraft = ref<Record<string, number>>({})
+const censusDrafts = ref<Record<string, CensusDraft>>({})
 const queueError = ref<string | null>(null)
+
+function isCensusTask(task: Task): boolean {
+  return task.actionType === 'crop_census' || task.actionType === 'height_range'
+}
+
+function ensureCensusDraft(taskId: string): CensusDraft {
+  if (!censusDrafts.value[taskId]) {
+    censusDrafts.value[taskId] = {
+      cropType: '',
+      plantCount: '',
+      minHeight: '',
+      maxHeight: '',
+      heightUnit: 'cm',
+    }
+  }
+  return censusDrafts.value[taskId]
+}
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingStream: MediaStream | null = null
@@ -126,28 +154,56 @@ async function submitTask(id: string) {
   actionId.value = id
   queueError.value = null
   try {
+    const task = tasks.value.find((row) => row.id === id)
     const location = await captureLocation()
     const isOffline = !navigator.onLine
     if (isOffline && photos.value[id]) {
-      const queued = queueOfflinePhoto(id, photos.value[id])
+      const queued = await queueOfflinePhoto(id, photos.value[id])
       if (!queued) {
         queueError.value = 'Could not save photo offline - queue full or storage full.'
         return
       }
     }
-    const consumption = inventoryConsumption.value[id] ?? []
-    await offlineApi(`/api/tasks/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        status: 'awaiting_approval',
-        completionNote: notes.value[id]?.trim() || undefined,
-        photoUrl: !isOffline ? photos.value[id] || undefined : undefined,
-        voiceUrl: voices.value[id] || undefined,
-        latitude: location?.latitude,
-        longitude: location?.longitude,
-        consumptions: consumption.length ? consumption : undefined,
-      }),
-    })
+
+    if (task && isCensusTask(task)) {
+      const draft = ensureCensusDraft(id)
+      if (!draft.cropType.trim() || draft.plantCount === '') {
+        queueError.value = 'Crop type and plant count are required for census tasks.'
+        return
+      }
+      await offlineApi(`/api/tasks/${id}/census-submission`, {
+        method: 'POST',
+        body: JSON.stringify({
+          plotId: task.plotId || undefined,
+          cropType: draft.cropType.trim(),
+          plantCount: Number(draft.plantCount),
+          minHeight: draft.minHeight === '' ? undefined : Number(draft.minHeight),
+          maxHeight: draft.maxHeight === '' ? undefined : Number(draft.maxHeight),
+          heightUnit: draft.heightUnit,
+          completionNote: notes.value[id]?.trim() || undefined,
+          photoUrl: !isOffline ? photos.value[id] || undefined : undefined,
+          voiceUrl: voices.value[id] || undefined,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+        }),
+      })
+      delete censusDrafts.value[id]
+    } else {
+      const consumption = inventoryConsumption.value[id] ?? []
+      await offlineApi(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'awaiting_approval',
+          completionNote: notes.value[id]?.trim() || undefined,
+          photoUrl: !isOffline ? photos.value[id] || undefined : undefined,
+          voiceUrl: voices.value[id] || undefined,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+          consumptions: consumption.length ? consumption : undefined,
+        }),
+      })
+    }
+
     delete notes.value[id]
     delete photos.value[id]
     delete voices.value[id]
@@ -158,8 +214,8 @@ async function submitTask(id: string) {
     await syncQueuedPhotos()
     await load()
   } catch (e) {
-    if (e instanceof Error && e.message.includes('Offline queue')) {
-      queueError.value = e.message
+    if (e instanceof Error) {
+      queueError.value = e.message.includes('Offline queue') ? e.message : e.message
     }
   } finally {
     actionId.value = null
@@ -340,6 +396,51 @@ function inventoryItemLabel(itemId: string): string {
             </button>
 
             <div v-if="expandedNote === task.id" class="space-y-3">
+              <div
+                v-if="isCensusTask(task)"
+                class="rounded-xl border border-farm-green/30 bg-farm-green/5 p-3 space-y-2"
+              >
+                <p class="text-xs font-semibold text-farm-green">Crop census</p>
+                <input
+                  v-model="ensureCensusDraft(task.id).cropType"
+                  type="text"
+                  placeholder="Crop type (e.g. coconut)"
+                  class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                />
+                <input
+                  v-model.number="ensureCensusDraft(task.id).plantCount"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Plant count"
+                  class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                />
+                <div class="grid grid-cols-2 gap-2">
+                  <input
+                    v-model.number="ensureCensusDraft(task.id).minHeight"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="Min height"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                  <input
+                    v-model.number="ensureCensusDraft(task.id).maxHeight"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="Max height"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+                <select
+                  v-model="ensureCensusDraft(task.id).heightUnit"
+                  class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  <option value="cm">cm</option>
+                  <option value="m">m</option>
+                </select>
+              </div>
               <textarea
                 v-model="notes[task.id]"
                 rows="3"

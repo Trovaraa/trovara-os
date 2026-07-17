@@ -25,6 +25,22 @@ const createPlantingUnitSchema = z.object({
 
 const updatePlantingUnitSchema = createPlantingUnitSchema.partial().omit({ plotId: true })
 
+const createBlockSchema = z.object({
+  zoneId: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  code: z.string().max(50).optional(),
+  notes: z.string().max(5000).optional(),
+  areaAcres: z.string().max(50).optional(),
+  cropType: z.string().max(100).optional(),
+  cropVariety: z.string().max(100).optional(),
+  latitude: z.string().max(50).optional(),
+  longitude: z.string().max(50).optional(),
+})
+
+const updateBlockSchema = createBlockSchema.partial().omit({ zoneId: true }).extend({
+  zoneId: z.string().uuid().optional(),
+})
+
 export const zoneRoutes = new Hono<{ Variables: AppVariables }>()
 
 zoneRoutes.use('*', authMiddleware)
@@ -161,22 +177,154 @@ zoneRoutes.delete('/planting-units/:id', async (c) => {
 
 zoneRoutes.get('/plots', async (c) => {
   const user = c.get('user')
+  const zoneId = c.req.query('zoneId')
+  const includeArchived = c.req.query('includeArchived') === '1'
+
+  const conditions = [eq(plots.farmId, user.farmId)]
+  if (zoneId) conditions.push(eq(plots.zoneId, zoneId))
+  if (!includeArchived) conditions.push(eq(plots.active, true))
 
   const rows = await db
     .select({
       id: plots.id,
       name: plots.name,
+      code: plots.code,
+      notes: plots.notes,
       zoneId: plots.zoneId,
       zoneName: zones.name,
       cropType: plots.cropType,
+      cropVariety: plots.cropVariety,
       areaAcres: plots.areaAcres,
+      plantCount: plots.plantCount,
+      latitude: plots.latitude,
+      longitude: plots.longitude,
+      active: plots.active,
+      archivedAt: plots.archivedAt,
+      createdAt: plots.createdAt,
+      updatedAt: plots.updatedAt,
     })
     .from(plots)
     .leftJoin(zones, eq(plots.zoneId, zones.id))
-    .where(eq(plots.farmId, user.farmId))
+    .where(and(...conditions))
     .orderBy(plots.name)
 
-  return c.json({ plots: rows })
+  return c.json({ plots: rows, blocks: rows })
+})
+
+zoneRoutes.post('/plots', zValidator('json', createBlockSchema), async (c) => {
+  const user = c.get('user')
+  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const body = c.req.valid('json')
+  const [zone] = await db
+    .select()
+    .from(zones)
+    .where(and(eq(zones.id, body.zoneId), eq(zones.farmId, user.farmId)))
+    .limit(1)
+  if (!zone) return c.json({ error: 'Invalid zone' }, 400)
+
+  const [block] = await db
+    .insert(plots)
+    .values({
+      farmId: user.farmId,
+      zoneId: body.zoneId,
+      name: body.name.trim(),
+      code: body.code?.trim() || null,
+      notes: body.notes?.trim() || null,
+      cropType: body.cropType?.trim() || 'mixed',
+      cropVariety: body.cropVariety?.trim() || null,
+      areaAcres: body.areaAcres?.trim() || null,
+      latitude: body.latitude?.trim() || null,
+      longitude: body.longitude?.trim() || null,
+      active: true,
+      updatedAt: new Date(),
+    })
+    .returning()
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'create',
+    entityType: 'block',
+    entityId: block.id,
+  })
+
+  return c.json({ plot: block, block }, 201)
+})
+
+zoneRoutes.patch('/plots/:plotId', zValidator('json', updateBlockSchema), async (c) => {
+  const user = c.get('user')
+  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const plotId = c.req.param('plotId')
+  const body = c.req.valid('json')
+  const [existing] = await db
+    .select()
+    .from(plots)
+    .where(and(eq(plots.id, plotId), eq(plots.farmId, user.farmId)))
+    .limit(1)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  if (body.zoneId) {
+    const [zone] = await db
+      .select()
+      .from(zones)
+      .where(and(eq(zones.id, body.zoneId), eq(zones.farmId, user.farmId)))
+      .limit(1)
+    if (!zone) return c.json({ error: 'Invalid zone' }, 400)
+  }
+
+  const updates: Partial<typeof existing> = { updatedAt: new Date() }
+  if (body.zoneId !== undefined) updates.zoneId = body.zoneId
+  if (body.name !== undefined) updates.name = body.name.trim()
+  if (body.code !== undefined) updates.code = body.code?.trim() || null
+  if (body.notes !== undefined) updates.notes = body.notes?.trim() || null
+  if (body.areaAcres !== undefined) updates.areaAcres = body.areaAcres?.trim() || null
+  if (body.cropType !== undefined) updates.cropType = body.cropType.trim() || 'mixed'
+  if (body.cropVariety !== undefined) updates.cropVariety = body.cropVariety?.trim() || null
+  if (body.latitude !== undefined) updates.latitude = body.latitude?.trim() || null
+  if (body.longitude !== undefined) updates.longitude = body.longitude?.trim() || null
+
+  const [block] = await db.update(plots).set(updates).where(eq(plots.id, plotId)).returning()
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'block',
+    entityId: plotId,
+  })
+
+  return c.json({ plot: block, block })
+})
+
+zoneRoutes.post('/plots/:plotId/archive', async (c) => {
+  const user = c.get('user')
+  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const plotId = c.req.param('plotId')
+  const [existing] = await db
+    .select()
+    .from(plots)
+    .where(and(eq(plots.id, plotId), eq(plots.farmId, user.farmId)))
+    .limit(1)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const [block] = await db
+    .update(plots)
+    .set({ active: false, archivedAt: new Date(), updatedAt: new Date() })
+    .where(eq(plots.id, plotId))
+    .returning()
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'archive',
+    entityType: 'block',
+    entityId: plotId,
+  })
+
+  return c.json({ plot: block, block })
 })
 
 zoneRoutes.get('/plots/:plotId/timeline', async (c) => {
@@ -366,6 +514,26 @@ zoneRoutes.delete('/:id', async (c) => {
     .limit(1)
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const [activeBlock] = await db
+    .select({ id: plots.id })
+    .from(plots)
+    .where(and(eq(plots.zoneId, zoneId), eq(plots.active, true)))
+    .limit(1)
+  if (activeBlock) {
+    return c.json({ error: 'Archive or move all blocks in this zone before deleting it' }, 400)
+  }
+
+  const linkedBlocks = await db
+    .select({ id: plots.id })
+    .from(plots)
+    .where(eq(plots.zoneId, zoneId))
+  if (linkedBlocks.length > 0) {
+    return c.json(
+      { error: 'Zone still has archived blocks; keep the zone for historical references' },
+      400,
+    )
+  }
 
   await db.delete(zones).where(eq(zones.id, zoneId))
 

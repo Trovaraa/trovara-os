@@ -20,7 +20,7 @@ import { logAudit } from '../lib/audit.js'
 import { canTransitionTask } from '../lib/state-machines.js'
 import type { TaskStatus } from '../db/schema.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
-import { validateEvidenceDataUrl } from '../lib/evidence-url.js'
+import { processEvidenceValue, validateEvidenceRef } from '../lib/evidence-store.js'
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -29,6 +29,8 @@ const createTaskSchema = z.object({
   assignedToId: z.string().uuid().optional(),
   templateId: z.string().uuid().optional(),
   dueDate: z.string().datetime().optional(),
+  actionType: z.string().max(100).optional(),
+  actionPayload: z.record(z.unknown()).optional(),
 })
 
 const updateTaskSchema = z
@@ -75,6 +77,8 @@ taskRoutes.get('/', async (c) => {
       plotId: tasks.plotId,
       plotName: plots.name,
       templateId: tasks.templateId,
+      actionType: tasks.actionType,
+      actionPayload: tasks.actionPayload,
       photoUrl: tasks.photoUrl,
       voiceUrl: tasks.voiceUrl,
       latitude: tasks.latitude,
@@ -125,10 +129,17 @@ taskRoutes.get('/', async (c) => {
   }
 
   return c.json({
-    tasks: filtered.map((task) => ({
-      ...task,
-      consumptions: usageByTask.get(task.id) ?? [],
-    })),
+    tasks: filtered.map((task) => {
+      const row = {
+        ...task,
+        consumptions: usageByTask.get(task.id) ?? [],
+      }
+      // Defense in depth: field workers must never see other workers' evidence.
+      if (user.role === 'field_worker' && task.assignedToId !== user.id) {
+        return { ...row, photoUrl: null, voiceUrl: null, completionNote: null }
+      }
+      return row
+    }),
   })
 })
 
@@ -156,6 +167,9 @@ taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
     if (!assignee) return c.json({ error: 'Invalid assignee' }, 400)
   }
 
+  let actionType = body.actionType ?? null
+  let actionPayload = body.actionPayload ?? null
+
   if (body.templateId) {
     const [template] = await db
       .select()
@@ -163,6 +177,10 @@ taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
       .where(and(eq(taskTemplates.id, body.templateId), eq(taskTemplates.farmId, user.farmId)))
       .limit(1)
     if (!template) return c.json({ error: 'Invalid template' }, 400)
+    if (!actionType && template.actionType) actionType = template.actionType
+    if (!actionPayload && template.defaultPayload) {
+      actionPayload = template.defaultPayload as Record<string, unknown>
+    }
   }
 
   const [task] = await db
@@ -174,6 +192,8 @@ taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
       plotId: body.plotId,
       assignedToId: body.assignedToId,
       templateId: body.templateId,
+      actionType,
+      actionPayload,
       createdById: user.id,
       dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
       status: 'pending',
@@ -237,19 +257,27 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
 
   if (body.photoUrl !== undefined) {
     if (user.role === 'field_worker' || canAssignTasks(user)) {
-      if (body.photoUrl !== null && body.photoUrl !== '' && !validateEvidenceDataUrl(body.photoUrl)) {
+      if (body.photoUrl !== null && body.photoUrl !== '' && !validateEvidenceRef(body.photoUrl)) {
         return c.json({ error: 'Invalid photo evidence URL' }, 400)
       }
-      updates.photoUrl = body.photoUrl
+      try {
+        updates.photoUrl = await processEvidenceValue(user.farmId, body.photoUrl)
+      } catch {
+        return c.json({ error: 'Invalid photo evidence URL' }, 400)
+      }
     }
   }
 
   if (body.voiceUrl !== undefined) {
     if (user.role === 'field_worker' || canAssignTasks(user)) {
-      if (body.voiceUrl !== null && body.voiceUrl !== '' && !validateEvidenceDataUrl(body.voiceUrl)) {
+      if (body.voiceUrl !== null && body.voiceUrl !== '' && !validateEvidenceRef(body.voiceUrl)) {
         return c.json({ error: 'Invalid voice evidence URL' }, 400)
       }
-      updates.voiceUrl = body.voiceUrl
+      try {
+        updates.voiceUrl = await processEvidenceValue(user.farmId, body.voiceUrl)
+      } catch {
+        return c.json({ error: 'Invalid voice evidence URL' }, 400)
+      }
     }
   }
 

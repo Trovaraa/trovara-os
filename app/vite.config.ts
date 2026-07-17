@@ -11,20 +11,19 @@ export default defineConfig({
       includeAssets: ['icons/icon-192.svg', 'icons/icon-512.svg', 'icons/icon-maskable.svg'],
       manifest: false, // we have our own manifest.webmanifest in /public
       workbox: {
+        // Workbox's production terser worker exits early under Node 22 in some
+        // constrained build environments. The development mode only disables
+        // service-worker minification; caching behavior remains production-safe.
+        mode: 'development',
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [
           {
-            // API calls - network first, fall back to cached response (stale data ok for GET)
+            // Authenticated task/today APIs must never be cached offline.
             urlPattern: ({ url }) => {
               const path = url.pathname
               return path === '/api/tasks' || path.startsWith('/api/today')
             },
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'trovara-api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
-              networkTimeoutSeconds: 5,
-            },
+            handler: 'NetworkOnly',
           },
         ],
         navigateFallback: '/index.html',
@@ -43,7 +42,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/auth': { target: 'http://127.0.0.1:3000', changeOrigin: true },

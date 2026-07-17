@@ -28,6 +28,14 @@ import {
   type OrderDraft,
   type OrderStep,
 } from './customer-cart.js'
+import {
+  MAX_CART_LINES,
+  MAX_QTY_PER_LINE,
+  validateCartLines,
+  validateOrderValue,
+} from './order-abuse-controls.js'
+import { validateCustomerOrder } from './order-abuse-controls.js'
+import { logSecurityEvent } from './security-log.js'
 
 export { resolveCustomerFarm, upsertCustomerContact, advanceOrderConversation }
 
@@ -245,7 +253,25 @@ async function createOrderFromCart(params: {
   cart: CartLine[]
   draft: OrderDraft
   catalog: CatalogItem[]
-}): Promise<{ reference: string }> {
+}): Promise<{ reference: string } | { error: string }> {
+  const abuse = await validateCustomerOrder({
+    farmId: params.farmId,
+    contactId: params.contactId,
+    cart: params.cart,
+    catalog: params.catalog,
+  })
+  if (!abuse.ok) {
+    if (abuse.flagged) {
+      logSecurityEvent('customer_order_abuse', {
+        farmId: params.farmId,
+        contactId: params.contactId,
+        code: abuse.code,
+        channel: params.channel,
+      })
+    }
+    return { error: abuse.message }
+  }
+
   const items = params.cart.map((line) => {
     const item = params.catalog.find((p) => p.id === line.productId)
     const unitPriceKobo = item?.priceKobo ?? 0
@@ -279,6 +305,16 @@ async function createOrderFromCart(params: {
 
   if (items.length) {
     await db.insert(orderItems).values(items.map((i) => ({ ...i, orderId: order.id })))
+  }
+
+  if (abuse.flagged) {
+    logSecurityEvent('customer_order_flagged', {
+      farmId: params.farmId,
+      contactId: params.contactId,
+      orderId: order.id,
+      itemCount: items.length,
+      totalKobo,
+    })
   }
 
   const reference = orderReference(order.id)
@@ -423,6 +459,7 @@ async function advanceOrderConversation(params: {
       farmLocation: params.farmLocation,
       catalog,
       question,
+      farmId,
     })
     await logInquiry({
       farmId,
@@ -511,14 +548,21 @@ async function advanceOrderConversation(params: {
           return handleInquiry(text)
         }
       }
-      return `Please reply with an item number (1–${catalog.length}), or "done" to check out.`
+      return `Please reply with an item number (1–${catalog.length}), or "done" to check out. (Max ${MAX_CART_LINES} items per order.)`
     }
 
     case 'awaiting_qty': {
       const qty = parseChoice(lower)
       if (!qty || qty <= 0) return 'Please reply with a quantity, e.g. 3.'
+      if (qty > MAX_QTY_PER_LINE) {
+        return `Maximum quantity per item is ${MAX_QTY_PER_LINE}. Contact the farm for bulk orders.`
+      }
       const pendingId = state.draft.pendingProductId
       const cart = pendingId ? addToCart(state.cart, pendingId, qty) : state.cart
+      const lineCheck = validateCartLines(cart)
+      if (!lineCheck.ok) return lineCheck.message
+      const valueCheck = validateOrderValue(cart, catalog)
+      if (!valueCheck.ok) return valueCheck.message
       const draft: OrderDraft = { ...state.draft, pendingProductId: undefined }
       await saveSession(farmId, channel, externalId, { step: 'ordering', cart, draft })
       return `Added.\n\n${formatCart(
@@ -557,7 +601,7 @@ async function advanceOrderConversation(params: {
 
     case 'confirm': {
       if (YES_WORDS.includes(lower)) {
-        const { reference } = await createOrderFromCart({
+        const result = await createOrderFromCart({
           farmId,
           channel,
           contactId: params.contactId,
@@ -566,9 +610,10 @@ async function advanceOrderConversation(params: {
           draft: state.draft,
           catalog,
         })
+        if ('error' in result) return result.error
         await reset()
         return [
-          `✅ Order placed! Your reference is ${reference}.`,
+          `✅ Order placed! Your reference is ${result.reference}.`,
           `We’ll call ${state.draft.phone ?? 'you'} to confirm delivery. Payment is on delivery.`,
           '',
           'Reply "2" any time to track your order.',

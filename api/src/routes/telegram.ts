@@ -13,6 +13,8 @@ import {
 } from '../lib/telegram.js'
 import { handleTelegramWebhook } from '../lib/telegram-inbound.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { secureCompare } from '../lib/secure-compare.js'
+import { clientIpFromHeaders } from '../lib/client-ip.js'
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'
@@ -61,11 +63,12 @@ function verifyTelegramWebhook(
 
   if (isProduction() && !secret) return { ok: false, status: 503 }
 
-  if (secret && c.req.header('x-telegram-bot-api-secret-token') !== secret) {
+  const provided = c.req.header('x-telegram-bot-api-secret-token') ?? ''
+  if (secret && !secureCompare(provided, secret)) {
     logSecurityEvent('invalid_webhook_signature', {
       provider: 'telegram',
       reason: 'invalid_secret_token',
-      ip: c.req.header('x-forwarded-for') ?? 'local',
+      ip: clientIpFromHeaders((name) => c.req.header(name)),
     })
     return { ok: false, status: 401 }
   }

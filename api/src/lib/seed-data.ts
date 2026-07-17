@@ -125,7 +125,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       {
         farmId,
         email: 'owner@trovara.farm',
-        name: 'Farm Founder',
+        name: 'Farm Admin',
         phone: '2348100000000',
         passwordHash: await hashPassword(ownerPassword),
         role: 'owner',
@@ -138,7 +138,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         phone: '2348100000001',
         passwordHash: await hashPassword(supervisorPassword),
         role: 'supervisor',
-        dailyWageNgn: 8000,
+        monthlyWageNgn: 176000,
         mustChangePassword: true,
       },
       {
@@ -148,7 +148,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         phone: '2348100000003',
         passwordHash: await hashPassword(supervisorPassword),
         role: 'supervisor',
-        dailyWageNgn: 8000,
+        monthlyWageNgn: 176000,
         mustChangePassword: true,
       },
       {
@@ -158,7 +158,16 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         phone: '2348103693426',
         passwordHash: await hashPassword(workerPassword),
         role: 'field_worker',
-        dailyWageNgn: 5000,
+        monthlyWageNgn: 110000,
+        monthlyWageEffectiveFrom: '2026-01-01',
+        nextOfKinName: 'Funke Field',
+        nextOfKinPhone: '2348100000101',
+        nextOfKinRelationship: 'spouse',
+        employeeNumber: 'W-001',
+        jobTitle: 'Field hand',
+        employmentType: 'permanent',
+        employmentStartDate: '2025-06-01',
+        employmentStatus: 'employed',
         mustChangePassword: true,
       },
       {
@@ -168,7 +177,16 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         phone: '2348100000002',
         passwordHash: await hashPassword(workerPassword),
         role: 'field_worker',
-        dailyWageNgn: 5000,
+        monthlyWageNgn: 110000,
+        monthlyWageEffectiveFrom: '2026-01-01',
+        nextOfKinName: 'Kemi Field',
+        nextOfKinPhone: '2348100000102',
+        nextOfKinRelationship: 'sibling',
+        employeeNumber: 'W-002',
+        jobTitle: 'Field hand',
+        employmentType: 'casual',
+        employmentStartDate: '2025-09-01',
+        employmentStatus: 'employed',
         mustChangePassword: true,
       },
     ])
@@ -492,7 +510,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     },
   ])
 
-  // Customer-bot catalog. Prices seed at 0 ("price on request") - a Founder sets
+  // Customer-bot catalog. Prices seed at 0 ("price on request") - an Admin sets
   // real prices in the Products admin. Units are sensible defaults, editable.
   await db.insert(products).values([
     { farmId, name: 'Trovara Farm Plantain', unit: 'bunch', sortOrder: 1 },
@@ -503,7 +521,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     { farmId, name: 'Trovara Farm Eggs', unit: 'crate', sortOrder: 6 },
   ])
 
-  // Equipment/asset register (pool model). A Founder/supervisor maintains these;
+  // Equipment/asset register (pool model). An Admin/supervisor maintains these;
   // workers log daily state and a supervisor verifies.
   const assetRows = await db
     .insert(assets)
@@ -616,7 +634,14 @@ export async function seedDemoData(): Promise<void> {
   await deleteAllData()
   const [farm] = await db
     .insert(farms)
-    .values({ name: 'Trovara Farm', slug: slugify('Trovara Farm'), location: 'Abeokuta' })
+    .values({
+      name: 'Trovara Farm',
+      slug: slugify('Trovara Farm'),
+      location: 'Abeokuta',
+      latitude: '7.1475',
+      longitude: '3.3619',
+      timezone: 'Africa/Lagos',
+    })
     .returning()
   await insertDemoContentForFarm(farm.id)
 }

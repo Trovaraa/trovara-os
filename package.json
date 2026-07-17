@@ -7,7 +7,7 @@
     "app"
   ],
   "engines": {
-    "node": ">=20.17.0"
+    "node": ">=22 <23"
   },
   "scripts": {
     "dev": "concurrently -n api,app -c green,blue \"npm run dev -w api\" \"npm run dev -w app\"",
@@ -21,8 +21,15 @@
     "send-proactive-alerts": "bash scripts/send-proactive-alerts.sh",
     "send-evening-digest": "bash scripts/send-evening-digest.sh",
     "run-data-retention": "bash scripts/run-data-retention.sh",
+    "backup": "bash scripts/backup-db.sh",
     "backup:encrypted": "bash scripts/backup-db-encrypted.sh",
-    "audit": "npm audit --workspaces"
+    "backup:production": "bash scripts/backup-production.sh",
+    "backup:verify": "bash scripts/verify-backup.sh",
+    "backup:restore-test": "bash scripts/restore-test-isolated.sh",
+    "restore:db": "bash scripts/restore-db.sh",
+    "audit": "npm audit --workspaces --audit-level=high",
+    "test": "npm test -w api",
+    "typecheck": "npx tsc --noEmit -p api"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

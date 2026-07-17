@@ -33,6 +33,11 @@ Depending on how you interact with Trovara, we may collect:
 
 - **Identity and account data:** name, work email, role, farm assignment, and
   account status.
+- **Employment and payroll-profile data (staff):** staff ID, job title,
+  employment type/status and dates, monthly wage amount and Admin confirmation
+  metadata, and next-of-kin name, phone, and relationship. Trovara does not
+  currently process bank account numbers, tax identifiers, or pay-run
+  settlements in this product.
 - **Contact and order data:** customer name, phone number, delivery address,
   Telegram or WhatsApp identifier, order contents, amount, status, and history.
 - **Farm-work data:** assigned tasks, completion and approval records, notes,
@@ -183,10 +188,13 @@ Current or proposed retention rules include:
 
 - active operational and account data: while the farm uses the service, followed
   by an agreed export and deletion period;
-- expired application sessions: removed after their operational retention
-  period;
+- expired application sessions: removed after `SESSION_RETENTION_DAYS` (default 7) via the scheduled retention job;
 - task photo and voice evidence: controlled by `DATA_RETENTION_DAYS` and the
   scheduled retention job;
+- Butler chat message text in operational logs: redacted (not deleted) after
+  `DATA_RETENTION_DAYS`;
+- customer contact phone numbers on inactive bot contacts: nulled after
+  `CUSTOMER_CONTACT_RETENTION_DAYS` (defaults to `DATA_RETENTION_DAYS`);
 - encrypted backups: rolling retention defined in the backup runbook;
 - financial and audit records: retained for the legally required period; and
 - customer bot and order history: a specific production retention period must
@@ -224,6 +232,12 @@ Subject to applicable law and lawful exceptions, a data subject may request:
 - access to personal data held by Trovara;
 - correction of inaccurate or incomplete data;
 - deletion where Trovara has no overriding lawful reason to retain it;
+
+  Where legal retention, accounting, or operational traceability requires keeping
+  a record, Trovara **pseudonymizes** personal identifiers (name, email, phone)
+  rather than hard-deleting orders, audit entries, or anonymized operational
+  history. Audit log rows are never removed by automated retention.
+
 - restriction of or objection to certain processing;
 - withdrawal of consent where processing relies on consent;
 - portability of data in an applicable structured format;

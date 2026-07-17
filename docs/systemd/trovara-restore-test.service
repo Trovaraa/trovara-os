@@ -1,0 +1,18 @@
+[Unit]
+Description=Trovara OS isolated backup restore test
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/trovara-os
+EnvironmentFile=/home/ubuntu/trovara-os/.env
+ExecStart=/usr/bin/bash /home/ubuntu/trovara-os/scripts/restore-test-isolated.sh
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0077
+
+# The service account must be allowed to run Docker. The script never connects
+# to a configured database target; it restores only inside an ephemeral container.

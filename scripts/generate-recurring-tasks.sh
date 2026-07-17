@@ -25,14 +25,20 @@ if [ -z "$OWNER_PASSWORD" ]; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to build login JSON safely" >&2
+  exit 1
+fi
+
 COOKIE_JAR=$(mktemp)
 trap 'rm -f "$COOKIE_JAR"' EXIT
 
+LOGIN_BODY=$(jq -n --arg email "$OWNER_EMAIL" --arg password "$OWNER_PASSWORD" \
+  '{email: $email, password: $password}')
+
 curl -sf -c "$COOKIE_JAR" -b "$COOKIE_JAR" -X POST "$API_URL/auth/login" \
   -H 'Content-Type: application/json' \
-  -d @- <<EOF > /dev/null
-{"email":"$OWNER_EMAIL","password":"$OWNER_PASSWORD"}
-EOF
+  -d "$LOGIN_BODY" > /dev/null
 
 CSRF=$(grep trovara_csrf "$COOKIE_JAR" | awk '{print $NF}')
 

@@ -19,6 +19,10 @@ import {
 import { notifyOwner } from '../lib/farm-notify.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { checkRateLimit } from '../lib/rate-limit.js'
+import { isAllowedWhatsAppRecipient } from '../lib/whatsapp-recipients.js'
+import { secureCompare } from '../lib/secure-compare.js'
+import { clientIpFromHeaders } from '../lib/client-ip.js'
 
 const templatesPath = join(dirname(fileURLToPath(import.meta.url)), '../../../whatsapp/templates.json')
 
@@ -36,7 +40,7 @@ async function isOwnerInProduction(c: Context): Promise<boolean> {
 export const whatsappRoutes = new Hono<{ Variables: AppVariables }>()
 
 /** Meta webhook verification + inbound messages (no session auth) */
-whatsappRoutes.get('/webhook', (c) => {
+whatsappRoutes.get('/webhook', async (c) => {
   const config = getWhatsAppConfig()
   if (!config) {
     return c.json({ error: 'WhatsApp not configured' }, 501)
@@ -46,14 +50,19 @@ whatsappRoutes.get('/webhook', (c) => {
   const token = c.req.query('hub.verify_token')
   const challenge = c.req.query('hub.challenge')
 
-  if (mode === 'subscribe' && token === config.verifyToken && challenge) {
+  if (
+    mode === 'subscribe' &&
+    token &&
+    secureCompare(token, config.verifyToken) &&
+    challenge
+  ) {
     return c.text(challenge)
   }
   logSecurityEvent('invalid_webhook_signature', {
     provider: 'whatsapp',
     reason: 'verify_token_mismatch',
     mode,
-    ip: c.req.header('x-forwarded-for') ?? 'local',
+    ip: clientIpFromHeaders((name) => c.req.header(name)),
   })
   return c.json({ error: 'Verification failed' }, 403)
 })
@@ -87,7 +96,7 @@ whatsappRoutes.post('/webhook', async (c) => {
     logSecurityEvent('invalid_webhook_signature', {
       provider: 'whatsapp',
       reason: 'invalid_hmac',
-      ip: c.req.header('x-forwarded-for') ?? 'local',
+      ip: clientIpFromHeaders((name) => c.req.header(name)),
     })
     return c.json({ error: 'Invalid signature' }, 401)
   }
@@ -138,12 +147,19 @@ whatsappRoutes.get('/templates', async (c) => {
   }
 })
 
-const sendSchema = z.object({
-  to: z.string().min(8).max(20),
-  templateId: z.string().min(1),
-  lang: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
-  variables: z.record(z.string()).default({}),
-})
+const sendSchema = z
+  .object({
+    to: z.string().min(8).max(20),
+    templateId: z.string().min(1).optional(),
+    /** Free-form message body - owner only; bypasses template allowlist when combined with overrideAllowlist. */
+    text: z.string().min(1).max(1000).optional(),
+    overrideAllowlist: z.boolean().optional(),
+    lang: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
+    variables: z.record(z.string()).default({}),
+  })
+  .refine((v) => Boolean(v.templateId?.trim() || v.text?.trim()), {
+    message: 'Provide templateId or text',
+  })
 
 whatsappRoutes.use('/send', authMiddleware)
 whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
@@ -152,6 +168,18 @@ whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
     requireRole(user, 'owner', 'supervisor')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const { allowed, retryAfterSec } = checkRateLimit(
+    `whatsapp-send:${user.id}`,
+    20,
+    60 * 60 * 1000,
+  )
+  if (!allowed) {
+    return c.json(
+      { error: `WhatsApp send rate limit exceeded - retry in ${retryAfterSec}s.` },
+      429,
+    )
   }
 
   if (!isWhatsAppConfigured()) {
@@ -165,19 +193,55 @@ whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
   }
 
   const body = c.req.valid('json')
-  const text = renderTemplate(body.templateId, body.lang, body.variables)
-  if (!text) return c.json({ error: 'Unknown template' }, 400)
+
+  let messageText: string
+  let usedTemplateId: string | null = null
+
+  if (body.text?.trim()) {
+    if (user.role !== 'owner') {
+      return c.json({ error: 'Free-form WhatsApp messages require owner role' }, 403)
+    }
+    messageText = body.text.trim()
+  } else {
+    const rendered = renderTemplate(body.templateId!, body.lang, body.variables)
+    if (!rendered) return c.json({ error: 'Unknown template' }, 400)
+    messageText = rendered
+    usedTemplateId = body.templateId!
+  }
+
+  const onAllowlist = await isAllowedWhatsAppRecipient(user.farmId, body.to)
+  const canBypassAllowlist = user.role === 'owner' && Boolean(body.overrideAllowlist)
+  if (!onAllowlist && !canBypassAllowlist) {
+    logSecurityEvent('whatsapp_recipient_blocked', {
+      farmId: user.farmId,
+      userId: user.id,
+      to: body.to,
+    })
+    return c.json(
+      {
+        error:
+          'Recipient phone is not on this farm’s staff or customer contact list. Owners may send free-form with overrideAllowlist.',
+      },
+      403,
+    )
+  }
 
   try {
-    const result = await sendWhatsAppText(body.to, text)
+    const result = await sendWhatsAppText(body.to, messageText)
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
-      action: 'whatsapp_send',
+      action: canBypassAllowlist ? 'whatsapp_send_override' : 'whatsapp_send',
       entityType: 'whatsapp_message',
-      metadata: { to: body.to, templateId: body.templateId, messageId: result.messageId },
+      metadata: {
+        to: body.to,
+        templateId: usedTemplateId,
+        freeForm: Boolean(body.text?.trim()),
+        allowlistOverride: canBypassAllowlist,
+        messageId: result.messageId,
+      },
     })
-    return c.json({ ok: true, messageId: result.messageId, preview: text })
+    return c.json({ ok: true, messageId: result.messageId, preview: messageText })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Send failed'
     return c.json({ error: message }, 502)

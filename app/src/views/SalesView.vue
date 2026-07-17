@@ -79,6 +79,11 @@ const auth = useAuthStore()
 const orders = ref<Order[]>([])
 const loading = ref(true)
 
+function displayCustomerName(order: Order): string {
+  if (order.customerName === '[redacted]') return 'Customer'
+  return order.customerName
+}
+
 const statusColor: Record<string, string> = {
   pending: 'bg-amber-900/40 text-amber-300',
   confirmed: 'bg-blue-900/50 text-blue-300',
@@ -166,7 +171,7 @@ function closeCustomer() {
         <div class="flex items-start justify-between gap-4">
           <div>
             <div class="flex items-center gap-2 flex-wrap">
-              <h3 class="font-bold text-white">{{ order.customerName }}</h3>
+              <h3 class="font-bold text-white">{{ displayCustomerName(order) }}</h3>
               <span
                 v-if="order.source && order.source !== 'staff'"
                 class="text-[10px] font-bold px-2 py-0.5 rounded-full"
@@ -229,7 +234,7 @@ function closeCustomer() {
             {{ t('sales.cancel') }}
           </button>
           <button
-            v-if="order.customerContactId"
+            v-if="order.customerContactId && auth.canApprove"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
             @click="openCustomer(order.customerContactId!)"
           >

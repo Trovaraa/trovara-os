@@ -109,6 +109,57 @@ export async function countActiveSessions(userId: string): Promise<number> {
   return Number(row?.total ?? 0)
 }
 
+export type SessionListItem = {
+  id: string
+  createdAt: Date
+  expiresAt: Date
+  userAgent: string | null
+  current: boolean
+}
+
+export async function listActiveSessions(
+  userId: string,
+  currentToken?: string,
+): Promise<SessionListItem[]> {
+  const now = new Date()
+  const currentHash = currentToken ? hashToken(currentToken) : null
+  const rows = await db
+    .select({
+      id: sessions.id,
+      createdAt: sessions.createdAt,
+      expiresAt: sessions.expiresAt,
+      userAgent: sessions.userAgent,
+      tokenHash: sessions.tokenHash,
+    })
+    .from(sessions)
+    .where(and(eq(sessions.userId, userId), gt(sessions.expiresAt, now)))
+    .orderBy(sql`${sessions.createdAt} desc`)
+
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    expiresAt: r.expiresAt,
+    userAgent: r.userAgent,
+    current: currentHash !== null && r.tokenHash === currentHash,
+  }))
+}
+
+export async function revokeSessionById(
+  userId: string,
+  sessionId: string,
+  currentToken?: string,
+): Promise<'ok' | 'not_found' | 'current'> {
+  const [row] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+    .limit(1)
+  if (!row) return 'not_found'
+  if (currentToken && row.tokenHash === hashToken(currentToken)) return 'current'
+  await db.delete(sessions).where(eq(sessions.id, sessionId))
+  return 'ok'
+}
+
 export type SessionUser = {
   id: string
   farmId: string

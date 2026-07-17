@@ -12,6 +12,11 @@ import {
   users,
 } from '../db/schema.js'
 import type { SessionUser } from './session.js'
+import {
+  plotsMissingVerifiedCensus,
+  rejectedCensusSurveys,
+  staleVerifiedCensus,
+} from './census-service.js'
 
 export type ExceptionType =
   | 'overdue_task'
@@ -22,6 +27,13 @@ export type ExceptionType =
   | 'rejected_task'
   | 'asset_log_missing'
   | 'asset_verification_pending'
+  | 'census_missing'
+  | 'census_rejected'
+  | 'census_stale'
+  | 'weather_rain'
+  | 'weather_heat'
+  | 'weather_wind'
+  | 'weather_cold'
 
 export type ExceptionItem = {
   type: ExceptionType
@@ -52,6 +64,10 @@ export type ExceptionSummary = {
   rejectedTasks: number
   assetLogsMissing: number
   assetVerificationPending: number
+  censusMissing: number
+  censusRejected: number
+  censusStale: number
+  weatherAlerts: number
   total: number
 }
 
@@ -90,6 +106,9 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     activeAssetRows,
     loggedTodayRows,
     pendingAssetVerificationRows,
+    missingCensusPlots,
+    rejectedCensusRows,
+    staleCensusPlots,
   ] = await Promise.all([
     db
       .select({
@@ -221,6 +240,13 @@ export async function gatherExceptions(user: SessionUser): Promise<{
             and(eq(assetLogs.farmId, user.farmId), eq(assetLogs.verificationStatus, 'reported')),
           )
           .orderBy(assetLogs.createdAt),
+    isWorker
+      ? Promise.resolve([])
+      : plotsMissingVerifiedCensus(user.farmId),
+    isWorker
+      ? Promise.resolve([])
+      : rejectedCensusSurveys(user.farmId),
+    isWorker ? Promise.resolve([]) : staleVerifiedCensus(user.farmId, 30),
   ])
 
   const loggedTodayAssetIds = new Set(
@@ -349,6 +375,55 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     })
   }
 
+  for (const plot of missingCensusPlots as Array<{ id: string; name: string }>) {
+    exceptions.push({
+      type: 'census_missing',
+      severity: 'medium',
+      title: plot.name,
+      message: 'No verified crop census for this block',
+      entityType: 'plot',
+      entityId: plot.id,
+      timestamp: now.toISOString(),
+    })
+  }
+
+  for (const survey of rejectedCensusRows as Array<{
+    id: string
+    plotName: string | null
+    cropType: string
+    rejectionReason: string | null
+    createdAt: Date
+  }>) {
+    exceptions.push({
+      type: 'census_rejected',
+      severity: 'high',
+      title: `${survey.plotName ?? 'Block'} · ${survey.cropType}`,
+      message: survey.rejectionReason
+        ? `Census rejected: ${survey.rejectionReason}`
+        : 'Census rejected - needs resubmit',
+      entityType: 'crop_census_survey',
+      entityId: survey.id,
+      timestamp: survey.createdAt.toISOString(),
+      metadata: { cropType: survey.cropType, plotName: survey.plotName },
+    })
+  }
+
+  for (const plot of staleCensusPlots as Array<{
+    id: string
+    name: string
+    lastVerifiedAt: Date
+  }>) {
+    exceptions.push({
+      type: 'census_stale',
+      severity: 'medium',
+      title: plot.name,
+      message: `Verified census older than 30 days (last ${plot.lastVerifiedAt.toISOString().slice(0, 10)})`,
+      entityType: 'plot',
+      entityId: plot.id,
+      timestamp: plot.lastVerifiedAt.toISOString(),
+    })
+  }
+
   const actionList = buildActionList(exceptions)
 
   const summary: ExceptionSummary = {
@@ -360,6 +435,10 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     rejectedTasks: rejectedRows.length,
     assetLogsMissing: missingAssetRows.length,
     assetVerificationPending: pendingAssetVerificationRows.length,
+    censusMissing: (missingCensusPlots as unknown[]).length,
+    censusRejected: (rejectedCensusRows as unknown[]).length,
+    censusStale: (staleCensusPlots as unknown[]).length,
+    weatherAlerts: 0,
     total: exceptions.length,
   }
 
@@ -442,6 +521,47 @@ function buildActionList(exceptions: ExceptionItem[]): ActionItem[] {
         entityType: ex.entityType,
         entityId: ex.entityId,
         link: '/assets',
+      })
+    } else if (ex.type === 'census_missing') {
+      actions.push({
+        priority: priority++,
+        action: 'record_census',
+        label: `Record census: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/zones',
+      })
+    } else if (ex.type === 'census_rejected') {
+      actions.push({
+        priority: priority++,
+        action: 'resubmit_census',
+        label: `Resubmit census: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/zones',
+      })
+    } else if (ex.type === 'census_stale') {
+      actions.push({
+        priority: priority++,
+        action: 'refresh_census',
+        label: `Refresh stale census: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/zones',
+      })
+    } else if (
+      ex.type === 'weather_rain' ||
+      ex.type === 'weather_heat' ||
+      ex.type === 'weather_wind' ||
+      ex.type === 'weather_cold'
+    ) {
+      actions.push({
+        priority: priority++,
+        action: 'review_weather',
+        label: `Weather: ${ex.title}`,
+        entityType: ex.entityType,
+        entityId: ex.entityId,
+        link: '/today',
       })
     }
   }

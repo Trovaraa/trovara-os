@@ -17,16 +17,29 @@ type Task = {
   completionNote?: string
   photoUrl?: string
   voiceUrl?: string
-  gps?: { lat?: number; lng?: number } | string
+  latitude?: string | number | null
+  longitude?: string | number | null
+  actionType?: string | null
 }
+
+type PlotOption = { id: string; name: string }
+type UserOption = { id: string; name: string; role: string }
+type TemplateOption = { id: string; name: string; actionType?: string | null }
 
 const auth = useAuthStore()
 const { t } = useI18n()
 const tasks = ref<Task[]>([])
+const plots = ref<PlotOption[]>([])
+const staff = ref<UserOption[]>([])
+const templates = ref<TemplateOption[]>([])
 const loading = ref(true)
 
 const newTitle = ref('')
 const newDescription = ref('')
+const newPlotId = ref('')
+const newAssignedToId = ref('')
+const newTemplateId = ref('')
+const newDueDate = ref('')
 const creating = ref(false)
 const createError = ref<string | null>(null)
 const notes = ref<Record<string, string>>({})
@@ -34,6 +47,17 @@ const photos = ref<Record<string, string>>({})
 const rejectModalTask = ref<Task | null>(null)
 const rejectReason = ref('')
 const rejecting = ref(false)
+
+type HandoverProgress = {
+  zones: number
+  activeBlocks: number
+  handoverTasksOpen: number
+  handoverTasksCompleted: number
+  openTasks: Array<{ id: string; title: string; status: string }>
+}
+const handoverProgress = ref<HandoverProgress | null>(null)
+const generatingHandover = ref(false)
+const handoverMessage = ref<string | null>(null)
 
 function openRejectModal(task: Task) {
   rejectModalTask.value = task
@@ -46,11 +70,11 @@ function closeRejectModal() {
   rejectReason.value = ''
 }
 
-function gpsLabel(gps: Task['gps']): string {
-  if (!gps) return 'Not captured'
-  if (typeof gps === 'string') return gps
-  if (gps.lat != null && gps.lng != null) return `${gps.lat}, ${gps.lng}`
-  return 'Captured'
+function gpsLabel(task: Task): string {
+  const lat = task.latitude
+  const lng = task.longitude
+  if (lat == null || lat === '' || lng == null || lng === '') return 'Not captured'
+  return `${lat}, ${lng}`
 }
 
 async function load() {
@@ -63,7 +87,56 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadCreateOptions() {
+  if (!auth.canApprove) return
+  try {
+    const [plotData, userData, tplData] = await Promise.all([
+      api<{ plots: PlotOption[] }>('/api/zones/plots'),
+      api<{ users: UserOption[] }>('/api/users'),
+      api<{ templates: TemplateOption[] }>('/api/templates/templates'),
+    ])
+    plots.value = plotData.plots
+    staff.value = userData.users
+    templates.value = tplData.templates
+  } catch {
+    plots.value = []
+    staff.value = []
+    templates.value = []
+  }
+}
+
+async function loadHandoverProgress() {
+  if (!auth.canApprove) return
+  try {
+    const data = await api<{ progress: HandoverProgress }>('/api/handover/progress')
+    handoverProgress.value = data.progress
+  } catch {
+    handoverProgress.value = null
+  }
+}
+
+async function generateHandoverTasks() {
+  if (!auth.canApprove) return
+  generatingHandover.value = true
+  handoverMessage.value = null
+  try {
+    await api('/api/handover/seed-templates', { method: 'POST', body: '{}' })
+    const data = await api<{ count: number }>('/api/handover/generate-tasks', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    handoverMessage.value = `Generated ${data.count} handover task(s).`
+    await Promise.all([load(), loadHandoverProgress(), loadCreateOptions()])
+  } catch (e) {
+    handoverMessage.value = e instanceof Error ? e.message : 'Failed to generate handover tasks'
+  } finally {
+    generatingHandover.value = false
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([load(), loadCreateOptions(), loadHandoverProgress()])
+})
 
 async function createTask() {
   if (!newTitle.value.trim()) return
@@ -75,10 +148,18 @@ async function createTask() {
       body: JSON.stringify({
         title: newTitle.value.trim(),
         description: newDescription.value.trim() || undefined,
+        plotId: newPlotId.value || undefined,
+        assignedToId: newAssignedToId.value || undefined,
+        templateId: newTemplateId.value || undefined,
+        dueDate: newDueDate.value ? new Date(newDueDate.value).toISOString() : undefined,
       }),
     })
     newTitle.value = ''
     newDescription.value = ''
+    newPlotId.value = ''
+    newAssignedToId.value = ''
+    newTemplateId.value = ''
+    newDueDate.value = ''
     await load()
   } catch (e) {
     createError.value = e instanceof Error ? e.message : 'Failed to create task'
@@ -156,6 +237,50 @@ async function rejectTaskWithReason() {
       </RouterLink>
     </div>
 
+    <div
+      v-if="auth.canApprove"
+      class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="font-bold text-white text-sm">Handover batch</h3>
+          <p class="text-xs text-slate-500 mt-0.5">
+            Seed templates and generate open handover tasks for active blocks.
+          </p>
+        </div>
+        <button
+          type="button"
+          :disabled="generatingHandover"
+          class="text-xs px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+          @click="generateHandoverTasks"
+        >
+          {{ generatingHandover ? 'Generating…' : 'Generate handover tasks' }}
+        </button>
+      </div>
+      <div
+        v-if="handoverProgress"
+        class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs"
+      >
+        <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+          <p class="text-slate-500">Zones</p>
+          <p class="text-white font-semibold">{{ handoverProgress.zones }}</p>
+        </div>
+        <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+          <p class="text-slate-500">Active blocks</p>
+          <p class="text-white font-semibold">{{ handoverProgress.activeBlocks }}</p>
+        </div>
+        <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+          <p class="text-slate-500">Open</p>
+          <p class="text-white font-semibold">{{ handoverProgress.handoverTasksOpen }}</p>
+        </div>
+        <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+          <p class="text-slate-500">Completed</p>
+          <p class="text-white font-semibold">{{ handoverProgress.handoverTasksCompleted }}</p>
+        </div>
+      </div>
+      <p v-if="handoverMessage" class="text-xs text-slate-400">{{ handoverMessage }}</p>
+    </div>
+
     <form
       v-if="auth.canApprove"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
@@ -182,6 +307,46 @@ async function rejectTaskWithReason() {
           :placeholder="t('tasks.descriptionPlaceholder')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-none"
         />
+      </div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.blockLabel') }}</label>
+          <select
+            v-model="newPlotId"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="">{{ t('tasks.optionalNone') }}</option>
+            <option v-for="plot in plots" :key="plot.id" :value="plot.id">{{ plot.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.assigneeLabel') }}</label>
+          <select
+            v-model="newAssignedToId"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="">{{ t('tasks.optionalNone') }}</option>
+            <option v-for="u in staff" :key="u.id" :value="u.id">{{ u.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.templateLabel') }}</label>
+          <select
+            v-model="newTemplateId"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="">{{ t('tasks.optionalNone') }}</option>
+            <option v-for="tpl in templates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.dueDateLabel') }}</label>
+          <input
+            v-model="newDueDate"
+            type="datetime-local"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </div>
       </div>
       <div class="flex items-center gap-3">
         <button
@@ -237,7 +402,7 @@ async function rejectTaskWithReason() {
             </a>
           </p>
           <p class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-            <span class="text-slate-500">GPS:</span> {{ gpsLabel(task.gps) }}
+            <span class="text-slate-500">GPS:</span> {{ gpsLabel(task) }}
           </p>
         </div>
 

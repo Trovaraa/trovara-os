@@ -20,7 +20,7 @@ type PublicLot = {
 
 const route = useRoute()
 const farmSlug = computed(() => String(route.params.farmSlug ?? ''))
-const lotCode = computed(() => String(route.params.lotCode ?? ''))
+const publicToken = computed(() => String(route.params.lotCode ?? ''))
 
 const lot = ref<PublicLot | null>(null)
 const verified = ref(false)
@@ -28,7 +28,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 
 const publicUrl = computed(() =>
-  `${window.location.origin}/lot/${farmSlug.value}/${lotCode.value}`,
+  `${window.location.origin}/lot/${farmSlug.value}/${publicToken.value}`,
 )
 
 onMounted(async () => {
@@ -36,7 +36,7 @@ onMounted(async () => {
   error.value = null
   try {
     const data = await api<{ lot: PublicLot; verified: boolean }>(
-      `/public/lots/${encodeURIComponent(farmSlug.value)}/${encodeURIComponent(lotCode.value)}`,
+      `/public/lots/${encodeURIComponent(farmSlug.value)}/${encodeURIComponent(publicToken.value)}`,
     )
     lot.value = data.lot
     verified.value = data.verified
@@ -58,7 +58,7 @@ onMounted(async () => {
 
       <div v-else-if="error" class="mt-10 bg-slate-900 border border-red-900/50 rounded-2xl p-6 text-center">
         <p class="text-red-300">{{ error }}</p>
-        <p class="text-xs text-slate-500 mt-3 font-mono">{{ lotCode }}</p>
+        <p class="text-xs text-slate-500 mt-3 font-mono">{{ publicToken }}</p>
       </div>
 
       <div v-else-if="lot" class="mt-10 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">

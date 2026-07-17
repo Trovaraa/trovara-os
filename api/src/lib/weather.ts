@@ -1,0 +1,391 @@
+import { eq } from 'drizzle-orm'
+import { db } from '../db/index.js'
+import { farms, weatherCache } from '../db/schema.js'
+import {
+  buildWeatherAlerts,
+  type WeatherAlert,
+  type WeatherDay,
+} from './weather-alerts.js'
+import { buildWeatherActions, type WeatherAction } from './weather-actions.js'
+
+export type { WeatherAlert, WeatherAlertType, WeatherDay } from './weather-alerts.js'
+export { buildWeatherAlerts } from './weather-alerts.js'
+export type { WeatherAction, WeatherActionPriority } from './weather-actions.js'
+export { buildWeatherActions } from './weather-actions.js'
+
+export type WeatherSnapshot = {
+  status: 'ok' | 'stale' | 'unavailable' | 'unconfigured'
+  provider: string
+  attribution: string
+  fetchedAt: string | null
+  timezone: string | null
+  locationLabel: string | null
+  current: {
+    tempC: number
+    feelsLikeC: number | null
+    humidity: number | null
+    windKmh: number
+    condition: string
+  } | null
+  daily: WeatherDay[]
+  alerts: WeatherAlert[]
+  actions: WeatherAction[]
+  message?: string
+}
+
+type NormalizedForecast = {
+  provider: string
+  attribution: string
+  current: NonNullable<WeatherSnapshot['current']>
+  daily: WeatherDay[]
+}
+
+const HOUR_MS = 60 * 60 * 1000
+const MINUTE_MS = 60 * 1000
+
+function numEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim()
+  if (!raw) return fallback
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function cacheTtlMs(): number {
+  return Math.max(5, numEnv('WEATHER_CACHE_TTL_MINUTES', 30)) * MINUTE_MS
+}
+
+function staleMaxMs(): number {
+  return Math.max(1, numEnv('WEATHER_STALE_MAX_HOURS', 6)) * HOUR_MS
+}
+
+function providerName(): string {
+  return (process.env.WEATHER_PROVIDER?.trim().toLowerCase() || 'openweathermap') as string
+}
+
+function parseCoord(value: string | null | undefined): number | null {
+  if (value == null || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function snapshotFromNormalized(
+  status: WeatherSnapshot['status'],
+  normalized: NormalizedForecast,
+  fetchedAt: Date,
+  timezone: string | null,
+  locationLabel: string | null,
+  message?: string,
+): WeatherSnapshot {
+  const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh)
+  return {
+    status,
+    provider: normalized.provider,
+    attribution: normalized.attribution,
+    fetchedAt: fetchedAt.toISOString(),
+    timezone,
+    locationLabel,
+    current: normalized.current,
+    daily: normalized.daily,
+    alerts,
+    actions: buildWeatherActions(normalized.daily, normalized.current.windKmh, alerts),
+    message,
+  }
+}
+
+async function fetchOpenWeatherMap(lat: number, lon: number): Promise<NormalizedForecast> {
+  const key = process.env.WEATHER_API_KEY?.trim()
+  if (!key) throw new Error('WEATHER_API_KEY is required for openweathermap')
+
+  const base =
+    process.env.WEATHER_API_BASE_URL?.trim() || 'https://api.openweathermap.org/data/2.5'
+  const qs = `lat=${lat}&lon=${lon}&appid=${encodeURIComponent(key)}&units=metric`
+  const timeout = AbortSignal.timeout(10_000)
+
+  const [currentRes, forecastRes] = await Promise.all([
+    fetch(`${base}/weather?${qs}`, { signal: timeout }),
+    fetch(`${base}/forecast?${qs}`, { signal: timeout }),
+  ])
+
+  if (!currentRes.ok || !forecastRes.ok) {
+    if (currentRes.status === 401 || forecastRes.status === 401) {
+      throw new Error(
+        'OpenWeatherMap rejected the API key (401). Confirm WEATHER_API_KEY in .env, restart the API, and wait up to ~2 hours if the key is brand new.',
+      )
+    }
+    throw new Error(`OpenWeatherMap error: ${currentRes.status}/${forecastRes.status}`)
+  }
+
+  const currentJson = (await currentRes.json()) as {
+    main?: { temp?: number; feels_like?: number; humidity?: number }
+    wind?: { speed?: number }
+    weather?: Array<{ description?: string }>
+  }
+  const forecastJson = (await forecastRes.json()) as {
+    list?: Array<{
+      dt: number
+      main?: { temp_min?: number; temp_max?: number }
+      wind?: { speed?: number }
+      rain?: { '3h'?: number }
+      pop?: number
+      weather?: Array<{ description?: string }>
+    }>
+  }
+
+  const byDay = new Map<
+    string,
+    { mins: number[]; maxs: number[]; precip: number; pop: number; wind: number[]; conditions: string[] }
+  >()
+
+  for (const row of forecastJson.list ?? []) {
+    const date = new Date(row.dt * 1000).toISOString().slice(0, 10)
+    const bucket = byDay.get(date) ?? {
+      mins: [],
+      maxs: [],
+      precip: 0,
+      pop: 0,
+      wind: [],
+      conditions: [],
+    }
+    if (row.main?.temp_min != null) bucket.mins.push(row.main.temp_min)
+    if (row.main?.temp_max != null) bucket.maxs.push(row.main.temp_max)
+    bucket.precip += row.rain?.['3h'] ?? 0
+    bucket.pop = Math.max(bucket.pop, (row.pop ?? 0) * 100)
+    if (row.wind?.speed != null) bucket.wind.push(row.wind.speed * 3.6)
+    const cond = row.weather?.[0]?.description
+    if (cond) bucket.conditions.push(cond)
+    byDay.set(date, bucket)
+  }
+
+  const daily: WeatherDay[] = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 5)
+    .map(([date, b]) => ({
+      date,
+      tempMinC: Math.min(...b.mins),
+      tempMaxC: Math.max(...b.maxs),
+      precipMm: Math.round(b.precip * 10) / 10,
+      precipProb: Math.round(b.pop),
+      windKmh: b.wind.length ? Math.round(Math.max(...b.wind)) : 0,
+      condition: b.conditions[0] ?? '—',
+    }))
+
+  return {
+    provider: 'openweathermap',
+    attribution: 'Weather data by OpenWeather',
+    current: {
+      tempC: Math.round((currentJson.main?.temp ?? 0) * 10) / 10,
+      feelsLikeC:
+        currentJson.main?.feels_like != null
+          ? Math.round(currentJson.main.feels_like * 10) / 10
+          : null,
+      humidity: currentJson.main?.humidity ?? null,
+      windKmh: Math.round((currentJson.wind?.speed ?? 0) * 3.6),
+      condition: currentJson.weather?.[0]?.description ?? '—',
+    },
+    daily,
+  }
+}
+
+async function fetchOpenMeteo(lat: number, lon: number, timezone: string): Promise<NormalizedForecast> {
+  const base =
+    process.env.WEATHER_API_BASE_URL?.trim() || 'https://api.open-meteo.com/v1/forecast'
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    timezone,
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code',
+    daily:
+      'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,weather_code',
+    wind_speed_unit: 'kmh',
+  })
+
+  const res = await fetch(`${base}?${params}`, { signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw new Error(`Open-Meteo error: ${res.status}`)
+
+  const json = (await res.json()) as {
+    current?: {
+      temperature_2m?: number
+      apparent_temperature?: number
+      relative_humidity_2m?: number
+      wind_speed_10m?: number
+      weather_code?: number
+    }
+    daily?: {
+      time?: string[]
+      temperature_2m_max?: number[]
+      temperature_2m_min?: number[]
+      precipitation_sum?: number[]
+      precipitation_probability_max?: (number | null)[]
+      wind_speed_10m_max?: number[]
+      weather_code?: number[]
+    }
+  }
+
+  const daily: WeatherDay[] = (json.daily?.time ?? []).slice(0, 5).map((date, i) => ({
+    date,
+    tempMinC: json.daily?.temperature_2m_min?.[i] ?? 0,
+    tempMaxC: json.daily?.temperature_2m_max?.[i] ?? 0,
+    precipMm: Math.round((json.daily?.precipitation_sum?.[i] ?? 0) * 10) / 10,
+    precipProb: json.daily?.precipitation_probability_max?.[i] ?? null,
+    windKmh: Math.round(json.daily?.wind_speed_10m_max?.[i] ?? 0),
+    condition: weatherCodeLabel(json.daily?.weather_code?.[i] ?? 0),
+  }))
+
+  return {
+    provider: 'open-meteo',
+    attribution: 'Weather data by Open-Meteo.com',
+    current: {
+      tempC: Math.round((json.current?.temperature_2m ?? 0) * 10) / 10,
+      feelsLikeC:
+        json.current?.apparent_temperature != null
+          ? Math.round(json.current.apparent_temperature * 10) / 10
+          : null,
+      humidity: json.current?.relative_humidity_2m ?? null,
+      windKmh: Math.round(json.current?.wind_speed_10m ?? 0),
+      condition: weatherCodeLabel(json.current?.weather_code ?? 0),
+    },
+    daily,
+  }
+}
+
+function weatherCodeLabel(code: number): string {
+  if (code === 0) return 'Clear'
+  if (code <= 3) return 'Partly cloudy'
+  if (code <= 48) return 'Fog'
+  if (code <= 57) return 'Drizzle'
+  if (code <= 67) return 'Rain'
+  if (code <= 77) return 'Snow'
+  if (code <= 82) return 'Rain showers'
+  if (code <= 99) return 'Thunderstorm'
+  return 'Unknown'
+}
+
+async function fetchNormalized(
+  lat: number,
+  lon: number,
+  timezone: string,
+): Promise<NormalizedForecast> {
+  const provider = providerName()
+  if (provider === 'open-meteo') return fetchOpenMeteo(lat, lon, timezone)
+  return fetchOpenWeatherMap(lat, lon)
+}
+
+function emptySnapshot(
+  status: WeatherSnapshot['status'],
+  message: string,
+  locationLabel: string | null = null,
+  timezone: string | null = null,
+): WeatherSnapshot {
+  return {
+    status,
+    provider: providerName(),
+    attribution: '',
+    fetchedAt: null,
+    timezone,
+    locationLabel,
+    current: null,
+    daily: [],
+    alerts: [],
+    actions: [],
+    message,
+  }
+}
+
+export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
+  const [farm] = await db
+    .select({
+      location: farms.location,
+      latitude: farms.latitude,
+      longitude: farms.longitude,
+      timezone: farms.timezone,
+    })
+    .from(farms)
+    .where(eq(farms.id, farmId))
+    .limit(1)
+
+  if (!farm) return emptySnapshot('unavailable', 'Farm not found')
+
+  const lat = parseCoord(farm.latitude)
+  const lon = parseCoord(farm.longitude)
+  const timezone = farm.timezone?.trim() || 'Africa/Lagos'
+  const locationLabel = farm.location
+
+  if (lat == null || lon == null) {
+    return emptySnapshot(
+      'unconfigured',
+      'Set farm latitude and longitude in Settings to enable weather.',
+      locationLabel,
+      timezone,
+    )
+  }
+
+  const provider = providerName()
+  if (provider === 'openweathermap' && !process.env.WEATHER_API_KEY?.trim()) {
+    return emptySnapshot(
+      'unconfigured',
+      'Weather provider is not configured (set WEATHER_API_KEY).',
+      locationLabel,
+      timezone,
+    )
+  }
+
+  const now = Date.now()
+  const [cached] = await db
+    .select()
+    .from(weatherCache)
+    .where(eq(weatherCache.farmId, farmId))
+    .limit(1)
+
+  if (cached && cached.expiresAt.getTime() > now) {
+    const payload = cached.payload as unknown as NormalizedForecast
+    return snapshotFromNormalized(
+      'ok',
+      payload,
+      cached.fetchedAt,
+      timezone,
+      locationLabel,
+    )
+  }
+
+  try {
+    const normalized = await fetchNormalized(lat, lon, timezone)
+    const fetchedAt = new Date()
+    const expiresAt = new Date(fetchedAt.getTime() + cacheTtlMs())
+
+    await db
+      .insert(weatherCache)
+      .values({
+        farmId,
+        provider: normalized.provider,
+        payload: normalized as unknown as Record<string, unknown>,
+        fetchedAt,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: weatherCache.farmId,
+        set: {
+          provider: normalized.provider,
+          payload: normalized as unknown as Record<string, unknown>,
+          fetchedAt,
+          expiresAt,
+        },
+      })
+
+    return snapshotFromNormalized('ok', normalized, fetchedAt, timezone, locationLabel)
+  } catch (err) {
+    if (cached && now - cached.fetchedAt.getTime() <= staleMaxMs()) {
+      const payload = cached.payload as unknown as NormalizedForecast
+      return snapshotFromNormalized(
+        'stale',
+        payload,
+        cached.fetchedAt,
+        timezone,
+        locationLabel,
+        'Showing cached weather — live fetch failed.',
+      )
+    }
+
+    const message = err instanceof Error ? err.message : 'Weather unavailable'
+    return emptySnapshot('unavailable', message, locationLabel, timezone)
+  }
+}
