@@ -1,6 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
+  attendanceSessions,
   expenses,
   harvestLots,
   orders,
@@ -8,6 +9,7 @@ import {
   tasks,
   users,
 } from '../db/schema.js'
+import { attendanceLabourCostNgn, payableMinutes } from './attendance-service.js'
 
 const FALLBACK_TASK_LABOUR_NGN = 5000
 /** Approximate working days per month used to convert monthly wage → task labour. */
@@ -29,15 +31,32 @@ export type PlotProfitRow = {
 export async function computePlotProfitability(farmId: string): Promise<PlotProfitRow[]> {
   const allPlots = await db.select().from(plots).where(eq(plots.farmId, farmId))
 
-  const [completedTaskRows, lots, orderRows, expenseRows] = await Promise.all([
+  const [completedTaskRows, attendanceRows, lots, orderRows, expenseRows] = await Promise.all([
     db
       .select({
         id: tasks.id,
         plotId: tasks.plotId,
         assignedToId: tasks.assignedToId,
+        completedAt: tasks.completedAt,
       })
       .from(tasks)
       .where(and(eq(tasks.farmId, farmId), eq(tasks.status, 'completed'))),
+    db
+      .select({
+        taskId: attendanceSessions.taskId,
+        plotId: attendanceSessions.plotId,
+        userId: attendanceSessions.userId,
+        clockInAt: attendanceSessions.clockInAt,
+        clockOutAt: attendanceSessions.clockOutAt,
+        monthlyWageSnapshotNgn: attendanceSessions.monthlyWageSnapshotNgn,
+      })
+      .from(attendanceSessions)
+      .where(
+        and(
+          eq(attendanceSessions.farmId, farmId),
+          isNotNull(attendanceSessions.clockOutAt),
+        ),
+      ),
     db.select().from(harvestLots).where(eq(harvestLots.farmId, farmId)),
     db
       .select({ lotId: orders.lotId, totalAmount: orders.totalAmount, status: orders.status })
@@ -45,7 +64,10 @@ export async function computePlotProfitability(farmId: string): Promise<PlotProf
       .where(
         and(eq(orders.farmId, farmId), inArray(orders.status, ['confirmed', 'dispatched', 'delivered'])),
       ),
-    db.select({ amount: expenses.amount }).from(expenses).where(eq(expenses.farmId, farmId)),
+    db
+      .select({ amount: expenses.amount })
+      .from(expenses)
+      .where(and(eq(expenses.farmId, farmId), ne(expenses.category, 'labour'))),
   ])
 
   const workerIds = [
@@ -61,10 +83,34 @@ export async function computePlotProfitability(farmId: string): Promise<PlotProf
 
   const taskCountByPlot = new Map<string, number>()
   const labourByPlot = new Map<string, number>()
+  const attendedTaskIds = new Set(
+    attendanceRows.map((row) => row.taskId).filter((id): id is string => Boolean(id)),
+  )
+  const attendedWorkerPlotDays = new Set(
+    attendanceRows
+      .filter((row) => row.plotId)
+      .map((row) => `${row.userId}:${row.plotId}:${row.clockInAt.toISOString().slice(0, 10)}`),
+  )
+
+  for (const session of attendanceRows) {
+    if (!session.plotId || !session.clockOutAt) continue
+    const minutes = payableMinutes(session.clockInAt, session.clockOutAt)
+    const cost = attendanceLabourCostNgn(session.monthlyWageSnapshotNgn, minutes)
+    labourByPlot.set(session.plotId, (labourByPlot.get(session.plotId) ?? 0) + cost)
+  }
+
   for (const task of completedTaskRows) {
     if (!task.plotId) continue
     taskCountByPlot.set(task.plotId, (taskCountByPlot.get(task.plotId) ?? 0) + 1)
 
+    const matchedByTask = attendedTaskIds.has(task.id)
+    const completedDay = task.completedAt?.toISOString().slice(0, 10)
+    const matchedByWorkerPlotDay =
+      Boolean(task.assignedToId && completedDay) &&
+      attendedWorkerPlotDays.has(`${task.assignedToId}:${task.plotId}:${completedDay}`)
+    if (matchedByTask || matchedByWorkerPlotDay) continue
+
+    // Historical completed tasks without attendance retain the prior estimate.
     const wage = task.assignedToId ? wageByWorker.get(task.assignedToId) : null
     const taskLabour = wage
       ? Math.round(wage / (WORKING_DAYS_PER_MONTH * HOURS_PER_WORKING_DAY))

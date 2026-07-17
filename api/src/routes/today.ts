@@ -74,6 +74,7 @@ todayRoutes.get('/', async (c) => {
         title: t.title,
         status: t.status,
         dueDate: t.dueDate,
+        plotId: t.plotId,
         plotName: t.plotName,
       })),
     })
