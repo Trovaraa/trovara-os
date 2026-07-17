@@ -5,7 +5,13 @@ function defaultHome(role?: string) {
   return role === 'field_worker' ? '/today' : '/dashboard'
 }
 
-const workerAllowedNames = new Set(['today', 'worker', 'assets', 'traceability'])
+const workerAllowedNames = new Set([
+  'change-password',
+  'today',
+  'worker',
+  'assets',
+  'traceability',
+])
 
 const router = createRouter({
   history: createWebHistory(),

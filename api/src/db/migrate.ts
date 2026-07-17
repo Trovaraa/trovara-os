@@ -10,7 +10,7 @@ if (!connectionString) {
 }
 
 const client = postgres(connectionString, { max: 1 })
-const db = drizzle(client)
+const db = drizzle({ client })
 
 async function main() {
   console.log('Running migrations...')
