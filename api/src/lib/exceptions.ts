@@ -580,6 +580,7 @@ export async function gatherWorkerTodayTasks(user: SessionUser) {
       title: tasks.title,
       status: tasks.status,
       dueDate: tasks.dueDate,
+      plotId: tasks.plotId,
       plotName: plots.name,
     })
     .from(tasks)

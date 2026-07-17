@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attendanceLabourCostNgn, payableMinutes } from './attendance-service.js'
+import { attendanceLabourCostNgn, payableMinutes } from './attendance-calculations.js'
 
 describe('attendance payable calculations', () => {
   it('uses only whole nonnegative payable minutes', () => {

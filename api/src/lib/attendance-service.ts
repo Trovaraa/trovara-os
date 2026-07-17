@@ -7,12 +7,9 @@ import {
   users,
 } from '../db/schema.js'
 import { logAudit } from './audit.js'
+import { payableMinutes } from './attendance-calculations.js'
 import { canApproveTasks } from './rbac.js'
 import type { SessionUser } from './session.js'
-
-const WORKING_DAYS_PER_MONTH = 22
-const HOURS_PER_WORKING_DAY = 8
-const MINUTES_PER_MONTH = WORKING_DAYS_PER_MONTH * HOURS_PER_WORKING_DAY * 60
 
 export type AttendanceAllocationInput = {
   plotId?: string | null
@@ -24,14 +21,6 @@ export type AttendanceCorrectionInput = AttendanceAllocationInput & {
   clockInAt?: string
   clockOutAt?: string | null
   monthlyWageSnapshotNgn?: number
-}
-
-export function payableMinutes(clockInAt: Date, clockOutAt: Date): number {
-  return Math.max(0, Math.floor((clockOutAt.getTime() - clockInAt.getTime()) / 60_000))
-}
-
-export function attendanceLabourCostNgn(monthlyWageNgn: number, minutes: number): number {
-  return Math.round((Math.max(0, monthlyWageNgn) * Math.max(0, minutes)) / MINUTES_PER_MONTH)
 }
 
 function cleanNotes(notes: string | null | undefined): string | null {

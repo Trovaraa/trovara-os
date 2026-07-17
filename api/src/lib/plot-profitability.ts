@@ -9,7 +9,7 @@ import {
   tasks,
   users,
 } from '../db/schema.js'
-import { attendanceLabourCostNgn, payableMinutes } from './attendance-service.js'
+import { attendanceLabourCostNgn, payableMinutes } from './attendance-calculations.js'
 
 const FALLBACK_TASK_LABOUR_NGN = 5000
 /** Approximate working days per month used to convert monthly wage → task labour. */

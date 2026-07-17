@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   purchaseOrderStatusAfterReceipt,
   receiptQuantityIsValid,
-} from './purchase-orders.js'
+} from '../lib/purchase-order-receiving.js'
 
 describe('purchase order receiving', () => {
   it('keeps a partially received order open', () => {

@@ -92,9 +92,29 @@ type TodayData = {
     title: string
     status: string
     dueDate: string | null
+    plotId: string | null
     plotName: string | null
   }[]
 }
+
+type AttendanceSession = {
+  id: string
+  userId: string
+  userName: string
+  clockInAt: string
+  clockOutAt: string | null
+  monthlyWageSnapshotNgn: number
+  plotId: string | null
+  plotName: string | null
+  taskId: string | null
+  taskTitle: string | null
+  notes: string | null
+  correctedById: string | null
+  correctedAt: string | null
+  payableMinutes: number
+}
+
+type PlotOption = { id: string; name: string; active: boolean }
 
 type DayCloseData = {
   date: string
@@ -143,8 +163,22 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const dayCloseOpen = ref(false)
 const dayCloseLoading = ref(false)
+const attendance = ref<AttendanceSession[]>([])
+const plots = ref<PlotOption[]>([])
+const attendanceBusy = ref(false)
+const attendanceError = ref<string | null>(null)
+const selectedPlotId = ref('')
+const selectedTaskId = ref('')
+const attendanceNotes = ref('')
+const correctingId = ref<string | null>(null)
+const correctionClockIn = ref('')
+const correctionClockOut = ref('')
+const correctionNotes = ref('')
 
 const isWorker = computed(() => auth.user?.role === 'field_worker')
+const openAttendance = computed(
+  () => attendance.value.find((session) => session.clockOutAt === null) ?? null,
+)
 
 const exceptionIcon: Record<string, string> = {
   overdue_task: 'text-red-400',
@@ -200,13 +234,102 @@ const summaryCards = computed(() => {
 
 onMounted(async () => {
   try {
-    data.value = await api<TodayData>('/api/today')
+    const [todayData, attendanceData] = await Promise.all([
+      api<TodayData>('/api/today'),
+      api<{ sessions: AttendanceSession[] }>('/api/attendance/today'),
+    ])
+    data.value = todayData
+    attendance.value = attendanceData.sessions
+    if (auth.user?.role === 'field_worker') {
+      const plotData = await api<{ plots: PlotOption[] }>('/api/zones/plots')
+      plots.value = plotData.plots.filter((plot) => plot.active)
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('today.loadFailed')
   } finally {
     loading.value = false
   }
 })
+
+async function reloadAttendance() {
+  const result = await api<{ sessions: AttendanceSession[] }>('/api/attendance/today')
+  attendance.value = result.sessions
+}
+
+async function clockInNow() {
+  attendanceBusy.value = true
+  attendanceError.value = null
+  try {
+    await api('/api/attendance/clock-in', {
+      method: 'POST',
+      body: JSON.stringify({
+        plotId: selectedPlotId.value || null,
+        taskId: selectedTaskId.value || null,
+        notes: attendanceNotes.value.trim() || null,
+      }),
+    })
+    await reloadAttendance()
+  } catch (e) {
+    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
+  } finally {
+    attendanceBusy.value = false
+  }
+}
+
+async function clockOutNow() {
+  attendanceBusy.value = true
+  attendanceError.value = null
+  try {
+    await api('/api/attendance/clock-out', { method: 'POST', body: '{}' })
+    await reloadAttendance()
+  } catch (e) {
+    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
+  } finally {
+    attendanceBusy.value = false
+  }
+}
+
+function toLocalInput(iso: string | null) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+
+function startCorrection(session: AttendanceSession) {
+  correctingId.value = session.id
+  correctionClockIn.value = toLocalInput(session.clockInAt)
+  correctionClockOut.value = toLocalInput(session.clockOutAt)
+  correctionNotes.value = session.notes ?? ''
+}
+
+async function saveCorrection(session: AttendanceSession) {
+  attendanceBusy.value = true
+  attendanceError.value = null
+  try {
+    await api(`/api/attendance/${session.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        clockInAt: new Date(correctionClockIn.value).toISOString(),
+        clockOutAt: correctionClockOut.value
+          ? new Date(correctionClockOut.value).toISOString()
+          : null,
+        notes: correctionNotes.value.trim() || null,
+      }),
+    })
+    correctingId.value = null
+    await reloadAttendance()
+  } catch (e) {
+    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
+  } finally {
+    attendanceBusy.value = false
+  }
+}
+
+function formatMinutes(minutes: number) {
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return t('today.attendanceDuration', { hours, minutes: remainder })
+}
 
 async function openDayClose() {
   if (dayClose.value) {
@@ -252,6 +375,134 @@ function formatCurrency(amount: number, currency: string) {
           {{ isWorker ? t('today.workerSubtitle') : t('today.needAttention', { count: data.summary.total }) }}
         </p>
       </div>
+
+      <!-- Attendance -->
+      <section class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-white">{{ t('today.attendance') }}</h3>
+            <p class="text-xs text-slate-400 mt-1">
+              {{ isWorker ? t('today.attendanceWorkerSubtitle') : t('today.attendanceManagerSubtitle') }}
+            </p>
+          </div>
+          <span
+            v-if="isWorker"
+            class="rounded-full px-3 py-1 text-xs font-bold"
+            :class="openAttendance ? 'bg-farm-green/15 text-farm-green' : 'bg-slate-800 text-slate-400'"
+          >
+            {{ openAttendance ? t('today.clockedIn') : t('today.clockedOut') }}
+          </span>
+        </div>
+
+        <p v-if="attendanceError" class="mt-3 text-sm text-red-400">{{ attendanceError }}</p>
+
+        <div v-if="isWorker" class="mt-4">
+          <div v-if="openAttendance" class="space-y-3">
+            <p class="text-sm text-slate-300">
+              {{ t('today.since') }} {{ formatTime(openAttendance.clockInAt) }}
+              <span v-if="openAttendance.plotName"> · {{ openAttendance.plotName }}</span>
+              <span v-if="openAttendance.taskTitle"> · {{ openAttendance.taskTitle }}</span>
+            </p>
+            <button
+              type="button"
+              class="min-h-[44px] rounded-xl bg-red-500/90 px-5 py-2.5 font-bold text-white disabled:opacity-50"
+              :disabled="attendanceBusy"
+              @click="clockOutNow"
+            >
+              {{ attendanceBusy ? t('today.savingAttendance') : t('today.clockOut') }}
+            </button>
+          </div>
+
+          <div v-else class="grid gap-3 sm:grid-cols-2">
+            <label class="text-xs text-slate-400">
+              {{ t('today.blockOptional') }}
+              <select v-model="selectedPlotId" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                <option value="">{{ t('today.noAllocation') }}</option>
+                <option v-for="plot in plots" :key="plot.id" :value="plot.id">{{ plot.name }}</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-400">
+              {{ t('today.taskOptional') }}
+              <select v-model="selectedTaskId" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                <option value="">{{ t('today.noAllocation') }}</option>
+                <option v-for="task in data.myTasksToday ?? []" :key="task.id" :value="task.id">
+                  {{ task.title }}
+                </option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-400 sm:col-span-2">
+              {{ t('today.notesOptional') }}
+              <input v-model="attendanceNotes" maxlength="2000" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+            </label>
+            <button
+              type="button"
+              class="min-h-[44px] rounded-xl bg-farm-green px-5 py-2.5 font-bold text-slate-950 disabled:opacity-50 sm:w-fit"
+              :disabled="attendanceBusy"
+              @click="clockInNow"
+            >
+              {{ attendanceBusy ? t('today.savingAttendance') : t('today.clockIn') }}
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="mt-4">
+          <p v-if="!attendance.length" class="text-sm text-slate-500">{{ t('today.noAttendanceToday') }}</p>
+          <ul v-else class="space-y-3">
+            <li
+              v-for="session in attendance"
+              :key="session.id"
+              class="rounded-xl border border-slate-800 bg-slate-950 p-4"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="font-semibold text-white">{{ session.userName }}</p>
+                  <p class="mt-1 text-xs text-slate-400">
+                    {{ formatTime(session.clockInAt) }}
+                    → {{ session.clockOutAt ? formatTime(session.clockOutAt) : t('today.inProgress') }}
+                    · {{ formatMinutes(session.payableMinutes) }}
+                  </p>
+                  <p v-if="session.plotName || session.taskTitle" class="mt-1 text-xs text-slate-500">
+                    {{ session.plotName }}<span v-if="session.plotName && session.taskTitle"> · </span>{{ session.taskTitle }}
+                  </p>
+                  <p v-if="session.correctedAt" class="mt-1 text-[11px] text-amber-400">
+                    {{ t('today.corrected') }} · {{ formatTime(session.correctedAt) }}
+                  </p>
+                </div>
+                <button type="button" class="text-xs text-farm-green hover:underline" @click="startCorrection(session)">
+                  {{ t('today.correctAttendance') }}
+                </button>
+              </div>
+
+              <form
+                v-if="correctingId === session.id"
+                class="mt-4 grid gap-3 border-t border-slate-800 pt-4 sm:grid-cols-2"
+                @submit.prevent="saveCorrection(session)"
+              >
+                <label class="text-xs text-slate-400">
+                  {{ t('today.clockInTime') }}
+                  <input v-model="correctionClockIn" type="datetime-local" required class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
+                </label>
+                <label class="text-xs text-slate-400">
+                  {{ t('today.clockOutTime') }}
+                  <input v-model="correctionClockOut" type="datetime-local" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
+                </label>
+                <label class="text-xs text-slate-400 sm:col-span-2">
+                  {{ t('today.notesOptional') }}
+                  <input v-model="correctionNotes" maxlength="2000" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
+                </label>
+                <div class="flex gap-2 sm:col-span-2">
+                  <button type="submit" :disabled="attendanceBusy" class="rounded-lg bg-farm-green px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">
+                    {{ t('today.saveCorrection') }}
+                  </button>
+                  <button type="button" class="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300" @click="correctingId = null">
+                    {{ t('today.cancelCorrection') }}
+                  </button>
+                </div>
+              </form>
+            </li>
+          </ul>
+        </div>
+      </section>
 
       <!-- Weather -->
       <section
