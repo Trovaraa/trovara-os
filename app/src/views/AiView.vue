@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import ChatMarkdown from '@/components/ChatMarkdown.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type IntegrationStatus = { configured: boolean; hint?: string }
 type ChatMessage = { role: 'user' | 'assistant'; text: string; image?: string }
@@ -22,13 +25,13 @@ const draftId = ref<string | null>(null)
 const confirmingDraft = ref(false)
 const draftMessage = ref<string | null>(null)
 
-const suggestions = [
-  "What's the revenue today?",
-  'What needs restocking?',
-  'How many birds are alive?',
-  'My chickens are weak with greenish droppings - what could it be?',
-  'Which plots are most profitable?',
-]
+const suggestions = computed(() => [
+  t('ai.suggestions.revenue'),
+  t('ai.suggestions.restocking'),
+  t('ai.suggestions.birds'),
+  t('ai.suggestions.chickens'),
+  t('ai.suggestions.plots'),
+])
 
 async function load() {
   loading.value = true
@@ -57,14 +60,14 @@ function downscaleImage(file: File, maxSize: number, quality: number): Promise<s
         canvas.width = Math.round(img.width * scale)
         canvas.height = Math.round(img.height * scale)
         const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('Canvas not supported'))
+        if (!ctx) return reject(new Error(t('ai.canvasNotSupported')))
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         resolve(canvas.toDataURL('image/jpeg', quality))
       }
-      img.onerror = () => reject(new Error('Invalid image'))
+      img.onerror = () => reject(new Error(t('ai.invalidImage')))
       img.src = reader.result as string
     }
-    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.onerror = () => reject(new Error(t('ai.couldNotReadFile')))
     reader.readAsDataURL(file)
   })
 }
@@ -77,7 +80,7 @@ async function onImageSelected(event: Event) {
   try {
     attachedImage.value = await downscaleImage(file, 1024, 0.7)
   } catch {
-    chatError.value = 'Could not read that image.'
+    chatError.value = t('ai.couldNotReadImage')
   }
   target.value = ''
 }
@@ -96,7 +99,7 @@ async function send(presetQuestion?: string) {
     .slice(-10)
     .map((m) => ({ role: m.role, content: m.text }))
 
-  messages.value.push({ role: 'user', text: question || '(photo)', image: image ?? undefined })
+  messages.value.push({ role: 'user', text: question || t('ai.photoOnly'), image: image ?? undefined })
   input.value = ''
   attachedImage.value = null
   sending.value = true
@@ -111,7 +114,7 @@ async function send(presetQuestion?: string) {
     draft.value = data.draft ?? null
     draftMessage.value = null
   } catch (e) {
-    chatError.value = e instanceof Error ? e.message : 'The Copilot could not respond.'
+    chatError.value = e instanceof Error ? e.message : t('ai.copilotError')
   } finally {
     sending.value = false
     void scrollToBottom()
@@ -131,11 +134,13 @@ async function confirmDraftTask() {
         description: draft.value.description,
       }),
     })
-    draftMessage.value = data.task?.id ? `Task created (${data.task.id}).` : 'Task created.'
+    draftMessage.value = data.task?.id
+      ? t('ai.taskCreatedWithId', { id: data.task.id })
+      : t('ai.taskCreated')
     draft.value = null
     draftId.value = null
   } catch (e) {
-    draftMessage.value = e instanceof Error ? e.message : 'Could not confirm task draft.'
+    draftMessage.value = e instanceof Error ? e.message : t('ai.confirmDraftFailed')
   } finally {
     confirmingDraft.value = false
   }
@@ -155,12 +160,12 @@ async function draftTaskFromPrompt() {
     if (data.draft) {
       draft.value = data.draft
       draftId.value = data.draftId ?? null
-      draftMessage.value = data.message ?? 'Task draft ready for confirmation.'
+      draftMessage.value = data.message ?? t('ai.draftReady')
     } else {
-      draftMessage.value = data.message ?? 'No task draft was produced.'
+      draftMessage.value = data.message ?? t('ai.noDraftProduced')
     }
   } catch (e) {
-    draftMessage.value = e instanceof Error ? e.message : 'Could not generate task draft.'
+    draftMessage.value = e instanceof Error ? e.message : t('ai.generateDraftFailed')
   } finally {
     sending.value = false
   }
@@ -171,9 +176,9 @@ async function draftTaskFromPrompt() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">Farm Copilot</h2>
+        <h2 class="text-2xl font-black text-white">{{ t('ai.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
-          Ask about your farm, diagnose a sick animal, or send a photo of a crop - all in one chat.
+          {{ t('ai.subtitle') }}
         </p>
       </div>
       <span
@@ -181,7 +186,7 @@ async function draftTaskFromPrompt() {
         class="text-xs font-bold px-2.5 py-1 rounded-full shrink-0"
         :class="aiStatus.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
       >
-        {{ aiStatus.configured ? 'AI ready' : 'AI not configured' }}
+        {{ aiStatus.configured ? t('ai.aiReady') : t('ai.aiNotConfigured') }}
       </span>
     </div>
 
@@ -189,7 +194,7 @@ async function draftTaskFromPrompt() {
       {{ aiStatus.hint }}
     </p>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('ai.loading') }}</div>
 
     <section v-else class="mt-6 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden" style="height: calc(100vh - 16rem); min-height: 28rem">
       <!-- Thread -->
@@ -197,9 +202,9 @@ async function draftTaskFromPrompt() {
         <!-- Empty state -->
         <div v-if="!messages.length" class="h-full flex flex-col items-center justify-center text-center px-6">
           <div class="h-12 w-12 rounded-2xl bg-farm-green/15 text-farm-green flex items-center justify-center text-xl font-black mb-3">T</div>
-          <p class="text-white font-semibold">Hi - I'm your farm copilot.</p>
+          <p class="text-white font-semibold">{{ t('ai.emptyGreeting') }}</p>
           <p class="text-slate-500 text-sm mt-1 max-w-sm">
-            Ask about money, stock, livestock or tasks. Describe a sick animal, or attach a photo of a struggling crop and I'll diagnose it.
+            {{ t('ai.emptyHint') }}
           </p>
           <div class="flex flex-wrap gap-2 justify-center mt-5 max-w-lg">
             <button
@@ -231,7 +236,7 @@ async function draftTaskFromPrompt() {
             <img
               v-if="msg.image"
               :src="msg.image"
-              alt="attachment"
+              :alt="t('ai.attachmentAlt')"
               class="mb-2 max-h-44 rounded-lg border border-black/20"
             />
             <ChatMarkdown v-if="msg.role === 'assistant'" :text="msg.text" />
@@ -241,7 +246,7 @@ async function draftTaskFromPrompt() {
 
         <div v-if="sending" class="flex justify-start">
           <div class="bg-slate-800 text-slate-400 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm">
-            Thinking…
+            {{ t('ai.thinking') }}
           </div>
         </div>
       </div>
@@ -249,7 +254,7 @@ async function draftTaskFromPrompt() {
       <!-- Composer -->
       <div class="border-t border-slate-800 p-3">
         <div v-if="draft" class="mb-3 rounded-lg border border-farm-green/30 bg-farm-green/10 p-3">
-          <p class="text-xs font-bold text-farm-green uppercase tracking-wide">Suggested task draft</p>
+          <p class="text-xs font-bold text-farm-green uppercase tracking-wide">{{ t('ai.suggestedTaskDraft') }}</p>
           <p class="mt-1 text-sm text-white">{{ draft.title }}</p>
           <p v-if="draft.description" class="mt-1 text-xs text-slate-300">{{ draft.description }}</p>
           <div class="mt-3 flex items-center gap-2">
@@ -259,22 +264,22 @@ async function draftTaskFromPrompt() {
               class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
               @click="confirmDraftTask"
             >
-              {{ confirmingDraft ? 'Confirming…' : 'Confirm and create task' }}
+              {{ confirmingDraft ? t('ai.confirming') : t('ai.confirmCreateTask') }}
             </button>
             <button
               type="button"
               class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               @click="draft = null; draftId = null"
             >
-              Dismiss
+              {{ t('ai.dismiss') }}
             </button>
           </div>
         </div>
 
         <div v-if="attachedImage" class="mb-2 flex items-center gap-2">
-          <img :src="attachedImage" alt="preview" class="h-14 w-14 rounded-lg object-cover border border-slate-700" />
+          <img :src="attachedImage" :alt="t('ai.previewAlt')" class="h-14 w-14 rounded-lg object-cover border border-slate-700" />
           <button type="button" class="text-xs text-slate-400 hover:text-white underline" @click="removeImage">
-            Remove photo
+            {{ t('ai.removePhoto') }}
           </button>
         </div>
 
@@ -282,7 +287,7 @@ async function draftTaskFromPrompt() {
           <label
             class="shrink-0 h-10 w-10 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center justify-center cursor-pointer text-lg"
             :class="{ 'opacity-40 pointer-events-none': !aiStatus?.configured }"
-            title="Attach photo"
+            :title="t('ai.attachPhotoTitle')"
           >
             📎
             <input type="file" accept="image/*" capture="environment" class="hidden" @change="onImageSelected" />
@@ -291,7 +296,7 @@ async function draftTaskFromPrompt() {
             v-model="input"
             rows="1"
             :disabled="!aiStatus?.configured"
-            placeholder="Ask anything, or describe what's wrong…"
+            :placeholder="t('ai.placeholder')"
             class="flex-1 resize-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 disabled:opacity-50 max-h-32"
             @keydown.enter.exact.prevent="send()"
           />
@@ -301,21 +306,21 @@ async function draftTaskFromPrompt() {
             class="shrink-0 h-10 px-3 rounded-lg bg-slate-800 text-slate-300 font-semibold text-xs hover:bg-slate-700 disabled:opacity-50"
             @click="draftTaskFromPrompt"
           >
-            Draft task
+            {{ t('ai.draftTask') }}
           </button>
           <button
             type="submit"
             :disabled="sending || (!input.trim() && !attachedImage) || !aiStatus?.configured"
             class="shrink-0 h-10 px-4 rounded-lg bg-farm-green/20 text-farm-green font-bold text-sm hover:bg-farm-green/30 disabled:opacity-50"
           >
-            Send
+            {{ t('ai.send') }}
           </button>
         </form>
-        <p v-if="!aiStatus?.configured" class="text-xs text-slate-500 mt-2">Add an API key in .env to enable the Copilot.</p>
+        <p v-if="!aiStatus?.configured" class="text-xs text-slate-500 mt-2">{{ t('ai.enableHint') }}</p>
         <p v-else-if="draftMessage" class="text-xs text-slate-300 mt-2">{{ draftMessage }}</p>
         <p v-else-if="chatError" class="text-xs text-red-400 mt-2">{{ chatError }}</p>
         <p v-else class="text-[10px] text-slate-600 mt-2">
-          Copilot reads your live farm data. Guidance is assistive - confirm serious cases with a vet/agronomist.
+          {{ t('ai.disclaimer') }}
         </p>
       </div>
     </section>

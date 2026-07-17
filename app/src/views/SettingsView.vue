@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 
 type Checklist = {
   hasZones: boolean
@@ -89,39 +92,39 @@ const goLiveItems = computed(() => {
   if (!checklist.value) return []
   const c = checklist.value
   const items: { label: string; done: boolean; hint?: string }[] = [
-    { label: 'Founder account created', done: true },
+    { label: t('settings.clFounderAccount'), done: true },
     {
-      label: `Supervisors/workers added (${c.usersCount} user${c.usersCount !== 1 ? 's' : ''})`,
+      label: t('settings.clUsers', { count: c.usersCount }),
       done: c.hasUsers,
       hint: 'Add team members in Users',
     },
     {
-      label: `Zones configured (${c.zonesCount})`,
+      label: t('settings.zonesConfigured', { count: c.zonesCount }),
       done: c.hasZones,
       hint: 'Create zones in Zones',
     },
     {
-      label: `Task templates created (${c.templatesCount})`,
+      label: t('settings.templatesCreated', { count: c.templatesCount }),
       done: c.hasTemplates,
       hint: 'Create templates in Templates',
     },
     {
-      label: 'WhatsApp integration configured',
+      label: t('settings.clWhatsapp'),
       done: whatsappStatus.value?.configured ?? false,
       hint: 'Add WA_PHONE_NUMBER_ID + WA_ACCESS_TOKEN to .env',
     },
     {
-      label: 'Database backup tested',
+      label: t('settings.clBackup'),
       done: (systemStatus.value?.backupCount ?? 0) > 0,
       hint: 'Run ./scripts/backup-db.sh then ./scripts/verify-backup.sh',
     },
     {
-      label: 'App bookmarked on farm Wi-Fi devices',
+      label: t('settings.clBookmark'),
       done: false,
       hint: 'Open http://[laptop-ip]:5173 on each phone and add to home screen',
     },
     {
-      label: 'Demo data removed / switched to live data',
+      label: t('settings.clDemo'),
       done: false,
       hint: 'Use Reset demo data below, then enter real farm data',
     },
@@ -181,17 +184,17 @@ async function load() {
 }
 
 async function goLive() {
-  if (!window.confirm('Switch to live mode? This will lock demo reset actions.')) {
+  if (!window.confirm(t('settings.confirmGoLive'))) {
     return
   }
   goingLive.value = true
   goLiveMessage.value = null
   try {
     const data = await api<{ message?: string }>('/onboarding/go-live', { method: 'POST' })
-    goLiveMessage.value = data.message ?? 'Farm is now in live mode.'
+    goLiveMessage.value = data.message ?? t('settings.liveModeDone')
     await load()
   } catch (e) {
-    goLiveMessage.value = e instanceof Error ? e.message : 'Go-live failed'
+    goLiveMessage.value = e instanceof Error ? e.message : t('settings.goLiveFailed')
   } finally {
     goingLive.value = false
   }
@@ -206,7 +209,7 @@ function updateLinkCodeCountdown() {
   }
   const ms = new Date(linkCodeExpiresAt.value).getTime() - Date.now()
   if (ms <= 0) {
-    linkCodeRemaining.value = 'Expired'
+    linkCodeRemaining.value = t('settings.expired')
     linkCode.value = null
     if (linkCodeTimer) {
       clearInterval(linkCodeTimer)
@@ -233,7 +236,7 @@ async function generateButlerLinkCode() {
     if (linkCodeTimer) clearInterval(linkCodeTimer)
     linkCodeTimer = setInterval(updateLinkCodeCountdown, 1000)
   } catch (e) {
-    linkCodeMessage.value = e instanceof Error ? e.message : 'Could not generate link code'
+    linkCodeMessage.value = e instanceof Error ? e.message : t('settings.generateLinkFailed')
   } finally {
     generatingLinkCode.value = false
   }
@@ -243,14 +246,14 @@ async function copyLinkCode() {
   if (!linkCode.value) return
   try {
     await navigator.clipboard.writeText(linkCode.value)
-    linkCodeMessage.value = 'Code copied to clipboard.'
+    linkCodeMessage.value = t('settings.codeCopied')
   } catch {
-    linkCodeMessage.value = 'Could not copy - select the code manually.'
+    linkCodeMessage.value = t('settings.copyFailed')
   }
 }
 
 async function revokeTelegramLink() {
-  if (!window.confirm('Revoke your Telegram Butler link? You will need a new code to reconnect.')) {
+  if (!window.confirm(t('settings.confirmRevokeTelegram'))) {
     return
   }
   revokingTelegram.value = true
@@ -258,9 +261,9 @@ async function revokeTelegramLink() {
   try {
     await api('/api/users/me/telegram-link', { method: 'DELETE' })
     telegramLinked.value = false
-    telegramMessage.value = 'Telegram link revoked.'
+    telegramMessage.value = t('settings.telegramRevoked')
   } catch (e) {
-    telegramMessage.value = e instanceof Error ? e.message : 'Could not revoke Telegram link'
+    telegramMessage.value = e instanceof Error ? e.message : t('settings.revokeTelegramFailed')
   } finally {
     revokingTelegram.value = false
   }
@@ -293,14 +296,14 @@ async function resetDemo() {
       { method: 'POST' },
     )
     if (data.requiresReLogin) {
-      sessionStorage.setItem('trovara_flash', data.message ?? 'Demo data reset - sign in again.')
+      sessionStorage.setItem('trovara_flash', data.message ?? t('settings.demoResetSignIn'))
       await auth.logout()
       return
     }
-    resetMessage.value = data.message ?? 'Demo data reset successfully'
+    resetMessage.value = data.message ?? t('settings.demoResetOk')
     await load()
   } catch (e) {
-    resetMessage.value = e instanceof Error ? e.message : 'Reset failed'
+    resetMessage.value = e instanceof Error ? e.message : t('settings.resetFailed')
   } finally {
     resetting.value = false
     resetConfirmText.value = ''
@@ -312,16 +315,16 @@ async function generateTasks() {
   generateMessage.value = null
   try {
     const data = await api<{ count: number }>('/api/templates/generate-tasks', { method: 'POST' })
-    generateMessage.value = `Generated ${data.count} task(s) from due schedules`
+    generateMessage.value = t('settings.generatedTasks', { count: data.count })
   } catch (e) {
-    generateMessage.value = e instanceof Error ? e.message : 'Generate failed'
+    generateMessage.value = e instanceof Error ? e.message : t('settings.generateFailed')
   } finally {
     generating.value = false
   }
 }
 
 async function revokeAllOtherSessions() {
-  if (!window.confirm('Log out all your other active sessions?')) {
+  if (!window.confirm(t('settings.confirmRevokeSessions'))) {
     return
   }
   revokingSessions.value = true
@@ -330,9 +333,9 @@ async function revokeAllOtherSessions() {
     const data = await api<{ message?: string }>('/auth/revoke-all-sessions', {
       method: 'POST',
     })
-    revokeMessage.value = data.message ?? 'Other sessions revoked successfully.'
+    revokeMessage.value = data.message ?? t('settings.sessionsRevoked')
   } catch (e) {
-    revokeMessage.value = e instanceof Error ? e.message : 'Could not revoke sessions'
+    revokeMessage.value = e instanceof Error ? e.message : t('settings.revokeSessionsFailed')
   } finally {
     revokingSessions.value = false
   }
@@ -347,7 +350,7 @@ async function setupTotp() {
     })
     await load()
   } catch (e) {
-    totpMessage.value = e instanceof Error ? e.message : 'Could not start 2FA setup'
+    totpMessage.value = e instanceof Error ? e.message : t('settings.totpSetupFailed')
   } finally {
     totpLoading.value = false
   }
@@ -364,10 +367,10 @@ async function enableTotp() {
     })
     totpCode.value = ''
     totpSetup.value = null
-    totpMessage.value = '2FA is now enabled.'
+    totpMessage.value = t('settings.twoFaEnabledMsg')
     await load()
   } catch (e) {
-    totpMessage.value = e instanceof Error ? e.message : 'Could not enable 2FA'
+    totpMessage.value = e instanceof Error ? e.message : t('settings.enable2faFailed')
   } finally {
     totpLoading.value = false
   }
@@ -376,10 +379,10 @@ async function enableTotp() {
 async function disableTotp() {
   if (!/^\d{6}$/.test(totpCode.value.trim())) return
   if (!totpDisablePassword.value.trim()) {
-    totpMessage.value = 'Enter your current password to disable 2FA.'
+    totpMessage.value = t('settings.enterPasswordDisable')
     return
   }
-  if (!window.confirm('Disable 2FA for your Founder account?')) return
+  if (!window.confirm(t('settings.confirmDisable2fa'))) return
   totpLoading.value = true
   totpMessage.value = null
   try {
@@ -393,10 +396,10 @@ async function disableTotp() {
     totpCode.value = ''
     totpDisablePassword.value = ''
     totpSetup.value = null
-    totpMessage.value = '2FA disabled.'
+    totpMessage.value = t('settings.twoFaDisabledMsg')
     await load()
   } catch (e) {
-    totpMessage.value = e instanceof Error ? e.message : 'Could not disable 2FA'
+    totpMessage.value = e instanceof Error ? e.message : t('settings.disable2faFailed')
   } finally {
     totpLoading.value = false
   }
@@ -410,9 +413,9 @@ async function saveButlerTtsMode() {
       method: 'PATCH',
       body: JSON.stringify({ butlerTtsMode: ttsMode.value }),
     })
-    ttsMessage.value = 'Butler TTS mode saved.'
+    ttsMessage.value = t('settings.ttsSaved')
   } catch (e) {
-    ttsMessage.value = e instanceof Error ? e.message : 'Could not save TTS mode'
+    ttsMessage.value = e instanceof Error ? e.message : t('settings.ttsSaveFailed')
   } finally {
     savingTtsMode.value = false
   }
@@ -425,7 +428,7 @@ async function exportFarmData() {
     const res = await fetch('/api/exports/farm-data.json', {
       credentials: 'include',
     })
-    if (!res.ok) throw new Error(`Export failed (${res.status})`)
+    if (!res.ok) throw new Error(t('settings.exportFailed', { status: res.status }))
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -433,16 +436,16 @@ async function exportFarmData() {
     a.download = `farm-data-export-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-    farmExportMessage.value = 'Farm data export downloaded.'
+    farmExportMessage.value = t('settings.farmExportDownloaded')
   } catch (e) {
-    farmExportMessage.value = e instanceof Error ? e.message : 'Could not export farm data'
+    farmExportMessage.value = e instanceof Error ? e.message : t('settings.exportFarmFailed')
   } finally {
     exportingFarmData.value = false
   }
 }
 
 function formatBackupTime(iso: string | null): string {
-  if (!iso) return 'Never'
+  if (!iso) return t('settings.backupNever')
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 </script>
@@ -450,17 +453,17 @@ function formatBackupTime(iso: string | null): string {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Settings</h2>
-      <p class="text-slate-400 text-sm mt-1">Farm setup, integrations, and admin actions - Founder only</p>
+      <h2 class="text-2xl font-black text-white">{{ t('settings.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('settings.subtitle') }}</p>
       <RouterLink
         to="/settings/security"
         class="inline-flex mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
       >
-        Security dashboard →
+        {{ t('settings.securityDashboard') }}
       </RouterLink>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading settings…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('settings.loading') }}</div>
 
     <template v-else>
       <!-- Go-Live Checklist -->
@@ -470,15 +473,15 @@ function formatBackupTime(iso: string | null): string {
       >
         <div class="flex items-center justify-between gap-4 mb-4">
           <div>
-            <h3 class="font-bold text-white">Go-Live Checklist</h3>
-            <p class="text-xs text-slate-400 mt-0.5">Complete before using with real farm data</p>
+            <h3 class="font-bold text-white">{{ t('settings.goLiveTitle') }}</h3>
+            <p class="text-xs text-slate-400 mt-0.5">{{ t('settings.goLiveSubtitle') }}</p>
           </div>
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
             :class="goLiveReady ? 'bg-farm-green/20 text-farm-green' : 'bg-amber-900/30 text-amber-300'"
           >
             {{ goLiveDoneCount }}/{{ goLiveItems.length }}
-            {{ goLiveReady ? '- Ready' : '- Not ready' }}
+            {{ goLiveReady ? `- ${t('settings.ready')}` : `- ${t('settings.notReady')}` }}
           </span>
         </div>
         <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -486,7 +489,7 @@ function formatBackupTime(iso: string | null): string {
             class="text-xs font-bold px-2.5 py-1 rounded-full"
             :class="liveMode ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-300'"
           >
-            {{ liveMode ? 'Live mode enabled' : 'Demo mode' }}
+            {{ liveMode ? t('settings.liveModeEnabled') : t('settings.demoMode') }}
           </span>
           <button
             v-if="!liveMode"
@@ -495,7 +498,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="goingLive"
             @click="goLive"
           >
-            {{ goingLive ? 'Switching…' : 'Go live now' }}
+            {{ goingLive ? t('settings.switching') : t('settings.goLiveNow') }}
           </button>
         </div>
         <p v-if="goLiveMessage" class="text-xs text-slate-400 mb-3">{{ goLiveMessage }}</p>
@@ -518,12 +521,12 @@ function formatBackupTime(iso: string | null): string {
       <!-- Onboarding checklist -->
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="font-bold text-white">Onboarding checklist</h3>
+          <h3 class="font-bold text-white">{{ t('settings.onboardingTitle') }}</h3>
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full"
             :class="ready ? 'bg-farm-green/20 text-farm-green' : 'bg-amber-900/40 text-amber-300'"
           >
-            {{ ready ? 'Ready' : 'Incomplete' }}
+            {{ ready ? t('settings.ready') : t('settings.incomplete') }}
           </span>
         </div>
         <ul v-if="checklist" class="mt-4 space-y-3">
@@ -531,66 +534,66 @@ function formatBackupTime(iso: string | null): string {
             <span :class="checklist.hasZones ? 'text-farm-green' : 'text-slate-500'">
               {{ checklist.hasZones ? '✓' : '○' }}
             </span>
-            <span class="text-slate-300">Zones configured ({{ checklist.zonesCount }})</span>
+            <span class="text-slate-300">{{ t('settings.zonesConfigured', { count: checklist.zonesCount }) }}</span>
           </li>
           <li class="flex items-center gap-3 text-sm">
             <span :class="checklist.hasTemplates ? 'text-farm-green' : 'text-slate-500'">
               {{ checklist.hasTemplates ? '✓' : '○' }}
             </span>
-            <span class="text-slate-300">Task templates created ({{ checklist.templatesCount }})</span>
+            <span class="text-slate-300">{{ t('settings.templatesCreated', { count: checklist.templatesCount }) }}</span>
           </li>
           <li class="flex items-center gap-3 text-sm">
             <span :class="checklist.hasUsers ? 'text-farm-green' : 'text-slate-500'">
               {{ checklist.hasUsers ? '✓' : '○' }}
             </span>
-            <span class="text-slate-300">Team members added ({{ checklist.usersCount }})</span>
+            <span class="text-slate-300">{{ t('settings.teamAdded', { count: checklist.usersCount }) }}</span>
           </li>
         </ul>
       </div>
 
       <!-- System Status -->
       <div v-if="systemStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="font-bold text-white text-sm mb-4">System status</h3>
+        <h3 class="font-bold text-white text-sm mb-4">{{ t('settings.systemStatus') }}</h3>
         <div class="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <p class="text-xs text-slate-500">API</p>
+            <p class="text-xs text-slate-500">{{ t('settings.api') }}</p>
             <p class="font-medium" :class="systemStatus.api === 'ok' ? 'text-farm-green' : 'text-red-400'">
-              {{ systemStatus.api === 'ok' ? '● OK' : '● Error' }}
+              {{ systemStatus.api === 'ok' ? t('settings.statusOk') : t('settings.statusError') }}
             </p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">Database</p>
+            <p class="text-xs text-slate-500">{{ t('settings.database') }}</p>
             <p class="font-medium" :class="systemStatus.db === 'ok' ? 'text-farm-green' : 'text-red-400'">
-              {{ systemStatus.db === 'ok' ? `● OK (${systemStatus.dbLatencyMs}ms)` : '● Error' }}
+              {{ systemStatus.db === 'ok' ? t('settings.statusOkLatency', { ms: systemStatus.dbLatencyMs }) : t('settings.statusError') }}
             </p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">Last backup</p>
+            <p class="text-xs text-slate-500">{{ t('settings.lastBackup') }}</p>
             <p class="font-medium text-slate-300 text-xs">{{ formatBackupTime(systemStatus.lastBackup) }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">Backups on disk</p>
+            <p class="text-xs text-slate-500">{{ t('settings.backupsOnDisk') }}</p>
             <p class="font-medium text-slate-300">{{ systemStatus.backupCount }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">WhatsApp</p>
+            <p class="text-xs text-slate-500">{{ t('settings.whatsapp') }}</p>
             <p
               class="font-medium text-xs"
               :class="systemStatus.whatsappConfigured ? 'text-farm-green' : 'text-slate-500'"
             >
-              {{ systemStatus.whatsappConfigured ? 'Configured' : 'Not configured' }}
+              {{ systemStatus.whatsappConfigured ? t('settings.configured') : t('settings.notConfigured') }}
             </p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">AI mode</p>
+            <p class="text-xs text-slate-500">{{ t('settings.aiMode') }}</p>
             <p class="font-medium text-slate-300 text-xs capitalize">{{ systemStatus.aiMode }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">Environment</p>
+            <p class="text-xs text-slate-500">{{ t('settings.environment') }}</p>
             <p class="font-medium text-slate-300 text-xs">{{ systemStatus.env }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-500">Version</p>
+            <p class="text-xs text-slate-500">{{ t('settings.version') }}</p>
             <p class="font-medium text-slate-300 text-xs font-mono">{{ systemStatus.commit }}</p>
           </div>
         </div>
@@ -599,39 +602,39 @@ function formatBackupTime(iso: string | null): string {
       <!-- Integrations -->
       <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="font-bold text-white text-sm">AI integration</h3>
+          <h3 class="font-bold text-white text-sm">{{ t('settings.aiIntegration') }}</h3>
           <p class="text-xs mt-2">
             <span
               class="font-bold px-2 py-0.5 rounded-full"
               :class="aiStatus?.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
             >
-              {{ aiStatus?.configured ? 'Configured' : 'Not configured' }}
+              {{ aiStatus?.configured ? t('settings.configured') : t('settings.notConfigured') }}
             </span>
           </p>
           <p v-if="aiStatus?.hint" class="text-xs text-slate-500 mt-2">{{ aiStatus.hint }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="font-bold text-white text-sm">WhatsApp integration</h3>
+          <h3 class="font-bold text-white text-sm">{{ t('settings.whatsappIntegration') }}</h3>
           <p class="text-xs mt-2">
             <span
               class="font-bold px-2 py-0.5 rounded-full"
               :class="whatsappStatus?.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
             >
-              {{ whatsappStatus?.configured ? 'Configured' : 'Not configured' }}
+              {{ whatsappStatus?.configured ? t('settings.configured') : t('settings.notConfigured') }}
             </span>
           </p>
           <p v-if="whatsappStatus?.hint" class="text-xs text-slate-500 mt-2">{{ whatsappStatus.hint }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="font-bold text-white text-sm">Telegram connect</h3>
+          <h3 class="font-bold text-white text-sm">{{ t('settings.telegramConnect') }}</h3>
           <p class="text-xs text-slate-400 mt-2">
-            Generate a one-time link code, then send it to the Trovara Butler bot.
+            {{ t('settings.telegramDesc') }}
           </p>
           <span
             class="inline-flex mt-2 text-xs font-bold px-2 py-0.5 rounded-full"
             :class="telegramLinked ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
           >
-            {{ telegramLinked ? 'Telegram linked' : 'Not linked' }}
+            {{ telegramLinked ? t('settings.telegramLinked') : t('settings.notLinked') }}
           </span>
           <a
             href="https://t.me/TrovaraButlerBot"
@@ -639,7 +642,7 @@ function formatBackupTime(iso: string | null): string {
             rel="noopener noreferrer"
             class="mt-3 inline-flex text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
           >
-            Open t.me/TrovaraButlerBot
+            {{ t('settings.openBot') }}
           </a>
           <div class="mt-3 flex flex-wrap gap-2">
             <button
@@ -648,7 +651,7 @@ function formatBackupTime(iso: string | null): string {
               :disabled="generatingLinkCode"
               @click="generateButlerLinkCode"
             >
-              {{ generatingLinkCode ? 'Generating…' : 'Generate link code' }}
+              {{ generatingLinkCode ? t('settings.generating') : t('settings.generateLinkCode') }}
             </button>
             <button
               v-if="linkCode"
@@ -656,7 +659,7 @@ function formatBackupTime(iso: string | null): string {
               class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               @click="copyLinkCode"
             >
-              Copy code
+              {{ t('settings.copyCode') }}
             </button>
             <button
               type="button"
@@ -664,14 +667,14 @@ function formatBackupTime(iso: string | null): string {
               :disabled="revokingTelegram || !telegramLinked"
               @click="revokeTelegramLink"
             >
-              {{ revokingTelegram ? 'Revoking…' : 'Revoke Telegram link' }}
+              {{ revokingTelegram ? t('settings.revoking') : t('settings.revokeTelegram') }}
             </button>
           </div>
           <div v-if="linkCode" class="mt-4 rounded-xl border border-farm-green/30 bg-slate-950/60 p-4 text-center">
-            <p class="text-xs text-slate-500">Send to Telegram: /link {{ linkCode }}</p>
+            <p class="text-xs text-slate-500">{{ t('settings.sendToTelegram', { code: linkCode }) }}</p>
             <p class="mt-2 text-3xl font-black font-mono tracking-[0.3em] text-farm-gold">{{ linkCode }}</p>
             <p v-if="linkCodeRemaining" class="mt-2 text-xs text-amber-300">
-              Expires in {{ linkCodeRemaining }}
+              {{ t('settings.expiresIn', { time: linkCodeRemaining }) }}
             </p>
           </div>
           <p v-if="linkCodeMessage" class="mt-2 text-xs text-slate-400">{{ linkCodeMessage }}</p>
@@ -680,13 +683,13 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <h3 class="font-bold text-white text-sm">Founder security</h3>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.founderSecurity') }}</h3>
         <div class="flex items-center gap-3">
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full"
             :class="totpStatus?.enabled ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
           >
-            {{ totpStatus?.enabled ? '2FA enabled' : '2FA disabled' }}
+            {{ totpStatus?.enabled ? t('settings.twoFaEnabled') : t('settings.twoFaDisabled') }}
           </span>
           <button
             type="button"
@@ -694,19 +697,19 @@ function formatBackupTime(iso: string | null): string {
             :disabled="totpLoading"
             @click="setupTotp"
           >
-            {{ totpLoading ? 'Preparing…' : totpStatus?.enabled ? 'Rotate setup secret' : 'Set up authenticator' }}
+            {{ totpLoading ? t('settings.preparing') : totpStatus?.enabled ? t('settings.rotateSecret') : t('settings.setupAuthenticator') }}
           </button>
         </div>
 
         <div v-if="totpSetup" class="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
-          <p class="text-xs text-slate-400">Scan in Google Authenticator/Authy, then enter a 6-digit code.</p>
+          <p class="text-xs text-slate-400">{{ t('settings.scanQr') }}</p>
           <img :src="totpSetup.qrUrl" alt="TOTP QR code" class="mt-3 h-40 w-40 rounded-lg border border-slate-700 bg-white p-1" />
-          <p class="mt-2 text-[11px] text-slate-500 break-all">Secret: <span class="font-mono">{{ totpSetup.secret }}</span></p>
+          <p class="mt-2 text-[11px] text-slate-500 break-all">{{ t('settings.secretLabel') }} <span class="font-mono">{{ totpSetup.secret }}</span></p>
           <a
             :href="totpSetup.otpAuthUrl"
             class="mt-1 inline-flex text-[11px] text-farm-green hover:underline break-all"
           >
-            Open otpauth link
+            {{ t('settings.openOtpauth') }}
           </a>
         </div>
 
@@ -725,12 +728,12 @@ function formatBackupTime(iso: string | null): string {
             :disabled="totpLoading || !totpSetup"
             @click="enableTotp"
           >
-            Enable 2FA
+            {{ t('settings.enable2fa') }}
           </button>
           <input
             v-model="totpDisablePassword"
             type="password"
-            placeholder="Password to disable 2FA"
+            :placeholder="t('settings.disable2faPassword')"
             class="w-full max-w-xs bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <button
@@ -739,23 +742,23 @@ function formatBackupTime(iso: string | null): string {
             :disabled="totpLoading || !totpStatus?.enabled"
             @click="disableTotp"
           >
-            Disable 2FA
+            {{ t('settings.disable2fa') }}
           </button>
         </div>
         <p v-if="totpMessage" class="text-xs text-slate-400">{{ totpMessage }}</p>
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-        <h3 class="font-bold text-white text-sm">Butler voice mode</h3>
-        <p class="text-xs text-slate-500">Choose when Trovara Butler should return voice replies.</p>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.butlerVoiceMode') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('settings.butlerVoiceDesc') }}</p>
         <div class="flex flex-wrap items-center gap-3">
           <select
             v-model="ttsMode"
             class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
-            <option value="off">Off</option>
-            <option value="voice_replies">Voice replies</option>
-            <option value="always">Always</option>
+            <option value="off">{{ t('settings.ttsOff') }}</option>
+            <option value="voice_replies">{{ t('settings.ttsVoiceReplies') }}</option>
+            <option value="always">{{ t('settings.ttsAlways') }}</option>
           </select>
           <button
             type="button"
@@ -763,7 +766,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="savingTtsMode"
             @click="saveButlerTtsMode"
           >
-            {{ savingTtsMode ? 'Saving…' : 'Save mode' }}
+            {{ savingTtsMode ? t('settings.saving') : t('settings.saveMode') }}
           </button>
         </div>
         <p v-if="ttsMessage" class="text-xs text-slate-400">{{ ttsMessage }}</p>
@@ -771,11 +774,11 @@ function formatBackupTime(iso: string | null): string {
 
       <!-- SaaS Billing -->
       <div v-if="billingStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="font-bold text-white text-sm">SaaS billing (multi-farm sales)</h3>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.saasBilling') }}</h3>
         <p class="text-xs text-slate-400 mt-2">{{ billingStatus.message }}</p>
         <p class="text-xs mt-2">
           <span class="font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">
-            {{ billingStatus.enabled ? 'Enabled' : 'Placeholder - single farm mode' }}
+            {{ billingStatus.enabled ? t('settings.billingEnabled') : t('settings.billingPlaceholder') }}
           </span>
         </p>
         <ul class="mt-3 space-y-1 text-xs text-slate-500">
@@ -783,43 +786,43 @@ function formatBackupTime(iso: string | null): string {
             <span class="text-slate-400 capitalize">{{ key }}:</span> {{ step }}
           </li>
         </ul>
-        <p class="text-xs text-farm-green mt-3">See {{ billingStatus.docs }} for full roadmap</p>
+        <p class="text-xs text-farm-green mt-3">{{ t('settings.seeDocs', { docs: billingStatus.docs }) }}</p>
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="font-bold text-white text-sm">CSV exports</h3>
-        <p class="text-xs text-slate-500 mt-1">Download farm data snapshots for offline analysis and compliance.</p>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.csvExports') }}</h3>
+        <p class="text-xs text-slate-500 mt-1">{{ t('settings.csvDesc') }}</p>
         <div class="mt-4 flex flex-wrap gap-2">
           <a
             href="/api/exports/tasks.csv"
             class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
           >
-            Export tasks CSV
+            {{ t('settings.exportTasksCsv') }}
           </a>
           <a
             href="/api/exports/inventory.csv"
             class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
           >
-            Export inventory CSV
+            {{ t('settings.exportInventoryCsv') }}
           </a>
           <a
             href="/api/exports/expenses.csv"
             class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
           >
-            Export expenses CSV
+            {{ t('settings.exportExpensesCsv') }}
           </a>
           <a
             href="/api/exports/audit.csv"
             class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
           >
-            Export audit CSV
+            {{ t('settings.exportAuditCsv') }}
           </a>
         </div>
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="font-bold text-white text-sm">Privacy</h3>
-        <p class="text-xs text-slate-500 mt-1">Manage data portability and NDPA compliance docs.</p>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.privacy') }}</h3>
+        <p class="text-xs text-slate-500 mt-1">{{ t('settings.privacyDesc') }}</p>
         <div class="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -827,7 +830,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="exportingFarmData"
             @click="exportFarmData"
           >
-            {{ exportingFarmData ? 'Exporting…' : 'Export my farm data' }}
+            {{ exportingFarmData ? t('settings.exporting') : t('settings.exportFarmData') }}
           </button>
           <a
             href="/ndpa-compliance.md"
@@ -835,7 +838,7 @@ function formatBackupTime(iso: string | null): string {
             rel="noopener noreferrer"
             class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
           >
-            NDPA compliance document
+            {{ t('settings.ndpaDoc') }}
           </a>
         </div>
         <p v-if="farmExportMessage" class="mt-2 text-xs text-slate-400">{{ farmExportMessage }}</p>
@@ -843,7 +846,7 @@ function formatBackupTime(iso: string | null): string {
 
       <!-- Admin actions -->
       <div class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <h3 class="font-bold text-white text-sm">Admin actions</h3>
+        <h3 class="font-bold text-white text-sm">{{ t('settings.adminActions') }}</h3>
         <div class="flex flex-wrap gap-3">
           <button
             v-if="auth.isOwner && !liveMode"
@@ -852,13 +855,13 @@ function formatBackupTime(iso: string | null): string {
             :disabled="resetting"
             @click="openResetConfirm"
           >
-            {{ resetting ? 'Resetting…' : 'Reset demo data' }}
+            {{ resetting ? t('settings.resetting') : t('settings.resetDemoData') }}
           </button>
           <p
             v-else-if="auth.isOwner && liveMode"
             class="text-xs px-3 py-2 rounded-lg border border-slate-800 text-slate-500"
           >
-            Reset demo data is disabled in live mode.
+            {{ t('settings.resetDisabledLive') }}
           </p>
           <button
             type="button"
@@ -866,7 +869,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="generating"
             @click="generateTasks"
           >
-            {{ generating ? 'Generating…' : 'Generate due tasks' }}
+            {{ generating ? t('settings.generating') : t('settings.generateDueTasks') }}
           </button>
           <button
             type="button"
@@ -874,7 +877,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="revokingSessions"
             @click="revokeAllOtherSessions"
           >
-            {{ revokingSessions ? 'Revoking…' : 'Log out all other devices' }}
+            {{ revokingSessions ? t('settings.revoking') : t('settings.logoutAllDevices') }}
           </button>
         </div>
         <p v-if="resetMessage" class="text-xs text-slate-400">{{ resetMessage }}</p>
@@ -886,7 +889,7 @@ function formatBackupTime(iso: string | null): string {
           Verify: <code class="font-mono">./scripts/verify-backup.sh</code>
         </p>
         <p class="text-xs text-slate-500">
-          Privacy notice:
+          {{ t('settings.privacyNotice') }}
           <a
             href="https://trovara.farm/privacy"
             target="_blank"
@@ -908,14 +911,13 @@ function formatBackupTime(iso: string | null): string {
     >
       <div class="absolute inset-0 bg-black/70" @click="cancelResetConfirm" />
       <div class="relative w-full max-w-md rounded-2xl border border-red-800/50 bg-slate-900 p-6 shadow-2xl">
-        <h3 class="text-lg font-black text-red-300">Reset all demo data?</h3>
+        <h3 class="text-lg font-black text-red-300">{{ t('settings.resetConfirmTitle') }}</h3>
         <p class="mt-2 text-sm text-slate-300">
-          This permanently wipes this farm's records and re-seeds the default demo data.
-          All users, tasks, inventory, sales and other data will be deleted, and everyone
-          will be signed out. <span class="font-semibold text-red-300">This cannot be undone.</span>
+          {{ t('settings.resetConfirmBody') }}
+          <span class="font-semibold text-red-300">{{ t('settings.resetCannotUndo') }}</span>
         </p>
         <label class="mt-4 block text-xs font-semibold text-slate-400">
-          Type <span class="font-mono text-white">{{ RESET_CONFIRM_PHRASE }}</span> to confirm
+          {{ t('settings.typeToConfirm', { phrase: RESET_CONFIRM_PHRASE }) }}
         </label>
         <input
           v-model="resetConfirmText"
@@ -931,7 +933,7 @@ function formatBackupTime(iso: string | null): string {
             class="text-sm font-semibold px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
             @click="cancelResetConfirm"
           >
-            Cancel
+            {{ t('settings.cancel') }}
           </button>
           <button
             type="button"
@@ -939,7 +941,7 @@ function formatBackupTime(iso: string | null): string {
             :disabled="!resetConfirmValid || resetting"
             @click="resetDemo"
           >
-            {{ resetting ? 'Resetting…' : 'Reset data' }}
+            {{ resetting ? t('settings.resetting') : t('settings.resetData') }}
           </button>
         </div>
       </div>

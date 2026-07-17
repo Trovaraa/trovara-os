@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type Json = Record<string, unknown> | null
 
@@ -24,11 +27,11 @@ const loading = ref(true)
 const selected = ref<FarmEvent | null>(null)
 const filter = ref<'all' | 'chat' | 'actions'>('all')
 
-const FILTERS: { id: 'all' | 'chat' | 'actions'; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'chat', label: 'Questions & replies' },
-  { id: 'actions', label: 'Actions' },
-]
+const FILTERS = computed<{ id: 'all' | 'chat' | 'actions'; label: string }[]>(() => [
+  { id: 'all', label: t('events.filterAll') },
+  { id: 'chat', label: t('events.filterChat') },
+  { id: 'actions', label: t('events.filterActions') },
+])
 
 function isChat(evt: FarmEvent): boolean {
   return evt.entityType.includes('message') || messageText(evt) !== null
@@ -83,10 +86,10 @@ function messageRole(evt: FarmEvent): string | null {
 function kindLabel(evt: FarmEvent): string | null {
   const kind = messageKind(evt)
   const dir = direction(evt)
-  if (kind === 'voice') return dir === 'outbound' ? 'Voice reply' : 'Voice note (transcript)'
-  if (kind === 'image') return 'Photo'
-  if (dir === 'inbound') return 'Question'
-  if (dir === 'outbound') return 'Reply'
+  if (kind === 'voice') return dir === 'outbound' ? t('events.voiceReply') : t('events.voiceNote')
+  if (kind === 'image') return t('events.photo')
+  if (dir === 'inbound') return t('events.question')
+  if (dir === 'outbound') return t('events.reply')
   return null
 }
 
@@ -112,10 +115,9 @@ function formatTime(iso: string): string {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Farm Events</h2>
+      <h2 class="text-2xl font-black text-white">{{ t('events.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
-        Activity log across plots, crops, tasks and chat. Click any event to see the full log -
-        including the exact question asked and, for voice notes, the transcribed text.
+        {{ t('events.subtitle') }}
       </p>
     </div>
 
@@ -132,18 +134,18 @@ function formatTime(iso: string): string {
       </button>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading events…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('events.loading') }}</div>
 
     <div v-else class="mt-6 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">Time</th>
-            <th class="pb-3 font-semibold">Event</th>
-            <th class="pb-3 font-semibold">Details</th>
-            <th class="pb-3 font-semibold">Source</th>
-            <th class="pb-3 font-semibold">Actor</th>
-            <th class="pb-3 font-semibold">Status</th>
+            <th class="pb-3 font-semibold">{{ t('events.time') }}</th>
+            <th class="pb-3 font-semibold">{{ t('events.event') }}</th>
+            <th class="pb-3 font-semibold">{{ t('events.details') }}</th>
+            <th class="pb-3 font-semibold">{{ t('events.source') }}</th>
+            <th class="pb-3 font-semibold">{{ t('events.actor') }}</th>
+            <th class="pb-3 font-semibold">{{ t('events.status') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -180,7 +182,7 @@ function formatTime(iso: string): string {
           </tr>
         </tbody>
       </table>
-      <p v-if="!filteredEvents.length" class="text-slate-500 text-sm mt-4">No events to show.</p>
+      <p v-if="!filteredEvents.length" class="text-slate-500 text-sm mt-4">{{ t('events.noEvents') }}</p>
     </div>
 
     <!-- Event detail -->
@@ -202,7 +204,7 @@ function formatTime(iso: string): string {
           <button
             type="button"
             class="text-slate-400 hover:text-white p-1 -m-1"
-            aria-label="Close"
+            :aria-label="t('events.close')"
             @click="selected = null"
           >
             ✕
@@ -222,50 +224,50 @@ function formatTime(iso: string): string {
               {{ kindLabel(selected) }}
             </span>
             <span v-if="messageRole(selected)" class="text-[11px] text-slate-500 capitalize">
-              {{ messageRole(selected) === 'assistant' ? 'Butler' : messageRole(selected) }}
+              {{ messageRole(selected) === 'assistant' ? t('events.butler') : messageRole(selected) }}
             </span>
           </div>
           <p class="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">{{ messageText(selected) }}</p>
           <p v-if="messageKind(selected) === 'voice'" class="mt-2 text-[11px] text-slate-500">
-            Transcribed from a voice note.
+            {{ t('events.transcribedNote') }}
           </p>
         </div>
 
         <!-- Key facts -->
         <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div>
-            <dt class="text-xs text-slate-500">Time</dt>
+            <dt class="text-xs text-slate-500">{{ t('events.time') }}</dt>
             <dd class="text-slate-300">{{ formatTime(selected.createdAt) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-slate-500">Actor</dt>
+            <dt class="text-xs text-slate-500">{{ t('events.actor') }}</dt>
             <dd class="text-slate-300">{{ selected.actorName ?? '-' }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-slate-500">Source</dt>
+            <dt class="text-xs text-slate-500">{{ t('events.source') }}</dt>
             <dd class="text-slate-300 capitalize">{{ selected.source }}</dd>
           </div>
           <div v-if="direction(selected)">
-            <dt class="text-xs text-slate-500">Direction</dt>
+            <dt class="text-xs text-slate-500">{{ t('events.direction') }}</dt>
             <dd class="text-slate-300 capitalize">{{ direction(selected) }}</dd>
           </div>
           <div v-if="selected.approvalStatus">
-            <dt class="text-xs text-slate-500">Status</dt>
+            <dt class="text-xs text-slate-500">{{ t('events.status') }}</dt>
             <dd class="text-slate-300 capitalize">{{ selected.approvalStatus.replace(/_/g, ' ') }}</dd>
           </div>
         </dl>
 
         <!-- Raw data changes for non-chat events -->
         <details v-if="hasKeys(selected.beforeValue)" class="mt-4">
-          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">Before</summary>
+          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">{{ t('events.before') }}</summary>
           <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[11px] text-slate-300">{{ prettyJson(selected.beforeValue) }}</pre>
         </details>
         <details v-if="hasKeys(selected.afterValue) && !messageText(selected)" class="mt-4">
-          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">After</summary>
+          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">{{ t('events.after') }}</summary>
           <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[11px] text-slate-300">{{ prettyJson(selected.afterValue) }}</pre>
         </details>
         <details v-if="hasKeys(selected.metadata)" class="mt-4">
-          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">Metadata</summary>
+          <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-white">{{ t('events.metadata') }}</summary>
           <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[11px] text-slate-300">{{ prettyJson(selected.metadata) }}</pre>
         </details>
       </div>

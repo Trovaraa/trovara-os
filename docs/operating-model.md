@@ -179,7 +179,7 @@ Each report states: **purpose**, **metrics**, **frequency**, **audience**.
 - **Today home** - only urgent items; max 5 cards
 - **One-tap actions** - Start, Submit, Approve on task cards
 - **Large touch targets** - min 44px tap areas on field screens
-- **Languages** - English primary; Yoruba + Pidgin for worker-facing labels and WhatsApp templates
+- **Languages** - English primary; Yoruba, Pidgin, and French for worker-facing labels and WhatsApp templates
 - **Search/filters** - tasks by status/plot/assignee; inventory by category
 - **Saved views** - "My tasks today", "Pending approvals" (supervisor)
 

@@ -10,6 +10,7 @@ const options: { code: AppLocale; label: string }[] = [
   { code: 'en', label: 'EN' },
   { code: 'yo', label: 'YO' },
   { code: 'pcm', label: 'PCM' },
+  { code: 'fr', label: 'FR' },
 ]
 
 function setLocale(code: AppLocale) {

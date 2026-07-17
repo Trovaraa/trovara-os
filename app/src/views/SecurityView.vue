@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type SecurityEvent = {
   ts: string
@@ -19,7 +22,7 @@ const revokeMessage = ref<string | null>(null)
 
 function formatDetails(metadata: Record<string, unknown>): string {
   const keys = Object.keys(metadata)
-  if (keys.length === 0) return '-'
+  if (keys.length === 0) return t('security.noDetails')
   return keys
     .slice(0, 4)
     .map((k) => `${k}: ${String(metadata[k])}`)
@@ -38,14 +41,14 @@ async function load() {
     activeSessions.value =
       typeof meData.activeSessions === 'number' ? meData.activeSessions : null
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : 'Failed to load security data'
+    loadError.value = e instanceof Error ? e.message : t('security.loadFailed')
   } finally {
     loading.value = false
   }
 }
 
 async function revokeAllSessions() {
-  if (!window.confirm('Log out all devices? You will stay signed in on this browser.')) return
+  if (!window.confirm(t('security.confirmRevoke'))) return
   revoking.value = true
   revokeMessage.value = null
   try {
@@ -55,10 +58,10 @@ async function revokeAllSessions() {
     )
     revokeMessage.value =
       data.message ??
-      `Revoked ${data.revokedSessions ?? 0} other session(s).`
+      t('security.revokedN', { count: data.revokedSessions ?? 0 })
     await load()
   } catch (e) {
-    revokeMessage.value = e instanceof Error ? e.message : 'Could not revoke sessions'
+    revokeMessage.value = e instanceof Error ? e.message : t('security.revokeFailed')
   } finally {
     revoking.value = false
   }
@@ -72,10 +75,10 @@ onMounted(load)
     <div class="flex items-start justify-between gap-4">
       <div>
         <RouterLink to="/settings" class="text-xs text-slate-500 hover:text-farm-green">
-          ← Settings
+          {{ t('security.backToSettings') }}
         </RouterLink>
-        <h2 class="text-2xl font-black text-white mt-2">Security dashboard</h2>
-        <p class="text-slate-400 text-sm mt-1">Recent security events and active sessions</p>
+        <h2 class="text-2xl font-black text-white mt-2">{{ t('security.title') }}</h2>
+        <p class="text-slate-400 text-sm mt-1">{{ t('security.subtitle') }}</p>
       </div>
       <button
         type="button"
@@ -83,27 +86,27 @@ onMounted(load)
         :disabled="revoking"
         @click="revokeAllSessions"
       >
-        {{ revoking ? 'Revoking…' : 'Log out all devices' }}
+        {{ revoking ? t('security.revoking') : t('security.logOutAllDevices') }}
       </button>
     </div>
 
     <p v-if="revokeMessage" class="mt-4 text-xs text-slate-400">{{ revokeMessage }}</p>
 
     <div v-if="activeSessions !== null" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <p class="text-xs text-slate-500">Active sessions (your account)</p>
+      <p class="text-xs text-slate-500">{{ t('security.activeSessionsLabel') }}</p>
       <p class="text-2xl font-black text-white mt-1">{{ activeSessions }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading security events…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('security.loading') }}</div>
     <p v-else-if="loadError" class="mt-8 text-sm text-red-400">{{ loadError }}</p>
 
     <div v-else class="mt-8 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">Timestamp</th>
-            <th class="pb-3 font-semibold">Event type</th>
-            <th class="pb-3 font-semibold">Details</th>
+            <th class="pb-3 font-semibold">{{ t('security.thTimestamp') }}</th>
+            <th class="pb-3 font-semibold">{{ t('security.thEventType') }}</th>
+            <th class="pb-3 font-semibold">{{ t('security.thDetails') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -122,7 +125,7 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
-      <p v-if="!events.length" class="text-slate-500 text-sm mt-4">No security events recorded yet.</p>
+      <p v-if="!events.length" class="text-slate-500 text-sm mt-4">{{ t('security.noEvents') }}</p>
     </div>
   </AppLayout>
 </template>

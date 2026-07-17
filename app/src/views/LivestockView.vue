@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type Batch = {
   id: string
@@ -82,7 +85,7 @@ async function toggleDetails(batchId: string) {
     economics.value[batchId] = econData.status === 'fulfilled' ? econData.value : null
     vaccination.value[batchId] = vaccResult.status === 'fulfilled' ? vaccResult.value : null
     if (econData.status === 'rejected' && vaccResult.status === 'rejected') {
-      detailErrors.value[batchId] = 'Failed to load batch details'
+      detailErrors.value[batchId] = t('livestock.detailsFailed')
     }
   } finally {
     detailLoading.value[batchId] = false
@@ -142,14 +145,14 @@ const vaccStatusColor: Record<string, string> = {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Livestock</h2>
-      <p class="text-slate-400 text-sm mt-1">Batches, feeding, vaccination, and mortality logs</p>
+      <h2 class="text-2xl font-black text-white">{{ t('livestock.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('livestock.subtitle') }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading batches…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('livestock.loading') }}</div>
 
     <div v-else-if="batches.length === 0" class="mt-8 text-slate-500">
-      No active livestock batches.
+      {{ t('livestock.empty') }}
     </div>
 
     <div v-else class="mt-8 space-y-4">
@@ -166,7 +169,7 @@ const vaccStatusColor: Record<string, string> = {
               <span v-if="batch.plotName"> · {{ batch.plotName }}</span>
             </p>
             <p class="text-xs text-slate-500 mt-2">
-              {{ batch.headCount }} head · Acquired {{ new Date(batch.acquiredAt).toLocaleDateString() }}
+              {{ batch.headCount }} {{ t('livestock.head') }} · {{ t('livestock.acquired') }} {{ new Date(batch.acquiredAt).toLocaleDateString() }}
             </p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
@@ -175,10 +178,10 @@ const vaccStatusColor: Record<string, string> = {
               class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               @click="toggleDetails(batch.id)"
             >
-              {{ isExpanded(batch.id) ? 'Hide details' : 'Economics & vaccines' }}
+              {{ isExpanded(batch.id) ? t('livestock.hideDetails') : t('livestock.econVaccines') }}
             </button>
             <span class="text-xs font-bold px-2.5 py-1 rounded-full bg-farm-green/20 text-farm-green">
-              Active
+              {{ t('livestock.active') }}
             </span>
           </div>
         </div>
@@ -187,33 +190,33 @@ const vaccStatusColor: Record<string, string> = {
           v-if="isExpanded(batch.id)"
           class="mt-4 pt-4 border-t border-slate-800"
         >
-          <div v-if="detailLoading[batch.id]" class="text-sm text-slate-400">Loading details…</div>
+          <div v-if="detailLoading[batch.id]" class="text-sm text-slate-400">{{ t('livestock.loadingDetails') }}</div>
           <p v-else-if="detailErrors[batch.id]" class="text-xs text-red-400">{{ detailErrors[batch.id] }}</p>
           <div v-else class="grid gap-4 lg:grid-cols-2">
             <div v-if="economics[batch.id]" class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-              <h4 class="text-sm font-bold text-white mb-3">Economics</h4>
+              <h4 class="text-sm font-bold text-white mb-3">{{ t('livestock.economics') }}</h4>
               <dl class="grid grid-cols-2 gap-2 text-xs">
-                <dt class="text-slate-500">Feed used</dt>
+                <dt class="text-slate-500">{{ t('livestock.feedUsed') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.feedUsedKg }} kg</dd>
-                <dt class="text-slate-500">Head count</dt>
+                <dt class="text-slate-500">{{ t('livestock.headCount') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">
                   {{ economics[batch.id]!.currentHeadCount }} / {{ economics[batch.id]!.startCount }}
                 </dd>
-                <dt class="text-slate-500">Days since start</dt>
+                <dt class="text-slate-500">{{ t('livestock.daysSinceStart') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.daysSinceStart }}</dd>
-                <dt class="text-slate-500">Est. weight / bird</dt>
+                <dt class="text-slate-500">{{ t('livestock.estWeight') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.estimatedWeightPerBirdKg }} kg</dd>
-                <dt class="text-slate-500">Weight gain</dt>
+                <dt class="text-slate-500">{{ t('livestock.weightGain') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.weightGainKg }} kg</dd>
-                <dt class="text-slate-500">FCR</dt>
+                <dt class="text-slate-500">{{ t('livestock.fcr') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.fcr ?? '-' }}</dd>
               </dl>
             </div>
             <div v-if="vaccination[batch.id]" class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
               <h4 class="text-sm font-bold text-white mb-1">
-                Vaccination schedule
+                {{ t('livestock.vaccSchedule') }}
                 <span class="text-xs font-normal text-slate-500">
-                  ({{ vaccination[batch.id]!.completedCount }}/{{ vaccination[batch.id]!.schedule.length }} done)
+                  {{ t('livestock.vaccDone', { done: vaccination[batch.id]!.completedCount, total: vaccination[batch.id]!.schedule.length }) }}
                 </span>
               </h4>
               <ul class="mt-3 space-y-2 max-h-48 overflow-auto">
@@ -222,12 +225,12 @@ const vaccStatusColor: Record<string, string> = {
                   :key="entry.day"
                   class="flex items-center justify-between gap-2 text-xs"
                 >
-                  <span class="text-slate-300">Day {{ entry.day }} - {{ entry.name }}</span>
+                  <span class="text-slate-300">{{ t('livestock.day') }} {{ entry.day }} - {{ entry.name }}</span>
                   <span
                     class="font-bold px-2 py-0.5 rounded-full capitalize shrink-0"
                     :class="vaccStatusColor[entry.status] ?? 'bg-slate-700 text-slate-400'"
                   >
-                    {{ entry.status }}
+                    {{ t(`livestock.vaccStatus.${entry.status}`) }}
                   </span>
                 </li>
               </ul>
@@ -236,7 +239,7 @@ const vaccStatusColor: Record<string, string> = {
               v-if="!economics[batch.id] && !vaccination[batch.id]"
               class="text-xs text-slate-500 col-span-2"
             >
-              No economics or vaccination data available for this batch.
+              {{ t('livestock.noData') }}
             </p>
           </div>
         </div>
@@ -245,7 +248,7 @@ const vaccStatusColor: Record<string, string> = {
           <input
             v-model="logNotes[batch.id]"
             type="text"
-            placeholder="Optional notes…"
+            :placeholder="t('livestock.notesPlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-farm-green/50"
           />
 
@@ -258,7 +261,7 @@ const vaccStatusColor: Record<string, string> = {
               :disabled="isLogging(batch.id, logType)"
               @click="submitLog(batch.id, logType)"
             >
-              {{ isLogging(batch.id, logType) ? 'Logging…' : `Log ${logType}` }}
+              {{ isLogging(batch.id, logType) ? t('livestock.logging') : `${t('livestock.logPrefix')} ${t(`livestock.logType.${logType}`)}` }}
             </button>
 
             <input
@@ -266,7 +269,7 @@ const vaccStatusColor: Record<string, string> = {
               type="number"
               min="1"
               :max="batch.headCount"
-              placeholder="Mortality #"
+              :placeholder="t('livestock.mortalityPlaceholder')"
               class="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50"
             />
           </div>

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { roleLabel } from '@/lib/roles'
 import type { UserRole } from '@/stores/auth'
+
+const { t } = useI18n()
 
 type FarmUser = {
   id: string
@@ -74,7 +77,7 @@ async function createUser() {
     newRole.value = 'field_worker'
     await load()
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create user'
+    createError.value = e instanceof Error ? e.message : t('users.createFailed')
   } finally {
     creating.value = false
   }
@@ -126,7 +129,7 @@ async function saveEdit() {
     editing.value = null
     await load()
   } catch (e) {
-    editError.value = e instanceof Error ? e.message : 'Failed to update user'
+    editError.value = e instanceof Error ? e.message : t('users.updateFailed')
   } finally {
     editSaving.value = false
   }
@@ -136,18 +139,18 @@ async function saveEdit() {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Users</h2>
-      <p class="text-slate-400 text-sm mt-1">Manage farm team members - Founder only</p>
+      <h2 class="text-2xl font-black text-white">{{ t('users.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('users.subtitle') }}</p>
     </div>
 
     <form
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="createUser"
     >
-      <h3 class="font-bold text-white text-sm">Add user</h3>
+      <h3 class="font-bold text-white text-sm">{{ t('users.addUser') }}</h3>
       <div class="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Email</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.email') }}</label>
           <input
             v-model="newEmail"
             type="email"
@@ -157,40 +160,40 @@ async function saveEdit() {
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Name</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.name') }}</label>
           <input
             v-model="newName"
             type="text"
             required
             maxlength="200"
-            placeholder="Full name"
+            :placeholder="t('users.fullName')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Role</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.role') }}</label>
           <select
             v-model="newRole"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
-            <option value="supervisor">Supervisor</option>
-            <option value="field_worker">Field worker</option>
-            <option value="owner">Founder</option>
+            <option value="supervisor">{{ t('users.supervisor') }}</option>
+            <option value="field_worker">{{ t('users.fieldWorker') }}</option>
+            <option value="owner">{{ t('users.founder') }}</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Password</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.password') }}</label>
           <input
             v-model="newPassword"
             type="password"
             required
             minlength="8"
-            placeholder="Min 8 characters"
+            :placeholder="t('users.min8')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Phone</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.phone') }}</label>
           <input
             v-model="newPhone"
             type="tel"
@@ -199,13 +202,13 @@ async function saveEdit() {
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Daily wage (NGN)</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.dailyWage') }}</label>
           <input
             v-model.number="newDailyWageNgn"
             type="number"
             min="0"
             step="1"
-            placeholder="e.g. 7000"
+            :placeholder="t('users.wagePlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
@@ -216,25 +219,25 @@ async function saveEdit() {
           :disabled="creating"
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         >
-          {{ creating ? 'Creating…' : 'Create user' }}
+          {{ creating ? t('users.creating') : t('users.createUser') }}
         </button>
         <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
       </div>
     </form>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading users…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('users.loading') }}</div>
 
     <div v-else class="mt-8 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">Name</th>
-            <th class="pb-3 font-semibold">Email</th>
-            <th class="pb-3 font-semibold">Role</th>
-            <th class="pb-3 font-semibold">Phone</th>
-            <th class="pb-3 font-semibold">Daily wage</th>
-            <th class="pb-3 font-semibold">Status</th>
-            <th class="pb-3 font-semibold">Joined</th>
+            <th class="pb-3 font-semibold">{{ t('users.name') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.email') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.role') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.phone') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.dailyWageShort') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.status') }}</th>
+            <th class="pb-3 font-semibold">{{ t('users.joined') }}</th>
             <th class="pb-3 font-semibold"></th>
           </tr>
         </thead>
@@ -256,7 +259,7 @@ async function saveEdit() {
                 class="text-xs font-bold px-2 py-1 rounded-full"
                 :class="user.active ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
               >
-                {{ user.active ? 'Active' : 'Inactive' }}
+                {{ user.active ? t('users.active') : t('users.inactive') }}
               </span>
             </td>
             <td class="py-4 text-slate-400">
@@ -268,7 +271,7 @@ async function saveEdit() {
                 class="mr-2 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                 @click="openEdit(user)"
               >
-                Edit
+                {{ t('users.edit') }}
               </button>
               <button
                 v-if="user.role !== 'owner'"
@@ -277,13 +280,13 @@ async function saveEdit() {
                 :disabled="toggling === user.id"
                 @click="toggleActive(user)"
               >
-                {{ toggling === user.id ? '…' : user.active ? 'Deactivate' : 'Activate' }}
+                {{ toggling === user.id ? '…' : user.active ? t('users.deactivate') : t('users.activate') }}
               </button>
             </td>
           </tr>
         </tbody>
       </table>
-      <p v-if="!users.length" class="text-slate-500 text-sm mt-4">No users found.</p>
+      <p v-if="!users.length" class="text-slate-500 text-sm mt-4">{{ t('users.noUsers') }}</p>
     </div>
 
     <div
@@ -292,22 +295,22 @@ async function saveEdit() {
       @click.self="closeEdit"
     >
       <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Edit user</h3>
+        <h3 class="text-white font-bold text-lg">{{ t('users.editUser') }}</h3>
         <form class="mt-4 grid sm:grid-cols-2 gap-3" @submit.prevent="saveEdit">
           <input
             v-model="editName"
             type="text"
             required
-            placeholder="Full name"
+            :placeholder="t('users.fullName')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <select
             v-model="editRole"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
-            <option value="supervisor">Supervisor</option>
-            <option value="field_worker">Field worker</option>
-            <option value="owner">Founder</option>
+            <option value="supervisor">{{ t('users.supervisor') }}</option>
+            <option value="field_worker">{{ t('users.fieldWorker') }}</option>
+            <option value="owner">{{ t('users.founder') }}</option>
           </select>
           <input
             v-model="editPhone"
@@ -320,7 +323,7 @@ async function saveEdit() {
             type="number"
             min="0"
             step="1"
-            placeholder="Daily wage (NGN)"
+            :placeholder="t('users.dailyWage')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <p v-if="editError" class="sm:col-span-2 text-xs text-red-400">{{ editError }}</p>
@@ -330,14 +333,14 @@ async function saveEdit() {
               class="text-xs px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               @click="closeEdit"
             >
-              Cancel
+              {{ t('users.cancel') }}
             </button>
             <button
               type="submit"
               :disabled="editSaving"
               class="text-xs px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
             >
-              {{ editSaving ? 'Saving…' : 'Save changes' }}
+              {{ editSaving ? t('users.saving') : t('users.saveChanges') }}
             </button>
           </div>
         </form>

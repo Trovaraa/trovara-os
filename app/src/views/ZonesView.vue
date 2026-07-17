@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type Zone = {
   id: string
@@ -88,7 +91,7 @@ async function createZone() {
     newZoneDescription.value = ''
     await load()
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create zone'
+    createError.value = e instanceof Error ? e.message : t('zones.createFailed')
   } finally {
     creating.value = false
   }
@@ -116,34 +119,34 @@ async function selectPlot(plotId: string) {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Zones &amp; Plots</h2>
-      <p class="text-slate-400 text-sm mt-1">Farm layout, planting units, and plot timelines</p>
+      <h2 class="text-2xl font-black text-white">{{ t('zones.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('zones.subtitle') }}</p>
     </div>
 
     <form
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="createZone"
     >
-      <h3 class="font-bold text-white text-sm">New zone</h3>
+      <h3 class="font-bold text-white text-sm">{{ t('zones.newZone') }}</h3>
       <div class="grid sm:grid-cols-2 gap-4">
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Name</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.name') }}</label>
           <input
             v-model="newZoneName"
             type="text"
             required
             maxlength="200"
-            placeholder="e.g. North Orchard"
+            :placeholder="t('zones.namePlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Description</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.description') }}</label>
           <input
             v-model="newZoneDescription"
             type="text"
             maxlength="2000"
-            placeholder="Optional"
+            :placeholder="t('zones.optional')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
@@ -154,18 +157,18 @@ async function selectPlot(plotId: string) {
           :disabled="creating || !newZoneName.trim()"
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         >
-          {{ creating ? 'Creating…' : 'Create zone' }}
+          {{ creating ? t('zones.creating') : t('zones.createZone') }}
         </button>
         <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
       </div>
     </form>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading zones…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('zones.loading') }}</div>
 
     <template v-else>
       <div class="mt-8 grid gap-6 lg:grid-cols-2">
         <div>
-          <h3 class="font-bold text-white mb-4">Zones</h3>
+          <h3 class="font-bold text-white mb-4">{{ t('zones.zones') }}</h3>
           <div v-if="zones.length" class="space-y-3">
             <div
               v-for="zone in zones"
@@ -176,12 +179,12 @@ async function selectPlot(plotId: string) {
               <p v-if="zone.description" class="text-slate-400 text-sm mt-1">{{ zone.description }}</p>
             </div>
           </div>
-          <p v-else class="text-slate-500 text-sm">No zones yet.</p>
+          <p v-else class="text-slate-500 text-sm">{{ t('zones.noZones') }}</p>
         </div>
 
         <div>
-          <h3 class="font-bold text-white mb-4">Plots</h3>
-          <p class="text-xs text-slate-500 mb-3">Select a plot to view its activity timeline</p>
+          <h3 class="font-bold text-white mb-4">{{ t('zones.plots') }}</h3>
+          <p class="text-xs text-slate-500 mb-3">{{ t('zones.selectPlot') }}</p>
           <div v-if="plotRows.length" class="space-y-2">
             <button
               v-for="plot in plotRows"
@@ -195,20 +198,20 @@ async function selectPlot(plotId: string) {
             >
               <p class="font-bold text-white">{{ plot.name }}</p>
               <p class="text-xs text-slate-500 mt-1">
-                {{ plot.zoneName ?? 'No zone' }}
+                {{ plot.zoneName ?? t('zones.noZone') }}
                 <span v-if="plot.cropType"> · {{ plot.cropType }}</span>
               </p>
             </button>
           </div>
-          <p v-else class="text-slate-500 text-sm">No plots found.</p>
+          <p v-else class="text-slate-500 text-sm">{{ t('zones.noPlots') }}</p>
         </div>
       </div>
 
       <div v-if="selectedPlotId" class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white">
-          Timeline - {{ selectedPlotName }}
+          {{ t('zones.timeline') }} - {{ selectedPlotName }}
         </h3>
-        <div v-if="timelineLoading" class="mt-4 text-slate-400 text-sm">Loading timeline…</div>
+        <div v-if="timelineLoading" class="mt-4 text-slate-400 text-sm">{{ t('zones.loadingTimeline') }}</div>
         <div v-else-if="timeline.length" class="mt-4 space-y-3">
           <div
             v-for="entry in timeline"
@@ -219,7 +222,7 @@ async function selectPlot(plotId: string) {
               class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded shrink-0"
               :class="entry.type === 'task' ? 'bg-blue-900/40 text-blue-300' : 'bg-purple-900/40 text-purple-300'"
             >
-              {{ entry.type === 'task' ? 'Task' : entry.eventType ?? 'Event' }}
+              {{ entry.type === 'task' ? t('zones.task') : entry.eventType ?? t('zones.event') }}
             </span>
             <div class="min-w-0 flex-1">
               <p class="text-sm text-white">{{ entry.title }}</p>
@@ -230,20 +233,20 @@ async function selectPlot(plotId: string) {
             </div>
           </div>
         </div>
-        <p v-else class="mt-4 text-slate-500 text-sm">No timeline events for this plot.</p>
+        <p v-else class="mt-4 text-slate-500 text-sm">{{ t('zones.noTimeline') }}</p>
       </div>
 
       <div class="mt-8">
-        <h3 class="font-bold text-white mb-4">Planting units</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('zones.plantingUnits') }}</h3>
         <div v-if="plantingUnits.length" class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-slate-500 border-b border-slate-800">
-                <th class="pb-3 font-semibold">Label</th>
-                <th class="pb-3 font-semibold">Plot</th>
-                <th class="pb-3 font-semibold">Type</th>
-                <th class="pb-3 font-semibold">Status</th>
-                <th class="pb-3 font-semibold">Planted</th>
+                <th class="pb-3 font-semibold">{{ t('zones.label') }}</th>
+                <th class="pb-3 font-semibold">{{ t('zones.plot') }}</th>
+                <th class="pb-3 font-semibold">{{ t('zones.type') }}</th>
+                <th class="pb-3 font-semibold">{{ t('zones.status') }}</th>
+                <th class="pb-3 font-semibold">{{ t('zones.planted') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -263,7 +266,7 @@ async function selectPlot(plotId: string) {
             </tbody>
           </table>
         </div>
-        <p v-else class="text-slate-500 text-sm">No planting units.</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('zones.noPlantingUnits') }}</p>
       </div>
     </template>
   </AppLayout>

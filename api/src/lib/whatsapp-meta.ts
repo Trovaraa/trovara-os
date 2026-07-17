@@ -34,6 +34,7 @@ type TemplateDef = {
   en: string
   yo: string
   pcm: string
+  fr: string
 }
 
 function loadTemplates(): TemplateDef[] {
@@ -44,7 +45,7 @@ function loadTemplates(): TemplateDef[] {
 
 export function renderTemplate(
   templateId: string,
-  lang: 'en' | 'yo' | 'pcm',
+  lang: 'en' | 'yo' | 'pcm' | 'fr',
   vars: Record<string, string>,
 ): string | null {
   const tpl = loadTemplates().find((t) => t.id === templateId)

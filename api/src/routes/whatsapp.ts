@@ -141,7 +141,7 @@ whatsappRoutes.get('/templates', async (c) => {
 const sendSchema = z.object({
   to: z.string().min(8).max(20),
   templateId: z.string().min(1),
-  lang: z.enum(['en', 'yo', 'pcm']).default('en'),
+  lang: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
   variables: z.record(z.string()).default({}),
 })
 

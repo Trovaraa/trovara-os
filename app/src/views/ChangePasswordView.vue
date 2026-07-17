@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const currentPassword = ref('')
@@ -16,11 +18,11 @@ const saving = ref(false)
 async function submit() {
   error.value = null
   if (newPassword.value.length < 8) {
-    error.value = 'New password must be at least 8 characters.'
+    error.value = t('changePassword.min8')
     return
   }
   if (newPassword.value !== confirmPassword.value) {
-    error.value = 'Passwords do not match.'
+    error.value = t('changePassword.noMatch')
     return
   }
   saving.value = true
@@ -40,7 +42,7 @@ async function submit() {
     confirmPassword.value = ''
     await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Could not change password.'
+    error.value = e instanceof Error ? e.message : t('changePassword.failed')
   } finally {
     saving.value = false
   }
@@ -50,9 +52,9 @@ async function submit() {
 <template>
   <AppLayout>
     <div class="max-w-md">
-      <h2 class="text-2xl font-black text-white">Change password</h2>
+      <h2 class="text-2xl font-black text-white">{{ t('changePassword.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
-        You must set a new password before continuing.
+        {{ t('changePassword.subtitle') }}
       </p>
 
       <form class="mt-8 space-y-4" @submit.prevent="submit">
@@ -61,7 +63,7 @@ async function submit() {
           type="password"
           required
           autocomplete="current-password"
-          placeholder="Current password"
+          :placeholder="t('changePassword.currentPassword')"
           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
@@ -69,7 +71,7 @@ async function submit() {
           type="password"
           required
           autocomplete="new-password"
-          placeholder="New password"
+          :placeholder="t('changePassword.newPassword')"
           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
@@ -77,7 +79,7 @@ async function submit() {
           type="password"
           required
           autocomplete="new-password"
-          placeholder="Confirm new password"
+          :placeholder="t('changePassword.confirmPassword')"
           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
@@ -86,7 +88,7 @@ async function submit() {
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
           :disabled="saving"
         >
-          {{ saving ? 'Saving…' : 'Update password' }}
+          {{ saving ? t('changePassword.saving') : t('changePassword.update') }}
         </button>
       </form>
     </div>

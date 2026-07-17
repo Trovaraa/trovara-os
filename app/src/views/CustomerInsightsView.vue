@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type TopQuestion = { question: string; normalized: string; count: number }
 type ChannelCount = { channel: string; count: number }
@@ -27,16 +30,21 @@ const maxCount = computed(() =>
   Math.max(1, ...(data.value?.topQuestions.map((q) => q.count) ?? [1])),
 )
 
-const answeredViaLabel: Record<string, string> = {
-  catalog: 'Catalogue',
-  llm: 'AI answer',
-  faq: 'FAQ',
-  suggested: 'Suggested',
+const answeredViaKeys: Record<string, string> = {
+  catalog: 'insights.answeredVia.catalog',
+  llm: 'insights.answeredVia.llm',
+  faq: 'insights.answeredVia.faq',
+  suggested: 'insights.answeredVia.suggested',
+}
+
+function answeredViaLabel(via: string): string {
+  const key = answeredViaKeys[via]
+  return key ? t(key) : via
 }
 
 function channelLabel(ch: string): string {
-  if (ch === 'telegram') return 'Telegram'
-  if (ch === 'whatsapp') return 'WhatsApp'
+  if (ch === 'telegram') return t('insights.channel.telegram')
+  if (ch === 'whatsapp') return t('insights.channel.whatsapp')
   return ch
 }
 
@@ -55,7 +63,7 @@ async function load() {
   try {
     data.value = await api<Insights>('/api/customer-insights')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load customer insights'
+    error.value = e instanceof Error ? e.message : t('insights.loadFailed')
   } finally {
     loading.value = false
   }
@@ -68,41 +76,40 @@ onMounted(load)
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">Customer questions</h2>
+        <h2 class="text-2xl font-black text-white">{{ t('insights.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
-          What customers ask the order bot - the most common questions are suggested back to them
-          automatically.
+          {{ t('insights.subtitle') }}
         </p>
       </div>
       <button
         class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 flex-shrink-0"
         @click="load"
       >
-        Refresh
+        {{ t('insights.refresh') }}
       </button>
     </div>
 
     <p v-if="error" class="mt-4 text-sm text-red-300">{{ error }}</p>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('insights.loading') }}</div>
 
     <template v-else-if="data">
       <!-- Summary tiles -->
       <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <p class="text-xs text-slate-500">Total questions</p>
+          <p class="text-xs text-slate-500">{{ t('insights.totalQuestions') }}</p>
           <p class="text-2xl font-black text-white">{{ data.summary.total }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <p class="text-xs text-slate-500">Unique questions</p>
+          <p class="text-xs text-slate-500">{{ t('insights.uniqueQuestions') }}</p>
           <p class="text-2xl font-black text-white">{{ data.summary.unique }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <p class="text-xs text-slate-500">Last 7 days</p>
+          <p class="text-xs text-slate-500">{{ t('insights.last7Days') }}</p>
           <p class="text-2xl font-black text-farm-green">{{ data.summary.last7 }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <p class="text-xs text-slate-500">By channel</p>
+          <p class="text-xs text-slate-500">{{ t('insights.byChannel') }}</p>
           <p class="text-sm font-semibold text-white mt-1">
             <span v-if="!data.byChannel.length" class="text-slate-500">-</span>
             <span v-for="ch in data.byChannel" :key="ch.channel" class="mr-2">
@@ -114,13 +121,12 @@ onMounted(load)
 
       <!-- Most asked -->
       <div class="mt-8">
-        <h3 class="font-bold text-white text-sm">Most asked</h3>
+        <h3 class="font-bold text-white text-sm">{{ t('insights.mostAsked') }}</h3>
         <div
           v-if="!data.topQuestions.length"
           class="mt-3 text-slate-500 text-sm bg-slate-900 border border-slate-800 rounded-xl p-5"
         >
-          No customer questions yet. Once customers chat with the order bot, their questions show up
-          here.
+          {{ t('insights.noQuestionsYet') }}
         </div>
         <div v-else class="mt-3 space-y-2">
           <div
@@ -148,12 +154,12 @@ onMounted(load)
 
       <!-- Recent -->
       <div class="mt-8">
-        <h3 class="font-bold text-white text-sm">Recent questions</h3>
+        <h3 class="font-bold text-white text-sm">{{ t('insights.recentQuestions') }}</h3>
         <div
           v-if="!data.recent.length"
           class="mt-3 text-slate-500 text-sm bg-slate-900 border border-slate-800 rounded-xl p-5"
         >
-          Nothing yet.
+          {{ t('insights.nothingYet') }}
         </div>
         <div v-else class="mt-3 space-y-2">
           <div
@@ -164,7 +170,7 @@ onMounted(load)
             <div class="min-w-0">
               <p class="text-sm text-slate-200">{{ r.question }}</p>
               <p class="text-xs text-slate-500 mt-1">
-                {{ channelLabel(r.channel) }} · {{ answeredViaLabel[r.answeredVia] ?? r.answeredVia }}
+                {{ channelLabel(r.channel) }} · {{ answeredViaLabel(r.answeredVia) }}
                 · {{ formatDate(r.createdAt) }}
               </p>
             </div>

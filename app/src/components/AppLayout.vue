@@ -4,7 +4,6 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
-import { roleLabel } from '@/lib/roles'
 import { onlineStatus, pendingSyncCount, lastSyncedAt, syncStatus, retrySync } from '@/lib/offline-api'
 
 const props = defineProps<{ workerMode?: boolean }>()
@@ -148,6 +147,12 @@ function isActive(path: string) {
   return route.path === path
 }
 
+function translatedRole(role: string): string {
+  const key = `roles.${role}`
+  const translated = t(key)
+  return translated === key ? role : translated
+}
+
 function formatSyncTime(d: Date): string {
   const now = new Date()
   const diffMs = now.getTime() - d.getTime()
@@ -275,7 +280,7 @@ async function handleRetry() {
             {{ t('common.signOut') }}
           </button>
           <p class="mt-4 text-[10px] text-slate-600 tracking-wide">
-            Well crafted by <span class="text-farm-gold font-semibold">{{ t('brand.name') }}</span>
+            {{ t('common.craftedBy') }} <span class="text-farm-gold font-semibold">{{ t('brand.name') }}</span>
           </p>
         </div>
       </aside>
@@ -283,9 +288,9 @@ async function handleRetry() {
 
     <!-- Desktop sidebar -->
     <aside class="hidden md:flex relative z-30 w-64 shrink-0 bg-slate-900 border-r border-slate-800 p-6 flex-col">
-      <div class="mb-6 flex items-center justify-between gap-2">
+      <div class="mb-6 space-y-3">
         <h1 class="text-xl font-black text-white leading-tight">{{ t('brand.farm') }}</h1>
-        <LanguageSwitcher />
+        <LanguageSwitcher compact />
       </div>
 
       <nav class="space-y-1.5 flex-1 overflow-y-auto">
@@ -357,7 +362,7 @@ async function handleRetry() {
 
       <div class="pt-4 border-t border-slate-800">
         <p class="text-sm font-semibold text-white">{{ auth.user?.name }}</p>
-        <p class="text-xs text-slate-500">{{ auth.user?.role ? roleLabel(auth.user.role) : '' }}</p>
+        <p class="text-xs text-slate-500">{{ auth.user?.role ? translatedRole(auth.user.role) : '' }}</p>
         <button
           class="mt-3 text-xs text-slate-400 hover:text-red-400 transition-colors"
           @click="auth.logout()"
@@ -367,7 +372,7 @@ async function handleRetry() {
       </div>
 
       <p class="mt-4 text-[10px] text-slate-600 tracking-wide">
-        Well crafted by <span class="text-farm-gold font-semibold">{{ t('brand.name') }}</span>
+        {{ t('common.craftedBy') }} <span class="text-farm-gold font-semibold">{{ t('brand.name') }}</span>
       </p>
     </aside>
 

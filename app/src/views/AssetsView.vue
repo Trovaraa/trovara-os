@@ -1,8 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
+
+function categoryLabel(category: string): string {
+  return t(`assets.cat.${category}`)
+}
+
+function conditionLabel(cond: string): string {
+  return t(`assets.cond.${cond}`)
+}
 
 type AssetLog = {
   id: string
@@ -84,11 +95,11 @@ function categoryClass(category: string): string {
 }
 
 function statusBadge(asset: Asset): { label: string; cls: string } {
-  if (!asset.loggedToday) return { label: 'Not logged today', cls: 'bg-slate-700/40 text-slate-400' }
+  if (!asset.loggedToday) return { label: t('assets.notLoggedToday'), cls: 'bg-slate-700/40 text-slate-400' }
   if (asset.latestLog?.verificationStatus === 'rejected')
-    return { label: 'Rejected', cls: 'bg-red-900/40 text-red-300' }
-  if (asset.verifiedToday) return { label: 'Verified today', cls: 'bg-farm-green/20 text-farm-green' }
-  return { label: 'Awaiting verification', cls: 'bg-amber-500/15 text-amber-300' }
+    return { label: t('assets.rejected'), cls: 'bg-red-900/40 text-red-300' }
+  if (asset.verifiedToday) return { label: t('assets.verifiedToday'), cls: 'bg-farm-green/20 text-farm-green' }
+  return { label: t('assets.awaitingVerification'), cls: 'bg-amber-500/15 text-amber-300' }
 }
 
 async function load() {
@@ -98,7 +109,7 @@ async function load() {
     const data = await api<{ assets: Asset[] }>('/api/assets')
     assets.value = data.assets
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load assets'
+    error.value = e instanceof Error ? e.message : t('assets.loadFailed')
   } finally {
     loading.value = false
   }
@@ -127,7 +138,7 @@ async function createAsset() {
     showAdd.value = false
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to add asset'
+    error.value = e instanceof Error ? e.message : t('assets.addFailed')
   } finally {
     creating.value = false
   }
@@ -173,7 +184,7 @@ async function submitLog() {
     logging.value = null
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to save log'
+    error.value = e instanceof Error ? e.message : t('assets.saveLogFailed')
   } finally {
     savingLog.value = false
   }
@@ -187,7 +198,7 @@ async function openDetail(asset: Asset) {
     const data = await api<{ logs: AssetLog[] }>(`/api/assets/${asset.id}/logs`)
     detailLogs.value = data.logs
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load history'
+    error.value = e instanceof Error ? e.message : t('assets.loadHistoryFailed')
   } finally {
     detailLoading.value = false
   }
@@ -203,15 +214,15 @@ async function verifyLog(log: AssetLog, status: 'verified' | 'rejected') {
     if (detail.value) await openDetail(detail.value)
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to verify'
+    error.value = e instanceof Error ? e.message : t('assets.verifyFailed')
   }
 }
 
 function logSummary(log: AssetLog | null): string {
-  if (!log) return 'No logs yet'
-  const parts = [`${log.countAvailable} available`]
-  if (log.countDamaged > 0) parts.push(`${log.countDamaged} damaged`)
-  parts.push(log.condition)
+  if (!log) return t('assets.noLogsYet')
+  const parts = [t('assets.nAvailable', { count: log.countAvailable })]
+  if (log.countDamaged > 0) parts.push(t('assets.nDamaged', { count: log.countDamaged }))
+  parts.push(conditionLabel(log.condition))
   return parts.join(' · ')
 }
 
@@ -224,10 +235,9 @@ function formatDate(value: string): string {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">Equipment &amp; assets</h2>
+        <h2 class="text-2xl font-black text-white">{{ t('assets.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
-          What the farm owns. Log the daily state of each item; a supervisor verifies so the
-          Founder sees what's really available.
+          {{ t('assets.subtitle') }}
         </p>
       </div>
       <button
@@ -235,7 +245,7 @@ function formatDate(value: string): string {
         class="shrink-0 px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30"
         @click="showAdd = !showAdd"
       >
-        {{ showAdd ? 'Close' : 'Add asset' }}
+        {{ showAdd ? t('assets.close') : t('assets.addAsset') }}
       </button>
     </div>
 
@@ -243,29 +253,29 @@ function formatDate(value: string): string {
 
     <!-- Add asset -->
     <div v-if="showAdd && canManage" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <h3 class="font-bold text-white text-sm">Add an asset</h3>
+      <h3 class="font-bold text-white text-sm">{{ t('assets.addAnAsset') }}</h3>
       <div class="mt-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_1fr_auto]">
         <input
           v-model="newName"
-          placeholder="e.g. Rubber boots"
+          :placeholder="t('assets.namePlaceholder')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <select
           v-model="newCategory"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
-          <option v-for="cat in CATEGORY_OPTIONS" :key="cat" :value="cat">{{ cat }}</option>
+          <option v-for="cat in CATEGORY_OPTIONS" :key="cat" :value="cat">{{ categoryLabel(cat) }}</option>
         </select>
         <input
           v-model="newUnit"
-          placeholder="Unit"
+          :placeholder="t('assets.unit')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model.number="newQty"
           type="number"
           min="0"
-          placeholder="Qty owned"
+          :placeholder="t('assets.qtyOwned')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <button
@@ -273,15 +283,15 @@ function formatDate(value: string): string {
           class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
           @click="createAsset"
         >
-          {{ creating ? 'Adding…' : 'Add' }}
+          {{ creating ? t('assets.adding') : t('assets.add') }}
         </button>
       </div>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading assets…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('assets.loading') }}</div>
 
     <div v-else-if="!assets.length" class="mt-8 text-slate-500 text-sm">
-      No assets registered yet.
+      {{ t('assets.empty') }}
     </div>
 
     <div v-else class="mt-6 space-y-3">
@@ -296,17 +306,17 @@ function formatDate(value: string): string {
             <div class="flex items-center gap-2 flex-wrap">
               <p class="font-semibold text-white truncate">{{ a.name }}</p>
               <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full" :class="categoryClass(a.category)">
-                {{ a.category }}
+                {{ categoryLabel(a.category) }}
               </span>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="statusBadge(a).cls">
                 {{ statusBadge(a).label }}
               </span>
             </div>
             <p class="text-xs text-slate-400 mt-1">
-              Owns {{ a.quantityOwned }} {{ a.unit }}<span v-if="a.assignedToName"> · assigned to {{ a.assignedToName }}</span>
+              {{ t('assets.owns') }} {{ a.quantityOwned }} {{ a.unit }}<span v-if="a.assignedToName"> · {{ t('assets.assignedTo') }} {{ a.assignedToName }}</span>
             </p>
             <p class="text-xs text-slate-500 mt-0.5">
-              Latest: {{ logSummary(a.latestLog) }}
+              {{ t('assets.latest') }} {{ logSummary(a.latestLog) }}
               <span v-if="a.latestLog?.recordedByName"> - {{ a.latestLog.recordedByName }}</span>
             </p>
           </div>
@@ -315,13 +325,13 @@ function formatDate(value: string): string {
               class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
               @click="openLog(a)"
             >
-              Log today
+              {{ t('assets.logToday') }}
             </button>
             <button
               class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
               @click="openDetail(a)"
             >
-              History
+              {{ t('assets.history') }}
             </button>
           </div>
         </div>
@@ -335,11 +345,11 @@ function formatDate(value: string): string {
       @click.self="logging = null"
     >
       <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6">
-        <h3 class="font-bold text-white">Log today - {{ logging.name }}</h3>
+        <h3 class="font-bold text-white">{{ t('assets.logToday') }} - {{ logging.name }}</h3>
         <div class="mt-4 space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-xs text-slate-400">Available</span>
+              <span class="text-xs text-slate-400">{{ t('assets.available') }}</span>
               <input
                 v-model.number="logAvailable"
                 type="number"
@@ -348,7 +358,7 @@ function formatDate(value: string): string {
               />
             </label>
             <label class="block">
-              <span class="text-xs text-slate-400">Damaged</span>
+              <span class="text-xs text-slate-400">{{ t('assets.damaged') }}</span>
               <input
                 v-model.number="logDamaged"
                 type="number"
@@ -358,16 +368,16 @@ function formatDate(value: string): string {
             </label>
           </div>
           <label class="block">
-            <span class="text-xs text-slate-400">Condition</span>
+            <span class="text-xs text-slate-400">{{ t('assets.condition') }}</span>
             <select
               v-model="logCondition"
               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
             >
-              <option v-for="cond in CONDITION_OPTIONS" :key="cond" :value="cond">{{ cond }}</option>
+              <option v-for="cond in CONDITION_OPTIONS" :key="cond" :value="cond">{{ conditionLabel(cond) }}</option>
             </select>
           </label>
           <label class="block">
-            <span class="text-xs text-slate-400">Note (optional)</span>
+            <span class="text-xs text-slate-400">{{ t('assets.noteOptional') }}</span>
             <textarea
               v-model="logNote"
               rows="2"
@@ -375,7 +385,7 @@ function formatDate(value: string): string {
             />
           </label>
           <label class="block">
-            <span class="text-xs text-slate-400">Photo (optional)</span>
+            <span class="text-xs text-slate-400">{{ t('assets.photoOptional') }}</span>
             <input
               type="file"
               accept="image/*"
@@ -390,14 +400,14 @@ function formatDate(value: string): string {
             class="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm hover:bg-slate-700"
             @click="logging = null"
           >
-            Cancel
+            {{ t('assets.cancel') }}
           </button>
           <button
             :disabled="savingLog || logAvailable === ''"
             class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
             @click="submitLog"
           >
-            {{ savingLog ? 'Saving…' : 'Save log' }}
+            {{ savingLog ? t('assets.saving') : t('assets.saveLog') }}
           </button>
         </div>
       </div>
@@ -411,11 +421,11 @@ function formatDate(value: string): string {
     >
       <div class="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 max-h-[85vh] overflow-y-auto">
         <div class="flex items-center justify-between">
-          <h3 class="font-bold text-white">{{ detail.name }} - log history</h3>
+          <h3 class="font-bold text-white">{{ detail.name }} - {{ t('assets.logHistory') }}</h3>
           <button class="text-slate-400 hover:text-white" @click="detail = null">✕</button>
         </div>
-        <div v-if="detailLoading" class="mt-4 text-slate-400 text-sm">Loading…</div>
-        <div v-else-if="!detailLogs.length" class="mt-4 text-slate-500 text-sm">No logs yet.</div>
+        <div v-if="detailLoading" class="mt-4 text-slate-400 text-sm">{{ t('assets.loadingShort') }}</div>
+        <div v-else-if="!detailLogs.length" class="mt-4 text-slate-500 text-sm">{{ t('assets.noLogs') }}</div>
         <div v-else class="mt-4 space-y-2">
           <div
             v-for="log in detailLogs"
@@ -442,7 +452,7 @@ function formatDate(value: string): string {
             <img
               v-if="log.photoUrl"
               :src="log.photoUrl"
-              alt="Evidence"
+              :alt="t('assets.evidence')"
               class="mt-2 max-h-40 rounded-lg border border-slate-800"
             />
             <div v-if="canManage && log.verificationStatus === 'reported'" class="mt-2 flex gap-2">
@@ -450,13 +460,13 @@ function formatDate(value: string): string {
                 class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
                 @click="verifyLog(log, 'verified')"
               >
-                Verify
+                {{ t('assets.verify') }}
               </button>
               <button
                 class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60"
                 @click="verifyLog(log, 'rejected')"
               >
-                Reject
+                {{ t('assets.reject') }}
               </button>
             </div>
           </div>

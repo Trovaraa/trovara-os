@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import TaskStatusBadge from '@/components/TaskStatusBadge.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type ExceptionItem = {
   type: string
@@ -114,28 +117,28 @@ const exceptionIcon: Record<string, string> = {
 }
 
 const exceptionLabel: Record<string, string> = {
-  overdue_task: 'Overdue',
-  low_stock: 'Low stock',
-  pending_approval: 'Awaiting approval',
-  mortality_today: 'Mortality',
-  order_pending: 'Order pending',
-  rejected_task: 'Rejected',
-  asset_log_missing: 'Not logged',
-  asset_verification_pending: 'Verify asset',
+  overdue_task: 'today.lblOverdue',
+  low_stock: 'today.lblLowStock',
+  pending_approval: 'today.lblAwaitingApproval',
+  mortality_today: 'today.lblMortality',
+  order_pending: 'today.lblOrderPending',
+  rejected_task: 'today.lblRejected',
+  asset_log_missing: 'today.lblNotLogged',
+  asset_verification_pending: 'today.lblVerifyAsset',
 }
 
 const summaryCards = computed(() => {
   if (!data.value) return []
   const s = data.value.summary
-  const cards: { key: keyof ExceptionSummary; label: string; color: string }[] = [
-    { key: 'overdueTasks', label: 'Overdue', color: 'text-red-400' },
-    { key: 'lowStock', label: 'Low stock', color: 'text-amber-400' },
-    { key: 'pendingApprovals', label: 'Approvals', color: 'text-purple-400' },
-    { key: 'mortalityToday', label: 'Mortality', color: 'text-red-500' },
-    { key: 'ordersPending', label: 'Orders', color: 'text-orange-400' },
-    { key: 'rejectedTasks', label: 'Rejected', color: 'text-rose-400' },
-    { key: 'assetLogsMissing', label: 'Not logged', color: 'text-amber-400' },
-    { key: 'assetVerificationPending', label: 'Verify assets', color: 'text-cyan-400' },
+  const cards: { key: keyof ExceptionSummary; labelKey: string; color: string }[] = [
+    { key: 'overdueTasks', labelKey: 'today.lblOverdue', color: 'text-red-400' },
+    { key: 'lowStock', labelKey: 'today.lblLowStock', color: 'text-amber-400' },
+    { key: 'pendingApprovals', labelKey: 'today.lblApprovals', color: 'text-purple-400' },
+    { key: 'mortalityToday', labelKey: 'today.lblMortality', color: 'text-red-500' },
+    { key: 'ordersPending', labelKey: 'today.lblOrders', color: 'text-orange-400' },
+    { key: 'rejectedTasks', labelKey: 'today.lblRejected', color: 'text-rose-400' },
+    { key: 'assetLogsMissing', labelKey: 'today.lblNotLogged', color: 'text-amber-400' },
+    { key: 'assetVerificationPending', labelKey: 'today.lblVerifyAssets', color: 'text-cyan-400' },
   ]
   return cards.filter((card) => s[card.key] > 0 || !isWorker.value)
 })
@@ -144,7 +147,7 @@ onMounted(async () => {
   try {
     data.value = await api<TodayData>('/api/today')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load today view'
+    error.value = e instanceof Error ? e.message : t('today.loadFailed')
   } finally {
     loading.value = false
   }
@@ -180,26 +183,26 @@ function formatCurrency(amount: number, currency: string) {
 
 <template>
   <AppLayout>
-    <div v-if="loading" class="text-slate-400">Loading today…</div>
+    <div v-if="loading" class="text-slate-400">{{ t('today.loading') }}</div>
 
     <div v-else-if="error" class="text-red-400">{{ error }}</div>
 
     <div v-else-if="data" class="relative z-0 w-full max-w-full min-w-0">
       <div>
-        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">Today</p>
+        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('today.eyebrow') }}</p>
         <h2 class="text-2xl sm:text-3xl font-black text-white mt-1 leading-tight">
-          {{ isWorker ? 'My tasks' : 'Exception dashboard' }}
+          {{ isWorker ? t('today.myTasks') : t('today.exceptionDashboard') }}
         </h2>
         <p class="text-slate-400 text-sm mt-1">
-          {{ isWorker ? 'Your open tasks for today' : `${data.summary.total} item(s) need attention` }}
+          {{ isWorker ? t('today.workerSubtitle') : t('today.needAttention', { count: data.summary.total }) }}
         </p>
       </div>
 
       <!-- Worker: my tasks today -->
       <section v-if="isWorker && data.myTasksToday" class="mt-8">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">My tasks today</h3>
-          <RouterLink to="/tasks" class="text-xs text-farm-green hover:underline">View all →</RouterLink>
+          <h3 class="font-bold text-white">{{ t('today.myTasksToday') }}</h3>
+          <RouterLink to="/tasks" class="text-xs text-farm-green hover:underline">{{ t('today.viewAll') }}</RouterLink>
         </div>
         <ul v-if="data.myTasksToday.length" class="space-y-3">
           <li
@@ -213,7 +216,7 @@ function formatCurrency(amount: number, currency: string) {
           </li>
         </ul>
         <p v-else class="text-slate-500 text-sm bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          No open tasks for today
+          {{ t('today.noOpenTasks') }}
         </p>
       </section>
 
@@ -224,7 +227,7 @@ function formatCurrency(amount: number, currency: string) {
           :key="card.key"
           class="bg-slate-900 border border-slate-800 rounded-2xl p-4 min-h-[44px]"
         >
-          <p class="text-xs text-slate-500 font-medium">{{ card.label }}</p>
+          <p class="text-xs text-slate-500 font-medium">{{ t(card.labelKey) }}</p>
           <p class="text-2xl font-black mt-1" :class="card.color">
             {{ data.summary[card.key] }}
           </p>
@@ -233,7 +236,7 @@ function formatCurrency(amount: number, currency: string) {
 
       <!-- Action list -->
       <section v-if="data.actionList.length" class="mt-8">
-        <h3 class="font-bold text-white mb-4">Action list</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('today.actionList') }}</h3>
         <ul class="space-y-2">
           <li v-for="action in data.actionList" :key="`${action.action}-${action.entityId}`">
             <RouterLink
@@ -253,12 +256,12 @@ function formatCurrency(amount: number, currency: string) {
       <section class="mt-8">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-white">
-            {{ isWorker ? 'Blockers' : 'Exceptions' }}
+            {{ isWorker ? t('today.blockers') : t('today.exceptions') }}
           </h3>
           <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            <RouterLink to="/tasks" class="text-farm-green hover:underline">Tasks</RouterLink>
-            <RouterLink to="/inventory" class="text-farm-green hover:underline">Inventory</RouterLink>
-            <RouterLink v-if="!isWorker" to="/sales" class="text-farm-green hover:underline">Sales</RouterLink>
+            <RouterLink to="/tasks" class="text-farm-green hover:underline">{{ t('nav.tasks') }}</RouterLink>
+            <RouterLink to="/inventory" class="text-farm-green hover:underline">{{ t('nav.inventory') }}</RouterLink>
+            <RouterLink v-if="!isWorker" to="/sales" class="text-farm-green hover:underline">{{ t('nav.sales') }}</RouterLink>
           </div>
         </div>
 
@@ -275,7 +278,7 @@ function formatCurrency(amount: number, currency: string) {
                   class="text-xs font-bold uppercase tracking-wide"
                   :class="exceptionIcon[ex.type] ?? 'text-slate-400'"
                 >
-                  {{ exceptionLabel[ex.type] ?? ex.type }}
+                  {{ exceptionLabel[ex.type] ? t(exceptionLabel[ex.type]) : ex.type }}
                 </span>
                 <p class="font-medium text-white mt-1 truncate">{{ ex.title }}</p>
                 <p class="text-sm text-slate-400 mt-0.5">{{ ex.message }}</p>
@@ -285,7 +288,7 @@ function formatCurrency(amount: number, currency: string) {
           </li>
         </ul>
         <p v-else class="text-slate-500 text-sm bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          {{ isWorker ? "No blockers - you're clear" : 'No exceptions - farm is on track' }}
+          {{ isWorker ? t('today.noBlockers') : t('today.noExceptions') }}
         </p>
       </section>
 
@@ -299,8 +302,8 @@ function formatCurrency(amount: number, currency: string) {
           <div class="flex items-center gap-3">
             <span class="text-farm-green text-lg">🌙</span>
             <div class="text-left">
-              <p class="font-bold text-white text-sm">Farm Day Close</p>
-              <p class="text-xs text-slate-400 mt-0.5">End-of-day summary - tasks, approvals, inventory, finance</p>
+              <p class="font-bold text-white text-sm">{{ t('today.dayClose') }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">{{ t('today.dayCloseSubtitle') }}</p>
             </div>
           </div>
           <svg
@@ -313,7 +316,7 @@ function formatCurrency(amount: number, currency: string) {
         </button>
 
         <div v-if="dayCloseOpen" class="mt-3 space-y-4">
-          <div v-if="dayCloseLoading" class="text-slate-400 text-sm px-1">Loading day close…</div>
+          <div v-if="dayCloseLoading" class="text-slate-400 text-sm px-1">{{ t('today.dayCloseLoading') }}</div>
 
           <template v-else-if="dayClose">
             <!-- Status banner -->
@@ -326,7 +329,7 @@ function formatCurrency(amount: number, currency: string) {
               <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
               <div>
                 <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
-                  {{ dayClose.status === 'clear' ? 'Day is clear' : 'Needs attention before close' }}
+                  {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
                 </p>
                 <p class="text-xs text-slate-400 mt-0.5">{{ dayClose.date }}</p>
               </div>
@@ -334,23 +337,23 @@ function formatCurrency(amount: number, currency: string) {
 
             <!-- Task breakdown -->
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h4 class="font-bold text-white text-sm mb-3">Tasks today</h4>
+              <h4 class="font-bold text-white text-sm mb-3">{{ t('today.tasksToday') }}</h4>
               <div class="grid grid-cols-3 gap-3">
                 <div class="text-center">
                   <p class="text-2xl font-black text-farm-green">{{ dayClose.tasks.completed }}</p>
-                  <p class="text-xs text-slate-500 mt-0.5">Completed</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.completed') }}</p>
                 </div>
                 <div class="text-center">
                   <p class="text-2xl font-black" :class="dayClose.tasks.overdue > 0 ? 'text-red-400' : 'text-slate-400'">
                     {{ dayClose.tasks.overdue }}
                   </p>
-                  <p class="text-xs text-slate-500 mt-0.5">Overdue</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.lblOverdue') }}</p>
                 </div>
                 <div class="text-center">
                   <p class="text-2xl font-black" :class="dayClose.tasks.pendingApproval > 0 ? 'text-purple-400' : 'text-slate-400'">
                     {{ dayClose.tasks.pendingApproval }}
                   </p>
-                  <p class="text-xs text-slate-500 mt-0.5">For approval</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.forApproval') }}</p>
                 </div>
               </div>
             </div>
@@ -358,19 +361,19 @@ function formatCurrency(amount: number, currency: string) {
             <!-- Pending approvals -->
             <div v-if="dayClose.pendingApprovals.length" class="bg-slate-900 border border-purple-900/40 rounded-2xl p-5">
               <h4 class="font-bold text-purple-300 text-sm mb-3">
-                Awaiting approval ({{ dayClose.pendingApprovals.length }})
+                {{ t('today.awaitingApprovalCount', { count: dayClose.pendingApprovals.length }) }}
               </h4>
               <ul class="space-y-2">
                 <li
-                  v-for="t in dayClose.pendingApprovals"
-                  :key="t.id"
+                  v-for="item in dayClose.pendingApprovals"
+                  :key="item.id"
                   class="flex items-start justify-between gap-2 text-sm"
                 >
                   <div class="min-w-0">
-                    <p class="font-medium text-white truncate">{{ t.title }}</p>
-                    <p class="text-xs text-slate-500">{{ t.worker ?? 'Unassigned' }}{{ t.plot ? ` · ${t.plot}` : '' }}</p>
+                    <p class="font-medium text-white truncate">{{ item.title }}</p>
+                    <p class="text-xs text-slate-500">{{ item.worker ?? t('today.unassigned') }}{{ item.plot ? ` · ${item.plot}` : '' }}</p>
                   </div>
-                  <RouterLink to="/tasks" class="text-xs text-farm-green shrink-0 hover:underline">Approve →</RouterLink>
+                  <RouterLink to="/tasks" class="text-xs text-farm-green shrink-0 hover:underline">{{ t('today.approve') }}</RouterLink>
                 </li>
               </ul>
             </div>
@@ -378,56 +381,56 @@ function formatCurrency(amount: number, currency: string) {
             <!-- Overdue tasks -->
             <div v-if="dayClose.overdueTasks.length" class="bg-slate-900 border border-red-900/40 rounded-2xl p-5">
               <h4 class="font-bold text-red-400 text-sm mb-3">
-                Overdue tasks ({{ dayClose.overdueTasks.length }})
+                {{ t('today.overdueTasksCount', { count: dayClose.overdueTasks.length }) }}
               </h4>
               <ul class="space-y-2">
                 <li
-                  v-for="t in dayClose.overdueTasks.slice(0, 5)"
-                  :key="t.id"
+                  v-for="item in dayClose.overdueTasks.slice(0, 5)"
+                  :key="item.id"
                   class="text-sm"
                 >
-                  <p class="font-medium text-white truncate">{{ t.title }}</p>
+                  <p class="font-medium text-white truncate">{{ item.title }}</p>
                   <p class="text-xs text-slate-500">
-                    {{ t.worker ?? 'Unassigned' }}{{ t.plot ? ` · ${t.plot}` : '' }}
-                    <span v-if="t.dueDate"> · Due {{ formatTime(t.dueDate) }}</span>
+                    {{ item.worker ?? t('today.unassigned') }}{{ item.plot ? ` · ${item.plot}` : '' }}
+                    <span v-if="item.dueDate"> · {{ t('today.due') }} {{ formatTime(item.dueDate) }}</span>
                   </p>
                 </li>
               </ul>
               <p v-if="dayClose.overdueTasks.length > 5" class="text-xs text-slate-500 mt-2">
-                +{{ dayClose.overdueTasks.length - 5 }} more
+                {{ t('today.more', { count: dayClose.overdueTasks.length - 5 }) }}
               </p>
             </div>
 
             <!-- Inventory & livestock -->
             <div class="grid grid-cols-2 gap-3">
               <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">Low stock</p>
+                <p class="text-xs text-slate-500 font-medium">{{ t('today.lowStock') }}</p>
                 <p class="text-2xl font-black mt-1" :class="dayClose.inventory.lowStockCount > 0 ? 'text-amber-400' : 'text-slate-400'">
                   {{ dayClose.inventory.lowStockCount }}
                 </p>
-                <p class="text-xs text-slate-500 mt-0.5">{{ dayClose.inventory.movementsToday }} movements today</p>
+                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.movementsToday', { count: dayClose.inventory.movementsToday }) }}</p>
               </div>
               <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">Mortality</p>
+                <p class="text-xs text-slate-500 font-medium">{{ t('today.mortality') }}</p>
                 <p class="text-2xl font-black mt-1" :class="dayClose.livestock.mortalityToday > 0 ? 'text-red-400' : 'text-slate-400'">
                   {{ dayClose.livestock.mortalityToday }}
                 </p>
-                <p class="text-xs text-slate-500 mt-0.5">head today</p>
+                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.headToday') }}</p>
               </div>
             </div>
 
             <!-- Finance -->
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h4 class="font-bold text-white text-sm mb-1">Expenses today</h4>
+              <h4 class="font-bold text-white text-sm mb-1">{{ t('today.expensesToday') }}</h4>
               <p class="text-xl font-black text-white">
                 {{ formatCurrency(dayClose.finance.totalExpenses, dayClose.finance.currency) }}
               </p>
-              <p class="text-xs text-slate-500 mt-0.5">{{ dayClose.finance.expensesToday }} expense(s) logged</p>
+              <p class="text-xs text-slate-500 mt-0.5">{{ t('today.expensesLogged', { count: dayClose.finance.expensesToday }) }}</p>
             </div>
 
             <!-- Tomorrow's actions -->
             <div v-if="dayClose.tomorrowActions.length" class="bg-slate-900 border border-farm-green/20 rounded-2xl p-5">
-              <h4 class="font-bold text-farm-green text-sm mb-3">For tomorrow</h4>
+              <h4 class="font-bold text-farm-green text-sm mb-3">{{ t('today.forTomorrow') }}</h4>
               <ul class="space-y-2">
                 <li
                   v-for="(action, idx) in dayClose.tomorrowActions"
@@ -439,7 +442,7 @@ function formatCurrency(amount: number, currency: string) {
                 </li>
               </ul>
             </div>
-            <p v-else class="text-xs text-slate-500 px-1">No carry-forward actions - clean day close.</p>
+            <p v-else class="text-xs text-slate-500 px-1">{{ t('today.noCarryForward') }}</p>
           </template>
         </div>
       </section>

@@ -63,10 +63,10 @@ Send these to [@TrovaraButlerBot](https://t.me/TrovaraButlerBot):
 | `brief` | A short "attention today" summary |
 | `My goats are coughing with nasal discharge` | Diagnosis: likely causes, treatment, prevention |
 | A **photo** of a plant/leaf or animal | Vision diagnosis in your language |
-| A **voice note** (Yoruba, Pidgin or English) | Transcribed, then answered - bot echoes "🗣️ …" then replies |
+| A **voice note** (Yoruba, Pidgin, French or English) | Transcribed, then answered - bot echoes "🗣️ …" then replies |
 
 > Voice notes: the butler transcribes the audio (language auto-detected - Yoruba,
-> Nigerian Pidgin and English all work), shows you what it heard, then answers or
+> Nigerian Pidgin, French and English all work), shows you what it heard, then answers or
 > diagnoses from it. Set `LLM_TRANSCRIBE_MODEL` in `.env` to change the model.
 >
 > TTS replies: when enabled, Butler can also send voice replies. Default mode is

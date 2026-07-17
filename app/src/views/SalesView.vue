@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
+
+const { t, te } = useI18n()
+
+function statusLabel(status: string): string {
+  const key = `sales.status.${status}`
+  return te(key) ? t(key) : status
+}
 
 type OrderItem = {
   productName: string
@@ -50,9 +58,15 @@ type CustomerProfile = {
 }
 
 const sourceLabel: Record<string, string> = {
-  staff: 'Staff',
+  staff: 'sales.sourceStaff',
   telegram: 'Telegram',
   whatsapp: 'WhatsApp',
+}
+
+function sourceText(source: string): string {
+  const label = sourceLabel[source]
+  if (!label) return source
+  return te(label) ? t(label) : label
 }
 
 const sourceColor: Record<string, string> = {
@@ -73,10 +87,10 @@ const statusColor: Record<string, string> = {
   cancelled: 'bg-red-900/50 text-red-300',
 }
 
-const nextStatus: Record<string, { status: string; label: string }> = {
-  pending: { status: 'confirmed', label: 'Confirm' },
-  confirmed: { status: 'dispatched', label: 'Dispatch' },
-  dispatched: { status: 'delivered', label: 'Mark delivered' },
+const nextStatus: Record<string, { status: string; labelKey: string }> = {
+  pending: { status: 'confirmed', labelKey: 'sales.confirm' },
+  confirmed: { status: 'dispatched', labelKey: 'sales.dispatch' },
+  dispatched: { status: 'delivered', labelKey: 'sales.markDelivered' },
 }
 
 function formatAmount(amount: number, currency: string) {
@@ -135,13 +149,13 @@ function closeCustomer() {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Sales</h2>
-      <p class="text-slate-400 text-sm mt-1">Order fulfillment and customer deliveries</p>
+      <h2 class="text-2xl font-black text-white">{{ t('sales.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('sales.subtitle') }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading orders…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('sales.loading') }}</div>
 
-    <div v-else-if="!orders.length" class="mt-8 text-slate-500 text-sm">No orders yet.</div>
+    <div v-else-if="!orders.length" class="mt-8 text-slate-500 text-sm">{{ t('sales.noOrders') }}</div>
 
     <div v-else class="mt-8 space-y-4">
       <div
@@ -158,7 +172,7 @@ function closeCustomer() {
                 class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 :class="sourceColor[order.source] ?? 'bg-slate-700 text-slate-300'"
               >
-                {{ sourceLabel[order.source] ?? order.source }}
+                {{ sourceText(order.source) }}
               </span>
             </div>
             <p v-if="order.reference" class="text-xs font-mono text-slate-500 mt-0.5">
@@ -183,8 +197,8 @@ function closeCustomer() {
             </ul>
 
             <p class="text-xs text-slate-500 mt-2">
-              <span v-if="order.lotCode">Lot: {{ order.lotCode }} · </span>
-              Created {{ new Date(order.createdAt).toLocaleDateString() }}
+              <span v-if="order.lotCode">{{ t('sales.lot') }}: {{ order.lotCode }} · </span>
+              {{ t('sales.created') }} {{ new Date(order.createdAt).toLocaleDateString() }}
             </p>
             <p v-if="order.notes" class="text-sm text-slate-400 mt-2">{{ order.notes }}</p>
           </div>
@@ -192,7 +206,7 @@ function closeCustomer() {
             class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"
             :class="statusColor[order.status] ?? 'bg-slate-700'"
           >
-            {{ order.status }}
+            {{ statusLabel(order.status) }}
           </span>
         </div>
 
@@ -205,21 +219,21 @@ function closeCustomer() {
             class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
             @click="updateStatus(order.id, nextStatus[order.status].status)"
           >
-            {{ nextStatus[order.status].label }}
+            {{ t(nextStatus[order.status].labelKey) }}
           </button>
           <button
             v-if="order.status === 'pending' || order.status === 'confirmed'"
             class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60"
             @click="cancelOrder(order.id)"
           >
-            Cancel
+            {{ t('sales.cancel') }}
           </button>
           <button
             v-if="order.customerContactId"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
             @click="openCustomer(order.customerContactId!)"
           >
-            View customer
+            {{ t('sales.viewCustomer') }}
           </button>
         </div>
       </div>
@@ -233,28 +247,28 @@ function closeCustomer() {
     >
       <div class="w-full max-w-md h-full overflow-y-auto bg-slate-950 border-l border-slate-800 p-6">
         <div class="flex items-start justify-between">
-          <h3 class="text-xl font-black text-white">Customer</h3>
+          <h3 class="text-xl font-black text-white">{{ t('sales.customer') }}</h3>
           <button
             class="text-slate-500 hover:text-white text-sm"
             @click="closeCustomer"
           >
-            Close
+            {{ t('sales.close') }}
           </button>
         </div>
 
-        <div v-if="profileLoading" class="mt-8 text-slate-400 text-sm">Loading customer…</div>
+        <div v-if="profileLoading" class="mt-8 text-slate-400 text-sm">{{ t('sales.loadingCustomer') }}</div>
 
         <div v-else-if="profile" class="mt-6 space-y-6">
           <div>
             <div class="flex items-center gap-2 flex-wrap">
               <h4 class="text-lg font-bold text-white">
-                {{ profile.contact.name || 'Unnamed customer' }}
+                {{ profile.contact.name || t('sales.unnamedCustomer') }}
               </h4>
               <span
                 class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                 :class="sourceColor[profile.contact.channel] ?? 'bg-slate-700 text-slate-300'"
               >
-                {{ sourceLabel[profile.contact.channel] ?? profile.contact.channel }}
+                {{ sourceText(profile.contact.channel) }}
               </span>
             </div>
             <p class="text-xs font-mono text-slate-500 mt-1">
@@ -264,31 +278,31 @@ function closeCustomer() {
               {{ profile.contact.phone }}
             </p>
             <p class="text-xs text-slate-500 mt-2">
-              First seen {{ new Date(profile.contact.firstSeen).toLocaleDateString() }} ·
-              Last active {{ new Date(profile.contact.lastSeen).toLocaleDateString() }}
+              {{ t('sales.firstSeen') }} {{ new Date(profile.contact.firstSeen).toLocaleDateString() }} ·
+              {{ t('sales.lastActive') }} {{ new Date(profile.contact.lastSeen).toLocaleDateString() }}
             </p>
           </div>
 
           <div class="grid grid-cols-3 gap-3">
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
               <p class="text-2xl font-black text-white">{{ profile.stats.orderCount }}</p>
-              <p class="text-[11px] text-slate-500 mt-0.5">Orders</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">{{ t('sales.orders') }}</p>
             </div>
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
               <p class="text-2xl font-black text-white">{{ profile.stats.inquiryCount }}</p>
-              <p class="text-[11px] text-slate-500 mt-0.5">Questions</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">{{ t('sales.questions') }}</p>
             </div>
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
               <p class="text-lg font-black text-farm-gold leading-tight">
                 {{ formatAmount(profile.stats.lifetimeValue, profile.stats.currency) }}
               </p>
-              <p class="text-[11px] text-slate-500 mt-0.5">Delivered</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">{{ t('sales.delivered') }}</p>
             </div>
           </div>
 
           <div>
-            <h5 class="text-sm font-bold text-slate-300 mb-2">Order history</h5>
-            <div v-if="!profile.orders.length" class="text-sm text-slate-500">No orders yet.</div>
+            <h5 class="text-sm font-bold text-slate-300 mb-2">{{ t('sales.orderHistory') }}</h5>
+            <div v-if="!profile.orders.length" class="text-sm text-slate-500">{{ t('sales.noOrders') }}</div>
             <div v-else class="space-y-3">
               <div
                 v-for="o in profile.orders"
@@ -308,7 +322,7 @@ function closeCustomer() {
                     class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"
                     :class="statusColor[o.status] ?? 'bg-slate-700'"
                   >
-                    {{ o.status }}
+                    {{ statusLabel(o.status) }}
                   </span>
                 </div>
                 <ul v-if="o.items && o.items.length" class="mt-2 space-y-0.5">

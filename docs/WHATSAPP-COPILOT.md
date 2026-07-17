@@ -3,7 +3,7 @@
 The Butler turns Trovara OS into a conversational farm assistant on WhatsApp, like
 NeuraAgro's "Joaquín". Workers and the owner can:
 
-- **Chat in any language** (English, Pidgin, Yoruba, Hausa, Igbo) - the Butler replies in the same language.
+- **Chat in any language** (English, Pidgin, Yoruba, French, Hausa, Igbo) - the Butler replies in the same language.
 - **Ask about the farm** - "How many birds are alive?", "What needs restocking?", "How much have we sold?" - answered from live data.
 - **Report a sick animal** - "3 broilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
 - **Send a photo** of a sick plant or animal → AI vision diagnosis.
@@ -122,7 +122,7 @@ user with role `owner` and a phone) should receive an alert message.
 | `brief` / `today` | Short daily attention summary |
 | Any other text | AI answer grounded in farm data + Africa farm knowledge, with 2-hour conversation memory |
 | Photo (image) | Downloads the media, runs vision diagnosis, replies in the sender's language |
-| Voice note (audio) | Transcribed (Yoruba/Pidgin/English auto-detected), echoed back, then answered/diagnosed |
+| Voice note (audio) | Transcribed (Yoruba/Pidgin/French/English auto-detected), echoed back, then answered/diagnosed |
 | Urgent keywords from a worker | Above reply **plus** an alert to the owner |
 | Unknown phone | Ignored (logged) |
 

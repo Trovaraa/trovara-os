@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type TaskTemplate = {
   id: string
@@ -80,7 +83,7 @@ async function createTemplate() {
     newCropType.value = ''
     await load()
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create template'
+    createError.value = e instanceof Error ? e.message : t('templates.createFailed')
   } finally {
     creating.value = false
   }
@@ -91,10 +94,10 @@ async function generateTasks() {
   generateMessage.value = null
   try {
     const data = await api<{ count: number }>('/api/templates/generate-tasks', { method: 'POST' })
-    generateMessage.value = `Generated ${data.count} task(s) from due schedules`
+    generateMessage.value = t('templates.generatedN', { count: data.count })
     await load()
   } catch (e) {
-    generateMessage.value = e instanceof Error ? e.message : 'Generate failed'
+    generateMessage.value = e instanceof Error ? e.message : t('templates.generateFailed')
   } finally {
     generating.value = false
   }
@@ -105,8 +108,8 @@ async function generateTasks() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">Task Templates</h2>
-        <p class="text-slate-400 text-sm mt-1">Reusable task definitions and recurring schedules</p>
+        <h2 class="text-2xl font-black text-white">{{ t('templates.title') }}</h2>
+        <p class="text-slate-400 text-sm mt-1">{{ t('templates.subtitle') }}</p>
       </div>
       <button
         type="button"
@@ -114,7 +117,7 @@ async function generateTasks() {
         :disabled="generating"
         @click="generateTasks"
       >
-        {{ generating ? 'Generating…' : 'Generate due tasks' }}
+        {{ generating ? t('templates.generating') : t('templates.generateDueTasks') }}
       </button>
     </div>
 
@@ -124,36 +127,36 @@ async function generateTasks() {
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="createTemplate"
     >
-      <h3 class="font-bold text-white text-sm">New task template</h3>
+      <h3 class="font-bold text-white text-sm">{{ t('templates.newTemplateTitle') }}</h3>
       <div class="grid sm:grid-cols-3 gap-4">
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Name</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.nameLabel') }}</label>
           <input
             v-model="newName"
             type="text"
             required
             maxlength="200"
-            placeholder="e.g. Plantain weeding"
+            :placeholder="t('templates.namePlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Crop type</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.cropTypeLabel') }}</label>
           <input
             v-model="newCropType"
             type="text"
             maxlength="100"
-            placeholder="e.g. plantain"
+            :placeholder="t('templates.cropTypePlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1.5">Description</label>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.descriptionLabel') }}</label>
           <input
             v-model="newDescription"
             type="text"
             maxlength="2000"
-            placeholder="Optional details"
+            :placeholder="t('templates.descriptionPlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
@@ -164,17 +167,17 @@ async function generateTasks() {
           :disabled="creating || !newName.trim()"
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         >
-          {{ creating ? 'Creating…' : 'Create template' }}
+          {{ creating ? t('templates.creating') : t('templates.createTemplate') }}
         </button>
         <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
       </div>
     </form>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading templates…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('templates.loading') }}</div>
 
     <template v-else>
       <div class="mt-8">
-        <h3 class="font-bold text-white mb-4">Templates</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('templates.templatesSection') }}</h3>
         <div v-if="templates.length" class="space-y-3">
           <div
             v-for="tpl in templates"
@@ -187,7 +190,9 @@ async function generateTasks() {
                 <p v-if="tpl.description" class="text-slate-400 text-sm mt-1">{{ tpl.description }}</p>
                 <p class="text-xs text-slate-500 mt-2">
                   <span v-if="tpl.cropType" class="capitalize">{{ tpl.cropType }}</span>
-                  <span v-if="tpl.defaultDurationHours"> · {{ tpl.defaultDurationHours }}h default</span>
+                  <span v-if="tpl.defaultDurationHours">
+                    · {{ t('templates.defaultDuration', { hours: tpl.defaultDurationHours }) }}
+                  </span>
                 </p>
               </div>
             </div>
@@ -196,21 +201,21 @@ async function generateTasks() {
             </ul>
           </div>
         </div>
-        <p v-else class="text-slate-500 text-sm">No templates yet.</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('templates.noTemplatesYet') }}</p>
       </div>
 
       <div class="mt-8">
-        <h3 class="font-bold text-white mb-4">Recurring schedules</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('templates.recurringSchedules') }}</h3>
         <div v-if="schedules.length" class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-slate-500 border-b border-slate-800">
-                <th class="pb-3 font-semibold">Template</th>
-                <th class="pb-3 font-semibold">Recurrence</th>
-                <th class="pb-3 font-semibold">Plot</th>
-                <th class="pb-3 font-semibold">Assignee</th>
-                <th class="pb-3 font-semibold">Next run</th>
-                <th class="pb-3 font-semibold">Status</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thTemplate') }}</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thRecurrence') }}</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thPlot') }}</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thAssignee') }}</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thNextRun') }}</th>
+                <th class="pb-3 font-semibold">{{ t('templates.thStatus') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -231,18 +236,18 @@ async function generateTasks() {
                     class="text-xs font-bold px-2 py-1 rounded-full"
                     :class="sched.active ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
                   >
-                    {{ sched.active ? 'Active' : 'Inactive' }}
+                    {{ sched.active ? t('templates.active') : t('templates.inactive') }}
                   </span>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p v-else class="text-slate-500 text-sm">No recurring schedules.</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('templates.noSchedules') }}</p>
       </div>
 
       <div class="mt-8">
-        <h3 class="font-bold text-white mb-4">Crop lifecycles</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('templates.cropLifecycles') }}</h3>
         <div v-if="lifecycles.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div
             v-for="lc in lifecycles"
@@ -250,7 +255,7 @@ async function generateTasks() {
             class="bg-slate-900 border border-slate-800 rounded-xl p-4"
           >
             <h4 class="font-bold text-white capitalize">{{ lc.cropType }}</h4>
-            <p class="text-xs text-slate-500 mt-1">{{ lc.totalDays }} days total</p>
+            <p class="text-xs text-slate-500 mt-1">{{ t('templates.daysTotal', { days: lc.totalDays }) }}</p>
             <ul class="mt-3 space-y-1">
               <li
                 v-for="stage in lc.stages"
@@ -263,7 +268,7 @@ async function generateTasks() {
             </ul>
           </div>
         </div>
-        <p v-else class="text-slate-500 text-sm">No lifecycle definitions.</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('templates.noLifecycles') }}</p>
       </div>
     </template>
   </AppLayout>

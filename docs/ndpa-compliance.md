@@ -1,6 +1,9 @@
-# Trovara OS - NDPA Compliance Plan (Future SaaS)
+# Trovara OS - NDPA Compliance Plan
 
-Brief compliance roadmap for Trovara OS when offered as multi-tenant SaaS in Nigeria. This is a planning document, not legal advice.
+Internal compliance roadmap for the current Trovara Farm deployment and any
+future multi-tenant SaaS offering in Nigeria. This is a planning document, not
+legal advice. The customer-facing draft is
+[`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md).
 
 **Regulation:** Nigeria Data Protection Act (NDPA) 2023 and Nigeria Data Protection Commission (NDPC) guidance.
 
@@ -23,7 +26,8 @@ Personal data includes: names, email addresses, phone numbers (customers/workers
 | CDN / static assets | Non-PII only at edge; API and DB remain in-region |
 | Cross-border transfer | Prohibited unless explicit consent + NDPC adequacy/contractual safeguards |
 
-**Current dev state:** Local Docker on laptop - not in scope for production compliance.
+**Current state:** Local development uses Docker; the production deployment is
+internet-facing and must be assessed against the controls in this document.
 
 ---
 
@@ -96,14 +100,18 @@ DPO responsibilities: privacy impact assessments, staff training, NDPC liaison, 
 
 ## Sub-processors
 
-Document before launch:
+Document and verify for the current production configuration:
 
 - Cloud host (Postgres, compute)
 - Email / notification provider
+- Telegram (staff and customer bots)
 - WhatsApp Business API (Meta) - data processing agreement required
+- Configured AI provider (text, images, transcription, and TTS)
 - Payment processor (future)
 
-Maintain sub-processor list in customer-facing privacy policy.
+Maintain the provider, purpose, data categories, processing location, and
+transfer safeguards in a sub-processor register. Summarise enabled providers in
+the customer-facing privacy notice.
 
 ---
 
@@ -111,10 +119,13 @@ Maintain sub-processor list in customer-facing privacy policy.
 
 - [ ] NDPC registration filed
 - [ ] DPO appointed and published contact
-- [ ] Privacy policy + terms (jurisdiction: Nigeria)
+- [x] Draft privacy notice created (`PRIVACY-NOTICE.md`)
+- [ ] Draft privacy notice legally reviewed, operational details completed, and published
+- [ ] Terms of service completed (jurisdiction: Nigeria)
 - [ ] Data processing agreements with sub-processors
 - [ ] Nigeria-only production region verified
 - [ ] DPIA for AI/WhatsApp features
+- [ ] DPIA for any public-ledger/tokenization feature before implementation
 - [ ] Breach notification runbook tested
 - [ ] Customer data export/delete API tested
 
@@ -123,4 +134,4 @@ Maintain sub-processor list in customer-facing privacy policy.
 ## References
 
 - [NDPC Nigeria](https://ndpc.gov.ng/)
-- Trovara internal: [`security.md`](./security.md), [`backup-runbook.md`](./backup-runbook.md), [`operating-model.md`](./operating-model.md)
+- Trovara internal: [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md), [`security.md`](./security.md), [`backup-runbook.md`](./backup-runbook.md), [`operating-model.md`](./operating-model.md)

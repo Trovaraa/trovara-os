@@ -162,7 +162,7 @@ export async function completeChatVision(
 
 /**
  * Transcribe a voice note to text. Auto-detects language so Yoruba, Nigerian
- * Pidgin and English all work (no language hint forced). Returns plain text.
+ * Pidgin, French and English all work (no language hint forced). Returns plain text.
  * Uses the OpenAI audio/transcriptions endpoint (gpt-4o-transcribe by default).
  */
 export async function transcribeAudio(audio: Buffer, filename: string): Promise<string> {
@@ -181,9 +181,9 @@ export async function transcribeAudio(audio: Buffer, filename: string): Promise<
   const form = new FormData()
   form.append('file', new Blob([new Uint8Array(audio)]), safeName)
   form.append('model', model)
-  // A short prompt nudges the model to keep Yoruba/Pidgin words rather than
+  // A short prompt nudges the model to keep Yoruba/Pidgin/French words rather than
   // "correcting" them into English.
-  form.append('prompt', 'Farm voice note from Nigeria. May be in Yoruba, Nigerian Pidgin, or English.')
+  form.append('prompt', 'Farm voice note from Nigeria or francophone West Africa. May be in Yoruba, Nigerian Pidgin, French, or English.')
 
   const res = await fetch(`${config.baseUrl}/audio/transcriptions`, {
     method: 'POST',

@@ -126,7 +126,7 @@ export async function answerText(
 }
 
 /**
- * Transcribe a voice note (Yoruba / Pidgin / English auto-detected). Returns the
+ * Transcribe a voice note (Yoruba / Pidgin / French / English auto-detected). Returns the
  * transcript text, or null if transcription is unavailable/empty. The caller
  * then routes the transcript through answerText like a normal message.
  */

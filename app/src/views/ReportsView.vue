@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type OwnerReports = {
   generatedAt: string
@@ -217,7 +220,7 @@ onMounted(async () => {
     actionList.value = actionListRes
     plotProfitability.value = plotPnlRes
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load reports'
+    error.value = e instanceof Error ? e.message : t('reports.loadFailed')
   } finally {
     loading.value = false
   }
@@ -235,55 +238,55 @@ function formatDate(iso: string) {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Founder Reports</h2>
-      <p class="text-slate-400 text-sm mt-1">Full farm visibility - Founder only</p>
+      <h2 class="text-2xl font-black text-white">{{ t('reports.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('reports.subtitle') }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading reports…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('reports.loading') }}</div>
     <div v-else-if="error" class="mt-8 text-red-400">{{ error }}</div>
 
     <div v-else-if="data" class="mt-8 space-y-6 min-w-0 max-w-full">
       <p class="text-xs text-slate-500">
-        Generated {{ formatDate(data.generatedAt) }}
+        {{ t('reports.generated') }} {{ formatDate(data.generatedAt) }}
       </p>
 
       <!-- Exception Digest -->
       <section v-if="digest" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Daily Exception Digest</h3>
-          <span class="text-xs text-slate-500">{{ digest.summary.total }} exceptions</span>
+          <h3 class="font-bold text-white">{{ t('reports.digestTitle') }}</h3>
+          <span class="text-xs text-slate-500">{{ t('reports.exceptionsCount', { count: digest.summary.total }) }}</span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Overdue</p>
+            <p class="text-xs text-slate-500">{{ t('reports.overdue') }}</p>
             <p class="text-xl font-black text-red-400">{{ digest.summary.overdueTasks }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Low stock</p>
+            <p class="text-xs text-slate-500">{{ t('reports.lowStock') }}</p>
             <p class="text-xl font-black text-amber-400">{{ digest.summary.lowStock }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Approvals</p>
+            <p class="text-xs text-slate-500">{{ t('reports.approvals') }}</p>
             <p class="text-xl font-black text-purple-400">{{ digest.summary.pendingApprovals }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Mortality today</p>
+            <p class="text-xs text-slate-500">{{ t('reports.mortalityToday') }}</p>
             <p class="text-xl font-black text-red-300">{{ digest.summary.mortalityToday }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Orders pending</p>
+            <p class="text-xs text-slate-500">{{ t('reports.ordersPending') }}</p>
             <p class="text-xl font-black text-blue-400">{{ digest.summary.ordersPending }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Rejected</p>
+            <p class="text-xs text-slate-500">{{ t('reports.rejected') }}</p>
             <p class="text-xl font-black text-slate-300">{{ digest.summary.rejectedTasks }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Not logged today</p>
+            <p class="text-xs text-slate-500">{{ t('reports.notLoggedToday') }}</p>
             <p class="text-xl font-black text-amber-400">{{ digest.summary.assetLogsMissing }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Assets to verify</p>
+            <p class="text-xs text-slate-500">{{ t('reports.assetsToVerify') }}</p>
             <p class="text-xl font-black text-cyan-400">{{ digest.summary.assetVerificationPending }}</p>
           </div>
         </div>
@@ -291,7 +294,7 @@ function formatDate(iso: string) {
 
       <!-- Manager Action List -->
       <section v-if="actionList" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 class="font-bold text-white mb-4">Manager Action List</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('reports.actionListTitle') }}</h3>
         <ul v-if="actionList.actions.length" class="space-y-2">
           <li
             v-for="item in actionList.actions.slice(0, 10)"
@@ -302,14 +305,14 @@ function formatDate(iso: string) {
             <span class="text-xs text-slate-500 capitalize">{{ item.action.replace('_', ' ') }}</span>
           </li>
         </ul>
-        <p v-else class="text-slate-500 text-sm">No actions queued</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noActions') }}</p>
       </section>
 
       <!-- Inventory Burn Rate -->
       <section v-if="burnRate" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Inventory Burn Rate</h3>
-          <span class="text-xs text-slate-500">Last {{ burnRate.periodDays }} days</span>
+          <h3 class="font-bold text-white">{{ t('reports.burnRateTitle') }}</h3>
+          <span class="text-xs text-slate-500">{{ t('reports.lastDays', { count: burnRate.periodDays }) }}</span>
         </div>
         <ul v-if="burnRate.items.length" class="space-y-2">
           <li
@@ -323,43 +326,43 @@ function formatDate(iso: string) {
               :class="item.needsReorder ? 'text-red-400' : 'text-slate-500'"
             >
               {{ item.quantity }} {{ item.unit }}
-              <span v-if="item.daysRemaining !== null"> · ~{{ item.daysRemaining }}d left</span>
-              <span v-else> · no usage data</span>
+              <span v-if="item.daysRemaining !== null"> · {{ t('reports.daysLeft', { count: item.daysRemaining }) }}</span>
+              <span v-else> · {{ t('reports.noUsageData') }}</span>
             </span>
           </li>
         </ul>
-        <p v-else class="text-slate-500 text-sm">No inventory items tracked</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noInventoryTracked') }}</p>
       </section>
 
       <!-- Plot Profitability -->
       <section v-if="plotProfitability" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Plot Profitability</h3>
+          <h3 class="font-bold text-white">{{ t('reports.plotProfitTitle') }}</h3>
           <span class="text-xs text-slate-500">
-            Labour proxy: {{ formatMoney(plotProfitability.labourRatePerTask, plotProfitability.currency) }}/task
+            {{ t('reports.labourProxy', { rate: formatMoney(plotProfitability.labourRatePerTask, plotProfitability.currency) }) }}
           </span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Revenue</p>
+            <p class="text-xs text-slate-500">{{ t('reports.revenue') }}</p>
             <p class="text-lg font-black text-farm-green">
               {{ formatMoney(plotProfitability.totals.revenue, plotProfitability.currency) }}
             </p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Labour</p>
+            <p class="text-xs text-slate-500">{{ t('reports.labour') }}</p>
             <p class="text-lg font-black text-amber-400">
               {{ formatMoney(plotProfitability.totals.labourCost, plotProfitability.currency) }}
             </p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Inputs</p>
+            <p class="text-xs text-slate-500">{{ t('reports.inputs') }}</p>
             <p class="text-lg font-black text-slate-300">
               {{ formatMoney(plotProfitability.totals.inputCost, plotProfitability.currency) }}
             </p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Net profit</p>
+            <p class="text-xs text-slate-500">{{ t('reports.netProfit') }}</p>
             <p
               class="text-lg font-black"
               :class="plotProfitability.totals.netProfit >= 0 ? 'text-farm-green' : 'text-red-400'"
@@ -372,11 +375,11 @@ function formatDate(iso: string) {
           <table class="w-full min-w-[20rem] text-sm">
             <thead>
               <tr class="text-left text-xs text-slate-500 border-b border-slate-800">
-                <th class="pb-2 pr-4">Plot</th>
-                <th class="pb-2 pr-4">Tasks</th>
-                <th class="pb-2 pr-4">Revenue</th>
-                <th class="pb-2 pr-4">Costs</th>
-                <th class="pb-2">Net</th>
+                <th class="pb-2 pr-4">{{ t('reports.plot') }}</th>
+                <th class="pb-2 pr-4">{{ t('reports.tasks') }}</th>
+                <th class="pb-2 pr-4">{{ t('reports.revenue') }}</th>
+                <th class="pb-2 pr-4">{{ t('reports.costs') }}</th>
+                <th class="pb-2">{{ t('reports.net') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -406,27 +409,27 @@ function formatDate(iso: string) {
             </tbody>
           </table>
         </div>
-        <p v-else class="text-slate-500 text-sm">No plots configured yet</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noPlots') }}</p>
       </section>
 
       <!-- 1. Daily Operations -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 class="font-bold text-white mb-4">Daily Operations</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('reports.dailyOpsTitle') }}</h3>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Total tasks</p>
+            <p class="text-xs text-slate-500">{{ t('reports.totalTasks') }}</p>
             <p class="text-2xl font-black text-white">{{ data.reports.dailyOps.totalTasks }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">In progress</p>
+            <p class="text-xs text-slate-500">{{ t('reports.inProgress') }}</p>
             <p class="text-2xl font-black text-blue-400">{{ data.reports.dailyOps.inProgress }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Awaiting approval</p>
+            <p class="text-xs text-slate-500">{{ t('reports.awaitingApproval') }}</p>
             <p class="text-2xl font-black text-purple-400">{{ data.reports.dailyOps.awaitingApproval }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Completed today</p>
+            <p class="text-xs text-slate-500">{{ t('reports.completedToday') }}</p>
             <p class="text-2xl font-black text-farm-green">{{ data.reports.dailyOps.completedToday }}</p>
           </div>
         </div>
@@ -444,12 +447,12 @@ function formatDate(iso: string) {
       <!-- 2. Tasks Overdue -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Tasks Overdue</h3>
+          <h3 class="font-bold text-white">{{ t('reports.tasksOverdueTitle') }}</h3>
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full"
             :class="data.reports.tasksOverdue.count ? 'bg-red-900/40 text-red-300' : 'bg-farm-green/20 text-farm-green'"
           >
-            {{ data.reports.tasksOverdue.count }} overdue
+            {{ t('reports.overdueCount', { count: data.reports.tasksOverdue.count }) }}
           </span>
         </div>
         <ul v-if="data.reports.tasksOverdue.tasks.length" class="space-y-3">
@@ -465,21 +468,21 @@ function formatDate(iso: string) {
             <div class="text-xs text-slate-500">
               <span v-if="task.plotName">{{ task.plotName }} · </span>
               <span v-if="task.assignedToName">{{ task.assignedToName }} · </span>
-              <span class="text-red-400">Due {{ task.dueDate ? formatDate(task.dueDate) : '-' }}</span>
+              <span class="text-red-400">{{ t('reports.due') }} {{ task.dueDate ? formatDate(task.dueDate) : '-' }}</span>
             </div>
           </li>
         </ul>
-        <p v-else class="text-slate-500 text-sm">No overdue tasks</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noOverdueTasks') }}</p>
       </section>
 
       <!-- 3. Inventory -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Inventory</h3>
+          <h3 class="font-bold text-white">{{ t('reports.inventoryTitle') }}</h3>
           <span class="text-xs text-slate-500">
-            {{ data.reports.inventory.totalItems }} items ·
+            {{ t('reports.itemsCount', { count: data.reports.inventory.totalItems }) }} ·
             <span :class="data.reports.inventory.lowStockCount ? 'text-red-400' : 'text-farm-green'">
-              {{ data.reports.inventory.lowStockCount }} low stock
+              {{ t('reports.lowStockCount', { count: data.reports.inventory.lowStockCount }) }}
             </span>
           </span>
         </div>
@@ -500,7 +503,7 @@ function formatDate(iso: string) {
             </li>
           </ul>
           <div>
-            <p class="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">Recent movements</p>
+            <p class="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">{{ t('reports.recentMovements') }}</p>
             <ul v-if="data.reports.inventory.recentMovements.length" class="space-y-2 max-h-48 overflow-y-auto">
               <li
                 v-for="(m, i) in data.reports.inventory.recentMovements"
@@ -520,7 +523,7 @@ function formatDate(iso: string) {
                 <span class="text-slate-600 flex-shrink-0">{{ formatDate(m.createdAt) }}</span>
               </li>
             </ul>
-            <p v-else class="text-slate-500 text-sm">No movements recorded</p>
+            <p v-else class="text-slate-500 text-sm">{{ t('reports.noMovements') }}</p>
           </div>
         </div>
       </section>
@@ -528,12 +531,12 @@ function formatDate(iso: string) {
       <!-- 4. Crop Status -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Crop Status</h3>
+          <h3 class="font-bold text-white">{{ t('reports.cropStatusTitle') }}</h3>
           <span
             v-if="data.reports.cropStatus.phase === 'placeholder'"
             class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
           >
-            Phase 2
+            {{ t('reports.phase2') }}
           </span>
         </div>
         <ul class="space-y-2 mb-4">
@@ -543,11 +546,11 @@ function formatDate(iso: string) {
             class="text-sm text-slate-300 flex justify-between"
           >
             <span>{{ plot.name }}</span>
-            <span class="text-slate-500 capitalize">{{ plot.cropType }} · {{ plot.areaAcres }} acres</span>
+            <span class="text-slate-500 capitalize">{{ plot.cropType }} · {{ plot.areaAcres }} {{ t('reports.acres') }}</span>
           </li>
         </ul>
         <div v-if="data.reports.cropStatus.cycles.length">
-          <p class="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">Active cycles</p>
+          <p class="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">{{ t('reports.activeCycles') }}</p>
           <ul class="space-y-2">
             <li
               v-for="cycle in data.reports.cropStatus.cycles"
@@ -559,24 +562,24 @@ function formatDate(iso: string) {
             </li>
           </ul>
         </div>
-        <p v-else class="text-slate-500 text-sm">No crop cycles tracked yet - plot layout shown above</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noCropCycles') }}</p>
       </section>
 
       <!-- 5. Livestock -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Livestock</h3>
+          <h3 class="font-bold text-white">{{ t('reports.livestockTitle') }}</h3>
           <span
             v-if="data.reports.livestock.phase === 'placeholder'"
             class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
           >
-            Phase 2
+            {{ t('reports.phase2') }}
           </span>
         </div>
         <template v-if="data.reports.livestock.batches.length">
           <p class="text-sm text-slate-300 mb-3">
-            {{ data.reports.livestock.batchCount }} batches ·
-            {{ data.reports.livestock.totalHeadCount }} head total
+            {{ t('reports.batchesCount', { count: data.reports.livestock.batchCount }) }} ·
+            {{ t('reports.headTotal', { count: data.reports.livestock.totalHeadCount }) }}
           </p>
           <ul class="space-y-2">
             <li
@@ -585,28 +588,28 @@ function formatDate(iso: string) {
               class="text-sm flex justify-between"
             >
               <span class="text-slate-300">{{ batch.name }} ({{ batch.species }})</span>
-              <span class="text-slate-500">{{ batch.headCount }} head</span>
+              <span class="text-slate-500">{{ batch.headCount }} {{ t('reports.head') }}</span>
             </li>
           </ul>
         </template>
-        <p v-else class="text-slate-500 text-sm">Livestock tracking coming in Phase 2 - poultry zone prep in progress</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.livestockComing') }}</p>
       </section>
 
       <!-- 6. Sales -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Sales</h3>
+          <h3 class="font-bold text-white">{{ t('reports.salesTitle') }}</h3>
           <span
             v-if="data.reports.sales.phase === 'placeholder'"
             class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
           >
-            Phase 3
+            {{ t('reports.phase3') }}
           </span>
         </div>
         <template v-if="data.reports.sales.totalOrders">
           <p class="text-sm text-slate-300 mb-3">
-            {{ data.reports.sales.totalOrders }} orders ·
-            {{ formatMoney(data.reports.sales.totalRevenue, data.reports.sales.currency) }} revenue
+            {{ t('reports.ordersCount', { count: data.reports.sales.totalOrders }) }} ·
+            {{ formatMoney(data.reports.sales.totalRevenue, data.reports.sales.currency) }} {{ t('reports.revenueLabel') }}
           </p>
           <ul class="space-y-2">
             <li
@@ -621,35 +624,35 @@ function formatDate(iso: string) {
             </li>
           </ul>
         </template>
-        <p v-else class="text-slate-500 text-sm">Sales order tracking coming in Phase 3</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.salesComing') }}</p>
       </section>
 
       <!-- 7. P&L -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">P&amp;L Snapshot</h3>
+          <h3 class="font-bold text-white">{{ t('reports.pnlTitle') }}</h3>
           <span
             v-if="data.reports.pnl.phase === 'placeholder'"
             class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
           >
-            Phase 3
+            {{ t('reports.phase3') }}
           </span>
         </div>
         <div class="grid grid-cols-3 gap-4 mb-4">
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Revenue</p>
+            <p class="text-xs text-slate-500">{{ t('reports.revenue') }}</p>
             <p class="text-lg font-black text-farm-green">
               {{ formatMoney(data.reports.pnl.revenue, data.reports.pnl.currency) }}
             </p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Expenses</p>
+            <p class="text-xs text-slate-500">{{ t('reports.expenses') }}</p>
             <p class="text-lg font-black text-red-400">
               {{ formatMoney(data.reports.pnl.expenses, data.reports.pnl.currency) }}
             </p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">Net</p>
+            <p class="text-xs text-slate-500">{{ t('reports.net') }}</p>
             <p
               class="text-lg font-black"
               :class="data.reports.pnl.net >= 0 ? 'text-farm-green' : 'text-red-400'"
@@ -667,18 +670,18 @@ function formatDate(iso: string) {
             {{ cat }}: {{ formatMoney(amount, data.reports.pnl.currency) }}
           </span>
         </div>
-        <p v-else class="text-slate-500 text-sm">Finance tracking coming in Phase 3</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.financeComing') }}</p>
       </section>
 
       <!-- 8. Incidents -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">Incidents</h3>
+          <h3 class="font-bold text-white">{{ t('reports.incidentsTitle') }}</h3>
           <span
             class="text-xs font-bold px-2.5 py-1 rounded-full"
             :class="data.reports.incidents.count ? 'bg-red-900/40 text-red-300' : 'bg-slate-800 text-slate-500'"
           >
-            {{ data.reports.incidents.count }} recorded
+            {{ t('reports.recordedCount', { count: data.reports.incidents.count }) }}
           </span>
         </div>
         <ul v-if="data.reports.incidents.items.length" class="space-y-2">
@@ -694,12 +697,12 @@ function formatDate(iso: string) {
             <span class="text-slate-600 text-xs flex-shrink-0">{{ formatDate(incident.createdAt) }}</span>
           </li>
         </ul>
-        <p v-else class="text-slate-500 text-sm">No incidents logged - incident reporting available in Phase 2</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.noIncidents') }}</p>
       </section>
 
       <!-- 9. Audit Trail -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 class="font-bold text-white mb-4">Audit Trail</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('reports.auditTrailTitle') }}</h3>
         <ul class="space-y-2 max-h-64 overflow-y-auto">
           <li
             v-for="(e, i) in data.reports.auditTrail"
@@ -709,7 +712,7 @@ function formatDate(iso: string) {
             <span>
               <span class="text-slate-300">{{ e.action }}</span>
               · {{ e.entityType }}
-              <span v-if="e.userName" class="text-slate-500"> by {{ e.userName }}</span>
+              <span v-if="e.userName" class="text-slate-500"> {{ t('reports.by') }} {{ e.userName }}</span>
             </span>
             <span class="text-slate-600 flex-shrink-0">{{ formatDate(e.createdAt) }}</span>
           </li>

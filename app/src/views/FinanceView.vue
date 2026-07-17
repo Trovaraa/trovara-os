@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type Expense = {
   id: string
@@ -51,36 +54,36 @@ onMounted(async () => {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Finance</h2>
-      <p class="text-slate-400 text-sm mt-1">Expenses and P&amp;L snapshot - Founder only</p>
+      <h2 class="text-2xl font-black text-white">{{ t('finance.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('finance.subtitle') }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading finance data…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('finance.loading') }}</div>
 
     <template v-else>
       <div v-if="summary" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">Revenue</p>
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.revenue') }}</p>
           <p class="text-2xl font-black text-farm-green mt-1">
             {{ formatAmount(summary.revenue, summary.currency) }}
           </p>
-          <p class="text-xs text-slate-600 mt-2">{{ summary.orderCount }} active orders</p>
+          <p class="text-xs text-slate-600 mt-2">{{ t('finance.activeOrders', { count: summary.orderCount }) }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">Delivered revenue</p>
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.deliveredRevenue') }}</p>
           <p class="text-2xl font-black text-blue-400 mt-1">
             {{ formatAmount(summary.deliveredRevenue, summary.currency) }}
           </p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">Total expenses</p>
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.totalExpenses') }}</p>
           <p class="text-2xl font-black text-red-400 mt-1">
             {{ formatAmount(summary.totalExpenses, summary.currency) }}
           </p>
-          <p class="text-xs text-slate-600 mt-2">{{ summary.expenseCount }} entries</p>
+          <p class="text-xs text-slate-600 mt-2">{{ t('finance.entries', { count: summary.expenseCount }) }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">Net profit</p>
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.netProfit') }}</p>
           <p
             class="text-2xl font-black mt-1"
             :class="summary.netProfit >= 0 ? 'text-farm-gold' : 'text-red-400'"
@@ -103,16 +106,16 @@ onMounted(async () => {
       </div>
 
       <div class="mt-8 overflow-x-auto">
-        <h3 class="font-bold text-white mb-4">Expenses</h3>
+        <h3 class="font-bold text-white mb-4">{{ t('finance.expenses') }}</h3>
         <table v-if="expenses.length" class="w-full text-sm">
           <thead>
             <tr class="text-left text-slate-500 border-b border-slate-800">
-              <th class="pb-3 font-semibold">Date</th>
-              <th class="pb-3 font-semibold">Category</th>
-              <th class="pb-3 font-semibold">Description</th>
-              <th class="pb-3 font-semibold">Vendor</th>
-              <th class="pb-3 font-semibold">Receipt ref</th>
-              <th class="pb-3 font-semibold text-right">Amount</th>
+              <th class="pb-3 font-semibold">{{ t('finance.date') }}</th>
+              <th class="pb-3 font-semibold">{{ t('finance.category') }}</th>
+              <th class="pb-3 font-semibold">{{ t('finance.description') }}</th>
+              <th class="pb-3 font-semibold">{{ t('finance.vendor') }}</th>
+              <th class="pb-3 font-semibold">{{ t('finance.receiptRef') }}</th>
+              <th class="pb-3 font-semibold text-right">{{ t('finance.amount') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -134,7 +137,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
-        <p v-else class="text-slate-500 text-sm">No expenses recorded.</p>
+        <p v-else class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
       </div>
     </template>
   </AppLayout>

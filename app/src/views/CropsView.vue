@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t, te } = useI18n()
 
 type CropCycle = {
   id: string
@@ -50,7 +53,8 @@ function nextStage(stage: string): string | null {
 }
 
 function formatStage(stage: string): string {
-  return stage.replace(/_/g, ' ')
+  const key = `crops.stage.${stage}`
+  return te(key) ? t(key) : stage.replace(/_/g, ' ')
 }
 
 async function advanceStage(id: string, currentStage: string) {
@@ -83,14 +87,14 @@ const stageColor: Record<string, string> = {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Crop Cycles</h2>
-      <p class="text-slate-400 text-sm mt-1">Track growth stages across plots</p>
+      <h2 class="text-2xl font-black text-white">{{ t('crops.title') }}</h2>
+      <p class="text-slate-400 text-sm mt-1">{{ t('crops.subtitle') }}</p>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading crop cycles…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('crops.loading') }}</div>
 
     <div v-else-if="crops.length === 0" class="mt-8 text-slate-500">
-      No crop cycles yet.
+      {{ t('crops.empty') }}
     </div>
 
     <div v-else class="mt-8 space-y-4">
@@ -104,17 +108,17 @@ const stageColor: Record<string, string> = {
             <h3 class="font-bold text-white capitalize">{{ cycle.cropType }}</h3>
             <p class="text-slate-400 text-sm mt-1">
               <span v-if="cycle.plotName">{{ cycle.plotName }}</span>
-              <span v-else class="text-slate-600">Unassigned plot</span>
+              <span v-else class="text-slate-600">{{ t('crops.unassignedPlot') }}</span>
             </p>
             <p class="text-xs text-slate-500 mt-2">
-              Planted {{ new Date(cycle.plantedAt).toLocaleDateString() }}
+              {{ t('crops.planted') }} {{ new Date(cycle.plantedAt).toLocaleDateString() }}
               <span v-if="cycle.expectedHarvestAt">
-                · Expected harvest {{ new Date(cycle.expectedHarvestAt).toLocaleDateString() }}
+                · {{ t('crops.expectedHarvest') }} {{ new Date(cycle.expectedHarvestAt).toLocaleDateString() }}
               </span>
             </p>
             <p v-if="cycle.expectedYieldKg" class="text-xs text-slate-500 mt-1">
-              Expected yield: {{ cycle.expectedYieldKg }} kg
-              <span v-if="cycle.actualYieldKg"> · Actual: {{ cycle.actualYieldKg }} kg</span>
+              {{ t('crops.expectedYield') }}: {{ cycle.expectedYieldKg }} kg
+              <span v-if="cycle.actualYieldKg"> · {{ t('crops.actual') }}: {{ cycle.actualYieldKg }} kg</span>
             </p>
           </div>
           <span
@@ -131,7 +135,7 @@ const stageColor: Record<string, string> = {
             :disabled="updating === cycle.id"
             @click="advanceStage(cycle.id, cycle.stage)"
           >
-            {{ updating === cycle.id ? 'Updating…' : `Advance to ${formatStage(nextStage(cycle.stage)!)}` }}
+            {{ updating === cycle.id ? t('crops.updating') : t('crops.advanceTo', { stage: formatStage(nextStage(cycle.stage)!) }) }}
           </button>
         </div>
       </div>

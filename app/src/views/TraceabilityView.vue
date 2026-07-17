@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 
 type HarvestLot = {
   id: string
@@ -98,7 +101,7 @@ async function saveEdit() {
     editing.value = null
     await load()
   } catch (e) {
-    editError.value = e instanceof Error ? e.message : 'Failed to update lot'
+    editError.value = e instanceof Error ? e.message : t('trace.updateFailed')
   } finally {
     savingEdit.value = false
   }
@@ -141,7 +144,7 @@ async function createLot() {
     newPhoto.value = null
     await load()
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create lot'
+    createError.value = e instanceof Error ? e.message : t('trace.createFailed')
   } finally {
     creating.value = false
   }
@@ -156,7 +159,7 @@ async function verifyLot(lot: HarvestLot, status: 'verified' | 'rejected') {
     })
     await load()
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to update verification'
+    createError.value = e instanceof Error ? e.message : t('trace.verifyFailed')
   } finally {
     verifyingId.value = null
   }
@@ -165,11 +168,11 @@ async function verifyLot(lot: HarvestLot, status: 'verified' | 'rejected') {
 function statusMeta(status: string): { label: string; cls: string } {
   switch (status) {
     case 'verified':
-      return { label: 'Verified', cls: 'bg-farm-green/20 text-farm-green' }
+      return { label: t('trace.statusVerified'), cls: 'bg-farm-green/20 text-farm-green' }
     case 'rejected':
-      return { label: 'Rejected', cls: 'bg-red-900/40 text-red-300' }
+      return { label: t('trace.statusRejected'), cls: 'bg-red-900/40 text-red-300' }
     default:
-      return { label: 'Awaiting verification', cls: 'bg-amber-500/15 text-amber-300' }
+      return { label: t('trace.statusAwaiting'), cls: 'bg-amber-500/15 text-amber-300' }
   }
 }
 
@@ -217,7 +220,7 @@ async function openTimeline(lot: HarvestLot) {
     timelineEvents.value = data.events
   } catch (e) {
     timelineEvents.value = []
-    timelineError.value = e instanceof Error ? e.message : 'Failed to load timeline'
+    timelineError.value = e instanceof Error ? e.message : t('trace.timelineFailed')
   } finally {
     timelineLoading.value = false
   }
@@ -241,9 +244,9 @@ async function exportAudit() {
     link.click()
     URL.revokeObjectURL(url)
 
-    exportMessage.value = `Exported ${data.auditChain.length} audit events`
+    exportMessage.value = t('trace.exportedN', { count: data.auditChain.length })
   } catch (e) {
-    exportMessage.value = e instanceof Error ? e.message : 'Export failed'
+    exportMessage.value = e instanceof Error ? e.message : t('trace.exportFailed')
   } finally {
     exporting.value = false
   }
@@ -254,9 +257,9 @@ async function exportAudit() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">Traceability</h2>
+        <h2 class="text-2xl font-black text-white">{{ t('trace.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
-          Harvest lots and audit chain. Only verified lots appear on public buyer links.
+          {{ t('trace.subtitle') }}
         </p>
       </div>
       <button
@@ -265,30 +268,30 @@ async function exportAudit() {
         :disabled="exporting"
         @click="exportAudit"
       >
-        {{ exporting ? 'Exporting…' : 'Export audit chain' }}
+        {{ exporting ? t('trace.exporting') : t('trace.exportAudit') }}
       </button>
     </div>
 
     <form class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4" @submit.prevent="createLot">
       <h3 class="font-bold text-white text-sm">
-        {{ canManage ? 'Create harvest lot' : 'Report a harvest' }}
+        {{ canManage ? t('trace.createLot') : t('trace.reportHarvest') }}
       </h3>
       <p v-if="!canManage" class="text-xs text-slate-400 -mt-2">
-        Your report is sent to a supervisor to verify before it goes public.
+        {{ t('trace.reportHint') }}
       </p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <input
           v-model="newLotCode"
           type="text"
           required
-          placeholder="Lot code"
+          :placeholder="t('trace.lotCode')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newProductName"
           type="text"
           required
-          placeholder="Product name"
+          :placeholder="t('trace.productName')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
@@ -297,14 +300,14 @@ async function exportAudit() {
           min="0"
           step="0.01"
           required
-          placeholder="Quantity kg"
+          :placeholder="t('trace.quantityKg')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <textarea
           v-model="newPublicNotes"
           rows="2"
           maxlength="1000"
-          placeholder="Public notes (visible on public lot page)"
+          :placeholder="t('trace.publicNotesPlaceholder')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
         />
         <textarea
@@ -312,11 +315,11 @@ async function exportAudit() {
           v-model="newInternalNotes"
           rows="2"
           maxlength="1000"
-          placeholder="Internal notes (Founder/team only)"
+          :placeholder="t('trace.internalNotesPlaceholder')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
         />
         <label class="block">
-          <span class="text-xs text-slate-400">Photo evidence (optional)</span>
+          <span class="text-xs text-slate-400">{{ t('trace.photoEvidence') }}</span>
           <input
             type="file"
             accept="image/*"
@@ -332,7 +335,7 @@ async function exportAudit() {
           :disabled="creating"
           class="text-sm px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         >
-          {{ creating ? 'Creating…' : 'Create lot' }}
+          {{ creating ? t('trace.creating') : t('trace.createLotBtn') }}
         </button>
         <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
       </div>
@@ -340,22 +343,22 @@ async function exportAudit() {
 
     <p v-if="exportMessage" class="mt-4 text-xs text-slate-400">{{ exportMessage }}</p>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading harvest lots…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('trace.loading') }}</div>
 
     <div v-else class="mt-8 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">Lot code</th>
-            <th class="pb-3 font-semibold">Product</th>
-            <th class="pb-3 font-semibold">Plot</th>
-            <th class="pb-3 font-semibold">Quantity</th>
-            <th class="pb-3 font-semibold">Harvested</th>
-            <th class="pb-3 font-semibold">Status</th>
-            <th class="pb-3 font-semibold">Public link</th>
-            <th v-if="isOwner" class="pb-3 font-semibold">QR</th>
-            <th class="pb-3 font-semibold">Notes</th>
-            <th class="pb-3 font-semibold">Actions</th>
+            <th class="pb-3 font-semibold">{{ t('trace.lotCode') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thProduct') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thPlot') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thQuantity') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thHarvested') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thStatus') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thPublicLink') }}</th>
+            <th v-if="isOwner" class="pb-3 font-semibold">{{ t('trace.thQr') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thNotes') }}</th>
+            <th class="pb-3 font-semibold">{{ t('trace.thActions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -379,7 +382,7 @@ async function exportAudit() {
                 {{ statusMeta(lot.verificationStatus).label }}
               </span>
               <p v-if="lot.reportedByName" class="text-[10px] text-slate-500 mt-1">
-                by {{ lot.reportedByName }}
+                {{ t('trace.by') }} {{ lot.reportedByName }}
               </p>
             </td>
             <td class="py-4">
@@ -392,7 +395,7 @@ async function exportAudit() {
               >
                 {{ publicLotUrl(lot) }}
               </a>
-              <span v-else class="text-xs text-slate-600">Not public yet</span>
+              <span v-else class="text-xs text-slate-600">{{ t('trace.notPublicYet') }}</span>
             </td>
             <td v-if="isOwner" class="py-4">
               <button
@@ -401,12 +404,12 @@ async function exportAudit() {
                 :disabled="loadingQrFor === lot.id"
                 @click="fetchQr(lot.id)"
               >
-                {{ loadingQrFor === lot.id ? 'Loading…' : qrByLotId[lot.id] ? 'Refresh QR' : 'Show QR' }}
+                {{ loadingQrFor === lot.id ? t('trace.loadingShort') : qrByLotId[lot.id] ? t('trace.refreshQr') : t('trace.showQr') }}
               </button>
               <div v-if="qrByLotId[lot.id]" class="mt-2 space-y-1">
                 <img
                   :src="qrByLotId[lot.id].imgUrl"
-                  alt="Lot QR code"
+                  :alt="t('trace.lotQrAlt')"
                   class="rounded border border-slate-800 bg-white p-2 h-32 w-32"
                 />
                 <a
@@ -420,8 +423,8 @@ async function exportAudit() {
               </div>
             </td>
             <td class="py-4 text-xs text-slate-400">
-              <p><span class="text-slate-500">Public:</span> {{ lot.publicNotes || '-' }}</p>
-              <p class="mt-1"><span class="text-slate-500">Internal:</span> {{ lot.internalNotes || '-' }}</p>
+              <p><span class="text-slate-500">{{ t('trace.publicLabel') }}</span> {{ lot.publicNotes || '-' }}</p>
+              <p class="mt-1"><span class="text-slate-500">{{ t('trace.internalLabel') }}</span> {{ lot.internalNotes || '-' }}</p>
             </td>
             <td class="py-4">
               <div class="flex flex-wrap gap-2">
@@ -432,7 +435,7 @@ async function exportAudit() {
                     class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30 disabled:opacity-50"
                     @click="verifyLot(lot, 'verified')"
                   >
-                    Verify
+                    {{ t('trace.verify') }}
                   </button>
                   <button
                     type="button"
@@ -440,7 +443,7 @@ async function exportAudit() {
                     class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 disabled:opacity-50"
                     @click="verifyLot(lot, 'rejected')"
                   >
-                    Reject
+                    {{ t('trace.reject') }}
                   </button>
                 </template>
                 <button
@@ -449,7 +452,7 @@ async function exportAudit() {
                   class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                   @click="openEdit(lot)"
                 >
-                  Edit notes
+                  {{ t('trace.editNotes') }}
                 </button>
                 <button
                   v-if="canManage"
@@ -457,7 +460,7 @@ async function exportAudit() {
                   class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                   @click="openTimeline(lot)"
                 >
-                  Timeline
+                  {{ t('trace.timeline') }}
                 </button>
                 <a
                   v-if="isOwner"
@@ -466,7 +469,7 @@ async function exportAudit() {
                   rel="noopener noreferrer"
                   class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
                 >
-                  Download certificate
+                  {{ t('trace.downloadCert') }}
                 </a>
                 <span v-if="!canManage" class="text-xs text-slate-600">-</span>
               </div>
@@ -474,7 +477,7 @@ async function exportAudit() {
           </tr>
         </tbody>
       </table>
-      <p v-if="!lots.length" class="text-slate-500 text-sm mt-4">No harvest lots recorded.</p>
+      <p v-if="!lots.length" class="text-slate-500 text-sm mt-4">{{ t('trace.noLots') }}</p>
     </div>
 
     <div
@@ -483,20 +486,20 @@ async function exportAudit() {
       @click.self="closeEdit"
     >
       <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Edit lot notes</h3>
+        <h3 class="text-white font-bold text-lg">{{ t('trace.editLotNotes') }}</h3>
         <form class="mt-4 space-y-3" @submit.prevent="saveEdit">
           <textarea
             v-model="editPublicNotes"
             rows="3"
             maxlength="1000"
-            placeholder="Public notes"
+            :placeholder="t('trace.publicNotes')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
           />
           <textarea
             v-model="editInternalNotes"
             rows="3"
             maxlength="1000"
-            placeholder="Internal notes"
+            :placeholder="t('trace.internalNotes')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
           />
           <p v-if="editError" class="text-xs text-red-400">{{ editError }}</p>
@@ -506,14 +509,14 @@ async function exportAudit() {
               class="text-xs px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               @click="closeEdit"
             >
-              Cancel
+              {{ t('trace.cancel') }}
             </button>
             <button
               type="submit"
               :disabled="savingEdit"
               class="text-xs px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
             >
-              {{ savingEdit ? 'Saving…' : 'Save notes' }}
+              {{ savingEdit ? t('trace.saving') : t('trace.saveNotes') }}
             </button>
           </div>
         </form>
@@ -526,8 +529,8 @@ async function exportAudit() {
       @click.self="timelineFor = null"
     >
       <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Lot timeline · {{ timelineFor.lotCode }}</h3>
-        <p v-if="timelineLoading" class="mt-4 text-sm text-slate-400">Loading timeline…</p>
+        <h3 class="text-white font-bold text-lg">{{ t('trace.lotTimeline') }} · {{ timelineFor.lotCode }}</h3>
+        <p v-if="timelineLoading" class="mt-4 text-sm text-slate-400">{{ t('trace.loadingTimeline') }}</p>
         <p v-else-if="timelineError" class="mt-4 text-sm text-red-400">{{ timelineError }}</p>
         <ul v-else class="mt-4 space-y-2 max-h-72 overflow-auto">
           <li
@@ -539,7 +542,7 @@ async function exportAudit() {
             <p class="text-slate-500 mt-1">{{ new Date(event.at).toLocaleString() }}</p>
             <p v-if="event.note" class="text-slate-400 mt-1">{{ event.note }}</p>
           </li>
-          <li v-if="!timelineEvents.length" class="text-xs text-slate-500">No events found for this lot.</li>
+          <li v-if="!timelineEvents.length" class="text-xs text-slate-500">{{ t('trace.noTimelineEvents') }}</li>
         </ul>
       </div>
     </div>

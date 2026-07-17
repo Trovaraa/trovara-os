@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+
+const { t } = useI18n()
 
 type Product = {
   id: string
@@ -37,7 +40,7 @@ function nairaToKobo(naira: number | ''): number {
 }
 
 function priceLabel(p: Product): string {
-  if (p.priceKobo <= 0) return 'Price on request'
+  if (p.priceKobo <= 0) return t('products.priceOnRequest')
   return new Intl.NumberFormat('en-NG', { style: 'currency', currency: p.currency }).format(
     p.priceKobo / 100,
   )
@@ -50,7 +53,7 @@ async function load() {
     const data = await api<{ products: Product[] }>('/api/products')
     products.value = data.products
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load products'
+    error.value = e instanceof Error ? e.message : t('products.loadFailed')
   } finally {
     loading.value = false
   }
@@ -77,7 +80,7 @@ async function createProduct() {
     newPriceNaira.value = ''
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to add product'
+    error.value = e instanceof Error ? e.message : t('products.addFailed')
   } finally {
     creating.value = false
   }
@@ -112,7 +115,7 @@ async function saveEdit() {
     editing.value = null
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to save product'
+    error.value = e instanceof Error ? e.message : t('products.saveFailed')
   } finally {
     savingEdit.value = false
   }
@@ -124,7 +127,7 @@ async function deactivate(p: Product) {
     await api(`/api/products/${p.id}`, { method: 'DELETE' })
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to remove product'
+    error.value = e instanceof Error ? e.message : t('products.removeFailed')
   }
 }
 </script>
@@ -132,10 +135,9 @@ async function deactivate(p: Product) {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">Products</h2>
+      <h2 class="text-2xl font-black text-white">{{ t('products.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
-        Catalogue shown to customers on the order bot. Prices are per unit; leave a price blank for
-        "price on request".
+        {{ t('products.subtitle') }}
       </p>
     </div>
 
@@ -143,17 +145,17 @@ async function deactivate(p: Product) {
 
     <!-- Add product -->
     <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <h3 class="font-bold text-white text-sm">Add a product</h3>
+      <h3 class="font-bold text-white text-sm">{{ t('products.addProduct') }}</h3>
       <div class="mt-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
         <input
           v-model="newName"
-          placeholder="Product name"
+          :placeholder="t('products.productName')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newUnit"
           list="unit-options"
-          placeholder="Unit"
+          :placeholder="t('products.unit')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
@@ -161,7 +163,7 @@ async function deactivate(p: Product) {
           type="number"
           min="0"
           step="0.01"
-          placeholder="Price (₦)"
+          :placeholder="t('products.price')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <button
@@ -169,7 +171,7 @@ async function deactivate(p: Product) {
           class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
           @click="createProduct"
         >
-          {{ creating ? 'Adding…' : 'Add' }}
+          {{ creating ? t('products.adding') : t('products.add') }}
         </button>
       </div>
       <datalist id="unit-options">
@@ -177,10 +179,10 @@ async function deactivate(p: Product) {
       </datalist>
     </div>
 
-    <div v-if="loading" class="mt-8 text-slate-400">Loading products…</div>
+    <div v-if="loading" class="mt-8 text-slate-400">{{ t('products.loading') }}</div>
 
     <div v-else-if="!products.length" class="mt-8 text-slate-500 text-sm">
-      No products yet. Add your first product above.
+      {{ t('products.empty') }}
     </div>
 
     <div v-else class="mt-6 space-y-3">
@@ -193,7 +195,7 @@ async function deactivate(p: Product) {
         <div class="min-w-0">
           <p class="font-semibold text-white truncate">
             {{ p.name }}
-            <span v-if="!p.active" class="text-xs text-slate-500">(inactive)</span>
+            <span v-if="!p.active" class="text-xs text-slate-500">{{ t('products.inactive') }}</span>
           </p>
           <p class="text-xs text-slate-400 mt-0.5">
             {{ priceLabel(p) }} <span class="text-slate-600">/ {{ p.unit }}</span>
@@ -204,14 +206,14 @@ async function deactivate(p: Product) {
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
             @click="openEdit(p)"
           >
-            Edit
+            {{ t('products.edit') }}
           </button>
           <button
             v-if="p.active"
             class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60"
             @click="deactivate(p)"
           >
-            Remove
+            {{ t('products.remove') }}
           </button>
         </div>
       </div>
@@ -224,17 +226,17 @@ async function deactivate(p: Product) {
       @click.self="cancelEdit"
     >
       <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6">
-        <h3 class="font-bold text-white">Edit product</h3>
+        <h3 class="font-bold text-white">{{ t('products.editProduct') }}</h3>
         <div class="mt-4 space-y-3">
           <label class="block">
-            <span class="text-xs text-slate-400">Name</span>
+            <span class="text-xs text-slate-400">{{ t('products.name') }}</span>
             <input
               v-model="editName"
               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
             />
           </label>
           <label class="block">
-            <span class="text-xs text-slate-400">Unit</span>
+            <span class="text-xs text-slate-400">{{ t('products.unit') }}</span>
             <input
               v-model="editUnit"
               list="unit-options"
@@ -242,7 +244,7 @@ async function deactivate(p: Product) {
             />
           </label>
           <label class="block">
-            <span class="text-xs text-slate-400">Price (₦) - leave blank for "price on request"</span>
+            <span class="text-xs text-slate-400">{{ t('products.priceEdit') }}</span>
             <input
               v-model.number="editPriceNaira"
               type="number"
@@ -253,7 +255,7 @@ async function deactivate(p: Product) {
           </label>
           <label class="flex items-center gap-2 text-sm text-slate-300">
             <input v-model="editActive" type="checkbox" class="rounded" />
-            Active (shown to customers)
+            {{ t('products.activeShown') }}
           </label>
         </div>
         <div class="mt-6 flex justify-end gap-2">
@@ -261,14 +263,14 @@ async function deactivate(p: Product) {
             class="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm hover:bg-slate-700"
             @click="cancelEdit"
           >
-            Cancel
+            {{ t('products.cancel') }}
           </button>
           <button
             :disabled="savingEdit || !editName.trim()"
             class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
             @click="saveEdit"
           >
-            {{ savingEdit ? 'Saving…' : 'Save' }}
+            {{ savingEdit ? t('products.saving') : t('products.save') }}
           </button>
         </div>
       </div>

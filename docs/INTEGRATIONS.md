@@ -130,7 +130,7 @@ curl -b cookies.txt -X POST http://127.0.0.1:3000/api/whatsapp/send \
 
 **Response:** `{ ok: true, messageId, preview }` or `502` with Meta error details.
 
-**Template IDs** (from `whatsapp/templates.json`): `task_complete`, `incident_report`, `low_stock_alert`. Languages: `en`, `yo`, `pcm`.
+**Template IDs** (from `whatsapp/templates.json`): `task_complete`, `incident_report`, `low_stock_alert`. Languages: `en`, `yo`, `pcm`, `fr`.
 
 List templates without auth:
 
