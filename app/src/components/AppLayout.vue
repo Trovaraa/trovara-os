@@ -39,6 +39,7 @@ const navGroups = computed<NavGroup[]>(() => {
         items: [
           { to: '/today', labelKey: 'nav.today' },
           { to: '/worker', labelKey: 'nav.myTasks' },
+          { to: '/settings', labelKey: 'nav.settings' },
         ],
       },
     ]
@@ -61,6 +62,10 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
           { to: '/traceability', labelKey: 'nav.traceability' },
         ],
+      },
+      {
+        titleKey: 'nav.grpSetup',
+        items: [{ to: '/settings', labelKey: 'nav.settings' }],
       },
     ]
   }
@@ -109,7 +114,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/zones', labelKey: 'nav.zones' },
         { to: '/users', labelKey: 'nav.users', ownerOnly: true },
         { to: '/tasks/post-approval', labelKey: 'nav.postApproval', ownerOnly: true },
-        { to: '/settings', labelKey: 'nav.settings', ownerOnly: true },
+        { to: '/settings', labelKey: 'nav.settings' },
       ],
     },
   ]

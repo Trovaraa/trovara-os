@@ -4,6 +4,9 @@
  * no public URL, ideal for laptop testing).
  */
 
+import type { UserRole } from '../db/schema.js'
+import { telegramCommandsForRole } from './role-menus.js'
+
 export type TelegramConfig = { botToken: string; apiBase: string }
 
 /**
@@ -97,28 +100,30 @@ export async function answerTelegramCallbackQuery(
 
 /** Register slash-command menu for the staff butler (shows when users type /). */
 export async function setTelegramStaffCommands(): Promise<void> {
+  // Default menu is intentionally minimal; linked chats get role-specific menus.
   await tgCall(
     'setMyCommands',
     {
       commands: [
-        { command: 'clockin', description: 'Clock in (field workers)' },
-        { command: 'clockout', description: 'Clock out (field workers)' },
-        { command: 'tasks', description: 'List my open tasks' },
-        { command: 'taskstart', description: 'Start a task (pick list)' },
-        { command: 'done', description: 'Submit task for approval (pick list)' },
-        { command: 'approve', description: 'Approve a task (supervisor)' },
-        { command: 'reject', description: 'Reject a task (supervisor)' },
-        { command: 'confirm', description: 'Confirm a pending order (pick from list)' },
-        { command: 'dispatch', description: 'Mark order dispatched (pick from list)' },
-        { command: 'delivered', description: 'Mark order delivered (pick from list)' },
-        { command: 'cancel', description: 'Cancel an order — /cancel TRV-ORD-…' },
-        { command: 'orders', description: 'Show order command help' },
-        { command: 'ops', description: 'Field / ops command help' },
-        { command: 'lots', description: 'List harvest lots needing pack details' },
-        { command: 'printqr', description: 'Print box QR label (pick lot)' },
+        { command: 'help', description: 'Show commands for your role' },
         { command: 'language', description: 'Change butler reply language' },
-        { command: 'handover', description: 'Handover checklist progress' },
+        { command: 'link', description: 'Link account with a Settings code' },
       ],
+    },
+    'staff',
+  )
+}
+
+/** Per-chat slash menu so admin/supervisor/sales/field each see only their commands. */
+export async function setTelegramCommandsForChat(
+  chatId: number | string,
+  role: UserRole,
+): Promise<void> {
+  await tgCall(
+    'setMyCommands',
+    {
+      commands: telegramCommandsForRole(role),
+      scope: { type: 'chat', chat_id: chatId },
     },
     'staff',
   )

@@ -40,6 +40,11 @@ export function canManageProducts(user: SessionUser): boolean {
   return canManageOrders(user)
 }
 
+/** Owner, supervisor, and sales may record stock moves and opening counts. */
+export function canManageInventory(user: SessionUser): boolean {
+  return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
+}
+
 /** Roles that can act on orders in the app / messaging bots. */
 export const ORDER_STAFF_ROLES: UserRole[] = ['owner', 'supervisor', 'sales']
 

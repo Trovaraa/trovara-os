@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const canManage = computed(() => auth.canApprove)
 
 type Batch = {
   id: string
@@ -14,6 +17,13 @@ type Batch = {
   plotName?: string
   acquiredAt: string
   active: boolean
+}
+
+type PlotOption = {
+  id: string
+  name: string
+  zoneName?: string | null
+  active?: boolean
 }
 
 type Economics = {
@@ -43,6 +53,7 @@ type VaccinationSchedule = {
 type LogType = 'feeding' | 'vaccination' | 'mortality'
 
 const batches = ref<Batch[]>([])
+const plots = ref<PlotOption[]>([])
 const loading = ref(true)
 const logging = ref<string | null>(null)
 const logNotes = ref<Record<string, string>>({})
@@ -54,17 +65,75 @@ const vaccination = ref<Record<string, VaccinationSchedule | null>>({})
 const detailLoading = ref<Record<string, boolean>>({})
 const detailErrors = ref<Record<string, string>>({})
 
+const showAdd = ref(false)
+const newName = ref('')
+const newSpecies = ref('')
+const newHeadCount = ref<number | ''>('')
+const newPlotId = ref('')
+const newAcquiredAt = ref(new Date().toISOString().slice(0, 10))
+const newNotes = ref('')
+const creating = ref(false)
+const createError = ref<string | null>(null)
+
+const activePlots = computed(() => plots.value.filter((p) => p.active !== false))
+
 async function load() {
   loading.value = true
   try {
-    const data = await api<{ batches: Batch[] }>('/api/livestock/batches')
-    batches.value = data.batches.filter((b) => b.active)
+    const [batchData, plotData] = await Promise.all([
+      api<{ batches: Batch[] }>('/api/livestock/batches'),
+      api<{ plots: PlotOption[] }>('/api/zones/plots'),
+    ])
+    batches.value = batchData.batches.filter((b) => b.active)
+    plots.value = plotData.plots
   } finally {
     loading.value = false
   }
 }
 
 onMounted(load)
+
+function plotLabel(plot: PlotOption): string {
+  return plot.zoneName ? `${plot.name} (${plot.zoneName})` : plot.name
+}
+
+function resetCreateForm() {
+  newName.value = ''
+  newSpecies.value = ''
+  newHeadCount.value = ''
+  newPlotId.value = ''
+  newAcquiredAt.value = new Date().toISOString().slice(0, 10)
+  newNotes.value = ''
+}
+
+async function createBatch() {
+  if (!canManage.value || !newName.value.trim() || !newSpecies.value.trim()) return
+  if (newHeadCount.value === '' || Number(newHeadCount.value) < 1) return
+  if (!newAcquiredAt.value) return
+
+  creating.value = true
+  createError.value = null
+  try {
+    await api('/api/livestock/batches', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: newName.value.trim(),
+        species: newSpecies.value.trim(),
+        headCount: Number(newHeadCount.value),
+        plotId: newPlotId.value || undefined,
+        acquiredAt: new Date(newAcquiredAt.value).toISOString(),
+        notes: newNotes.value.trim() || undefined,
+      }),
+    })
+    resetCreateForm()
+    showAdd.value = false
+    await load()
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : t('livestock.createFailed')
+  } finally {
+    creating.value = false
+  }
+}
 
 async function toggleDetails(batchId: string) {
   if (expanded.value.has(batchId)) {
@@ -144,15 +213,96 @@ const vaccStatusColor: Record<string, string> = {
 
 <template>
   <AppLayout>
-    <div>
-      <h2 class="text-2xl font-black text-white">{{ t('livestock.title') }}</h2>
-      <p class="text-slate-400 text-sm mt-1">{{ t('livestock.subtitle') }}</p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-2xl font-black text-white">{{ t('livestock.title') }}</h2>
+        <p class="text-slate-400 text-sm mt-1">{{ t('livestock.subtitle') }}</p>
+      </div>
+      <button
+        v-if="canManage"
+        type="button"
+        class="text-sm px-4 py-2 rounded-lg bg-farm-green text-slate-950 font-bold hover:bg-farm-green/90"
+        @click="showAdd = !showAdd"
+      >
+        {{ showAdd ? t('livestock.close') : t('livestock.addBatch') }}
+      </button>
     </div>
+
+    <form
+      v-if="showAdd && canManage"
+      class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
+      @submit.prevent="createBatch"
+    >
+      <h3 class="font-bold text-white text-sm">{{ t('livestock.addBatchTitle') }}</h3>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <input
+          v-model="newName"
+          type="text"
+          required
+          maxlength="200"
+          :placeholder="t('livestock.namePlaceholder')"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+        />
+        <input
+          v-model="newSpecies"
+          type="text"
+          required
+          maxlength="100"
+          :placeholder="t('livestock.speciesPlaceholder')"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+        />
+        <input
+          v-model.number="newHeadCount"
+          type="number"
+          required
+          min="1"
+          step="1"
+          :placeholder="t('livestock.headCountPlaceholder')"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+        />
+        <select
+          v-model="newPlotId"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+        >
+          <option value="">{{ t('livestock.plotOptional') }}</option>
+          <option v-for="plot in activePlots" :key="plot.id" :value="plot.id">
+            {{ plotLabel(plot) }}
+          </option>
+        </select>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('livestock.acquiredDate') }}</label>
+          <input
+            v-model="newAcquiredAt"
+            type="date"
+            required
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <input
+          v-model="newNotes"
+          type="text"
+          maxlength="2000"
+          :placeholder="t('livestock.notesOptional')"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+        />
+      </div>
+      <p v-if="createError" class="text-sm text-red-400">{{ createError }}</p>
+      <button
+        type="submit"
+        class="text-sm px-4 py-2 rounded-lg bg-farm-green text-slate-950 font-bold hover:bg-farm-green/90 disabled:opacity-50"
+        :disabled="creating"
+      >
+        {{ creating ? t('livestock.creating') : t('livestock.createBatch') }}
+      </button>
+    </form>
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('livestock.loading') }}</div>
 
     <div v-else-if="batches.length === 0" class="mt-8 text-slate-500">
       {{ t('livestock.empty') }}
+      <span v-if="canManage && !showAdd" class="block text-slate-600 text-sm mt-1">
+        {{ t('livestock.emptyHint') }}
+      </span>
     </div>
 
     <div v-else class="mt-8 space-y-4">

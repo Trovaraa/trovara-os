@@ -1,9 +1,9 @@
 import { and, eq, ne, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { assetLogs, assets, plots, tasks, users } from '../db/schema.js'
+import { tasks, users } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { recordFarmEvent } from './farm-events.js'
-import { verifyAndConsumeLinkCode, resolveActiveTelegramLink } from './butler-link-codes.js'
+import { verifyAndConsumeLinkCode, resolveActiveTelegramLink, extractButlerLinkCode } from './butler-link-codes.js'
 import { answerPhoto, answerText, recordChatMessage, transcribeVoice } from './butler-core.js'
 import { voiceNotUnderstoodMessage } from './reply-locale.js'
 import { checkButlerChatRateLimit, checkButlerRateLimit } from './butler-rate-limit.js'
@@ -23,8 +23,6 @@ import {
   staffLocale,
 } from './order-messages.js'
 import {
-  salesOpsHelp,
-  staffOpsHelp,
   tryHandleStaffOpsCommand,
   transitionTaskFromCallback,
 } from './staff-ops.js'
@@ -34,18 +32,10 @@ import { formatHandoverProgressText, getHandoverProgress } from './handover-temp
 import {
   cancelActionDraft,
   confirmActionDraft,
-  getLatestPendingDraft,
   markTelegramUpdateProcessed,
-  mergeActionDraftPayload,
   storeActionDraft,
-  storeTaskDraft,
   wasTelegramUpdateProcessed,
 } from './task-drafts.js'
-import {
-  enrichHarvestLot,
-  findLotByCode,
-  listIncompleteLots,
-} from './harvest-lots.js'
 import {
   buildLotQrPng,
   findPrintableLotByCode,
@@ -54,9 +44,6 @@ import {
   printQrPickerKeyboard,
   type PrintableLot,
 } from './lot-print.js'
-import { normalizeLotUnit } from './lot-codes.js'
-import { createCensusSurvey } from './census-service.js'
-import { logAudit } from './audit.js'
 import {
   answerTelegramCallbackQuery,
   confirmCancelKeyboard,
@@ -64,14 +51,67 @@ import {
   downloadTelegramFileBuffer,
   sendTelegramMessage,
   sendTelegramPhoto,
+  setTelegramCommandsForChat,
   startTelegramPollLoop,
   type TelegramUpdate,
 } from './telegram.js'
+import {
+  executeConfirmedCropCycle,
+  executeConfirmedLivestockBatch,
+  parseCropCycleIntent,
+  parseLivestockBatchIntent,
+  resolvePlotByName,
+} from './action-draft-farm.js'
+import {
+  applyConfirmedOpsDraft,
+  parseAssetCountIntent,
+  parseCensusIntent,
+  parseCreateTaskIntent,
+  prepareAssetCountDraft,
+  prepareCensusDraft,
+  prepareCreateTaskDraft,
+} from './action-draft-ops.js'
+import {
+  applyConfirmedInventoryDraft,
+  parseLowStockAckIntent,
+  parseOpeningCountIntent,
+  parseStockMoveIntent,
+  prepareLowStockAckDraft,
+  prepareOpeningCountDraft,
+  prepareStockMoveDraft,
+} from './action-draft-inventory.js'
+import {
+  applyConfirmedZoneDraft,
+  parseCreatePlotIntent,
+  parseCreateZoneIntent,
+  prepareCreatePlotDraft,
+  prepareCreateZoneDraft,
+} from './action-draft-zones.js'
+import {
+  applyConfirmedLivestockLogDraft,
+  parseLivestockLogIntent,
+  prepareLivestockLogDraft,
+} from './action-draft-livestock-log.js'
+import {
+  applyConfirmedLotDraft,
+  applyLotEnrichText,
+  attachPhotoToLotEnrichDraft,
+  formatLotsToPackMessage,
+  parseVerifyLotIntent,
+  prepareVerifyLotDraft,
+  startLotEnrichDraft,
+} from './lot-enrich.js'
+import { roleCommandHelp } from './role-menus.js'
 
 const ENTITY = 'telegram_message'
 const LINK_ENTITY = 'telegram_link'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
 const BOT_KEY = 'staff'
+const CREATE_PLOT_HINT = 'Create plot: Name zone=ZoneName'
+
+function withCreatePlotHint(error: string): string {
+  return /not found/i.test(error) ? `${error}\n\n${CREATE_PLOT_HINT}` : error
+}
 
 type DbUser = typeof users.$inferSelect
 
@@ -118,6 +158,7 @@ async function linkChat(chatId: number, user: DbUser): Promise<void> {
     afterValue: { userId: user.id, chatId },
     metadata: { linkedAt: new Date().toISOString() },
   })
+  await setTelegramCommandsForChat(chatId, user.role).catch(() => undefined)
 }
 
 async function findUserByPhone(phone: string): Promise<DbUser | undefined> {
@@ -134,62 +175,29 @@ const LINK_PROMPT = [
   '',
   'To connect your farm account, either:',
   '• Tap "Share my phone number" below (if your number is on your Trovara profile), or',
-  '• Generate a link code in Trovara Settings → Connect Telegram, then send: /link CODE',
+  '• Generate a link code in Trovara Settings → Connect Telegram, then send:',
+  '  /link YOURCODE',
+  '  (or just paste the code alone)',
 ].join('\n')
 
 const LINK_CODE_FAIL_MSG =
-  'Invalid or expired link code. Generate a new code in Trovara Settings → Connect Telegram.'
+  'Invalid or expired link code. Generate a new code in Trovara Settings → Connect Telegram, then send /link YOURCODE (within 15 minutes).'
 
-function parseCreateTaskIntent(text: string): { title: string } | null {
-  const trimmed = text.trim()
-  const match = trimmed.match(
-    /^(?:create(?:\s+a)?\s+)?(?:task|handover\s+task)\s*[:\-–]?\s*(.+)$/i,
-  )
-  if (match?.[1]) return { title: match[1].trim().slice(0, 200) }
-  if (/^create\s+.+/i.test(trimmed) && /task/i.test(trimmed)) {
-    return { title: trimmed.replace(/^create\s+/i, '').slice(0, 200) }
-  }
-  return null
+async function completeTelegramLink(chatId: number, u: DbUser): Promise<void> {
+  await linkChat(chatId, u)
+  await sendTelegramMessage(chatId, '✅ Connected successfully.')
+  await sendTelegramMessage(chatId, roleCommandHelp(staffLocale(u.preferredLocale), u.role))
+  await promptLanguage(chatId, u.preferredLocale)
 }
 
-/** Census: <block> crop=<type> count=<n> [min=<n>] [max=<n>] */
-function parseCensusIntent(text: string): {
-  blockName: string
-  cropType: string
-  plantCount: number
-  minHeight?: number
-  maxHeight?: number
-} | null {
-  const trimmed = text.trim()
-  const match = trimmed.match(
-    /^census\s*[:\-–]?\s*(.+?)\s+crop\s*=\s*(\S+)\s+count\s*=\s*(\d+)(?:\s+min\s*=\s*([\d.]+))?(?:\s+max\s*=\s*([\d.]+))?$/i,
-  )
-  if (!match) return null
-  return {
-    blockName: match[1].trim(),
-    cropType: match[2].trim(),
-    plantCount: Number(match[3]),
-    minHeight: match[4] != null ? Number(match[4]) : undefined,
-    maxHeight: match[5] != null ? Number(match[5]) : undefined,
+async function tryLinkWithCode(chatId: number, code: string): Promise<boolean> {
+  const u = await verifyAndConsumeLinkCode(code)
+  if (!u) {
+    await sendTelegramMessage(chatId, LINK_CODE_FAIL_MSG)
+    return false
   }
-}
-
-/** Asset count: <asset name or tag> available=<n> [damaged=<n>] */
-function parseAssetCountIntent(text: string): {
-  assetQuery: string
-  countAvailable: number
-  countDamaged: number
-} | null {
-  const trimmed = text.trim()
-  const match = trimmed.match(
-    /^asset(?:\s+count)?\s*[:\-–]?\s*(.+?)\s+available\s*=\s*(\d+)(?:\s+damaged\s*=\s*(\d+))?$/i,
-  )
-  if (!match) return null
-  return {
-    assetQuery: match[1].trim(),
-    countAvailable: Number(match[2]),
-    countDamaged: match[3] != null ? Number(match[3]) : 0,
-  }
+  await completeTelegramLink(chatId, u)
+  return true
 }
 
 async function handleHandoverCommand(user: SessionUser, chatId: number) {
@@ -244,56 +252,20 @@ async function offerCensusDraft(
   chatId: number,
   intent: NonNullable<ReturnType<typeof parseCensusIntent>>,
 ) {
-  const farmPlots = await db
-    .select({ id: plots.id, name: plots.name })
-    .from(plots)
-    .where(and(eq(plots.farmId, user.farmId), eq(plots.active, true)))
-
-  const plot = farmPlots.find(
-    (p) => p.name.toLowerCase() === intent.blockName.toLowerCase(),
-  )
-  if (!plot) {
-    await sendTelegramMessage(
-      chatId,
-      `Block "${intent.blockName}" not found. Use the exact block name from Zones.`,
-    )
-    return
-  }
-
-  const stored = await storeActionDraft({
-    userId: user.id,
-    farmId: user.farmId,
-    actionType: 'create_census',
-    payload: {
-      plotId: plot.id,
-      plotName: plot.name,
-      cropType: intent.cropType,
-      plantCount: intent.plantCount,
-      minHeight: intent.minHeight ?? null,
-      maxHeight: intent.maxHeight ?? null,
-      heightUnit: 'cm',
-    },
+  const prepared = await prepareCensusDraft({
+    user,
+    ...intent,
     channel: 'telegram',
     externalChatId: String(chatId),
   })
-
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, withCreatePlotHint(prepared.error))
+    return
+  }
   await sendTelegramMessage(
     chatId,
-    [
-      'Draft census ready — confirm to save:',
-      '',
-      `Block: ${plot.name}`,
-      `Crop: ${intent.cropType}`,
-      `Count: ${intent.plantCount}`,
-      intent.minHeight != null || intent.maxHeight != null
-        ? `Height: ${intent.minHeight ?? '?'}–${intent.maxHeight ?? '?'} cm`
-        : null,
-      '',
-      'Tap Confirm or Cancel below.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    { replyMarkup: confirmCancelKeyboard(stored.id) },
+    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
+    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
   )
 }
 
@@ -302,25 +274,37 @@ async function offerAssetCountDraft(
   chatId: number,
   intent: NonNullable<ReturnType<typeof parseAssetCountIntent>>,
 ) {
-  const farmAssets = await db
-    .select({
-      id: assets.id,
-      name: assets.name,
-      assetTag: assets.assetTag,
-    })
-    .from(assets)
-    .where(and(eq(assets.farmId, user.farmId), eq(assets.active, true)))
-
-  const q = intent.assetQuery.toLowerCase()
-  const asset = farmAssets.find(
-    (a) =>
-      a.name.toLowerCase() === q ||
-      (a.assetTag != null && a.assetTag.toLowerCase() === q),
+  const prepared = await prepareAssetCountDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(
+    chatId,
+    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
+    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
   )
-  if (!asset) {
+}
+
+async function offerCropCycleDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseCropCycleIntent>>,
+) {
+  if (!canAssignTasks(user)) {
+    await sendTelegramMessage(chatId, 'Only Admin or Supervisor can create crop cycles.')
+    return
+  }
+  const plot = await resolvePlotByName(user.farmId, intent.plotName)
+  if (!plot) {
     await sendTelegramMessage(
       chatId,
-      `Asset "${intent.assetQuery}" not found. Use the exact asset name or tag.`,
+      withCreatePlotHint(`Block "${intent.plotName}" not found. Use the exact plot name from Zones.`),
     )
     return
   }
@@ -328,13 +312,16 @@ async function offerAssetCountDraft(
   const stored = await storeActionDraft({
     userId: user.id,
     farmId: user.farmId,
-    actionType: 'asset_count',
+    actionType: 'create_crop_cycle',
     payload: {
-      assetId: asset.id,
-      assetName: asset.name,
-      countAvailable: intent.countAvailable,
-      countDamaged: intent.countDamaged,
-      condition: intent.countDamaged > 0 ? 'damaged' : 'good',
+      plotId: plot.id,
+      plotName: plot.name,
+      cropType: intent.cropType,
+      plantedAt: new Date(intent.plantedAt).toISOString(),
+      expectedHarvestAt: intent.expectedHarvestAt
+        ? new Date(intent.expectedHarvestAt).toISOString()
+        : null,
+      expectedYieldKg: intent.expectedYieldKg ?? null,
     },
     channel: 'telegram',
     externalChatId: String(chatId),
@@ -343,83 +330,80 @@ async function offerAssetCountDraft(
   await sendTelegramMessage(
     chatId,
     [
-      'Draft asset count ready — confirm to save:',
+      'Draft crop cycle — confirm to save:',
       '',
-      `Asset: ${asset.name}`,
-      `Available: ${intent.countAvailable}`,
-      `Damaged: ${intent.countDamaged}`,
+      `Plot: ${plot.name}`,
+      `Type: ${intent.cropType}`,
+      `Planted: ${intent.plantedAt}`,
+      intent.expectedHarvestAt ? `Harvest: ${intent.expectedHarvestAt}` : null,
+      intent.expectedYieldKg != null ? `Yield: ${intent.expectedYieldKg} kg` : null,
+      '',
+      'Tap Confirm or Cancel below.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    { replyMarkup: confirmCancelKeyboard(stored.id) },
+  )
+}
+
+async function offerLivestockBatchDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseLivestockBatchIntent>>,
+) {
+  if (!canAssignTasks(user)) {
+    await sendTelegramMessage(chatId, 'Only Admin or Supervisor can create livestock batches.')
+    return
+  }
+
+  let plotId: string | null = null
+  let plotName: string | null = null
+  if (intent.plotName) {
+    const plot = await resolvePlotByName(user.farmId, intent.plotName)
+    if (!plot) {
+      await sendTelegramMessage(
+        chatId,
+        withCreatePlotHint(
+          `Plot "${intent.plotName}" not found. Use the exact plot name from Zones, or omit plot=.`,
+        ),
+      )
+      return
+    }
+    plotId = plot.id
+    plotName = plot.name
+  }
+
+  const stored = await storeActionDraft({
+    userId: user.id,
+    farmId: user.farmId,
+    actionType: 'create_livestock_batch',
+    payload: {
+      name: intent.name,
+      species: intent.species,
+      headCount: intent.headCount,
+      plotId,
+      plotName,
+      acquiredAt: new Date(intent.acquiredAt).toISOString(),
+    },
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+
+  await sendTelegramMessage(
+    chatId,
+    [
+      'Draft livestock batch — confirm to save:',
+      '',
+      `Name: ${intent.name}`,
+      `Species: ${intent.species}`,
+      `Heads: ${intent.headCount}`,
+      plotName ? `Plot: ${plotName}` : 'Plot: (none)',
+      `Acquired: ${intent.acquiredAt}`,
       '',
       'Tap Confirm or Cancel below.',
     ].join('\n'),
     { replyMarkup: confirmCancelKeyboard(stored.id) },
   )
-}
-
-async function executeConfirmedCensus(
-  user: SessionUser,
-  payload: Record<string, unknown>,
-): Promise<string> {
-  const plotId = String(payload.plotId ?? '')
-  const cropType = String(payload.cropType ?? '').trim()
-  const plantCount = Number(payload.plantCount)
-  if (!plotId || !cropType || !Number.isFinite(plantCount)) {
-    return 'Draft was missing census fields.'
-  }
-
-  await createCensusSurvey(user, {
-    plotId,
-    cropType,
-    plantCount,
-    minHeight: payload.minHeight != null ? Number(payload.minHeight) : null,
-    maxHeight: payload.maxHeight != null ? Number(payload.maxHeight) : null,
-    heightUnit: 'cm',
-  })
-
-  return `✅ Census saved for ${payload.plotName ?? 'block'} · ${cropType} (${plantCount}). Awaiting verification.`
-}
-
-async function executeConfirmedAssetCount(
-  user: SessionUser,
-  payload: Record<string, unknown>,
-): Promise<string> {
-  const assetId = String(payload.assetId ?? '')
-  const countAvailable = Number(payload.countAvailable)
-  const countDamaged = Number(payload.countDamaged ?? 0)
-  if (!assetId || !Number.isFinite(countAvailable)) {
-    return 'Draft was missing asset count fields.'
-  }
-
-  const [asset] = await db
-    .select({ id: assets.id, name: assets.name })
-    .from(assets)
-    .where(and(eq(assets.id, assetId), eq(assets.farmId, user.farmId)))
-    .limit(1)
-  if (!asset) return 'Asset no longer found.'
-
-  const [log] = await db
-    .insert(assetLogs)
-    .values({
-      farmId: user.farmId,
-      assetId: asset.id,
-      logDate: new Date(),
-      countAvailable,
-      countDamaged: Number.isFinite(countDamaged) ? countDamaged : 0,
-      condition: String(payload.condition ?? 'good'),
-      recordedById: user.id,
-      verificationStatus: 'reported',
-    })
-    .returning({ id: assetLogs.id })
-
-  await logAudit({
-    farmId: user.farmId,
-    userId: user.id,
-    action: 'asset_log_create',
-    entityType: 'asset_log',
-    entityId: log.id,
-    metadata: { source: 'telegram' },
-  })
-
-  return `✅ Asset count saved for ${asset.name}: ${countAvailable} available. Awaiting verification.`
 }
 
 async function offerTaskDraft(
@@ -428,81 +412,22 @@ async function offerTaskDraft(
   title: string,
   description?: string,
 ) {
-  if (!canAssignTasks(user)) {
-    await sendTelegramMessage(chatId, 'Only Admin or Supervisor can create tasks from Telegram.')
+  const prepared = await prepareCreateTaskDraft({
+    user,
+    title,
+    description,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
     return
   }
-
-  const stored = await storeTaskDraft(
-    user.id,
-    user.farmId,
-    { title, description },
-    { channel: 'telegram', externalChatId: String(chatId) },
-  )
-
   await sendTelegramMessage(
     chatId,
-    [
-      'Draft task ready — confirm to create:',
-      '',
-      `Title: ${title}`,
-      description ? `Notes: ${description}` : null,
-      '',
-      'Tap Confirm or Cancel below.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    { replyMarkup: confirmCancelKeyboard(stored.draftId) },
+    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
+    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
   )
-}
-
-async function executeConfirmedCreateTask(
-  user: SessionUser,
-  payload: Record<string, unknown>,
-): Promise<string> {
-  const title = String(payload.title ?? '').trim()
-  if (!title) return 'Draft was missing a title.'
-
-  const plotId = typeof payload.plotId === 'string' ? payload.plotId : undefined
-  const assignedToId = typeof payload.assignedToId === 'string' ? payload.assignedToId : undefined
-
-  if (plotId) {
-    const [plot] = await db
-      .select({ id: plots.id })
-      .from(plots)
-      .where(and(eq(plots.id, plotId), eq(plots.farmId, user.farmId)))
-      .limit(1)
-    if (!plot) return 'Invalid plot on draft.'
-  }
-
-  const [task] = await db
-    .insert(tasks)
-    .values({
-      farmId: user.farmId,
-      title,
-      description: typeof payload.description === 'string' ? payload.description : undefined,
-      plotId: plotId ?? null,
-      assignedToId: assignedToId ?? null,
-      createdById: user.id,
-      status: 'pending',
-      actionType: typeof payload.actionType === 'string' ? payload.actionType : null,
-      actionPayload:
-        payload.actionPayload && typeof payload.actionPayload === 'object'
-          ? (payload.actionPayload as Record<string, unknown>)
-          : null,
-    })
-    .returning({ id: tasks.id, title: tasks.title })
-
-  await logAudit({
-    farmId: user.farmId,
-    userId: user.id,
-    action: 'create',
-    entityType: 'task',
-    entityId: task.id,
-    metadata: { source: 'telegram_confirm' },
-  })
-
-  return `✅ Task created: ${task.title}`
 }
 
 async function handleCallbackQuery(
@@ -610,68 +535,69 @@ async function handleCallbackQuery(
   }
 
   try {
-    if (confirmed.actionType === 'create_task') {
-      if (!canAssignTasks(user)) {
-        await sendTelegramMessage(chatId, 'You are not allowed to confirm this action.')
-        return
-      }
-      const result = await executeConfirmedCreateTask(user, confirmed.payload)
+    const opsResult = await applyConfirmedOpsDraft(
+      user,
+      confirmed.actionType,
+      confirmed.payload,
+      'telegram_confirm',
+    )
+    if (opsResult != null) {
+      await sendTelegramMessage(chatId, opsResult)
+      return
+    }
+
+    const invResult = await applyConfirmedInventoryDraft(
+      user,
+      confirmed.actionType,
+      confirmed.payload,
+      'telegram_confirm',
+    )
+    if (invResult != null) {
+      await sendTelegramMessage(chatId, invResult)
+      return
+    }
+
+    const zoneResult = await applyConfirmedZoneDraft(
+      user,
+      confirmed.actionType,
+      confirmed.payload,
+      'telegram_confirm',
+    )
+    if (zoneResult != null) {
+      await sendTelegramMessage(chatId, zoneResult)
+      return
+    }
+
+    const logResult = await applyConfirmedLivestockLogDraft(
+      user,
+      confirmed.actionType,
+      confirmed.payload,
+      'telegram_confirm',
+    )
+    if (logResult != null) {
+      await sendTelegramMessage(chatId, logResult)
+      return
+    }
+
+    const lotResult = await applyConfirmedLotDraft(
+      user,
+      confirmed.actionType,
+      confirmed.payload,
+    )
+    if (lotResult != null) {
+      await sendTelegramMessage(chatId, lotResult)
+      return
+    }
+
+    if (confirmed.actionType === 'create_crop_cycle') {
+      const result = await executeConfirmedCropCycle(user, confirmed.payload)
       await sendTelegramMessage(chatId, result)
       return
     }
 
-    if (confirmed.actionType === 'create_census') {
-      const result = await executeConfirmedCensus(user, confirmed.payload)
+    if (confirmed.actionType === 'create_livestock_batch') {
+      const result = await executeConfirmedLivestockBatch(user, confirmed.payload)
       await sendTelegramMessage(chatId, result)
-      return
-    }
-
-    if (confirmed.actionType === 'asset_count') {
-      const result = await executeConfirmedAssetCount(user, confirmed.payload)
-      await sendTelegramMessage(chatId, result)
-      return
-    }
-
-    if (confirmed.actionType === 'enrich_lot') {
-      const payload = confirmed.payload as {
-        lotId?: string
-        productName?: string
-        quantityKg?: number
-        unit?: 'kg' | 'crates'
-        plotId?: string | null
-        publicNotes?: string | null
-        internalNotes?: string | null
-        photoUrl?: string | null
-      }
-      if (!payload.lotId) {
-        await sendTelegramMessage(chatId, 'Draft is missing the lot id.')
-        return
-      }
-      const result = await enrichHarvestLot({
-        farmId: user.farmId,
-        lotId: payload.lotId,
-        userId: user.id,
-        updates: {
-          productName: payload.productName,
-          quantityKg: payload.quantityKg,
-          unit: payload.unit,
-          plotId: payload.plotId,
-          publicNotes: payload.publicNotes,
-          internalNotes: canAssignTasks(user) ? payload.internalNotes : undefined,
-          photoUrl: payload.photoUrl,
-        },
-      })
-      if ('error' in result) {
-        await sendTelegramMessage(chatId, result.error)
-        return
-      }
-      await sendTelegramMessage(
-        chatId,
-        `Lot ${result.lot.lotCode} updated: ${result.lot.quantityKg} ${result.lot.unit}` +
-          (result.lot.plotId ? ' · plot set' : '') +
-          (result.lot.photoUrl ? ' · photo saved' : '') +
-          '\nSupervisor can Verify it in Traceability when ready.',
-      )
       return
     }
 
@@ -730,120 +656,170 @@ async function handlePrintQrCommand(user: SessionUser, chatId: number, text: str
 }
 
 async function handleLotsCommand(user: SessionUser, chatId: number) {
-  const lots = await listIncompleteLots(user.farmId)
-  if (!lots.length) {
-    await sendTelegramMessage(chatId, 'No lots waiting for pack details. New customer orders create lots automatically.')
-    return
-  }
-  const lines = lots.map(
-    (lot, i) =>
-      `${i + 1}. ${lot.lotCode} — ${lot.productName} (${lot.quantityKg} ${lot.unit})` +
-      `${lot.plotId ? '' : ' · needs plot'}${lot.photoUrl ? '' : ' · needs photo'}`,
-  )
-  await sendTelegramMessage(
-    chatId,
-    [
-      'Lots to pack / enrich:',
-      '',
-      ...lines,
-      '',
-      'Reply: pack LOTCODE',
-      'Then: qty 12 crates | plot BLOCKNAME | notes public text',
-      'Send a photo to attach it, then Confirm.',
-    ].join('\n'),
-  )
+  await sendTelegramMessage(chatId, await formatLotsToPackMessage(user.farmId))
 }
 
-async function startLotEnrichDraft(user: SessionUser, chatId: number, lotCode: string) {
-  const lot = await findLotByCode(user.farmId, lotCode.trim())
-  if (!lot) {
-    await sendTelegramMessage(chatId, `Lot not found: ${lotCode}`)
-    return
-  }
-
-  const stored = await storeActionDraft({
-    userId: user.id,
-    farmId: user.farmId,
-    actionType: 'enrich_lot',
+async function offerLotEnrichDraft(user: SessionUser, chatId: number, lotCode: string) {
+  const prepared = await startLotEnrichDraft(user, lotCode, {
     channel: 'telegram',
     externalChatId: String(chatId),
-    payload: {
-      lotId: lot.id,
-      lotCode: lot.lotCode,
-      productName: lot.productName,
-      quantityKg: lot.quantityKg,
-      unit: lot.unit === 'crates' ? 'crates' : 'kg',
-      plotId: lot.plotId,
-      publicNotes: lot.publicNotes,
-      internalNotes: lot.internalNotes,
-      photoUrl: lot.photoUrl,
-    },
-    ttlMs: 20 * 60 * 1000,
   })
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      `Packing ${lot.lotCode}`,
-      `Product: ${lot.productName}`,
-      `Qty: ${lot.quantityKg} ${lot.unit}`,
-      '',
-      'Send updates:',
-      '• qty 24 crates   (or qty 50 kg)',
-      '• plot Block A',
-      '• notes Fresh morning harvest',
-      '• or send a photo',
-      '',
-      'Then Confirm to save.',
-    ].join('\n'),
-    { replyMarkup: confirmCancelKeyboard(stored.id) },
-  )
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(chatId, prepared.preview, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
 }
 
-async function applyLotEnrichText(user: SessionUser, chatId: number, text: string): Promise<boolean> {
-  const draft = await getLatestPendingDraft(user.id, 'enrich_lot')
-  if (!draft) return false
+async function tryApplyLotEnrichText(user: SessionUser, chatId: number, text: string): Promise<boolean> {
+  const result = await applyLotEnrichText(user, text)
+  if (!result.handled) return false
+  await sendTelegramMessage(chatId, result.reply, {
+    replyMarkup: confirmCancelKeyboard(result.draftId),
+  })
+  return true
+}
 
-  const qtyMatch = text.match(/^qty\s+(\d+)\s*(kg|crates?|crate)?$/i)
-  if (qtyMatch) {
-    const quantityKg = Number(qtyMatch[1])
-    const unit = normalizeLotUnit(qtyMatch[2] ?? (draft.payload.unit as string) ?? 'kg')
-    await mergeActionDraftPayload(draft.id, user.id, { quantityKg, unit })
-    await sendTelegramMessage(chatId, `Draft qty set to ${quantityKg} ${unit}. Confirm when ready.`, {
-      replyMarkup: confirmCancelKeyboard(draft.id),
-    })
-    return true
+async function offerStockMoveDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseStockMoveIntent>>,
+) {
+  const prepared = await prepareStockMoveDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
   }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
 
-  const plotMatch = text.match(/^plot\s+(.+)$/i)
-  if (plotMatch) {
-    const name = plotMatch[1].trim()
-    const [plot] = await db
-      .select({ id: plots.id, name: plots.name })
-      .from(plots)
-      .where(and(eq(plots.farmId, user.farmId), sql`lower(${plots.name}) = ${name.toLowerCase()}`))
-      .limit(1)
-    if (!plot) {
-      await sendTelegramMessage(chatId, `No plot named "${name}". Try exact block name from Zones.`)
-      return true
-    }
-    await mergeActionDraftPayload(draft.id, user.id, { plotId: plot.id })
-    await sendTelegramMessage(chatId, `Draft plot set to ${plot.name}. Confirm when ready.`, {
-      replyMarkup: confirmCancelKeyboard(draft.id),
-    })
-    return true
+async function offerOpeningCountDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseOpeningCountIntent>>,
+) {
+  const prepared = await prepareOpeningCountDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
   }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
 
-  const notesMatch = text.match(/^notes?\s+(.+)$/i)
-  if (notesMatch) {
-    await mergeActionDraftPayload(draft.id, user.id, { publicNotes: notesMatch[1].trim() })
-    await sendTelegramMessage(chatId, 'Draft public notes saved. Confirm when ready.', {
-      replyMarkup: confirmCancelKeyboard(draft.id),
-    })
-    return true
+async function offerLowStockAckDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseLowStockAckIntent>>,
+) {
+  const prepared = await prepareLowStockAckDraft({
+    user,
+    itemQuery: intent.itemQuery,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
   }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
 
-  return false
+async function offerCreateZoneDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseCreateZoneIntent>>,
+) {
+  const prepared = await prepareCreateZoneDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
+
+async function offerCreatePlotDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseCreatePlotIntent>>,
+) {
+  const prepared = await prepareCreatePlotDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
+
+async function offerLivestockLogDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseLivestockLogIntent>>,
+) {
+  const prepared = await prepareLivestockLogDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
+}
+
+async function offerVerifyLotDraft(
+  user: SessionUser,
+  chatId: number,
+  intent: NonNullable<ReturnType<typeof parseVerifyLotIntent>>,
+) {
+  const prepared = await prepareVerifyLotDraft({
+    user,
+    ...intent,
+    channel: 'telegram',
+    externalChatId: String(chatId),
+  })
+  if (!prepared.ok) {
+    await sendTelegramMessage(chatId, prepared.error)
+    return
+  }
+  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
+    replyMarkup: confirmCancelKeyboard(prepared.draftId),
+  })
 }
 
 async function handleLinkedText(
@@ -861,16 +837,34 @@ async function handleLinkedText(
   const user = toSessionUser(dbUser)
   const locale = staffLocale(dbUser.preferredLocale)
 
+  // Allow re-link / switch account even when this chat is already connected.
+  const linkCode = extractButlerLinkCode(text)
+  if (linkCode || /^\/link(?:@\S+)?(?:\s|$)/i.test(text.trim())) {
+    if (!linkCode) {
+      await sendTelegramMessage(
+        chatId,
+        `This chat is already linked as ${dbUser.name}.\n\nTo switch accounts, send a fresh code:\n/link YOURCODE`,
+      )
+      return
+    }
+    await tryLinkWithCode(chatId, linkCode)
+    return
+  }
+
   if (text === '/language' || text.toLowerCase() === 'language') {
     await promptLanguage(chatId, dbUser.preferredLocale)
     return
   }
 
   if (text === '/orders' || text.toLowerCase() === 'orders') {
-    await sendTelegramMessage(chatId, orderCommandHelp(locale))
-    if (dbUser.role === 'sales') {
-      await sendTelegramMessage(chatId, salesOpsHelp(locale))
+    if (!canManageOrders(user)) {
+      await sendTelegramMessage(
+        chatId,
+        `Orders aren't available for your role.\n\n${roleCommandHelp(locale, dbUser.role)}`,
+      )
+      return
     }
+    await sendTelegramMessage(chatId, orderCommandHelp(locale))
     return
   }
 
@@ -878,9 +872,13 @@ async function handleLinkedText(
     text === '/ops' ||
     text.toLowerCase() === 'ops' ||
     text === '/field' ||
-    text.toLowerCase() === 'fieldhelp'
+    text.toLowerCase() === 'fieldhelp' ||
+    text === '/help' ||
+    text.toLowerCase() === 'help' ||
+    text === '/start'
   ) {
-    await sendTelegramMessage(chatId, staffOpsHelp(locale, dbUser.role))
+    await setTelegramCommandsForChat(chatId, dbUser.role).catch(() => undefined)
+    await sendTelegramMessage(chatId, roleCommandHelp(locale, dbUser.role))
     return
   }
 
@@ -903,11 +901,17 @@ async function handleLinkedText(
 
   const packMatch = text.match(/^(?:pack|lot)\s+(\S+)/i)
   if (packMatch) {
-    await startLotEnrichDraft(user, chatId, packMatch[1])
+    await offerLotEnrichDraft(user, chatId, packMatch[1])
     return
   }
 
-  if (await applyLotEnrichText(user, chatId, text)) return
+  if (await tryApplyLotEnrichText(user, chatId, text)) return
+
+  const verifyLotIntent = parseVerifyLotIntent(text)
+  if (verifyLotIntent) {
+    await offerVerifyLotDraft(user, chatId, verifyLotIntent)
+    return
+  }
 
   const opsCmd = await tryHandleStaffOpsCommand({
     actor: toActor(dbUser),
@@ -948,6 +952,54 @@ async function handleLinkedText(
   const assetCountIntent = parseAssetCountIntent(text)
   if (assetCountIntent) {
     await offerAssetCountDraft(user, chatId, assetCountIntent)
+    return
+  }
+
+  const cropIntent = parseCropCycleIntent(text)
+  if (cropIntent) {
+    await offerCropCycleDraft(user, chatId, cropIntent)
+    return
+  }
+
+  const livestockIntent = parseLivestockBatchIntent(text)
+  if (livestockIntent) {
+    await offerLivestockBatchDraft(user, chatId, livestockIntent)
+    return
+  }
+
+  const stockMoveIntent = parseStockMoveIntent(text)
+  if (stockMoveIntent) {
+    await offerStockMoveDraft(user, chatId, stockMoveIntent)
+    return
+  }
+
+  const openingCountIntent = parseOpeningCountIntent(text)
+  if (openingCountIntent) {
+    await offerOpeningCountDraft(user, chatId, openingCountIntent)
+    return
+  }
+
+  const lowStockAckIntent = parseLowStockAckIntent(text)
+  if (lowStockAckIntent) {
+    await offerLowStockAckDraft(user, chatId, lowStockAckIntent)
+    return
+  }
+
+  const createZoneIntent = parseCreateZoneIntent(text)
+  if (createZoneIntent) {
+    await offerCreateZoneDraft(user, chatId, createZoneIntent)
+    return
+  }
+
+  const createPlotIntent = parseCreatePlotIntent(text)
+  if (createPlotIntent) {
+    await offerCreatePlotDraft(user, chatId, createPlotIntent)
+    return
+  }
+
+  const livestockLogIntent = parseLivestockLogIntent(text)
+  if (livestockLogIntent) {
+    await offerLivestockLogDraft(user, chatId, livestockLogIntent)
     return
   }
 
@@ -1005,18 +1057,17 @@ async function handlePhoto(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
     extra: { kind: 'image' },
   })
 
-  const enrichDraft = await getLatestPendingDraft(user.id, 'enrich_lot')
-  if (enrichDraft) {
-    try {
-      const dataUrl = await downloadTelegramFile(fileId)
-      await mergeActionDraftPayload(enrichDraft.id, user.id, { photoUrl: dataUrl })
+  try {
+    const dataUrl = await downloadTelegramFile(fileId)
+    const attached = await attachPhotoToLotEnrichDraft(user, dataUrl)
+    if (attached.ok) {
       await sendTelegramMessage(chatId, 'Photo attached to lot draft. Confirm to save.', {
-        replyMarkup: confirmCancelKeyboard(enrichDraft.id),
+        replyMarkup: confirmCancelKeyboard(attached.draftId),
       })
-    } catch {
-      await sendTelegramMessage(chatId, 'Could not attach that photo. Please resend.')
+      return
     }
-    return
+  } catch {
+    // Fall through — other caption handlers may still apply.
   }
 
   if (canManageOrders(user) && /(?:delivered|deliver)\s+\S+/i.test(caption)) {
@@ -1038,7 +1089,7 @@ async function handlePhoto(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
     }
   }
 
-  if (/^(?:done|complete|finish)\b/i.test(caption)) {
+  if (/^(?:done|complete|finish|start|taskstart)\b/i.test(caption)) {
     try {
       const dataUrl = await downloadTelegramFile(fileId)
       const photoUrl = await processEvidenceValue(user.farmId, dataUrl)
@@ -1170,9 +1221,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
       const u = await findUserByPhone(msg.contact.phone_number)
       if (u) {
-        await linkChat(chatId, u)
-        await sendTelegramMessage(chatId, '✅ Connected successfully.')
-        await promptLanguage(chatId, u.preferredLocale)
+        await completeTelegramLink(chatId, u)
       } else {
         await sendTelegramMessage(
           chatId,
@@ -1183,21 +1232,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     }
 
     const text = msg.text?.trim() ?? ''
-    if (text.toLowerCase().startsWith('/link')) {
-      const code = text.slice(5).trim()
-      if (!code) {
+    const linkCode = extractButlerLinkCode(text)
+    if (linkCode || text.toLowerCase().startsWith('/link')) {
+      if (!linkCode) {
         await sendTelegramMessage(chatId, LINK_CODE_FAIL_MSG)
         return
       }
-
-      const u = await verifyAndConsumeLinkCode(code)
-      if (u) {
-        await linkChat(chatId, u)
-        await sendTelegramMessage(chatId, '✅ Connected successfully.')
-        await promptLanguage(chatId, u.preferredLocale)
-      } else {
-        await sendTelegramMessage(chatId, LINK_CODE_FAIL_MSG)
-      }
+      await tryLinkWithCode(chatId, linkCode)
       return
     }
 

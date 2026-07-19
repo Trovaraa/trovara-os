@@ -8,6 +8,15 @@ NeuraAgro's "Joaquín". Workers and the owner can:
 - **Report a sick animal** - "3 broilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
 - **Send a photo** of a sick plant or animal → AI vision diagnosis.
 - **Type `brief`** → a short "what needs attention today" summary.
+- **Type `help`** → commands for **your role only** (field ≠ sales ≠ admin).
+- **Admin/Supervisor drafts** (then reply `CONFIRM` or `CANCEL`):
+  - Task / Census / Asset / Crop / Livestock batch (as before)
+  - Stock: `Stock: Feed bags delta=-2 reason=used`
+  - Opening: `Opening count: Feed bags=50`
+  - `Ack low stock`
+  - `Create zone: North Field` · `Create plot: Block 2 zone=North Field`
+  - Pack: `pack LOT-…` then qty/plot/notes/photo · `Verify LOT-…` / `Reject LOT-…`
+- **Field (+ supervisor) livestock logs:** `Feed: Broiler A` · `Vaccinate: …` · `Mortality: Broiler A heads=3`
 
 Urgent worker messages (death, disease, theft, fire, flood…) raise a **worker alert** to supervisors and owners who opted into Worker alerts in Settings (Telegram / WhatsApp).
 
@@ -149,6 +158,20 @@ POST /api/whatsapp/notify-owner   (owner/supervisor)
 ```
 
 Prefer the subscription-based **customer** and **worker** alert streams for day-to-day ops.
+
+## Next build plan (staff butler parity)
+
+Same phased backlog as Telegram — see [next-steps-trovara-os.md](../../next-steps-trovara-os.md) §3
+and [TELEGRAM-COPILOT.md](./TELEGRAM-COPILOT.md#next-build-plan-staff-butler-parity).
+
+**Already on WhatsApp:** role-scoped `help`; create-task / census / asset-count / crop /
+livestock / inventory / zone / plot / pack / verify / livestock-log drafts with
+`CONFIRM` / `CANCEL`; voice notes run the same command path as text; orders + ops
+gated by role.
+
+**Staff butler parity P0–P5 is complete.** Remaining staff work is Meta go-live and
+web-only setup (Users, Settings/2FA, etc.).
+
 ---
 
 ## Troubleshooting

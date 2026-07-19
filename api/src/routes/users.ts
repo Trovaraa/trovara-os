@@ -133,7 +133,39 @@ userRoutes.delete('/me/telegram-link', async (c) => {
 userRoutes.get('/me/channel-links', async (c) => {
   const user = c.get('user')
   const telegramLinked = await isTelegramLinked(user.id)
-  return c.json({ telegramLinked })
+  const [row] = await db
+    .select({ phone: users.phone })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
+  return c.json({ telegramLinked, phone: row?.phone ?? null })
+})
+
+const updateMeSchema = z.object({
+  phone: z.string().max(30).optional().nullable(),
+})
+
+userRoutes.patch('/me', zValidator('json', updateMeSchema), async (c) => {
+  const user = c.get('user')
+  const body = c.req.valid('json')
+  if (body.phone === undefined) {
+    return c.json({ error: 'No fields to update' }, 400)
+  }
+  const phone = emptyToNull(body.phone)
+  const [updated] = await db
+    .update(users)
+    .set({ phone })
+    .where(eq(users.id, user.id))
+    .returning({ id: users.id, phone: users.phone })
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'user',
+    entityId: user.id,
+    metadata: { self: true, phone: Boolean(phone) },
+  })
+  return c.json({ user: updated })
 })
 
 userRoutes.get('/', async (c) => {

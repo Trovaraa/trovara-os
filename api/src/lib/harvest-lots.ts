@@ -167,6 +167,44 @@ export async function enrichHarvestLot(params: {
   return { lot }
 }
 
+/** Supervisor/owner verify or reject a reported harvest lot. */
+export async function verifyHarvestLot(params: {
+  farmId: string
+  lotId: string
+  userId: string
+  status: 'verified' | 'rejected'
+  note?: string | null
+}): Promise<{ lot: typeof harvestLots.$inferSelect } | { error: string; status: 400 | 404 }> {
+  const [existing] = await db
+    .select()
+    .from(harvestLots)
+    .where(and(eq(harvestLots.id, params.lotId), eq(harvestLots.farmId, params.farmId)))
+    .limit(1)
+  if (!existing) return { error: 'Not found', status: 404 }
+
+  const [lot] = await db
+    .update(harvestLots)
+    .set({
+      verificationStatus: params.status,
+      verifiedById: params.userId,
+      verifiedAt: new Date(),
+      internalNotes: params.note ? params.note : existing.internalNotes,
+    })
+    .where(eq(harvestLots.id, params.lotId))
+    .returning()
+
+  await logAudit({
+    farmId: params.farmId,
+    userId: params.userId,
+    action: 'update',
+    entityType: 'harvest_lot',
+    entityId: params.lotId,
+    metadata: { lotCode: lot.lotCode, verificationStatus: lot.verificationStatus },
+  })
+
+  return { lot }
+}
+
 export async function listIncompleteLots(farmId: string, limit = 15) {
   return db
     .select({

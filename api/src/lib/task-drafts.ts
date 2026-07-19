@@ -184,6 +184,33 @@ export async function getLatestPendingDraft(
   }
 }
 
+/** Latest pending draft of any type (WhatsApp CONFIRM / CANCEL without buttons). */
+export async function getLatestPendingDraftAny(userId: string): Promise<StoredActionDraft | null> {
+  const [row] = await db
+    .select()
+    .from(actionDrafts)
+    .where(and(eq(actionDrafts.userId, userId), eq(actionDrafts.status, 'pending')))
+    .orderBy(desc(actionDrafts.createdAt))
+    .limit(1)
+
+  if (!row) return null
+  if (row.expiresAt.getTime() <= Date.now()) {
+    await db.update(actionDrafts).set({ status: 'expired' }).where(eq(actionDrafts.id, row.id))
+    return null
+  }
+
+  return {
+    id: row.id,
+    farmId: row.farmId,
+    userId: row.userId,
+    channel: row.channel,
+    externalChatId: row.externalChatId,
+    actionType: row.actionType,
+    payload: (row.payload ?? {}) as ActionDraftPayload,
+    expiresAt: row.expiresAt,
+  }
+}
+
 export async function mergeActionDraftPayload(
   draftId: string,
   userId: string,

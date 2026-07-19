@@ -48,6 +48,8 @@ import {
 } from './middleware/security.js'
 import { logSecurityEvent } from './lib/security-log.js'
 import { logApiEvent } from './lib/api-log.js'
+import { ensureBreakGlassOwner } from './lib/break-glass.js'
+import { getBreakGlassEmail, getBreakGlassPasswordFromEnv } from './lib/registration.js'
 import { clientIpFromHeaders } from './lib/client-ip.js'
 
 const app = new Hono()
@@ -141,6 +143,22 @@ if (
 console.log(`Trovara OS API listening on http://${host}:${port}`)
 
 serve({ fetch: app.fetch, hostname: host, port })
+
+void ensureBreakGlassOwner()
+  .then((result) => {
+    if (result === 'created') {
+      console.log(`Break-glass owner provisioned (${getBreakGlassEmail()})`)
+    } else if (result === 'skipped' && !getBreakGlassPasswordFromEnv()) {
+      console.warn('BREAK_GLASS_PASSWORD is unset - emergency owner login will not work')
+    } else if (result === 'skipped') {
+      console.warn(
+        'Break-glass owner not provisioned yet (no farm row). Create the farm, then restart the API or sign in once as the break-glass email.',
+      )
+    }
+  })
+  .catch((err) => {
+    console.error('Failed to ensure break-glass owner:', err instanceof Error ? err.message : err)
+  })
 
 // Start the Telegram butler's long-poll loop (no-op unless TELEGRAM_BOT_TOKEN set
 // and TELEGRAM_MODE is polling). Webhook mode uses /api/telegram/webhook instead.

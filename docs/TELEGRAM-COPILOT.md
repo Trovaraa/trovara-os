@@ -44,7 +44,7 @@ Check status any time: `GET http://127.0.0.1:3000/api/telegram/status`.
 
 1. Open Telegram → [@TrovaraButlerBot](https://t.me/TrovaraButlerBot) → **Start**.
 2. Connect your Trovara account using **one** of these:
-   - **Link code (recommended):** Web app → **Settings → Connect Telegram** → generate a code → send `/link ABC12XYZ` to the bot (expires in 15 minutes).
+   - **Link code (recommended):** Web app → **Settings → Connect Telegram** (available to all roles, including field workers) → generate a code → send `/link ABC12XYZ` to the bot (expires in 15 minutes).
    - **Phone (mobile):** tap **📱 Share my phone number**. Only *your* Telegram contact card is accepted, and the number must match a Trovara user profile exactly.
 
 You'll get `Connected successfully`, then a **language picker** (English / Yorùbá / Pidgin / Français). That choice is stored as `preferred_locale` and used for **all** butler replies (help, Q&A, photos, voice, briefings) **and** order alerts — not only the order flow. Change later with `/language`.
@@ -70,7 +70,30 @@ Whatever field workers and supervisors do day-to-day in the app for **attendance
 | `/handover` | Staff | Handover checklist progress |
 | Voice notes | All | Same commands after transcription |
 
-Telegram also supports draft-and-confirm flows: `Create task: …`, `Census: Block 2 crop=coconut count=120…`, `Asset count: Wheelbarrow available=2…`.
+Telegram also supports draft-and-confirm flows (Admin / Supervisor / Sales as noted in `help`):
+`Create task`, `Census`, `Asset count`, `Crop`, `Livestock` batch,
+`Stock` / `Opening count` / `Ack low stock`, `Create zone` / `Create plot`,
+`pack LOT-…` / `Verify` / `Reject`, plus field livestock logs
+(`Feed` / `Vaccinate` / `Mortality`).
+
+**Role-scoped menus:** After you link, typing `/` or `help` shows only commands for
+your role (field workers see clock-in; admins do not). Telegram also sets a
+per-chat slash menu for your role.
+
+## Next build plan (staff butler parity)
+
+Tracked in [next-steps-trovara-os.md](../../next-steps-trovara-os.md) §3:
+
+| Phase | Work |
+| --- | --- |
+| **P0** ✅ | WhatsApp parity for create-task / census / asset-count drafts (`CONFIRM`/`CANCEL`) |
+| **P1** ✅ | Field loop polish (evidence, voice → drafts, strict role menus) |
+| **P2** ✅ | Inventory stock-move / opening-count / low-stock ack drafts |
+| **P3** ✅ | Harvest verify + pack enrich on WhatsApp |
+| **P4** ✅ | Zone / plot create drafts when plots are missing |
+| **P5** ✅ | Livestock feeding / vaccination / mortality log drafts |
+
+Stay on the website: Users, products admin, Settings/2FA, go-live, finance (until receipt OCR).
 
 ## Alert subscriptions
 

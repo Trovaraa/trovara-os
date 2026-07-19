@@ -40,6 +40,10 @@ if (process.env.NODE_ENV === 'production') {
     configurationErrors.push('CRON_SECRET is required in production')
   }
 
+  if (!process.env.BREAK_GLASS_PASSWORD?.trim()) {
+    configurationErrors.push('BREAK_GLASS_PASSWORD is required in production for emergency owner login')
+  }
+
   if (!process.env.TOTP_ENCRYPTION_KEY?.trim() && !process.env.TOTP_KEY_DERIVATION_SECRET?.trim()) {
     configurationErrors.push(
       'TOTP_ENCRYPTION_KEY (32-byte hex/base64) or TOTP_KEY_DERIVATION_SECRET is required in production',

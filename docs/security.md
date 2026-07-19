@@ -20,7 +20,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Session metadata: user agent + SHA-256 hashed IP stored on login
 - Session revocation: `POST /auth/revoke-all-sessions`
 - Password reset + forced change on first login (`mustChangePassword`) for staff accounts
-- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); password change / forgot-password blocked for that email; use is audited as `break_glass_login`
+- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); password change / forgot-password blocked for that email; use is audited as `break_glass_login`. The owner row is auto-provisioned when a farm exists (API boot / first break-glass login) so clean go-live without seed still works.
 - Owner alert subscriptions: separate opt-in for customer order alerts vs worker alerts (Telegram/WhatsApp)
 - TOTP 2FA for owner accounts (setup/enable/disable in Settings)
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)

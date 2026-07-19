@@ -102,6 +102,15 @@ export async function verifyAndConsumeLinkCode(
   return user
 }
 
+/** `/link ABC12XYZ` or bare 8-char code from Settings. */
+export function extractButlerLinkCode(text: string): string | null {
+  const trimmed = text.trim()
+  const withCmd = trimmed.match(/^\/link(?:@\S+)?\s+([A-Za-z0-9]{6,12})\s*$/i)
+  if (withCmd?.[1]) return withCmd[1].toUpperCase()
+  if (/^[A-Za-z0-9]{8}$/.test(trimmed)) return trimmed.toUpperCase()
+  return null
+}
+
 async function isChatUnlinked(chatId: string, linkCreatedAt: Date): Promise<boolean> {
   // Use drizzle `gt()` so the timestamp binds correctly (raw sql`${date}` breaks postgres.js).
   const [unlink] = await db

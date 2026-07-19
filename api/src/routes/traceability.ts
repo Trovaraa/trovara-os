@@ -30,7 +30,7 @@ import {
   harvestPeriodAt,
   normalizeLotUnit,
 } from '../lib/lot-codes.js'
-import { enrichHarvestLot } from '../lib/harvest-lots.js'
+import { enrichHarvestLot, verifyHarvestLot } from '../lib/harvest-lots.js'
 import {
   escapeHtml,
   renderTraceabilityCertificateHtml,
@@ -279,34 +279,18 @@ traceabilityRoutes.post('/:id/verify', zValidator('json', verifyLotSchema), asyn
   const lotId = c.req.param('id')
   const body = c.req.valid('json')
 
-  const [existing] = await db
-    .select()
-    .from(harvestLots)
-    .where(and(eq(harvestLots.id, lotId), eq(harvestLots.farmId, user.farmId)))
-    .limit(1)
-  if (!existing) return c.json({ error: 'Not found' }, 404)
-
-  const [lot] = await db
-    .update(harvestLots)
-    .set({
-      verificationStatus: body.status,
-      verifiedById: user.id,
-      verifiedAt: new Date(),
-      internalNotes: body.note ? body.note : existing.internalNotes,
-    })
-    .where(eq(harvestLots.id, lotId))
-    .returning()
-
-  await logAudit({
+  const result = await verifyHarvestLot({
     farmId: user.farmId,
+    lotId,
     userId: user.id,
-    action: 'update',
-    entityType: 'harvest_lot',
-    entityId: lotId,
-    metadata: { lotCode: lot.lotCode, verificationStatus: lot.verificationStatus },
+    status: body.status,
+    note: body.note,
   })
+  if ('error' in result) {
+    return c.json({ error: result.error }, result.status)
+  }
 
-  return c.json({ lot })
+  return c.json({ lot: result.lot })
 })
 
 traceabilityRoutes.get('/:id/qr', async (c) => {

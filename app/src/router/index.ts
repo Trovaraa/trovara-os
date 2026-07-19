@@ -11,6 +11,7 @@ const workerAllowedNames = new Set([
   'worker',
   'assets',
   'traceability',
+  'settings',
 ])
 
 const router = createRouter({
@@ -170,7 +171,7 @@ const router = createRouter({
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true },
     },
     {
       path: '/users',

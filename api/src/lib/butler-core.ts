@@ -23,6 +23,8 @@ import {
   resolveStaffReplyLocale,
   type ReplyLocale,
 } from './reply-locale.js'
+import { staffLocale } from './order-messages.js'
+import { roleCommandHelp } from './role-menus.js'
 
 /** @deprecated Prefer butlerHelpText(locale) - kept for callers that need English. */
 export const HELP_TEXT = butlerHelpText('en')
@@ -108,8 +110,8 @@ export async function answerText(
   if (!isLlmConfigured()) {
     return butlerLlmOffMessage(locale, user.name.split(' ')[0], text.slice(0, 160))
   }
-  if (['help', 'menu', 'hi', 'hello', '/start', 'start', 'bonjour', 'salut'].includes(lower)) {
-    return butlerHelpText(locale)
+  if (['help', 'menu', 'hi', 'hello', '/start', 'start', 'bonjour', 'salut', '/help'].includes(lower)) {
+    return roleCommandHelp(staffLocale(localeHint), user.role)
   }
   if (['brief', 'briefing', 'today', 'bref'].includes(lower)) {
     try {

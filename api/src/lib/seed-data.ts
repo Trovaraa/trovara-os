@@ -29,11 +29,25 @@ import {
   customerChatSessions,
   customerInquiries,
   assets,
+  assetEvents,
   assetLogs,
   expenses,
   consentRecords,
   passwordResetTokens,
   taskInventoryUsage,
+  actionDrafts,
+  attendanceSessions,
+  suppliers,
+  purchaseOrders,
+  purchaseOrderLines,
+  goodsReceipts,
+  goodsReceiptLines,
+  cropCensusSurveys,
+  cropCensusEvidence,
+  inventoryCountSessions,
+  inventoryCountLines,
+  weatherCache,
+  telegramProcessedUpdates,
 } from '../db/schema.js'
 
 async function deleteFarmScopedData(farmId: string): Promise<void> {
@@ -45,6 +59,49 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
     await db.delete(passwordResetTokens).where(inArray(passwordResetTokens.userId, userIds))
   }
 
+  await db.delete(actionDrafts).where(eq(actionDrafts.farmId, farmId))
+  await db.delete(attendanceSessions).where(eq(attendanceSessions.farmId, farmId))
+  await db
+    .delete(cropCensusEvidence)
+    .where(
+      inArray(
+        cropCensusEvidence.surveyId,
+        db.select({ id: cropCensusSurveys.id }).from(cropCensusSurveys).where(eq(cropCensusSurveys.farmId, farmId)),
+      ),
+    )
+  await db.delete(cropCensusSurveys).where(eq(cropCensusSurveys.farmId, farmId))
+  await db
+    .delete(inventoryCountLines)
+    .where(
+      inArray(
+        inventoryCountLines.sessionId,
+        db
+          .select({ id: inventoryCountSessions.id })
+          .from(inventoryCountSessions)
+          .where(eq(inventoryCountSessions.farmId, farmId)),
+      ),
+    )
+  await db.delete(inventoryCountSessions).where(eq(inventoryCountSessions.farmId, farmId))
+  await db
+    .delete(goodsReceiptLines)
+    .where(
+      inArray(
+        goodsReceiptLines.goodsReceiptId,
+        db.select({ id: goodsReceipts.id }).from(goodsReceipts).where(eq(goodsReceipts.farmId, farmId)),
+      ),
+    )
+  await db.delete(goodsReceipts).where(eq(goodsReceipts.farmId, farmId))
+  await db
+    .delete(purchaseOrderLines)
+    .where(
+      inArray(
+        purchaseOrderLines.purchaseOrderId,
+        db.select({ id: purchaseOrders.id }).from(purchaseOrders).where(eq(purchaseOrders.farmId, farmId)),
+      ),
+    )
+  await db.delete(purchaseOrders).where(eq(purchaseOrders.farmId, farmId))
+  await db.delete(suppliers).where(eq(suppliers.farmId, farmId))
+
   await db
     .delete(orderItems)
     .where(
@@ -54,6 +111,7 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
       ),
     )
   await db.delete(orders).where(eq(orders.farmId, farmId))
+  await db.delete(assetEvents).where(eq(assetEvents.farmId, farmId))
   await db.delete(assetLogs).where(eq(assetLogs.farmId, farmId))
   await db.delete(assets).where(eq(assets.farmId, farmId))
   await db.delete(customerInquiries).where(eq(customerInquiries.farmId, farmId))
@@ -77,12 +135,29 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
   await db.delete(plots).where(eq(plots.farmId, farmId))
   await db.delete(zones).where(eq(zones.farmId, farmId))
   await db.delete(consentRecords).where(eq(consentRecords.farmId, farmId))
+  await db.delete(weatherCache).where(eq(weatherCache.farmId, farmId))
+  await db
+    .update(users)
+    .set({ monthlyWageConfirmedById: null })
+    .where(eq(users.farmId, farmId))
   await db.delete(users).where(eq(users.farmId, farmId))
 }
 
 async function deleteAllData(): Promise<void> {
+  await db.delete(actionDrafts)
+  await db.delete(attendanceSessions)
+  await db.delete(cropCensusEvidence)
+  await db.delete(cropCensusSurveys)
+  await db.delete(inventoryCountLines)
+  await db.delete(inventoryCountSessions)
+  await db.delete(goodsReceiptLines)
+  await db.delete(goodsReceipts)
+  await db.delete(purchaseOrderLines)
+  await db.delete(purchaseOrders)
+  await db.delete(suppliers)
   await db.delete(orderItems)
   await db.delete(orders)
+  await db.delete(assetEvents)
   await db.delete(assetLogs)
   await db.delete(assets)
   await db.delete(customerInquiries)
@@ -108,6 +183,9 @@ async function deleteAllData(): Promise<void> {
   await db.delete(consentRecords)
   await db.delete(sessions)
   await db.delete(passwordResetTokens)
+  await db.delete(weatherCache)
+  await db.delete(telegramProcessedUpdates)
+  await db.update(users).set({ monthlyWageConfirmedById: null })
   await db.delete(users)
   await db.delete(farms)
 }

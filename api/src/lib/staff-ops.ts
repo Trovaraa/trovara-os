@@ -10,6 +10,7 @@ import { canTransitionTask } from './state-machines.js'
 import { processEvidenceValue } from './evidence-store.js'
 import { notifyTaskSubmittedForApproval } from './farm-notify.js'
 import { staffLocale, type StaffLocale } from './order-messages.js'
+import { roleCommandHelp } from './role-menus.js'
 
 export type StaffOpsActor = {
   id: string
@@ -135,54 +136,7 @@ export function parseStaffOpsCommand(text: string): {
 }
 
 export function staffOpsHelp(locale: StaffLocale, role: UserRole): string {
-  const base = msg(locale, {
-    en: [
-      'Field / ops commands (voice or text):',
-      '/clockin · /clockout',
-      '/tasks — list my tasks',
-      '/taskstart — start a task (pick list)',
-      '/done — submit task for approval (pick list)',
-      '/done TSK-… note… — submit with a note',
-      'Photo captioned: done TSK-…',
-    ].join('\n'),
-    fr: [
-      'Commandes terrain (voix ou texte) :',
-      '/clockin · /clockout',
-      '/tasks — mes tâches',
-      '/taskstart — démarrer une tâche',
-      '/done — soumettre pour approbation',
-      'Photo : done TSK-…',
-    ].join('\n'),
-    yo: [
-      'Àṣẹ oko (ohùn tàbí ọ̀rọ̀):',
-      '/clockin · /clockout',
-      '/tasks — àwọn iṣẹ́ mi',
-      '/taskstart — bẹ̀rẹ̀ iṣẹ́',
-      '/done — fi iṣẹ́ sílẹ̀ fún ìfọwọ́sí',
-    ].join('\n'),
-    pcm: [
-      'Field commands (voice or text):',
-      '/clockin · /clockout',
-      '/tasks — list my tasks',
-      '/taskstart — start task',
-      '/done — submit for approval',
-      'Photo caption: done TSK-…',
-    ].join('\n'),
-  })
-
-  if (role === 'supervisor' || role === 'owner') {
-    return (
-      base +
-      '\n' +
-      msg(locale, {
-        en: '/approve · /reject — review tasks awaiting approval',
-        fr: '/approve · /reject — tâches en attente',
-        yo: '/approve · /reject — iṣẹ́ tó ń dúró',
-        pcm: '/approve · /reject — tasks wey dey wait approval',
-      })
-    )
-  }
-  return base
+  return roleCommandHelp(locale, role)
 }
 
 async function listMyOpenTasks(actor: StaffOpsActor) {
@@ -225,6 +179,7 @@ async function updateTaskStatus(params: {
   photoUrl?: string | null
 }): Promise<{ ok: true; task: typeof tasks.$inferSelect } | { ok: false; error: string }> {
   const user = toSession(params.actor)
+  const locale = staffLocale(params.actor.preferredLocale)
   const [existing] = await db
     .select()
     .from(tasks)
@@ -237,7 +192,15 @@ async function updateTaskStatus(params: {
     isOwnTask && (params.actor.role === 'supervisor' || params.actor.role === 'owner')
 
   if (params.actor.role === 'field_worker' && !isOwnTask) {
-    return { ok: false, error: 'That task is not assigned to you' }
+    return {
+      ok: false,
+      error: msg(locale, {
+        en: 'That task is not assigned to you',
+        fr: 'Cette tâche ne vous est pas assignée.',
+        yo: 'Iṣẹ́ yẹn kò jẹ́ tiẹ.',
+        pcm: 'Dat task no dey assign to you.',
+      }),
+    }
   }
 
   if (
@@ -246,7 +209,15 @@ async function updateTaskStatus(params: {
       performedWorkSelf,
     })
   ) {
-    return { ok: false, error: `Cannot move ${existing.status} → ${params.toStatus}` }
+    return {
+      ok: false,
+      error: msg(locale, {
+        en: `Can't change task from ${existing.status} to ${params.toStatus}`,
+        fr: `Impossible de passer la tâche de ${existing.status} à ${params.toStatus}`,
+        yo: `Kò ṣe é yí iṣẹ́ látí ${existing.status} sí ${params.toStatus}`,
+        pcm: `You no fit change task from ${existing.status} to ${params.toStatus}`,
+      }),
+    }
   }
 
   if (
@@ -254,7 +225,15 @@ async function updateTaskStatus(params: {
     !canApproveTasks(user) &&
     !(params.toStatus === 'completed' && performedWorkSelf)
   ) {
-    return { ok: false, error: 'Only Admin/Supervisor can approve or reject' }
+    return {
+      ok: false,
+      error: msg(locale, {
+        en: 'Only Admin or Supervisor can approve or reject',
+        fr: 'Seul Admin ou Superviseur peut approuver ou rejeter.',
+        yo: 'Admin tàbí Alábòójútó nìkan ló lè fọwọ́sí tàbí kọ̀.',
+        pcm: 'Only Admin or Supervisor fit approve or reject.',
+      }),
+    }
   }
 
   const updates: Partial<typeof existing> = {
@@ -588,10 +567,5 @@ export async function transitionTaskFromCallback(params: {
 
 /** Sales role ops help — orders already covered separately. */
 export function salesOpsHelp(locale: StaffLocale): string {
-  return msg(locale, {
-    en: 'Sales: /confirm · /dispatch · /delivered · /cancel TRV-ORD-…\nAlso /lots · pack LOT… · /printqr [LOT] for box labels.',
-    fr: 'Ventes : /confirm · /dispatch · /delivered · /cancel\nAussi /lots · pack LOT… · /printqr [LOT].',
-    yo: 'Títà: /confirm · /dispatch · /delivered · /cancel\nPẹ̀lú /lots · pack LOT… · /printqr [LOT].',
-    pcm: 'Sales: /confirm · /dispatch · /delivered · /cancel\nAlso /lots · pack LOT… · /printqr [LOT] for box labels.',
-  })
+  return roleCommandHelp(locale, 'sales')
 }

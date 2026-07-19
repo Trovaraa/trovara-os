@@ -18,7 +18,7 @@ import { checkButlerRateLimit } from './butler-rate-limit.js'
 import { deliverButlerReply } from './butler-reply.js'
 import { looksUrgent, notifyWorkerAlertChannels } from './farm-notify.js'
 import { voiceNotUnderstoodMessage } from './reply-locale.js'
-import { canManageOrders } from './rbac.js'
+import { canAssignTasks, canManageOrders } from './rbac.js'
 import {
   setUserPreferredLocale,
   tryHandleStaffOrderCommand,
@@ -29,18 +29,68 @@ import {
   orderCommandHelp,
   staffLocale,
 } from './order-messages.js'
+import { tryHandleStaffOpsCommand } from './staff-ops.js'
+import { roleCommandHelp } from './role-menus.js'
 import {
-  salesOpsHelp,
-  staffOpsHelp,
-  tryHandleStaffOpsCommand,
-} from './staff-ops.js'
-import { listIncompleteLots } from './harvest-lots.js'
+  cancelActionDraft,
+  confirmActionDraft,
+  getLatestPendingDraftAny,
+  storeActionDraft,
+} from './task-drafts.js'
+import {
+  executeConfirmedCropCycle,
+  executeConfirmedLivestockBatch,
+  parseCropCycleIntent,
+  parseLivestockBatchIntent,
+  resolvePlotByName,
+} from './action-draft-farm.js'
+import {
+  applyConfirmedOpsDraft,
+  parseAssetCountIntent,
+  parseCensusIntent,
+  parseCreateTaskIntent,
+  prepareAssetCountDraft,
+  prepareCensusDraft,
+  prepareCreateTaskDraft,
+} from './action-draft-ops.js'
+import {
+  applyConfirmedInventoryDraft,
+  parseLowStockAckIntent,
+  parseOpeningCountIntent,
+  parseStockMoveIntent,
+  prepareLowStockAckDraft,
+  prepareOpeningCountDraft,
+  prepareStockMoveDraft,
+} from './action-draft-inventory.js'
+import {
+  applyConfirmedZoneDraft,
+  parseCreatePlotIntent,
+  parseCreateZoneIntent,
+  prepareCreatePlotDraft,
+  prepareCreateZoneDraft,
+} from './action-draft-zones.js'
+import {
+  applyConfirmedLivestockLogDraft,
+  parseLivestockLogIntent,
+  prepareLivestockLogDraft,
+} from './action-draft-livestock-log.js'
+import {
+  applyConfirmedLotDraft,
+  applyLotEnrichText,
+  attachPhotoToLotEnrichDraft,
+  formatLotsToPackMessage,
+  parseVerifyLotIntent,
+  prepareVerifyLotDraft,
+  startLotEnrichDraft,
+} from './lot-enrich.js'
 import { formatHandoverProgressText, getHandoverProgress } from './handover-templates.js'
 import { processEvidenceValue } from './evidence-store.js'
 import type { PreferredLocale } from '../db/schema.js'
 
 const ENTITY = 'whatsapp_message'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
+const WA_CONFIRM_HINT = 'Reply CONFIRM to save, or CANCEL.'
+const CREATE_PLOT_HINT = 'Create plot: Name zone=ZoneName'
 
 function flattenPickerReply(reply: string, replyMarkup?: Record<string, unknown>): string {
   if (!replyMarkup || typeof replyMarkup !== 'object') return reply
@@ -50,6 +100,18 @@ function flattenPickerReply(reply: string, replyMarkup?: Record<string, unknown>
   const lines = (kb.inline_keyboard ?? []).flat().map((b) => b.text).filter(Boolean)
   if (!lines.length) return reply
   return `${reply}\n\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}\n\nReply with the command + id, e.g. /done TSK-ABCDEF`
+}
+
+function withCreatePlotHint(error: string): string {
+  return /not found/i.test(error) ? `${error}\n\n${CREATE_PLOT_HINT}` : error
+}
+
+function voicePrefix(
+  opts: { inboundWasVoice?: boolean } | undefined,
+  originalText: string,
+  reply: string,
+): string {
+  return opts?.inboundWasVoice ? `🗣️ "${originalText}"\n\n${reply}` : reply
 }
 
 type InboundMessage = {
@@ -99,7 +161,12 @@ function toActor(u: DbUser) {
   }
 }
 
-async function handleText(dbUser: DbUser, msg: InboundMessage, text: string): Promise<void> {
+async function handleText(
+  dbUser: DbUser,
+  msg: InboundMessage,
+  text: string,
+  opts?: { inboundWasVoice?: boolean; alreadyLogged?: boolean },
+): Promise<void> {
   const user = toSessionUser(dbUser)
   const phone = normalizePhone(msg.from)
   const locale = staffLocale(dbUser.preferredLocale)
@@ -123,40 +190,395 @@ async function handleText(dbUser: DbUser, msg: InboundMessage, text: string): Pr
     const next = langMatch[1]!.toLowerCase() as PreferredLocale
     await setUserPreferredLocale(dbUser.id, next)
     await sendWhatsAppText(phone, languageSavedMessage(next)).catch(() => undefined)
-    await sendWhatsAppText(phone, orderCommandHelp(next)).catch(() => undefined)
+    await sendWhatsAppText(phone, roleCommandHelp(next, dbUser.role)).catch(() => undefined)
     return
   }
 
   if (lower === 'orders' || lower === '/orders') {
-    await sendWhatsAppText(phone, orderCommandHelp(locale)).catch(() => undefined)
-    if (dbUser.role === 'sales') {
-      await sendWhatsAppText(phone, salesOpsHelp(locale)).catch(() => undefined)
+    if (!canManageOrders(user)) {
+      await sendWhatsAppText(
+        phone,
+        `Orders aren't available for your role.\n\n${roleCommandHelp(locale, dbUser.role)}`,
+      ).catch(() => undefined)
+      return
     }
+    await sendWhatsAppText(phone, orderCommandHelp(locale)).catch(() => undefined)
     return
   }
 
-  if (lower === 'ops' || lower === '/ops' || lower === 'help' || lower === '/help') {
-    await sendWhatsAppText(phone, staffOpsHelp(locale, dbUser.role)).catch(() => undefined)
-    if (canManageOrders(user)) {
-      await sendWhatsAppText(phone, orderCommandHelp(locale)).catch(() => undefined)
+  if (lower === 'ops' || lower === '/ops' || lower === 'help' || lower === '/help' || lower === 'menu') {
+    await sendWhatsAppText(phone, roleCommandHelp(locale, dbUser.role)).catch(() => undefined)
+    return
+  }
+
+  // WhatsApp draft confirm/cancel (no inline buttons). Bare confirm/cancel only
+  // when a pending draft exists — otherwise fall through to order/ops handlers.
+  if (/^(?:confirm|cancel)$/i.test(text.trim())) {
+    const draft = await getLatestPendingDraftAny(user.id)
+    if (draft) {
+      if (/^cancel$/i.test(text.trim())) {
+        const ok = await cancelActionDraft(draft.id, user.id)
+        await sendWhatsAppText(phone, ok ? 'Cancelled. Nothing was written.' : 'Draft already resolved.').catch(
+          () => undefined,
+        )
+        return
+      }
+      const confirmed = await confirmActionDraft(draft.id, user.id)
+      if (!confirmed) {
+        await sendWhatsAppText(phone, 'Draft expired. Please create it again.').catch(() => undefined)
+        return
+      }
+      let result = 'Confirmed.'
+      try {
+        const opsResult = await applyConfirmedOpsDraft(
+          user,
+          confirmed.actionType,
+          confirmed.payload,
+          'whatsapp_confirm',
+        )
+        if (opsResult != null) {
+          result = opsResult
+        } else {
+          const invResult = await applyConfirmedInventoryDraft(
+            user,
+            confirmed.actionType,
+            confirmed.payload,
+            'whatsapp_confirm',
+          )
+          if (invResult != null) {
+            result = invResult
+          } else {
+            const zoneResult = await applyConfirmedZoneDraft(
+              user,
+              confirmed.actionType,
+              confirmed.payload,
+              'whatsapp_confirm',
+            )
+            if (zoneResult != null) {
+              result = zoneResult
+            } else {
+              const logResult = await applyConfirmedLivestockLogDraft(
+                user,
+                confirmed.actionType,
+                confirmed.payload,
+                'whatsapp_confirm',
+              )
+              if (logResult != null) {
+                result = logResult
+              } else {
+                const lotResult = await applyConfirmedLotDraft(
+                  user,
+                  confirmed.actionType,
+                  confirmed.payload,
+                )
+                if (lotResult != null) {
+                  result = lotResult
+                } else if (confirmed.actionType === 'create_crop_cycle') {
+                  result = await executeConfirmedCropCycle(user, confirmed.payload)
+                } else if (confirmed.actionType === 'create_livestock_batch') {
+                  result = await executeConfirmedLivestockBatch(user, confirmed.payload)
+                } else {
+                  result = `Draft type "${confirmed.actionType}" — finish in Telegram (Confirm button) or the web app.`
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        result = err instanceof Error ? err.message : 'Could not apply draft'
+      }
+      await sendWhatsAppText(phone, result).catch(() => undefined)
+      return
     }
+  }
+
+  const taskIntent = parseCreateTaskIntent(text)
+  if (taskIntent) {
+    const prepared = await prepareCreateTaskDraft({
+      user,
+      title: taskIntent.title,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(
+      phone,
+      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
+    ).catch(() => undefined)
+    return
+  }
+
+  const censusIntent = parseCensusIntent(text)
+  if (censusIntent) {
+    const prepared = await prepareCensusDraft({
+      user,
+      ...censusIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, withCreatePlotHint(prepared.error)).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(
+      phone,
+      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
+    ).catch(() => undefined)
+    return
+  }
+
+  const assetCountIntent = parseAssetCountIntent(text)
+  if (assetCountIntent) {
+    const prepared = await prepareAssetCountDraft({
+      user,
+      ...assetCountIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(
+      phone,
+      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
+    ).catch(() => undefined)
+    return
+  }
+
+  const cropIntent = parseCropCycleIntent(text)
+  if (cropIntent) {
+    if (!canAssignTasks(user)) {
+      await sendWhatsAppText(phone, 'Only Admin or Supervisor can create crop cycles.').catch(() => undefined)
+      return
+    }
+    const plot = await resolvePlotByName(user.farmId, cropIntent.plotName)
+    if (!plot) {
+      await sendWhatsAppText(
+        phone,
+        withCreatePlotHint(
+          `Block "${cropIntent.plotName}" not found. Use the exact plot name from Zones.`,
+        ),
+      ).catch(() => undefined)
+      return
+    }
+    await storeActionDraft({
+      userId: user.id,
+      farmId: user.farmId,
+      actionType: 'create_crop_cycle',
+      payload: {
+        plotId: plot.id,
+        plotName: plot.name,
+        cropType: cropIntent.cropType,
+        plantedAt: new Date(cropIntent.plantedAt).toISOString(),
+        expectedHarvestAt: cropIntent.expectedHarvestAt
+          ? new Date(cropIntent.expectedHarvestAt).toISOString()
+          : null,
+        expectedYieldKg: cropIntent.expectedYieldKg ?? null,
+      },
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    await sendWhatsAppText(
+      phone,
+      [
+        'Draft crop cycle ready:',
+        `${cropIntent.cropType} on ${plot.name}, planted ${cropIntent.plantedAt}`,
+        '',
+        WA_CONFIRM_HINT,
+      ].join('\n'),
+    ).catch(() => undefined)
+    return
+  }
+
+  const livestockIntent = parseLivestockBatchIntent(text)
+  if (livestockIntent) {
+    if (!canAssignTasks(user)) {
+      await sendWhatsAppText(phone, 'Only Admin or Supervisor can create livestock batches.').catch(
+        () => undefined,
+      )
+      return
+    }
+    let plotId: string | null = null
+    let plotName: string | null = null
+    if (livestockIntent.plotName) {
+      const plot = await resolvePlotByName(user.farmId, livestockIntent.plotName)
+      if (!plot) {
+        await sendWhatsAppText(
+          phone,
+          withCreatePlotHint(
+            `Plot "${livestockIntent.plotName}" not found. Omit plot= or use exact name.`,
+          ),
+        ).catch(() => undefined)
+        return
+      }
+      plotId = plot.id
+      plotName = plot.name
+    }
+    await storeActionDraft({
+      userId: user.id,
+      farmId: user.farmId,
+      actionType: 'create_livestock_batch',
+      payload: {
+        name: livestockIntent.name,
+        species: livestockIntent.species,
+        headCount: livestockIntent.headCount,
+        plotId,
+        plotName,
+        acquiredAt: new Date(livestockIntent.acquiredAt).toISOString(),
+      },
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    await sendWhatsAppText(
+      phone,
+      [
+        'Draft livestock batch ready:',
+        `${livestockIntent.name} · ${livestockIntent.species} · ${livestockIntent.headCount} head`,
+        '',
+        WA_CONFIRM_HINT,
+      ].join('\n'),
+    ).catch(() => undefined)
+    return
+  }
+
+  const stockMoveIntent = parseStockMoveIntent(text)
+  if (stockMoveIntent) {
+    const prepared = await prepareStockMoveDraft({
+      user,
+      ...stockMoveIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const openingCountIntent = parseOpeningCountIntent(text)
+  if (openingCountIntent) {
+    const prepared = await prepareOpeningCountDraft({
+      user,
+      ...openingCountIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const lowStockAckIntent = parseLowStockAckIntent(text)
+  if (lowStockAckIntent) {
+    const prepared = await prepareLowStockAckDraft({
+      user,
+      itemQuery: lowStockAckIntent.itemQuery,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const createZoneIntent = parseCreateZoneIntent(text)
+  if (createZoneIntent) {
+    const prepared = await prepareCreateZoneDraft({
+      user,
+      ...createZoneIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const createPlotIntent = parseCreatePlotIntent(text)
+  if (createPlotIntent) {
+    const prepared = await prepareCreatePlotDraft({
+      user,
+      ...createPlotIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const livestockLogIntent = parseLivestockLogIntent(text)
+  if (livestockLogIntent) {
+    const prepared = await prepareLivestockLogDraft({
+      user,
+      ...livestockLogIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
     return
   }
 
   if (lower === 'lots' || lower === '/lots') {
-    const lots = await listIncompleteLots(user.farmId)
-    if (!lots.length) {
-      await sendWhatsAppText(phone, 'No lots waiting for pack details.').catch(() => undefined)
+    await sendWhatsAppText(phone, await formatLotsToPackMessage(user.farmId)).catch(() => undefined)
+    return
+  }
+
+  const packMatch = text.match(/^(?:pack|lot)\s+(\S+)/i)
+  if (packMatch) {
+    const prepared = await startLotEnrichDraft(user, packMatch[1], {
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
       return
     }
-    const lines = lots.map(
-      (lot, i) =>
-        `${i + 1}. ${lot.lotCode} — ${lot.productName} (${lot.quantityKg} ${lot.unit})`,
-    )
-    await sendWhatsAppText(
-      phone,
-      `Lots to pack:\n${lines.join('\n')}\n\nPack/enrich in Telegram staff bot or Traceability in the app.`,
-    ).catch(() => undefined)
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const enrichApply = await applyLotEnrichText(user, text)
+  if (enrichApply.handled) {
+    await sendWhatsAppText(phone, `${enrichApply.reply}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    return
+  }
+
+  const verifyLotIntent = parseVerifyLotIntent(text)
+  if (verifyLotIntent) {
+    const prepared = await prepareVerifyLotDraft({
+      user,
+      ...verifyLotIntent,
+      channel: 'whatsapp',
+      externalChatId: phone,
+    })
+    if (!prepared.ok) {
+      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
+      return
+    }
+    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
     return
   }
 
@@ -224,7 +646,11 @@ async function handleText(dbUser: DbUser, msg: InboundMessage, text: string): Pr
   if (opsCmd.handled) {
     await sendWhatsAppText(
       phone,
-      flattenPickerReply(opsCmd.reply ?? 'Done.', opsCmd.replyMarkup),
+      voicePrefix(
+        opts,
+        text,
+        flattenPickerReply(opsCmd.reply ?? 'Done.', opsCmd.replyMarkup),
+      ),
     ).catch(() => undefined)
     return
   }
@@ -237,7 +663,11 @@ async function handleText(dbUser: DbUser, msg: InboundMessage, text: string): Pr
     if (orderCmd.handled) {
       await sendWhatsAppText(
         phone,
-        flattenPickerReply(orderCmd.reply ?? 'Done.', orderCmd.replyMarkup),
+        voicePrefix(
+          opts,
+          text,
+          flattenPickerReply(orderCmd.reply ?? 'Done.', orderCmd.replyMarkup),
+        ),
       ).catch(() => undefined)
       return
     }
@@ -251,22 +681,24 @@ async function handleText(dbUser: DbUser, msg: InboundMessage, text: string): Pr
     ).catch(() => undefined)
   }
 
-  await recordChatMessage({
-    farmId: user.farmId,
-    userId: user.id,
-    entityType: ENTITY,
-    messageId: msg.id,
-    text,
-    role: 'user',
-    direction: 'inbound',
-  })
+  if (!opts?.alreadyLogged) {
+    await recordChatMessage({
+      farmId: user.farmId,
+      userId: user.id,
+      entityType: ENTITY,
+      messageId: msg.id,
+      text,
+      role: 'user',
+      direction: 'inbound',
+    })
+  }
 
   const reply = await answerText(user, text, ENTITY, dbUser.preferredLocale)
   await deliverButlerReply({
     user,
     target: { channel: 'whatsapp', to: phone },
-    text: reply,
-    inboundWasVoice: false,
+    text: voicePrefix(opts, text, reply),
+    inboundWasVoice: !!opts?.inboundWasVoice,
     entityType: ENTITY,
   })
 
@@ -300,6 +732,21 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     extra: { kind: 'image', mediaId: msg.image?.id },
   })
 
+  // Attach to pending enrich_lot draft before diagnostic photo path.
+  try {
+    const dataUrl = await downloadWhatsAppMedia(msg.image!.id)
+    const attached = await attachPhotoToLotEnrichDraft(user, dataUrl)
+    if (attached.ok) {
+      await sendWhatsAppText(
+        phone,
+        `Photo attached to lot draft. ${WA_CONFIRM_HINT}`,
+      ).catch(() => undefined)
+      return
+    }
+  } catch {
+    // Fall through — other caption handlers may still apply.
+  }
+
   if (canManageOrders(user) && /(?:delivered|deliver)\s+\S+/i.test(caption)) {
     try {
       const dataUrl = await downloadWhatsAppMedia(msg.image!.id)
@@ -319,7 +766,7 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     }
   }
 
-  if (/^(?:done|complete|finish)\b/i.test(caption)) {
+  if (/^(?:done|complete|finish|start|taskstart)\b/i.test(caption)) {
     try {
       const dataUrl = await downloadWhatsAppMedia(msg.image!.id)
       const photoUrl = await processEvidenceValue(user.farmId, dataUrl)
@@ -404,48 +851,11 @@ async function handleAudio(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     extra: { kind: 'voice' },
   })
 
-  const opsCmd = await tryHandleStaffOpsCommand({
-    actor: toActor(dbUser),
-    text: transcript,
-  })
-  if (opsCmd.handled) {
-    await sendWhatsAppText(
-      phone,
-      `🗣️ "${transcript}"\n\n${flattenPickerReply(opsCmd.reply ?? 'Done.', opsCmd.replyMarkup)}`,
-    ).catch(() => undefined)
-    return
-  }
-
-  if (canManageOrders(user)) {
-    const orderCmd = await tryHandleStaffOrderCommand({
-      actor: toActor(dbUser),
-      text: transcript,
-    })
-    if (orderCmd.handled) {
-      await sendWhatsAppText(
-        phone,
-        `🗣️ "${transcript}"\n\n${flattenPickerReply(orderCmd.reply ?? 'Done.', orderCmd.replyMarkup)}`,
-      ).catch(() => undefined)
-      return
-    }
-  }
-
-  const reply = await answerText(user, transcript, ENTITY, dbUser.preferredLocale)
-  await deliverButlerReply({
-    user,
-    target: { channel: 'whatsapp', to: phone },
-    text: `🗣️ "${transcript}"\n\n${reply}`,
+  // Route voice through the same structured command path as text.
+  await handleText(dbUser, msg, transcript, {
     inboundWasVoice: true,
-    entityType: ENTITY,
+    alreadyLogged: true,
   })
-
-  if (dbUser.role === 'field_worker' && looksUrgent(transcript)) {
-    await notifyWorkerAlertChannels(
-      user.farmId,
-      `⚠️ Urgent voice note from ${user.name} (WhatsApp):\n\n"${transcript.slice(0, 300)}"\n\nButler replied with guidance. Please review in Trovara OS.`,
-      { actorUserId: user.id, reason: 'urgent_voice' },
-    )
-  }
 }
 
 export async function handleInboundWhatsApp(payload: unknown): Promise<{ handled: number }> {

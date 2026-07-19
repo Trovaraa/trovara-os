@@ -16,6 +16,7 @@ import {
   validateRegistrationSecret,
   verifyBreakGlassPassword,
 } from '../lib/registration.js'
+import { ensureBreakGlassOwner } from '../lib/break-glass.js'
 import {
   SESSION_COOKIE,
   countActiveSessions,
@@ -189,12 +190,22 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   }
 
   const { email, password } = c.req.valid('json')
-  const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1)
+  const emailNorm = email.toLowerCase()
+  let [user] = await db.select().from(users).where(eq(users.email, emailNorm)).limit(1)
+
+  // Clean go-live has a farm + Founder but no seeded break-glass row. Provision on demand.
+  if (!user && isBreakGlassEmail(emailNorm)) {
+    const provisioned = await ensureBreakGlassOwner()
+    if (provisioned === 'created' || provisioned === 'exists') {
+      ;[user] = await db.select().from(users).where(eq(users.email, emailNorm)).limit(1)
+    }
+  }
+
   if (!user || !user.active) {
     await verifyPassword(await getDummyPasswordHash(), password)
     logSecurityEvent('failed_login', {
       reason: !user ? 'unknown_email' : 'inactive_user',
-      email: email.toLowerCase(),
+      email: emailNorm,
       ip,
     })
     return c.json({ error: 'Invalid email or password' }, 401)

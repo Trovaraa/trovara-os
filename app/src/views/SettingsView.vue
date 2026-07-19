@@ -135,6 +135,9 @@ const linkCodeMessage = ref<string | null>(null)
 const telegramLinked = ref(false)
 const revokingTelegram = ref(false)
 const telegramMessage = ref<string | null>(null)
+const myPhone = ref('')
+const savingPhone = ref(false)
+const phoneMessage = ref<string | null>(null)
 let linkCodeTimer: ReturnType<typeof setInterval> | null = null
 
 const goLiveItems = computed(() => {
@@ -169,35 +172,56 @@ const goLiveReady = computed(
 async function load() {
   loading.value = true
   try {
-    const [statusData, aiData, waData, billData] = await Promise.all([
-      api<{ checklist: Checklist; ready: boolean; liveMode?: boolean }>('/api/onboarding/status'),
-      api<IntegrationStatus>('/api/ai/status'),
-      api<IntegrationStatus>('/api/whatsapp/status'),
-      api<BillingStatus>('/api/billing/status'),
+    const [aiData, waData] = await Promise.all([
+      api<IntegrationStatus>('/api/ai/status').catch(() => null),
+      api<IntegrationStatus>('/api/whatsapp/status').catch(() => null),
     ])
-    checklist.value = statusData.checklist
-    ready.value = statusData.ready
-    liveMode.value = !!statusData.liveMode
     aiStatus.value = aiData
     whatsappStatus.value = waData
-    billingStatus.value = billData
 
-    try {
-      const farmData = await api<{ farm: FarmProfile }>('/api/farm')
-      farmProfile.value = farmData.farm
-      farmName.value = farmData.farm.name
-      farmLocation.value = farmData.farm.location
-      farmLatitude.value = farmData.farm.latitude ?? ''
-      farmLongitude.value = farmData.farm.longitude ?? ''
-      farmTimezone.value = farmData.farm.timezone ?? 'Africa/Lagos'
-    } catch {
-      farmProfile.value = null
-    }
+    if (auth.isOwner) {
+      try {
+        const [statusData, billData] = await Promise.all([
+          api<{ checklist: Checklist; ready: boolean; liveMode?: boolean }>('/api/onboarding/status'),
+          api<BillingStatus>('/api/billing/status'),
+        ])
+        checklist.value = statusData.checklist
+        ready.value = statusData.ready
+        liveMode.value = !!statusData.liveMode
+        billingStatus.value = billData
+      } catch {
+        checklist.value = null
+        billingStatus.value = null
+      }
 
-    try {
-      systemStatus.value = await api<SystemStatus>('/system-status')
-    } catch {
-      // non-critical
+      try {
+        const farmData = await api<{ farm: FarmProfile }>('/api/farm')
+        farmProfile.value = farmData.farm
+        farmName.value = farmData.farm.name
+        farmLocation.value = farmData.farm.location
+        farmLatitude.value = farmData.farm.latitude ?? ''
+        farmLongitude.value = farmData.farm.longitude ?? ''
+        farmTimezone.value = farmData.farm.timezone ?? 'Africa/Lagos'
+      } catch {
+        farmProfile.value = null
+      }
+
+      try {
+        systemStatus.value = await api<SystemStatus>('/system-status')
+      } catch {
+        systemStatus.value = null
+      }
+
+      try {
+        retentionStatus.value = await api('/api/privacy/retention-status')
+      } catch {
+        retentionStatus.value = null
+      }
+      try {
+        anonymizeTargets.value = await api('/api/privacy/anonymize-targets')
+      } catch {
+        anonymizeTargets.value = null
+      }
     }
 
     try {
@@ -222,23 +246,14 @@ async function load() {
     }
 
     try {
-      const links = await api<{ telegramLinked: boolean }>('/api/users/me/channel-links')
+      const links = await api<{ telegramLinked: boolean; phone?: string | null }>(
+        '/api/users/me/channel-links',
+      )
       telegramLinked.value = links.telegramLinked
+      myPhone.value = links.phone ?? ''
     } catch {
       telegramLinked.value = false
-    }
-
-    if (auth.isOwner) {
-      try {
-        retentionStatus.value = await api('/api/privacy/retention-status')
-      } catch {
-        retentionStatus.value = null
-      }
-      try {
-        anonymizeTargets.value = await api('/api/privacy/anonymize-targets')
-      } catch {
-        anonymizeTargets.value = null
-      }
+      myPhone.value = ''
     }
   } finally {
     loading.value = false
@@ -355,6 +370,22 @@ async function revokeTelegramLink() {
     telegramMessage.value = e instanceof Error ? e.message : t('settings.revokeTelegramFailed')
   } finally {
     revokingTelegram.value = false
+  }
+}
+
+async function saveMyPhone() {
+  savingPhone.value = true
+  phoneMessage.value = null
+  try {
+    await api('/api/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ phone: myPhone.value.trim() || null }),
+    })
+    phoneMessage.value = t('settings.phoneSaved')
+  } catch (e) {
+    phoneMessage.value = e instanceof Error ? e.message : t('settings.phoneSaveFailed')
+  } finally {
+    savingPhone.value = false
   }
 }
 
@@ -659,8 +690,11 @@ function formatBackupTime(iso: string | null): string {
   <AppLayout>
     <div>
       <h2 class="text-2xl font-black text-white">{{ t('settings.title') }}</h2>
-      <p class="text-slate-400 text-sm mt-1">{{ t('settings.subtitle') }}</p>
+      <p class="text-slate-400 text-sm mt-1">
+        {{ auth.isOwner ? t('settings.subtitle') : t('settings.subtitleStaff') }}
+      </p>
       <RouterLink
+        v-if="auth.isOwner"
         to="/settings/security"
         class="inline-flex mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
       >
@@ -729,6 +763,7 @@ function formatBackupTime(iso: string | null): string {
 
       <!-- Go-Live Checklist -->
       <div
+        v-if="auth.isOwner"
         class="mt-8 bg-slate-900 border rounded-xl p-5"
         :class="goLiveReady ? 'border-farm-green/40' : 'border-amber-700/30'"
       >
@@ -780,7 +815,7 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <!-- Onboarding checklist -->
-      <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div v-if="auth.isOwner" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <div class="flex items-center justify-between gap-4">
           <h3 class="font-bold text-white">{{ t('settings.onboardingTitle') }}</h3>
           <span
@@ -813,7 +848,7 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <!-- System Status -->
-      <div v-if="systemStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div v-if="auth.isOwner && systemStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm mb-4">{{ t('settings.systemStatus') }}</h3>
         <div class="grid grid-cols-2 gap-3 text-sm">
           <div>
@@ -875,16 +910,35 @@ function formatBackupTime(iso: string | null): string {
           <p v-if="aiStatus?.hint" class="text-xs text-slate-500 mt-2">{{ aiStatus.hint }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="font-bold text-white text-sm">{{ t('settings.whatsappIntegration') }}</h3>
-          <p class="text-xs mt-2">
-            <span
-              class="font-bold px-2 py-0.5 rounded-full"
-              :class="whatsappStatus?.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
-            >
-              {{ whatsappStatus?.configured ? t('settings.configured') : t('settings.notConfigured') }}
-            </span>
+          <h3 class="font-bold text-white text-sm">{{ t('settings.whatsappConnect') }}</h3>
+          <p class="text-xs text-slate-400 mt-2">
+            {{ t('settings.whatsappConnectDesc') }}
           </p>
-          <p v-if="whatsappStatus?.hint" class="text-xs text-slate-500 mt-2">{{ whatsappStatus.hint }}</p>
+          <span
+            class="inline-flex mt-2 text-xs font-bold px-2 py-0.5 rounded-full"
+            :class="whatsappStatus?.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
+          >
+            {{ whatsappStatus?.configured ? t('settings.configured') : t('settings.notConfigured') }}
+          </span>
+          <label class="block text-xs text-slate-500 mt-3 mb-1">{{ t('settings.yourPhone') }}</label>
+          <div class="flex flex-wrap gap-2">
+            <input
+              v-model="myPhone"
+              type="tel"
+              :placeholder="t('settings.phonePlaceholder')"
+              class="flex-1 min-w-[10rem] bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+            />
+            <button
+              type="button"
+              class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              :disabled="savingPhone"
+              @click="saveMyPhone"
+            >
+              {{ savingPhone ? t('settings.saving') : t('settings.savePhone') }}
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">{{ t('settings.whatsappPhoneHint') }}</p>
+          <p v-if="phoneMessage" class="mt-2 text-xs text-slate-400">{{ phoneMessage }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h3 class="font-bold text-white text-sm">{{ t('settings.telegramConnect') }}</h3>
@@ -1110,7 +1164,7 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <!-- SaaS billing — informational only (single-farm go-live; not a blocker) -->
-      <div v-if="billingStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div v-if="auth.isOwner && billingStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm">{{ t('settings.saasBilling') }}</h3>
         <p class="text-xs text-slate-400 mt-2">{{ t('settings.saasBillingInfo') }}</p>
         <p class="text-xs mt-2">
@@ -1121,7 +1175,7 @@ function formatBackupTime(iso: string | null): string {
         <p class="text-xs text-slate-500 mt-3">{{ t('settings.seeDocs', { docs: billingStatus.docs }) }}</p>
       </div>
 
-      <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div v-if="auth.isOwner" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm">{{ t('settings.csvExports') }}</h3>
         <p class="text-xs text-slate-500 mt-1">{{ t('settings.csvDesc') }}</p>
         <div class="mt-4 flex flex-wrap gap-2">
@@ -1152,7 +1206,7 @@ function formatBackupTime(iso: string | null): string {
         </div>
       </div>
 
-      <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div v-if="auth.isOwner" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm">{{ t('settings.privacy') }}</h3>
         <p class="text-xs text-slate-500 mt-1">{{ t('settings.privacyDesc') }}</p>
         <div v-if="auth.isOwner" class="mt-4 space-y-4">
@@ -1262,7 +1316,7 @@ function formatBackupTime(iso: string | null): string {
       </div>
 
       <!-- Admin actions -->
-      <div class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+      <div v-if="auth.isOwner" class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <h3 class="font-bold text-white text-sm">{{ t('settings.adminActions') }}</h3>
         <div class="flex flex-wrap gap-3">
           <button
