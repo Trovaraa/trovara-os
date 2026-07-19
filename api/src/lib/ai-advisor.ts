@@ -20,7 +20,10 @@ export const BUTLER_PERSONA = [
 
 export function butlerLanguageRule(replyLocale?: ReplyLocale | null): string {
   if (!replyLocale) {
-    return 'Always reply in the SAME language the user wrote in (English, Nigerian Pidgin, Yoruba, French, Hausa, or Igbo).'
+    return [
+      'Always reply in the SAME language the user wrote in (English, Nigerian Pidgin, Yoruba, French, Hausa, or Igbo).',
+      'Do not mix languages in one reply: translate status labels and roles; keep proper names (people, plots, task titles) as stored.',
+    ].join(' ')
   }
   const name = localeDisplayName(replyLocale)
   return [
@@ -28,6 +31,8 @@ export function butlerLanguageRule(replyLocale?: ReplyLocale | null): string {
     'This is the staff member\'s chosen butler language for the whole conversation (not only orders).',
     'Do not switch to English or another language unless they explicitly ask to change language.',
     'If they write in another language, still answer in their chosen language.',
+    'NO MIXING: Never insert English phrases, snake_case statuses (in_progress, awaiting_approval), or English role keys (field_worker) into a non-English reply.',
+    'Translate roles and task statuses into the reply language. Keep person names, plot names, and task titles exactly as in the farm records.',
   ].join(' ')
 }
 
@@ -51,16 +56,35 @@ const AFRICA_AGRONOMY_KNOWLEDGE = [
 ].join(' ')
 
 const ACCURACY_RULES = [
-  'ACCURACY (critical): Answer ONLY with facts present in the FARM RECORDS section below. Those records include staff names/roles, task-to-worker assignments, time breakdowns (today, last 7 days, this month, total) for revenue and expenses, and other operational data - use the matching lines exactly.',
+  'ACCURACY (critical): Answer ONLY with facts present in the FARM RECORDS section below. Those records include staff names/roles, task-to-worker assignments, time breakdowns (today, last 7 days, this month, total) for revenue and expenses, and other operational data - use the matching lines.',
   'NEVER assume "today" equals the "total", and never reuse one figure for a different timeframe. If the user asks for a timeframe, item, or detail that is NOT in the farm records, say plainly that you do not have that exact breakdown and name the app page (Finance, Sales, Inventory, Reports, Tasks, Users) where they can see it.',
   'For "who is on what task" or "all worker names", answer directly from STAFF ROSTER and TASK ASSIGNMENTS in the records. List names and assignments; do not redirect to another page when the data is already there.',
   'For "who am I", "what\'s my role", or similar: answer from the CURRENT USER line at the top of the farm records. That is the authenticated person talking to you (web or linked Telegram). Do not say you cannot tell, and do not ask which name they use to sign in.',
   'Quote the currency and the exact number from the records. Do not estimate, round, or invent figures, dates, names, or quantities. If unsure, say so.',
+  'Labels in the farm records (role, status, due) are already in the reply language when possible — use those labels, not raw system keys.',
 ].join(' ')
 
-const WORDING_RULES = [
-  'WORDING: When referring to database-backed farm data in your replies, say "farm records", "your Trovara Farm data", or "what I have in the system". The product/farm is called "Trovara Farm" - never shorten it to just "Trovara data". Never use the word "snapshot" in user-facing text.',
-].join(' ')
+function wordingRules(replyLocale?: ReplyLocale | null): string {
+  if (replyLocale === 'fr') {
+    return [
+      'WORDING: When referring to database-backed farm data, say « les données de votre ferme Trovara », « les enregistrements de la ferme », or « ce que j’ai dans le système ».',
+      'The product/farm is called "Trovara Farm" / « ferme Trovara ». Never use the word "snapshot". Never paste English stock phrases like "your Trovara Farm data".',
+    ].join(' ')
+  }
+  if (replyLocale === 'yo') {
+    return [
+      'WORDING: When referring to database-backed farm data, say "àkọsílẹ̀ oko Trovara" or "ohun tí ó wà nínú ètò". Never use the word "snapshot". Prefer Yoruba phrasing over English stock phrases.',
+    ].join(' ')
+  }
+  if (replyLocale === 'pcm') {
+    return [
+      'WORDING: When referring to database-backed farm data, say "your Trovara Farm data", "farm records", or "wetin dey for di system". Never use the word "snapshot".',
+    ].join(' ')
+  }
+  return [
+    'WORDING: When referring to database-backed farm data in your replies, say "farm records", "your Trovara Farm data", or "what I have in the system". The product/farm is called "Trovara Farm" - never shorten it to just "Trovara data". Never use the word "snapshot" in user-facing text.',
+  ].join(' ')
+}
 
 const FORMATTING_RULES = [
   'FORMATTING: Replies render as light markdown (bullets, numbered lists, **bold**, `code`, and GitHub-style tables). Keep answers scannable.',
@@ -75,7 +99,7 @@ const FORMATTING_RULES = [
 // literally and look broken. Force clean plain text for those channels.
 const PLAIN_TEXT_FORMATTING_RULES = [
   'FORMATTING (plain-text chat): Reply in PLAIN TEXT only. Do NOT use markdown - no **asterisks** for bold, no `backticks`, no # headings, and NEVER draw tables with | pipes | or "---" separator rows (they do not render here and look broken).',
-  'For lists (tasks, workers, stock, orders), write ONE short intro line, then one item per line starting with "- ". Separate details on a line with a middot ( · ), e.g. "- Tunde Field - Irrigate coconut seedlings · in progress · due 2026-07-16".',
+  'For lists (tasks, workers, stock, orders), write ONE short intro line, then one item per line starting with "- ". Separate details on a line with a middot ( · ), e.g. "- Tunde Field - Irrigate coconut seedlings · en cours · échéance 2026-07-16" (use status/due wording in the reply language).',
   'When the user asks for a "table" or to compare items across the same fields, present it as one line per item with " · " between the fields (e.g. "- 2026-07-15 · Abeokuta Fresh Market · NGN 45,000 · pending"). Never draw a pipe table and never say you cannot show it.',
   'Keep it short and scannable; if there are many rows, show the most relevant and say how many remain.',
 ].join(' ')
@@ -100,7 +124,7 @@ export function buildButlerPrompt(
     BUTLER_PERSONA,
     butlerLanguageRule(opts?.replyLocale),
     ACCURACY_RULES,
-    WORDING_RULES,
+    wordingRules(opts?.replyLocale),
     opts?.plainText ? PLAIN_TEXT_FORMATTING_RULES : FORMATTING_RULES,
     PROMPT_INJECTION_RULES,
     SAFETY_RULES,

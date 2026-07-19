@@ -17,6 +17,8 @@ import type { SessionUser } from './session.js'
 import { canAccessFinance } from './rbac.js'
 import { computePlotProfitability } from './plot-profitability.js'
 import { sanitizeFarmDataField } from './sanitize-input.js'
+import type { ReplyLocale } from './reply-locale.js'
+import { resolveStaffReplyLocale } from './reply-locale.js'
 
 const MAX_TASKS_IN_CONTEXT = 80
 
@@ -24,18 +26,83 @@ function sf(text: string | null | undefined): string {
   return sanitizeFarmDataField(text ?? '')
 }
 
-function formatRole(role: string): string {
+function formatRole(role: string, locale: ReplyLocale): string {
+  if (locale === 'fr') {
+    if (role === 'owner') return 'admin'
+    if (role === 'field_worker') return 'ouvrier agricole'
+    if (role === 'supervisor') return 'superviseur'
+    if (role === 'sales') return 'ventes'
+  }
+  if (locale === 'yo') {
+    if (role === 'owner') return 'Admin'
+    if (role === 'field_worker') return 'òṣìṣẹ́ oko'
+    if (role === 'supervisor') return 'alábòójútó'
+    if (role === 'sales') return 'títà'
+  }
+  if (locale === 'pcm') {
+    if (role === 'owner') return 'Admin'
+    if (role === 'field_worker') return 'field worker'
+    if (role === 'supervisor') return 'supervisor'
+    if (role === 'sales') return 'sales'
+  }
   if (role === 'owner') return 'Admin'
   if (role === 'field_worker') return 'field worker'
   return role.replace(/_/g, ' ')
+}
+
+function formatTaskStatus(status: string, locale: ReplyLocale): string {
+  const maps: Record<ReplyLocale, Record<string, string>> = {
+    en: {
+      pending: 'pending',
+      in_progress: 'in progress',
+      awaiting_approval: 'awaiting approval',
+      completed: 'completed',
+      rejected: 'rejected',
+    },
+    fr: {
+      pending: 'en attente',
+      in_progress: 'en cours',
+      awaiting_approval: "en attente d'approbation",
+      completed: 'terminée',
+      rejected: 'rejetée',
+    },
+    yo: {
+      pending: 'ń dúró',
+      in_progress: 'ń lọ lọ́wọ́',
+      awaiting_approval: 'ń dúró fún ìfọwọ́sí',
+      completed: 'parí',
+      rejected: 'kọ̀',
+    },
+    pcm: {
+      pending: 'pending',
+      in_progress: 'in progress',
+      awaiting_approval: 'awaiting approval',
+      completed: 'completed',
+      rejected: 'rejected',
+    },
+  }
+  return maps[locale][status] ?? status.replace(/_/g, ' ')
+}
+
+function dueLabel(due: string | null, locale: ReplyLocale): string {
+  if (due) return due
+  if (locale === 'fr') return 'pas d’échéance'
+  if (locale === 'yo') return 'kò sí ọjọ́ ìparí'
+  if (locale === 'pcm') return 'no due date'
+  return 'no due date'
 }
 
 /**
  * Builds a compact, human-readable summary of live farm records so an LLM can
  * answer free-form questions grounded in real data. Finance figures (revenue,
  * expenses, profit) are only included for users allowed to see finance.
+ * Pass `replyLocale` so role/status labels match the staff butler language.
  */
-export async function buildFarmContext(user: SessionUser): Promise<string> {
+export async function buildFarmContext(
+  user: SessionUser,
+  replyLocale?: ReplyLocale | string | null,
+): Promise<string> {
+  const locale = resolveStaffReplyLocale(replyLocale)
   const farmId = user.farmId
   const showFinance = canAccessFinance(user)
 
@@ -123,7 +190,7 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
   // Identity of the person currently chatting (web session or linked Telegram chat).
   // Answers "who am I / what's my role?" without guessing from the staff roster.
   lines.push(
-    `CURRENT USER: name=${sf(user.name)}; role=${formatRole(user.role)} (system key: ${user.role})`,
+    `CURRENT USER: name=${sf(user.name)}; role=${formatRole(user.role, locale)} (system key: ${user.role})`,
   )
   lines.push('')
 
@@ -144,14 +211,14 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
     `  Summary: ${staffByRole.owner.length} Admin(s), ${staffByRole.supervisor.length} supervisor(s), ${staffByRole.field_worker.length} field worker(s)`,
   )
   for (const member of visibleStaff) {
-    lines.push(`  • ${sf(member.name)} (${formatRole(member.role)})`)
+    lines.push(`  • ${sf(member.name)} (${formatRole(member.role, locale)})`)
   }
   lines.push('')
 
   // Tasks summary + per-task assignments (answers "who is linked to what task")
   const taskMap = Object.fromEntries(taskStats.map((s) => [s.status, Number(s.total)]))
   lines.push(
-    `TASKS SUMMARY: ${taskMap.pending ?? 0} pending, ${taskMap.in_progress ?? 0} in progress, ${taskMap.awaiting_approval ?? 0} awaiting approval, ${taskMap.completed ?? 0} completed, ${taskMap.rejected ?? 0} rejected`,
+    `TASKS SUMMARY: ${taskMap.pending ?? 0} ${formatTaskStatus('pending', locale)}, ${taskMap.in_progress ?? 0} ${formatTaskStatus('in_progress', locale)}, ${taskMap.awaiting_approval ?? 0} ${formatTaskStatus('awaiting_approval', locale)}, ${taskMap.completed ?? 0} ${formatTaskStatus('completed', locale)}, ${taskMap.rejected ?? 0} ${formatTaskStatus('rejected', locale)}`,
   )
 
   const visibleTasks = isFieldWorker
@@ -171,9 +238,12 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
     for (const t of visibleTasks) {
       const assignee = t.assignedToName ? sf(t.assignedToName) : '(unassigned)'
       const plot = t.plotName ? sf(t.plotName) : '(no plot)'
-      const due = t.dueDate ? t.dueDate.toISOString().slice(0, 10) : 'no due date'
+      const due = dueLabel(
+        t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
+        locale,
+      )
       lines.push(
-        `  • "${sf(t.title)}" - assigned to: ${assignee} - plot: ${plot} - status: ${t.status} - due: ${due}`,
+        `  • "${sf(t.title)}" - assigned to: ${assignee} - plot: ${plot} - status: ${formatTaskStatus(t.status, locale)} - due: ${due}`,
       )
     }
     if (!isFieldWorker && totalTasks > visibleTasks.length) {

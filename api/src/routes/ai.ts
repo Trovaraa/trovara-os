@@ -378,8 +378,8 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
   }
 
   try {
-    const context = await buildFarmContext(user)
-    const systemPrompt = buildButlerPrompt(context)
+    const context = await buildFarmContext(user, locale)
+    const systemPrompt = buildButlerPrompt(context, { replyLocale: locale })
     const safeQuestion = sanitizeForLlm(question)
     const safeHistory = (history ?? []).map((m) => ({
       role: m.role,

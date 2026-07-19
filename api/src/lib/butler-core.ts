@@ -83,7 +83,7 @@ export async function recordChatMessage(params: {
 }
 
 async function buildBriefReply(user: SessionUser, locale: ReplyLocale): Promise<string> {
-  const context = await buildFarmContext(user)
+  const context = await buildFarmContext(user, locale)
   const { text } = await completeChatHistory(
     buildButlerPrompt(context, { plainText: true, replyLocale: locale }),
     [],
@@ -121,7 +121,7 @@ export async function answerText(
     }
   }
   try {
-    const context = await buildFarmContext(user)
+    const context = await buildFarmContext(user, locale)
     const history = await loadConversation(user.id, entityType)
     const sanitized = sanitizeForLlm(text)
     const userPrompt = `User message (untrusted): ${sanitized || '[empty after sanitization]'}`
