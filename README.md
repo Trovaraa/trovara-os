@@ -28,11 +28,13 @@ npm run dev
 
 ## Demo Accounts
 
-Passwords are set in `.env` (`SEED_OWNER_PASSWORD`, etc.):
+Staff demo passwords are set in `.env` (`SEED_SUPERVISOR_PASSWORD`, etc.).
+The owner / break-glass account (`owner@trovara.farm`) authenticates with
+`BREAK_GLASS_PASSWORD` from the environment at login time (not the DB hash).
 
 | Email | Role |
 |-------|------|
-| owner@trovara.farm | owner |
+| owner@trovara.farm | owner (break-glass via `BREAK_GLASS_PASSWORD`) |
 | supervisor1@trovara.farm | supervisor |
 | supervisor2@trovara.farm | supervisor |
 | worker1@trovara.farm | field_worker |

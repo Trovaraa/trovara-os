@@ -279,7 +279,7 @@ CRON_OWNER_PASSWORD=strong_production_password
 API_URL=https://your-domain.com
 ```
 
-If `CRON_OWNER_PASSWORD` is unset, the script falls back to `SEED_OWNER_PASSWORD` (local dev only - **set explicit production credentials**).
+If `CRON_OWNER_PASSWORD` is unset, the script falls back to `BREAK_GLASS_PASSWORD`, then `SEED_OWNER_PASSWORD` (local dev only - **set explicit production credentials**).
 
 ### Crontab example
 

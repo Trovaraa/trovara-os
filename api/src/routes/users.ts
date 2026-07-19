@@ -7,6 +7,7 @@ import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
 import { hashPassword } from '../lib/session.js'
+import { isBreakGlassEmail } from '../lib/registration.js'
 import { logAudit } from '../lib/audit.js'
 import {
   generateLinkCode,
@@ -287,6 +288,15 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
   }
 
   if (body.password !== undefined) {
+    if (isBreakGlassEmail(existing.email)) {
+      return c.json(
+        {
+          error:
+            'Break-glass password is managed via BREAK_GLASS_PASSWORD in the server .env (restart API after changing it).',
+        },
+        400,
+      )
+    }
     updates.passwordHash = await hashPassword(body.password)
     updates.mustChangePassword = true
   }

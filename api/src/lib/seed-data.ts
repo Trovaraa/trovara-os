@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto'
 import { hashPassword } from './session.js'
+import { getBreakGlassEmail } from './registration.js'
 import { slugify } from './slug.js'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
@@ -111,25 +113,31 @@ async function deleteAllData(): Promise<void> {
 }
 
 async function insertDemoContentForFarm(farmId: string): Promise<void> {
-  const ownerPassword = process.env.SEED_OWNER_PASSWORD
+  const breakGlassPassword = process.env.BREAK_GLASS_PASSWORD
   const supervisorPassword = process.env.SEED_SUPERVISOR_PASSWORD
   const workerPassword = process.env.SEED_WORKER_PASSWORD
 
-  if (!ownerPassword || !supervisorPassword || !workerPassword) {
-    throw new Error('Set SEED_OWNER_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD in .env')
+  if (!breakGlassPassword || !supervisorPassword || !workerPassword) {
+    throw new Error(
+      'Set BREAK_GLASS_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD in .env',
+    )
   }
+
+  // Break-glass owner authenticates via BREAK_GLASS_PASSWORD in env at login time.
+  // Store a random unusable hash so the real secret is never the DB password.
+  const breakGlassPlaceholderHash = await hashPassword(randomBytes(32).toString('base64url'))
 
   const [owner, sup1, sup2, worker1, worker2] = await db
     .insert(users)
     .values([
       {
         farmId,
-        email: 'owner@trovara.farm',
+        email: getBreakGlassEmail(),
         name: 'Farm Admin',
         phone: '2348100000000',
-        passwordHash: await hashPassword(ownerPassword),
+        passwordHash: breakGlassPlaceholderHash,
         role: 'owner',
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
       {
         farmId: farmId,

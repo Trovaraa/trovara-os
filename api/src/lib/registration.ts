@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { secureCompare } from './secure-compare.js'
+import { secureCompare, secureCompareSecret } from './secure-compare.js'
 
 export const DEFAULT_BREAK_GLASS_EMAIL = 'owner@trovara.farm'
 
@@ -62,4 +62,19 @@ export function getBreakGlassEmail(): string {
 
 export function isBreakGlassEmail(email: string): boolean {
   return normalizeRegisterEmail(email) === getBreakGlassEmail()
+}
+
+/**
+ * Break-glass password lives only in process env (BREAK_GLASS_PASSWORD), not the DB.
+ * Changing it requires updating .env and restarting the API — no re-seed.
+ */
+export function getBreakGlassPasswordFromEnv(): string | null {
+  const password = process.env.BREAK_GLASS_PASSWORD?.trim()
+  return password || null
+}
+
+export function verifyBreakGlassPassword(password: string): boolean {
+  const expected = getBreakGlassPasswordFromEnv()
+  if (!expected) return false
+  return secureCompareSecret(password, expected)
 }

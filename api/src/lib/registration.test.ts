@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_BREAK_GLASS_EMAIL,
   isAllowedOwnerEmail,
@@ -8,6 +8,7 @@ import {
   OWNER_EMAIL_DOMAIN,
   registerBodySchema,
   validateRegistrationSecret,
+  verifyBreakGlassPassword,
 } from './registration.js'
 
 describe('normalizeRegisterEmail', () => {
@@ -106,5 +107,25 @@ describe('isBreakGlassEmail', () => {
     expect(isBreakGlassEmail(DEFAULT_BREAK_GLASS_EMAIL)).toBe(true)
     expect(isBreakGlassEmail('Owner@Trovara.Farm')).toBe(true)
     expect(isBreakGlassEmail('ada@example.com')).toBe(false)
+  })
+})
+
+describe('verifyBreakGlassPassword', () => {
+  const prev = process.env.BREAK_GLASS_PASSWORD
+
+  afterEach(() => {
+    if (prev === undefined) delete process.env.BREAK_GLASS_PASSWORD
+    else process.env.BREAK_GLASS_PASSWORD = prev
+  })
+
+  it('compares against BREAK_GLASS_PASSWORD from env', () => {
+    process.env.BREAK_GLASS_PASSWORD = 'env-break-glass-secret'
+    expect(verifyBreakGlassPassword('env-break-glass-secret')).toBe(true)
+    expect(verifyBreakGlassPassword('wrong')).toBe(false)
+  })
+
+  it('fails when env password is unset', () => {
+    delete process.env.BREAK_GLASS_PASSWORD
+    expect(verifyBreakGlassPassword('anything')).toBe(false)
   })
 })

@@ -20,6 +20,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Session metadata: user agent + SHA-256 hashed IP stored on login
 - Session revocation: `POST /auth/revoke-all-sessions`
 - Password reset + forced change on first login (`mustChangePassword`)
+- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); use is audited
 - TOTP 2FA for owner accounts (setup/enable/disable in Settings)
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)
 - Data retention: `DATA_RETENTION_DAYS` + `npm run run-data-retention`

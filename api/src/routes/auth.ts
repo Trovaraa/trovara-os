@@ -14,6 +14,7 @@ import {
   normalizeRegisterPhone,
   registerBodySchema,
   validateRegistrationSecret,
+  verifyBreakGlassPassword,
 } from '../lib/registration.js'
 import {
   SESSION_COOKIE,
@@ -199,10 +200,18 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     return c.json({ error: 'Invalid email or password' }, 401)
   }
 
-  const valid = await verifyPassword(user.passwordHash, password)
+  const breakGlass = isBreakGlassEmail(user.email)
+  // Break-glass: password comes from BREAK_GLASS_PASSWORD in env, never the DB hash.
+  let valid = false
+  if (breakGlass) {
+    await verifyPassword(await getDummyPasswordHash(), password)
+    valid = verifyBreakGlassPassword(password)
+  } else {
+    valid = await verifyPassword(user.passwordHash, password)
+  }
   if (!valid) {
     logSecurityEvent('failed_login', {
-      reason: 'invalid_password',
+      reason: breakGlass ? 'invalid_break_glass_password' : 'invalid_password',
       email: email.toLowerCase(),
       userId: user.id,
       ip,
@@ -229,7 +238,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   setCookie(c, SESSION_COOKIE, token, sessionCookieOptions(secure))
   setCsrfCookie(c, generateCsrfToken())
 
-  if (isBreakGlassEmail(user.email)) {
+  if (breakGlass) {
     logSecurityEvent('break_glass_login', {
       userId: user.id,
       email: user.email,
@@ -240,7 +249,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
       userId: user.id,
       action: 'break_glass_login',
       entityType: 'session',
-      metadata: { email: user.email },
+      metadata: { email: user.email, via: 'env_password' },
     })
   }
 
@@ -261,7 +270,8 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
       totpEnabled: user.totpEnabled,
       butlerTtsMode: user.butlerTtsMode,
     },
-    mustChangePassword: user.mustChangePassword,
+    // Env-managed break-glass password is not a one-time seed secret.
+    mustChangePassword: breakGlass ? false : user.mustChangePassword,
   })
 })
 
@@ -447,7 +457,7 @@ authRoutes.post('/totp/complete-login', zValidator('json', totpCompleteLoginSche
       totpEnabled: user.totpEnabled,
       butlerTtsMode: user.butlerTtsMode,
     },
-    mustChangePassword: user.mustChangePassword,
+    mustChangePassword: isBreakGlassEmail(user.email) ? false : user.mustChangePassword,
   })
 })
 
@@ -459,7 +469,8 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
   const normalizedEmail = email.toLowerCase()
   const [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1)
 
-  if (user && user.active) {
+  // Break-glass password is env-only; never issue email/WhatsApp reset tokens for it.
+  if (user && user.active && !isBreakGlassEmail(user.email)) {
     const now = new Date()
     await db
       .update(passwordResetTokens)
@@ -503,7 +514,11 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
       metadata: { expiresAt: expiresAt.toISOString() },
     })
   } else {
-    logSecurityEvent('password_reset_requested', { email: normalizedEmail, userFound: false })
+    logSecurityEvent('password_reset_requested', {
+      email: normalizedEmail,
+      userFound: Boolean(user?.active),
+      breakGlass: user ? isBreakGlassEmail(user.email) : false,
+    })
   }
 
   return c.json({
@@ -585,6 +600,16 @@ authRoutes.post('/change-password', authMiddleware, zValidator('json', changePas
 
   const [existing] = await db.select().from(users).where(eq(users.id, user.id)).limit(1)
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
+
+  if (isBreakGlassEmail(existing.email)) {
+    return c.json(
+      {
+        error:
+          'Break-glass password is managed via BREAK_GLASS_PASSWORD in the server .env (restart API after changing it).',
+      },
+      400,
+    )
+  }
 
   const valid = await verifyPassword(existing.passwordHash, currentPassword)
   if (!valid) return c.json({ error: 'Current password is incorrect' }, 400)
@@ -726,7 +751,9 @@ authRoutes.post('/totp/disable', authMiddleware, zValidator('json', totpDisableS
     .limit(1)
 
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
-  const validPassword = await verifyPassword(existing.passwordHash, password)
+  const validPassword = isBreakGlassEmail(user.email)
+    ? verifyBreakGlassPassword(password)
+    : await verifyPassword(existing.passwordHash, password)
   if (!validPassword) return c.json({ error: 'Current password is incorrect' }, 400)
   if (!existing.totpSecret || !existing.totpEnabled) {
     return c.json({ error: '2FA is not enabled' }, 400)
@@ -813,7 +840,7 @@ authRoutes.post('/totp/use-recovery-code', zValidator('json', useRecoveryCodeSch
         totpEnabled: user.totpEnabled,
         butlerTtsMode: user.butlerTtsMode,
       },
-      mustChangePassword: user.mustChangePassword,
+      mustChangePassword: isBreakGlassEmail(user.email) ? false : user.mustChangePassword,
       recoveryCodesRemaining: verified.remaining.length,
     })
   }
@@ -837,7 +864,9 @@ authRoutes.post('/totp/use-recovery-code', zValidator('json', useRecoveryCodeSch
     .limit(1)
 
   if (!existing?.totpEnabled) return c.json({ error: '2FA is not enabled' }, 400)
-  const validPassword = await verifyPassword(existing.passwordHash, password)
+  const validPassword = isBreakGlassEmail(sessionUser.email)
+    ? verifyBreakGlassPassword(password)
+    : await verifyPassword(existing.passwordHash, password)
   if (!validPassword) return c.json({ error: 'Current password is incorrect' }, 400)
 
   const verified = await verifyAndConsumeRecoveryCode(sessionUser.id, recoveryCode)

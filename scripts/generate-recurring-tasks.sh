@@ -13,7 +13,7 @@ fi
 
 API_URL="${API_URL:-http://127.0.0.1:3000}"
 OWNER_EMAIL="${CRON_OWNER_EMAIL:-owner@trovara.farm}"
-OWNER_PASSWORD="${CRON_OWNER_PASSWORD:-$SEED_OWNER_PASSWORD}"
+OWNER_PASSWORD="${CRON_OWNER_PASSWORD:-${BREAK_GLASS_PASSWORD:-$SEED_OWNER_PASSWORD}}"
 
 if [ -n "${CRON_SECRET:-}" ]; then
   echo "generate-recurring-tasks requires owner session login (no CRON endpoint yet)" >&2
@@ -21,7 +21,7 @@ if [ -n "${CRON_SECRET:-}" ]; then
 fi
 
 if [ -z "$OWNER_PASSWORD" ]; then
-  echo "Set CRON_OWNER_PASSWORD or SEED_OWNER_PASSWORD in .env" >&2
+  echo "Set CRON_OWNER_PASSWORD or BREAK_GLASS_PASSWORD in .env" >&2
   exit 1
 fi
 

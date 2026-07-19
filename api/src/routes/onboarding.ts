@@ -113,6 +113,6 @@ onboardingRoutes.post('/reset-demo', async (c) => {
     ok: true,
     requiresReLogin: true,
     message:
-      'Demo data reset. Sign in again with owner@trovara.farm (password from SEED_OWNER_PASSWORD in .env).',
+      'Demo data reset. Sign in again with owner@trovara.farm (password from BREAK_GLASS_PASSWORD in .env).',
   })
 })
