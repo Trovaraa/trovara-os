@@ -21,7 +21,7 @@ This document defines the rules that make Trovara OS behave like an operating sy
 - Livestock mortality logged today
 - Order pending > 48h
 
-**Escalation path:** Worker logs → Supervisor approves/rejects → Owner sees exceptions + finance impact.
+**Escalation path:** Worker logs (app / Telegram / WhatsApp) → Supervisor approves/rejects (and receives worker alerts) → Owner sees exceptions + finance impact, and may opt into customer / worker alert streams in Settings.
 
 ---
 

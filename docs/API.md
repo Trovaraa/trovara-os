@@ -6,7 +6,7 @@ All authenticated routes require the `trovara_session` httpOnly cookie. Mutating
 
 Errors return JSON: `{ "error": "message" }` with appropriate HTTP status.
 
-Roles: `owner` | `supervisor` | `field_worker`
+Roles: `owner` | `supervisor` | `sales` | `field_worker`
 
 ---
 
@@ -22,12 +22,13 @@ Roles: `owner` | `supervisor` | `field_worker`
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| POST | `/auth/login` | No | - | `{ email, password }` | `{ user: { id, email, name, role, farmId } }` + sets session + CSRF cookies |
+| POST | `/auth/login` | No | - | `{ email, password }` | `{ user, mustChangePassword? }` + cookies. Break-glass email uses `BREAK_GLASS_PASSWORD` from env. |
 | POST | `/auth/logout` | Yes | any | - | `{ ok: true }` |
 | GET | `/auth/me` | Yes | any | - | `{ user }` |
+| GET | `/auth/preferences` | Yes | owner | - | `{ butlerTtsMode, orderAlertsSubscribed, workerAlertsSubscribed }` |
+| PATCH | `/auth/preferences` | Yes | owner | partial prefs | updated prefs |
 
 Login rate limit: 5 attempts per IP per 15 minutes.
-
 ---
 
 ## Dashboard (`/api/dashboard`)
@@ -132,7 +133,7 @@ Negative delta blocked if quantity would go below zero.
 
 `checklist`: `{ hasZones, hasTemplates, hasUsers, zonesCount, templatesCount, usersCount }`.
 
-`reset-demo` truncates and re-seeds demo data (requires seed env passwords).
+`reset-demo` truncates and re-seeds demo data (requires `BREAK_GLASS_PASSWORD` + `SEED_SUPERVISOR_PASSWORD` + `SEED_WORKER_PASSWORD`).
 
 ---
 
@@ -168,9 +169,9 @@ Crop stages advance one step: `planted → … → harvested`.
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/sales/` | Yes | all | - | `{ orders[] }` |
-| POST | `/api/sales/` | Yes | owner, supervisor | order create | `{ order }` |
-| PATCH | `/api/sales/:id` | Yes | owner, supervisor | order update + status | `{ order }` |
+| GET | `/api/sales/` | Yes | owner, supervisor, sales | - | `{ orders[] }` |
+| POST | `/api/sales/` | Yes | owner, supervisor, sales | order create | `{ order }` |
+| PATCH | `/api/sales/:id` | Yes | owner, supervisor, sales | order update + status | `{ order }` |
 | DELETE | `/api/sales/:id` | Yes | owner, supervisor | - | `{ ok: true }` |
 
 Order status: `pending → confirmed → dispatched → delivered` or `cancelled`.
@@ -193,11 +194,15 @@ Order status: `pending → confirmed → dispatched → delivered` or `cancelled
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
-| GET | `/api/traceability/` | Yes | owner | `{ lots[] }` |
-| POST | `/api/traceability/` | Yes | owner | `{ lot }` |
-| PATCH | `/api/traceability/:id` | Yes | owner | `{ lot }` |
+| GET | `/api/traceability/` | Yes | staff | `{ lots[] }` |
+| POST | `/api/traceability/` | Yes | role-gated | `{ lot }` |
+| PATCH | `/api/traceability/:id` | Yes | role-gated | `{ lot }` |
 | DELETE | `/api/traceability/:id` | Yes | owner | `{ ok: true }` |
 | GET | `/api/traceability/export` | Yes | owner | `{ exportedAt, harvestLots, auditChain }` |
+| GET | `/api/traceability/:id/certificate.html` | Yes | staff | Traceability certificate HTML |
+| GET | `/api/traceability/:id/label.html` | Yes | staff | Printable box QR label HTML |
+
+Public (no auth): `GET /public/lots/:token` (lot page), certificate/label HTML under `/public/lots/...` where exposed.
 
 ---
 

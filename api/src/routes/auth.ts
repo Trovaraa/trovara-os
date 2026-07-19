@@ -201,17 +201,20 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   }
 
   const breakGlass = isBreakGlassEmail(user.email)
-  // Break-glass: password comes from BREAK_GLASS_PASSWORD in env, never the DB hash.
+  // Break-glass email: env password is the emergency path; DB hash still works so
+  // a Founder who registered as this address can sign in with the password they set.
   let valid = false
+  let usedEnvBreakGlass = false
   if (breakGlass) {
     await verifyPassword(await getDummyPasswordHash(), password)
-    valid = verifyBreakGlassPassword(password)
+    usedEnvBreakGlass = verifyBreakGlassPassword(password)
+    valid = usedEnvBreakGlass || (await verifyPassword(user.passwordHash, password))
   } else {
     valid = await verifyPassword(user.passwordHash, password)
   }
   if (!valid) {
     logSecurityEvent('failed_login', {
-      reason: breakGlass ? 'invalid_break_glass_password' : 'invalid_password',
+      reason: breakGlass ? 'invalid_break_glass_or_password' : 'invalid_password',
       email: email.toLowerCase(),
       userId: user.id,
       ip,
@@ -238,7 +241,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   setCookie(c, SESSION_COOKIE, token, sessionCookieOptions(secure))
   setCsrfCookie(c, generateCsrfToken())
 
-  if (breakGlass) {
+  if (breakGlass && usedEnvBreakGlass) {
     logSecurityEvent('break_glass_login', {
       userId: user.id,
       email: user.email,
@@ -258,6 +261,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     userId: user.id,
     action: 'login',
     entityType: 'session',
+    metadata: breakGlass && usedEnvBreakGlass ? { via: 'break_glass_env' } : undefined,
   })
 
   return c.json({
@@ -270,8 +274,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
       totpEnabled: user.totpEnabled,
       butlerTtsMode: user.butlerTtsMode,
     },
-    // Env-managed break-glass password is not a one-time seed secret.
-    mustChangePassword: breakGlass ? false : user.mustChangePassword,
+    mustChangePassword: breakGlass && usedEnvBreakGlass ? false : user.mustChangePassword,
   })
 })
 
@@ -303,6 +306,15 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   }
 
   const email = normalizeRegisterEmail(body.email)
+  if (isBreakGlassEmail(email)) {
+    return c.json(
+      {
+        error:
+          'owner@trovara.farm is reserved for break-glass. Register a different @trovara.farm email for day-to-day admin, or sign in with BREAK_GLASS_PASSWORD from the server .env.',
+      },
+      400,
+    )
+  }
   const phone = normalizeRegisterPhone(body.phone)
   if (phone.length < 7) {
     return c.json({ error: 'Phone number looks invalid' }, 400)
@@ -601,17 +613,12 @@ authRoutes.post('/change-password', authMiddleware, zValidator('json', changePas
   const [existing] = await db.select().from(users).where(eq(users.id, user.id)).limit(1)
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
 
-  if (isBreakGlassEmail(existing.email)) {
-    return c.json(
-      {
-        error:
-          'Break-glass password is managed via BREAK_GLASS_PASSWORD in the server .env (restart API after changing it).',
-      },
-      400,
-    )
-  }
-
-  const valid = await verifyPassword(existing.passwordHash, currentPassword)
+  // Break-glass email may have a DB password (Founder registration / day-to-day) and/or
+  // BREAK_GLASS_PASSWORD in env (emergency). Changing password updates the DB hash only.
+  const valid = isBreakGlassEmail(existing.email)
+    ? verifyBreakGlassPassword(currentPassword) ||
+      (await verifyPassword(existing.passwordHash, currentPassword))
+    : await verifyPassword(existing.passwordHash, currentPassword)
   if (!valid) return c.json({ error: 'Current password is incorrect' }, 400)
 
   await db

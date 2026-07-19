@@ -9,7 +9,7 @@ NeuraAgro's "Joaquín". Workers and the owner can:
 - **Send a photo** of a sick plant or animal → AI vision diagnosis.
 - **Type `brief`** → a short "what needs attention today" summary.
 
-Urgent worker messages (death, disease, theft, fire, flood…) are auto-forwarded to the **owner's** WhatsApp.
+Urgent worker messages (death, disease, theft, fire, flood…) raise a **worker alert** to supervisors and owners who opted into Worker alerts in Settings (Telegram / WhatsApp).
 
 The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Why is my animal sick?", and "Why is my crop not growing?" (photo).
 
@@ -88,8 +88,8 @@ Expected: `{"ok":true,"handled":1}`. The Butler runs the AI and records the
 conversation in `farm_events` (entityType `whatsapp_message`). With **real** Meta
 creds the reply is delivered to the number; with placeholders the send is skipped.
 
-**Urgent escalation test:** send `"3 chickens died this morning"` - the owner (a
-user with role `owner` and a phone) should receive an alert message.
+**Urgent escalation test:** send `"3 chickens died this morning"` from a *field worker*
+phone — supervisors (and owners subscribed to Worker alerts) should receive the alert.
 
 ---
 
@@ -141,13 +141,14 @@ WhatsApp does not have Telegram-style inline buttons — pick lists are sent as 
 
 **Customer order alerts** fan out WhatsApp to supervisor + sales (and owners who opted in via Settings). **Worker alerts** (task done / urgent field reports) go to supervisors + opted-in owners. Customer status pushes on WhatsApp only work when Meta session/templates allow (24h window); Telegram is unrestricted.
 
-Outbound owner alerts can also be triggered from the app/automation:
+**Manual / automation alerts** (still owner-targeted) can be triggered from the app:
 
 ```
 POST /api/whatsapp/notify-owner   (owner/supervisor)
 { "message": "Feed store is empty", "reason": "low_stock" }
 ```
 
+Prefer the subscription-based **customer** and **worker** alert streams for day-to-day ops.
 ---
 
 ## Troubleshooting

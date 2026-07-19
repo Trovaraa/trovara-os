@@ -19,8 +19,9 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - CSRF double-submit cookie on POST/PATCH/DELETE (`trovara_csrf` + `X-CSRF-Token`)
 - Session metadata: user agent + SHA-256 hashed IP stored on login
 - Session revocation: `POST /auth/revoke-all-sessions`
-- Password reset + forced change on first login (`mustChangePassword`)
-- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); use is audited
+- Password reset + forced change on first login (`mustChangePassword`) for staff accounts
+- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); password change / forgot-password blocked for that email; use is audited as `break_glass_login`
+- Owner alert subscriptions: separate opt-in for customer order alerts vs worker alerts (Telegram/WhatsApp)
 - TOTP 2FA for owner accounts (setup/enable/disable in Settings)
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)
 - Data retention: `DATA_RETENTION_DAYS` + `npm run run-data-retention`
@@ -36,17 +37,29 @@ Reference for what is implemented, plus the release gate used before internet-fa
 
 ## Role Matrix
 
-| Resource | owner | supervisor | field_worker |
-|----------|-------|------------|--------------|
-| Dashboard | read | read | read (limited) |
-| Tasks - assign | yes | yes | no |
-| Tasks - log completion | yes | yes | own only |
-| Tasks - approve | yes | yes | no |
-| Inventory | read/write | read/write | read |
-| Reports / finance | yes | zone only | no |
-| Audit / CSV export | yes | no | no |
-| User management | yes | no | no |
-| Go-live / demo reset | yes | no | no |
+| Resource | owner | supervisor | sales | field_worker |
+|----------|-------|------------|-------|--------------|
+| Dashboard | read | read | read | read (limited) |
+| Tasks - assign | yes | yes | no | no |
+| Tasks - log completion | yes | yes | no | own only |
+| Tasks - approve | yes | yes | no | no |
+| Inventory | read/write | read/write | read | read |
+| Products (add/rename) | yes | yes | yes | no |
+| Products (remove) | yes | no | no | no |
+| Sales / order status | yes | yes | yes | no |
+| Customer order alerts | opt-in | always | always | never |
+| Worker alerts | opt-in | always | never | never |
+| Reports / finance | yes | zone only | no | no |
+| Audit / CSV export | yes | no | no | no |
+| User management | yes | no | no | no |
+| Go-live / demo reset | yes | no | no | no |
+
+### Break-glass notes
+
+- Email: `BREAK_GLASS_EMAIL` (default `owner@trovara.farm`) — reserved; do not use it for Founder self-registration.
+- Emergency password: `BREAK_GLASS_PASSWORD` in server `.env` (restart API after changing).
+- If that user also has a DB password (e.g. registered before the reserve rule), either the env password or the DB password can sign in; only the env path is audited as `break_glass_login`.
+- Failed logins do not reveal env values.
 
 ## Laptop Dev
 

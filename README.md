@@ -12,7 +12,8 @@ Trovara Farm operations command center - laptop-runnable MVP with dummy data.
 ```bash
 cd trovara-os
 cp .env.example .env
-# Edit .env - set strong local-only POSTGRES_PASSWORD and SEED_* passwords
+# Edit .env - set strong local-only POSTGRES_PASSWORD, SEED_* staff passwords,
+# and BREAK_GLASS_PASSWORD for the owner account
 
 docker compose up -d
 npm install
@@ -44,6 +45,7 @@ The owner / break-glass account (`owner@trovara.farm`) authenticates with
 
 - API binds to `127.0.0.1` only
 - httpOnly session cookies, argon2 passwords, server-side RBAC
+- Break-glass password is env-only (`BREAK_GLASS_PASSWORD`)
 - See `docs/security.md`
 
 ## Structure
@@ -68,16 +70,17 @@ trovara-os/
 | Crops | `/crops` | All |
 | Livestock | `/livestock` | All |
 | Assets | `/assets` | All (verify: supervisor+) |
-| Sales | `/sales` | All |
-| Products | `/products` | Owner |
+| Sales | `/sales` | owner, supervisor, sales |
+| Products | `/products` | owner, supervisor, sales (remove: owner) |
 | Customer questions | `/customer-insights` | Owner |
 | WhatsApp | `/whatsapp` | All (send: supervisor+) |
 | Finance | `/finance` | Owner |
-| Traceability | `/traceability` | All (create/verify gated by role) |
+| Traceability | `/traceability` | All (create/verify gated by role; print QR / certificate) |
 | Reports | `/reports` | Owner |
+| Settings | `/settings` | Owner alert subscriptions; TOTP; Telegram link |
 | Register | `/register` | Public (secret-gated) |
 | Public lot lookup | `/lot/:lotCode` | Public (verified lots only) |
 
 Integrations (WhatsApp, AI, cron, QR traceability): `docs/INTEGRATIONS.md`  
+Staff messaging: `docs/TELEGRAM-COPILOT.md`, `docs/WHATSAPP-COPILOT.md`  
 Product roadmap (OS + farm + site): `../ROADMAP.md`
-

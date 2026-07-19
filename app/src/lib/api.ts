@@ -5,6 +5,36 @@ function getCsrfToken(): string | undefined {
   return match?.[1]
 }
 
+/** Turn API / Zod error payloads into a readable string (avoid "[object Object]"). */
+function messageFromErrorBody(body: unknown, status: number): string {
+  if (!body || typeof body !== 'object') return `Request failed (${status})`
+  const record = body as Record<string, unknown>
+  const err = record.error ?? record.message
+
+  if (typeof err === 'string' && err.trim()) return err
+
+  if (err && typeof err === 'object') {
+    const issues = (err as { issues?: unknown }).issues
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues
+        .map((issue) => {
+          if (!issue || typeof issue !== 'object') return String(issue)
+          const item = issue as { path?: unknown; message?: unknown }
+          const path = Array.isArray(item.path) ? item.path.join('.') : ''
+          const msg = typeof item.message === 'string' ? item.message : 'Invalid value'
+          return path ? `${path}: ${msg}` : msg
+        })
+        .join('; ')
+    }
+    if (typeof (err as { message?: unknown }).message === 'string') {
+      return (err as { message: string }).message
+    }
+  }
+
+  if (typeof record.message === 'string' && record.message.trim()) return record.message
+  return `Request failed (${status})`
+}
+
 export async function api<T>(
   path: string,
   options: RequestInit = {},
@@ -28,7 +58,7 @@ export async function api<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error((body as { error?: string }).error ?? `Request failed (${res.status})`)
+    throw new Error(messageFromErrorBody(body, res.status))
   }
 
   // A stale service worker or cache can serve the app shell (HTML) for an API call,

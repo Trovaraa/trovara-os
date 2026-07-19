@@ -140,45 +140,25 @@ let linkCodeTimer: ReturnType<typeof setInterval> | null = null
 const goLiveItems = computed(() => {
   if (!checklist.value) return []
   const c = checklist.value
-  const items: { label: string; done: boolean; hint?: string }[] = [
+  const farmNameLower = (farmProfile.value?.name ?? farmName.value).trim().toLowerCase()
+  const demoDataRemoved =
+    liveMode.value ||
+    (farmNameLower.length > 0 && !farmNameLower.includes('demo'))
+
+  // Go-live gate: admin + team + no demo seed. Everything else is optional ops later.
+  return [
     { label: t('settings.clFounderAccount'), done: true },
     {
       label: t('settings.clUsers', { count: c.usersCount }),
       done: c.hasUsers,
-      hint: 'Add team members in Users',
-    },
-    {
-      label: t('settings.zonesConfigured', { count: c.zonesCount }),
-      done: c.hasZones,
-      hint: 'Create zones in Zones',
-    },
-    {
-      label: t('settings.templatesCreated', { count: c.templatesCount }),
-      done: c.hasTemplates,
-      hint: 'Create templates in Templates',
-    },
-    {
-      label: t('settings.clWhatsapp'),
-      done: whatsappStatus.value?.configured ?? false,
-      hint: 'Add WA_PHONE_NUMBER_ID + WA_ACCESS_TOKEN to .env',
-    },
-    {
-      label: t('settings.clBackup'),
-      done: (systemStatus.value?.backupCount ?? 0) > 0,
-      hint: 'Run ./scripts/backup-db.sh then ./scripts/verify-backup.sh',
-    },
-    {
-      label: t('settings.clBookmark'),
-      done: false,
-      hint: 'Open http://[laptop-ip]:5173 on each phone and add to home screen',
+      hint: t('settings.clUsersHint'),
     },
     {
       label: t('settings.clDemo'),
-      done: false,
-      hint: 'Use Reset demo data below, then enter real farm data',
+      done: demoDataRemoved,
+      hint: t('settings.clDemoHint'),
     },
   ]
-  return items
 })
 
 const goLiveDoneCount = computed(() => goLiveItems.value.filter((i) => i.done).length)
@@ -190,7 +170,7 @@ async function load() {
   loading.value = true
   try {
     const [statusData, aiData, waData, billData] = await Promise.all([
-      api<{ checklist: Checklist; ready: boolean; liveMode?: boolean }>('/onboarding/status'),
+      api<{ checklist: Checklist; ready: boolean; liveMode?: boolean }>('/api/onboarding/status'),
       api<IntegrationStatus>('/api/ai/status'),
       api<IntegrationStatus>('/api/whatsapp/status'),
       api<BillingStatus>('/api/billing/status'),
@@ -272,8 +252,11 @@ async function goLive() {
   goingLive.value = true
   goLiveMessage.value = null
   try {
-    const data = await api<{ message?: string }>('/onboarding/go-live', { method: 'POST' })
+    const data = await api<{ farm?: unknown; message?: string }>('/api/onboarding/go-live', {
+      method: 'POST',
+    })
     goLiveMessage.value = data.message ?? t('settings.liveModeDone')
+    liveMode.value = true
     await load()
   } catch (e) {
     goLiveMessage.value = e instanceof Error ? e.message : t('settings.goLiveFailed')
@@ -1126,21 +1109,16 @@ function formatBackupTime(iso: string | null): string {
         <p v-if="ttsMessage" class="text-xs text-slate-400">{{ ttsMessage }}</p>
       </div>
 
-      <!-- SaaS Billing -->
+      <!-- SaaS billing — informational only (single-farm go-live; not a blocker) -->
       <div v-if="billingStatus" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="font-bold text-white text-sm">{{ t('settings.saasBilling') }}</h3>
-        <p class="text-xs text-slate-400 mt-2">{{ billingStatus.message }}</p>
+        <p class="text-xs text-slate-400 mt-2">{{ t('settings.saasBillingInfo') }}</p>
         <p class="text-xs mt-2">
           <span class="font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">
             {{ billingStatus.enabled ? t('settings.billingEnabled') : t('settings.billingPlaceholder') }}
           </span>
         </p>
-        <ul class="mt-3 space-y-1 text-xs text-slate-500">
-          <li v-for="(step, key) in billingStatus.roadmap" :key="key">
-            <span class="text-slate-400 capitalize">{{ key }}:</span> {{ step }}
-          </li>
-        </ul>
-        <p class="text-xs text-farm-green mt-3">{{ t('settings.seeDocs', { docs: billingStatus.docs }) }}</p>
+        <p class="text-xs text-slate-500 mt-3">{{ t('settings.seeDocs', { docs: billingStatus.docs }) }}</p>
       </div>
 
       <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">

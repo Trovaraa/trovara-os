@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
@@ -7,6 +7,9 @@ import { roleLabel } from '@/lib/roles'
 import type { UserRole } from '@/stores/auth'
 
 const { t } = useI18n()
+
+type StaffRole = Exclude<UserRole, 'owner'>
+type RoleChoice = StaffRole | 'other'
 
 type FarmUser = {
   id: string
@@ -35,7 +38,8 @@ const loading = ref(true)
 
 const newEmail = ref('')
 const newName = ref('')
-const newRole = ref<UserRole>('field_worker')
+const newRoleChoice = ref<RoleChoice>('field_worker')
+const newCustomRoleName = ref('')
 const newPassword = ref('')
 const newPhone = ref('')
 const newMonthlyWageNgn = ref<number | ''>('')
@@ -55,7 +59,8 @@ const createError = ref<string | null>(null)
 const toggling = ref<string | null>(null)
 const editing = ref<FarmUser | null>(null)
 const editName = ref('')
-const editRole = ref<UserRole>('field_worker')
+const editRoleChoice = ref<RoleChoice>('field_worker')
+const editCustomRoleName = ref('')
 const editPhone = ref('')
 const editMonthlyWageNgn = ref<number | ''>('')
 const editMonthlyWageEffectiveFrom = ref('')
@@ -71,6 +76,39 @@ const editEmploymentEndDate = ref('')
 const editEmploymentStatus = ref('employed')
 const editSaving = ref(false)
 const editError = ref<string | null>(null)
+
+const newIsOther = computed(() => newRoleChoice.value === 'other')
+const editIsOther = computed(() => editRoleChoice.value === 'other')
+
+function displayRole(user: FarmUser): string {
+  if (user.jobTitle?.trim()) {
+    return `${user.jobTitle.trim()} (${roleLabel(user.role)})`
+  }
+  return roleLabel(user.role)
+}
+
+/** Other always starts as field_worker; admin upgrades via Role (supervisor/sales). */
+function rolePayload(choice: RoleChoice, customName: string, jobTitle: string) {
+  if (choice === 'other') {
+    return {
+      role: 'field_worker' as const,
+      jobTitle: customName.trim(),
+    }
+  }
+  // Keep custom name if admin upgrades Other → supervisor/sales without retyping job title
+  const title = jobTitle.trim() || customName.trim()
+  return {
+    role: choice,
+    jobTitle: title || undefined,
+  }
+}
+
+function optionalWageNgn(value: number | '' | null | undefined): number | null {
+  if (value === '' || value == null) return null
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.trunc(n)
+}
 
 async function load() {
   loading.value = true
@@ -97,34 +135,43 @@ function resetCreateForm() {
   newNextOfKinRelationship.value = ''
   newEmployeeNumber.value = ''
   newJobTitle.value = ''
+  newCustomRoleName.value = ''
   newEmploymentType.value = ''
   newEmploymentStartDate.value = ''
   newEmploymentStatus.value = 'employed'
-  newRole.value = 'field_worker'
+  newRoleChoice.value = 'field_worker'
 }
 
 async function createUser() {
   if (!newEmail.value.trim() || !newName.value.trim() || !newPassword.value) return
+  if (newIsOther.value && !newCustomRoleName.value.trim()) {
+    createError.value = t('users.customRoleRequired')
+    return
+  }
   creating.value = true
   createError.value = null
   try {
+    const { role, jobTitle } = rolePayload(
+      newRoleChoice.value,
+      newCustomRoleName.value,
+      newJobTitle.value,
+    )
     await api('/api/users', {
       method: 'POST',
       body: JSON.stringify({
         email: newEmail.value.trim(),
         name: newName.value.trim(),
-        role: newRole.value,
+        role,
         password: newPassword.value,
         phone: newPhone.value.trim() || undefined,
-        monthlyWageNgn:
-          newMonthlyWageNgn.value === '' ? undefined : Number(newMonthlyWageNgn.value),
+        monthlyWageNgn: optionalWageNgn(newMonthlyWageNgn.value) ?? undefined,
         monthlyWageEffectiveFrom: newMonthlyWageEffectiveFrom.value || undefined,
         confirmMonthlyWage: newConfirmMonthlyWage.value || undefined,
         nextOfKinName: newNextOfKinName.value.trim() || undefined,
         nextOfKinPhone: newNextOfKinPhone.value.trim() || undefined,
         nextOfKinRelationship: newNextOfKinRelationship.value.trim() || undefined,
         employeeNumber: newEmployeeNumber.value.trim() || undefined,
-        jobTitle: newJobTitle.value.trim() || undefined,
+        jobTitle: jobTitle || undefined,
         employmentType: newEmploymentType.value || undefined,
         employmentStartDate: newEmploymentStartDate.value || undefined,
         employmentStatus: newEmploymentStatus.value || undefined,
@@ -156,7 +203,16 @@ async function toggleActive(user: FarmUser) {
 function openEdit(user: FarmUser) {
   editing.value = user
   editName.value = user.name
-  editRole.value = user.role
+  // Other = custom name + field_worker. Upgraded roles keep job title under their system role.
+  if (user.role === 'field_worker' && user.jobTitle?.trim()) {
+    editRoleChoice.value = 'other'
+    editCustomRoleName.value = user.jobTitle
+    editJobTitle.value = ''
+  } else {
+    editRoleChoice.value = user.role === 'owner' ? 'field_worker' : (user.role as StaffRole)
+    editCustomRoleName.value = ''
+    editJobTitle.value = user.jobTitle ?? ''
+  }
   editPhone.value = user.phone ?? ''
   editMonthlyWageNgn.value = user.monthlyWageNgn ?? ''
   editMonthlyWageEffectiveFrom.value = user.monthlyWageEffectiveFrom ?? ''
@@ -165,7 +221,6 @@ function openEdit(user: FarmUser) {
   editNextOfKinPhone.value = user.nextOfKinPhone ?? ''
   editNextOfKinRelationship.value = user.nextOfKinRelationship ?? ''
   editEmployeeNumber.value = user.employeeNumber ?? ''
-  editJobTitle.value = user.jobTitle ?? ''
   editEmploymentType.value = user.employmentType ?? ''
   editEmploymentStartDate.value = user.employmentStartDate ?? ''
   editEmploymentEndDate.value = user.employmentEndDate ?? ''
@@ -180,18 +235,32 @@ function closeEdit() {
 
 async function saveEdit() {
   if (!editing.value) return
+  if (editing.value.role === 'owner') {
+    // Owners keep their role; only profile fields change
+  } else if (editIsOther.value && !editCustomRoleName.value.trim()) {
+    editError.value = t('users.customRoleRequired')
+    return
+  }
   editSaving.value = true
   editError.value = null
   try {
     const wasConfirmed = !!editing.value.monthlyWageConfirmedAt
+    const isOwner = editing.value.role === 'owner'
+    const { role, jobTitle } = isOwner
+      ? { role: undefined as StaffRole | undefined, jobTitle: editJobTitle.value.trim() || null }
+      : rolePayload(
+          editRoleChoice.value,
+          editCustomRoleName.value,
+          editJobTitle.value,
+        )
+
     await api(`/api/users/${editing.value.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name: editName.value.trim(),
-        role: editRole.value,
+        ...(isOwner ? {} : { role }),
         phone: editPhone.value.trim() || null,
-        monthlyWageNgn:
-          editMonthlyWageNgn.value === '' ? null : Number(editMonthlyWageNgn.value),
+        monthlyWageNgn: optionalWageNgn(editMonthlyWageNgn.value),
         monthlyWageEffectiveFrom: editMonthlyWageEffectiveFrom.value || null,
         confirmMonthlyWage: editConfirmMonthlyWage.value
           ? true
@@ -202,7 +271,7 @@ async function saveEdit() {
         nextOfKinPhone: editNextOfKinPhone.value.trim() || null,
         nextOfKinRelationship: editNextOfKinRelationship.value.trim() || null,
         employeeNumber: editEmployeeNumber.value.trim() || null,
-        jobTitle: editJobTitle.value.trim() || null,
+        jobTitle: jobTitle === undefined ? null : jobTitle || null,
         employmentType: editEmploymentType.value || null,
         employmentStartDate: editEmploymentStartDate.value || null,
         employmentEndDate: editEmploymentEndDate.value || null,
@@ -218,7 +287,6 @@ async function saveEdit() {
   }
 }
 </script>
-
 <template>
   <AppLayout>
     <div>
@@ -256,13 +324,26 @@ async function saveEdit() {
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.role') }}</label>
           <select
-            v-model="newRole"
+            v-model="newRoleChoice"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
             <option value="sales">{{ t('users.sales') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
+            <option value="other">{{ t('users.roleOther') }}</option>
           </select>
+        </div>
+        <div v-if="newIsOther">
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.customRoleName') }}</label>
+          <input
+            v-model="newCustomRoleName"
+            type="text"
+            required
+            maxlength="200"
+            :placeholder="t('users.customRolePlaceholder')"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+          <p class="text-[11px] text-slate-500 mt-1">{{ t('users.otherRoleHint') }}</p>
         </div>
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.password') }}</label>
@@ -292,7 +373,7 @@ async function saveEdit() {
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           />
         </div>
-        <div>
+        <div v-if="!newIsOther">
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.jobTitle') }}</label>
           <input
             v-model="newJobTitle"
@@ -412,7 +493,7 @@ async function saveEdit() {
               >#{{ user.employeeNumber }}</span>
             </td>
             <td class="py-4 text-slate-400">{{ user.email }}</td>
-            <td class="py-4 text-slate-300">{{ roleLabel(user.role) }}</td>
+            <td class="py-4 text-slate-300">{{ displayRole(user) }}</td>
             <td class="py-4 text-slate-400">{{ user.phone ?? '-' }}</td>
             <td class="py-4 text-slate-400 font-mono">
               <span v-if="user.monthlyWageNgn != null">₦{{ user.monthlyWageNgn }}</span>
@@ -473,13 +554,32 @@ async function saveEdit() {
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <select
-            v-model="editRole"
+            v-if="editing.role !== 'owner'"
+            v-model="editRoleChoice"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
             <option value="sales">{{ t('users.sales') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
+            <option value="other">{{ t('users.roleOther') }}</option>
           </select>
+          <p
+            v-else
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            {{ roleLabel('owner') }}
+          </p>
+          <template v-if="editing.role !== 'owner' && editIsOther">
+            <input
+              v-model="editCustomRoleName"
+              type="text"
+              required
+              maxlength="200"
+              :placeholder="t('users.customRoleName')"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <p class="text-[11px] text-slate-500 -mt-1">{{ t('users.otherRoleEditHint') }}</p>
+          </template>
           <input
             v-model="editPhone"
             type="tel"
@@ -493,6 +593,7 @@ async function saveEdit() {
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />
           <input
+            v-if="editing.role === 'owner' || !editIsOther"
             v-model="editJobTitle"
             type="text"
             :placeholder="t('users.jobTitle')"

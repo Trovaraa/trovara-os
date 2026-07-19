@@ -13,14 +13,25 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | Section | Required for | Key variables |
 |---------|--------------|---------------|
 | Postgres | Always | `POSTGRES_*`, `DATABASE_URL` |
-| API core | Always | `API_HOST`, `API_PORT`, `SESSION_SECRET`, `NODE_ENV` |
-| CORS / frontend | Production | `CORS_ORIGIN`, `VITE_API_URL` |
-| Seed users | Local dev only | `SEED_*_PASSWORD` |
-| WhatsApp | Outbound + webhook | `WHATSAPP_*` |
+| API core | Always | `API_HOST`, `API_PORT`, `NODE_ENV` |
+| CORS / frontend | Production | `CORS_ORIGIN`, `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, `PUBLIC_APP_URL` |
+| Break-glass | Emergency owner login | `BREAK_GLASS_PASSWORD`, optional `BREAK_GLASS_EMAIL` |
+| Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD` |
+| WhatsApp | Outbound + webhook | `WHATSAPP_*`, `META_APP_SECRET` |
 | LLM | AI briefing / incidents | `OPENAI_API_KEY` or `LLM_*` |
-| Cron | Recurring tasks | `CRON_OWNER_*`, `API_URL` |
-| Backup | `scripts/backup-db.sh` | `BACKUP_DIR`, `PGHOST`, `PGPORT` (optional) |
+| Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
+| Backup | `scripts/backup-db.sh` | `BACKUP_DIR`, `BACKUP_GPG_PASSPHRASE`, `PGHOST`, `PGPORT` (optional) |
 
+### Alert subscriptions
+
+Staff alerts fan out on Telegram and WhatsApp:
+
+| Stream | Always | Owner opt-in (Settings) |
+|--------|--------|-------------------------|
+| Customer order alerts | Supervisor + sales | `order_alerts_subscribed` |
+| Worker alerts (task awaiting approval, urgent field messages) | Supervisor | `worker_alerts_subscribed` |
+
+See [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) and [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
 ---
 
 ## 1. Meta WhatsApp Cloud API
@@ -271,16 +282,19 @@ This runs `scripts/generate-recurring-tasks.sh`, which:
 ### Environment variables
 
 ```bash
-# Account used for cron login (must exist and have owner role)
+# Preferred in production: shared cron secret (no password login)
+CRON_SECRET=<long random>
+CRON_FARM_ID=<farm-uuid>
+
+# Fallback: account used for cron login (must exist and have owner role)
 CRON_OWNER_EMAIL=owner@trovara.farm
 CRON_OWNER_PASSWORD=strong_production_password
 
 # API base URL (default http://127.0.0.1:3000)
-API_URL=https://your-domain.com
+API_URL=https://os.trovara.farm
 ```
 
-If `CRON_OWNER_PASSWORD` is unset, the script falls back to `BREAK_GLASS_PASSWORD`, then `SEED_OWNER_PASSWORD` (local dev only - **set explicit production credentials**).
-
+If `CRON_OWNER_PASSWORD` is unset, scripts fall back to `BREAK_GLASS_PASSWORD`, then `SEED_OWNER_PASSWORD` (local / legacy only). **Production must set `CRON_SECRET`.**
 ### Crontab example
 
 Run daily at 05:00 farm local time:
@@ -303,10 +317,9 @@ Buyers and auditors can verify harvest lots without logging in.
 https://YOUR_DOMAIN/lot/:lotCode
 ```
 
-Example: `https://farm.trovara.ng/lot/TRV-COC-2026-001`
+Example: `https://os.trovara.farm/lot/<publicToken-or-code>`
 
-This is the URL to encode in QR codes. Implement a minimal public Vue route that fetches lot data from the API below (no session cookie required).
-
+QR codes and **Print QR** labels open the public lot page (certificate-style HTML). Staff can also open printable sticker HTML and the **Trovara Farm Traceability Certificate** from Traceability / Sales.
 ### Public API (implemented)
 
 ```
@@ -402,18 +415,22 @@ Until sync is wired, the queue module is safe to import but unused in production
 
 ```bash
 NODE_ENV=production
-SESSION_SECRET=<long random string, min 32 chars>
 DATABASE_URL=postgresql://user:pass@db-host:5432/trovara_os
-API_HOST=0.0.0.0          # or bind behind reverse proxy only
+API_HOST=127.0.0.1
 API_PORT=3000
-CORS_ORIGIN=https://app.your-domain.com
-VITE_API_URL=https://api.your-domain.com   # set at build time for SPA
+CORS_ORIGIN=https://os.trovara.farm
+VITE_API_URL=https://os.trovara.farm          # SPA fetch base (build-time)
+VITE_PUBLIC_APP_URL=https://os.trovara.farm   # lot / share links in the UI
+PUBLIC_APP_URL=https://os.trovara.farm        # server links (email, certificates)
+CRON_SECRET=<long random>
+BREAK_GLASS_PASSWORD=<strong secret>
 ```
+
+Prefer `./deploy.sh` for production (Node 22, migrate, build, restart). See [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md).
 
 **HTTPS:** Session cookies use `Secure` flag when `NODE_ENV=production`. Terminate TLS at your reverse proxy; do not expose plain HTTP to the internet.
 
 **CORS:** Must match the exact frontend origin (scheme + host + port). Missing `CORS_ORIGIN` logs a startup warning.
-
 ### Docker
 
 `docker-compose.yml` ships Postgres only. Run API and app on the host or extend compose with your own service definitions. Keep Postgres port bound to localhost unless firewalled.
@@ -442,17 +459,17 @@ Seed data (`npm run seed`) creates **Trovara Demo Farm** with zones, plots, task
 
 Adopt modules in order so each layer has master data before downstream features:
 
-1. **Users & roles** - Create real owner, supervisors, field workers; disable or change demo passwords.
+1. **Users & roles** - Create real owner, supervisors, sales, field workers; set `BREAK_GLASS_PASSWORD` for emergency owner access.
 2. **Zones & plots** - Replace demo zones/plots with your farm layout (`/api/zones`).
-3. **Task templates & schedules** - Define recurring work; enable cron (`npm run generate-tasks`).
-4. **Today / Tasks** - Workers use `/today`; supervisors approve on `/tasks`.
+3. **Task templates & schedules** - Define recurring work; enable cron (`npm run generate-tasks` + `CRON_SECRET`).
+4. **Today / Tasks** - Workers use `/today` or TG/WA `/tasks`·`/done`; supervisors approve on `/tasks` or `/approve`.
 5. **Inventory** - Stock counts and reorder levels; log movements after field work.
 6. **Crops & livestock** - Active cycles and batches tied to real plots.
-7. **Harvest lots & traceability** - Create real lot codes; print QR linking to `/lot/:lotCode`.
-8. **Sales & finance** - Orders linked to lots; owner reviews P&L on `/finance` and `/reports`.
-9. **WhatsApp** - Pilot supervisors first; add worker phone numbers with consent.
-10. **AI briefing** - Enable after real data exists so summaries are meaningful.
-
+7. **Harvest lots & traceability** - Create real lots; print QR / certificate from Traceability.
+8. **Products & sales** - Sync catalogue (`npm run sync-catalog -w api`); real prices; order fulfill via Sales or TG/WA.
+9. **Alert subscriptions** - Owners opt into customer and/or worker alerts in Settings.
+10. **WhatsApp / Telegram** - Link staff phones / Telegram; pilot supervisors first.
+11. **AI briefing** - Enable after real data exists so summaries are meaningful.
 Check readiness anytime:
 
 ```bash

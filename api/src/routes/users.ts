@@ -18,15 +18,40 @@ import { revokeAllUserAccess } from '../lib/access-revoke.js'
 
 const employmentTypeEnum = z.enum(['permanent', 'temporary', 'casual', 'contract'])
 const employmentStatusEnum = z.enum(['employed', 'leave', 'ended'])
-const optionalDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
-  .optional()
-  .nullable()
+
+/** HTML forms often send "" for cleared optional fields; treat as null. */
+function emptyToNullPreprocess(value: unknown): unknown {
+  return value === '' ? null : value
+}
+
+const optionalDate = z.preprocess(
+  emptyToNullPreprocess,
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+    .optional()
+    .nullable(),
+)
+
+const optionalEmploymentType = z.preprocess(
+  emptyToNullPreprocess,
+  employmentTypeEnum.optional().nullable(),
+)
+
+const optionalEmploymentStatus = z.preprocess(
+  emptyToNullPreprocess,
+  employmentStatusEnum.optional().nullable(),
+)
+
+const optionalWage = z.preprocess((value) => {
+  if (value === '' || value === undefined) return null
+  if (typeof value === 'number' && Number.isNaN(value)) return null
+  return value
+}, z.number().int().min(0).optional().nullable())
 
 const staffProfileFields = {
   phone: z.string().max(30).optional().nullable(),
-  monthlyWageNgn: z.number().int().min(0).optional().nullable(),
+  monthlyWageNgn: optionalWage,
   monthlyWageEffectiveFrom: optionalDate,
   confirmMonthlyWage: z.boolean().optional(),
   nextOfKinName: z.string().max(200).optional().nullable(),
@@ -34,10 +59,10 @@ const staffProfileFields = {
   nextOfKinRelationship: z.string().max(100).optional().nullable(),
   employeeNumber: z.string().max(50).optional().nullable(),
   jobTitle: z.string().max(200).optional().nullable(),
-  employmentType: employmentTypeEnum.optional().nullable(),
+  employmentType: optionalEmploymentType,
   employmentStartDate: optionalDate,
   employmentEndDate: optionalDate,
-  employmentStatus: employmentStatusEnum.optional().nullable(),
+  employmentStatus: optionalEmploymentStatus,
 }
 
 const createUserSchema = z.object({

@@ -34,6 +34,10 @@ openssl rand -hex 32
 openssl rand -hex 32
 # -> OWNER_REGISTRATION_SECRET
 
+# Break-glass emergency login (env-only; not stored as the DB password hash)
+openssl rand -base64 32
+# -> BREAK_GLASS_PASSWORD
+
 # Encrypted database + evidence backup passphrase
 openssl rand -base64 48
 # -> BACKUP_GPG_PASSPHRASE
@@ -56,10 +60,13 @@ TRUSTED_PROXY_HOPS=1
 CORS_ORIGIN=https://os.trovara.farm
 
 PUBLIC_APP_URL=https://os.trovara.farm
+VITE_API_URL=https://os.trovara.farm
 VITE_PUBLIC_APP_URL=https://os.trovara.farm
 
 TOTP_ENCRYPTION_KEY=<openssl output>
 CRON_SECRET=<openssl output>
+BREAK_GLASS_PASSWORD=<openssl output>
+# BREAK_GLASS_EMAIL=owner@trovara.farm
 
 EVIDENCE_STORAGE_ROOT=/var/lib/trovara-os/evidence
 BACKUP_DIR=/var/backups/trovara-os
@@ -76,6 +83,10 @@ SESSION_RETENTION_DAYS=7
 CUSTOMER_CONTACT_RETENTION_DAYS=365
 ```
 
+`VITE_API_URL` is the SPA’s API base (baked in at `npm run build`).  
+`VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public site URL for lot links, emails, and certificates. On `os.trovara.farm` all three are usually the same origin.
+
+`BREAK_GLASS_PASSWORD` authenticates the break-glass owner email at login time from env (not the DB hash). `./deploy.sh` requires `CRON_SECRET` in the **VM** production `.env` (not the laptop copy).
 Set `TRUSTED_PROXY_HOPS` to the real topology: `1` for nginx directly in front
 of the API, `2` when another trusted proxy/CDN is also in the forwarding chain.
 Do not expose port 3000 directly to the internet.
@@ -129,29 +140,30 @@ health/readiness checks on the VM.
 For a brand-new disposable demo database only, `./deploy.sh --skip-backup` is
 available. Do not use that option after real data is entered.
 
-Migration `0010_customer_inquiries` must run before
-`0011_public_lot_token`. If the demo database has inconsistent migration
-history, take one final backup and rebuild the demo database rather than
-manually marking migrations as applied.
+Migration folders through `0025_worker_alerts_subscribe` must apply cleanly.
+If the demo database has inconsistent migration history, take one final backup and
+rebuild rather than manually marking migrations as applied.
 
 ## 5. Restart and smoke-test
 
 ```bash
-sudo systemctl restart trovara-os-api
-sudo systemctl restart trovara-os-app
+sudo systemctl restart trovara-api
 
 curl -sf https://os.trovara.farm/health
 curl -sf https://os.trovara.farm/ready
 ```
 
+(`./deploy.sh` restarts `trovara-api` for you; the commands above are for manual ops.)
 Then verify:
 
-- owner login and TOTP;
-- session list/revoke and forced password change;
+- owner / break-glass login (`BREAK_GLASS_PASSWORD`) and TOTP;
+- session list/revoke and forced password change (non–break-glass accounts);
+- Settings → Alert subscriptions (customer order alerts vs worker alerts);
 - task photo upload and authenticated evidence retrieval;
-- public lot lookup/QR using `publicToken`;
+- public lot lookup/QR using `publicToken`, printable box label, certificate HTML;
 - Telegram and WhatsApp webhook verification;
 - customer order caps and known-recipient WhatsApp sends;
+- staff TG/WA ops: `/done` → worker alert; order confirm/dispatch/delivered;
 - privacy export reason/watermark, anonymization preview, and retention preview;
 - encrypted database/evidence backup copied off-server.
 
