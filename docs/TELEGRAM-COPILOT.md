@@ -47,9 +47,58 @@ Check status any time: `GET http://127.0.0.1:3000/api/telegram/status`.
    - **Link code (recommended):** Web app → **Settings → Connect Telegram** → generate a code → send `/link ABC12XYZ` to the bot (expires in 15 minutes).
    - **Phone (mobile):** tap **📱 Share my phone number**. Only *your* Telegram contact card is accepted, and the number must match a Trovara user profile exactly.
 
-You'll get a generic `Connected successfully` message (no account enumeration). Revoke the link anytime from Settings.
+You'll get `Connected successfully`, then a **language picker** (English / Yorùbá / Pidgin / Français). That choice is stored as `preferred_locale` and used for **all** butler replies (help, Q&A, photos, voice, briefings) **and** order alerts — not only the order flow. Change later with `/language`.
+
+Revoke the link anytime from Settings.
 
 > `/link email` is **disabled** - that flow was removed for security.
+
+## Field / ops commands (staff)
+
+Whatever field workers and supervisors do day-to-day in the app for **attendance and tasks** also works on Telegram (text, slash menu, or voice after transcription). Type `/ops` for the localized menu.
+
+| Command | Who | Effect |
+| --- | --- |
+| `/clockin` · `/clockout` | Field | Attendance clock in / out |
+| `/tasks` | Field | List my open tasks (`TSK-……`) |
+| `/taskstart` | Field | Start a task (inline pick list) |
+| `/done` · `/done TSK-… note` | Field | Submit for approval (pick list or ref + note) |
+| Photo captioned `done TSK-…` | Field | Submit with photo evidence |
+| `/approve` · `/reject` | Supervisor / owner | Review tasks awaiting approval (pick list) |
+| `/lots` | Staff | Harvest lots needing pack details |
+| `/printqr` · `/printqr LOT-…` | Sales / supervisor / owner | Box QR label (photo + printable link) |
+| `/handover` | Staff | Handover checklist progress |
+| Voice notes | All | Same commands after transcription |
+
+Telegram also supports draft-and-confirm flows: `Create task: …`, `Census: Block 2 crop=coconut count=120…`, `Asset count: Wheelbarrow available=2…`.
+
+## Alert subscriptions
+
+Two separate Telegram/WhatsApp alert streams:
+
+| Stream | Who always gets it | Owner (admin) |
+| --- | --- | --- |
+| **Customer order alerts** | Supervisor + sales | Opt-in in Settings (off by default) |
+| **Worker alerts** | Supervisor | Opt-in in Settings (off by default) |
+
+Worker alerts fire when a field worker submits a task for approval (`done` / awaiting approval) and when they send urgent reports via Telegram or WhatsApp. Field workers never receive either stream; sales never receive worker alerts.
+
+## Order alerts (sales / supervisor / owner opt-in)
+
+When a customer places an order, **supervisor + sales** (and subscribed owners) linked to Telegram get a new-order alert with Confirm / Cancel buttons. You can also reply:
+
+| Command | Effect |
+| --- | --- |
+| `/confirm` | Pending → confirmed (pick list if no id) |
+| `/dispatch` or `/dispatched` | Confirmed → dispatched (pick list) |
+| `/delivered` | Dispatched → delivered (pick list) |
+| `/cancel TRV-ORD-…` | Cancel pending/confirmed |
+| `confirm TRV-ORD-…` etc. | Same without slash |
+| Photo captioned `delivered TRV-ORD-…` | Mark delivered with optional photo proof |
+| `/orders` | Short order command help |
+| Voice notes | Same commands after transcription |
+
+Sales UI status buttons use the same transition path (customer + staff stay in the loop).
 
 ## Step 3 - Test it
 
@@ -73,9 +122,9 @@ Send these to [@TrovaraButlerBot](https://t.me/TrovaraButlerBot):
 > `voice_replies` (send voice only after inbound voice notes). Telegram users can
 > change per-user preference with `/voice off`, `/voice voice`, or `/voice always`.
 
-**Owner alert test:** link a *worker* account on a second Telegram account (or just
-change a user's role), then send "many birds died" - any **owner** who has linked
-Telegram gets an alert.
+**Worker alert test:** link a *field worker* on a second Telegram account, then send
+something urgent like "many birds died". **Supervisors** (and owners who opted into
+Worker alerts in Settings) with linked Telegram get the alert.
 
 ---
 

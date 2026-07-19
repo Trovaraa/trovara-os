@@ -119,6 +119,12 @@ const totpDisablePassword = ref('')
 const totpLoading = ref(false)
 const totpMessage = ref<string | null>(null)
 const ttsMode = ref<'off' | 'voice_replies' | 'always'>('off')
+const orderAlertsSubscribed = ref(false)
+const workerAlertsSubscribed = ref(false)
+const savingOrderAlerts = ref(false)
+const savingWorkerAlerts = ref(false)
+const orderAlertsMessage = ref<string | null>(null)
+const workerAlertsMessage = ref<string | null>(null)
 const savingTtsMode = ref(false)
 const ttsMessage = ref<string | null>(null)
 const generatingLinkCode = ref(false)
@@ -221,10 +227,18 @@ async function load() {
     }
 
     try {
-      const prefs = await api<{ butlerTtsMode: 'off' | 'voice_replies' | 'always' }>('/auth/preferences')
+      const prefs = await api<{
+        butlerTtsMode: 'off' | 'voice_replies' | 'always'
+        orderAlertsSubscribed?: boolean
+        workerAlertsSubscribed?: boolean
+      }>('/auth/preferences')
       ttsMode.value = prefs.butlerTtsMode
+      orderAlertsSubscribed.value = Boolean(prefs.orderAlertsSubscribed)
+      workerAlertsSubscribed.value = Boolean(prefs.workerAlertsSubscribed)
     } catch {
       ttsMode.value = 'off'
+      orderAlertsSubscribed.value = false
+      workerAlertsSubscribed.value = false
     }
 
     try {
@@ -510,6 +524,40 @@ async function saveButlerTtsMode() {
     ttsMessage.value = e instanceof Error ? e.message : t('settings.ttsSaveFailed')
   } finally {
     savingTtsMode.value = false
+  }
+}
+
+async function saveOrderAlertsPreference() {
+  savingOrderAlerts.value = true
+  orderAlertsMessage.value = null
+  try {
+    const data = await api<{ orderAlertsSubscribed: boolean }>('/auth/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify({ orderAlertsSubscribed: orderAlertsSubscribed.value }),
+    })
+    orderAlertsSubscribed.value = Boolean(data.orderAlertsSubscribed)
+    orderAlertsMessage.value = t('settings.orderAlertsSaved')
+  } catch (e) {
+    orderAlertsMessage.value = e instanceof Error ? e.message : t('settings.orderAlertsSaveFailed')
+  } finally {
+    savingOrderAlerts.value = false
+  }
+}
+
+async function saveWorkerAlertsPreference() {
+  savingWorkerAlerts.value = true
+  workerAlertsMessage.value = null
+  try {
+    const data = await api<{ workerAlertsSubscribed: boolean }>('/auth/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify({ workerAlertsSubscribed: workerAlertsSubscribed.value }),
+    })
+    workerAlertsSubscribed.value = Boolean(data.workerAlertsSubscribed)
+    workerAlertsMessage.value = t('settings.workerAlertsSaved')
+  } catch (e) {
+    workerAlertsMessage.value = e instanceof Error ? e.message : t('settings.workerAlertsSaveFailed')
+  } finally {
+    savingWorkerAlerts.value = false
   }
 }
 
@@ -978,7 +1026,83 @@ function formatBackupTime(iso: string | null): string {
         <p v-if="totpMessage" class="text-xs text-slate-400">{{ totpMessage }}</p>
       </div>
 
-      <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+      <div
+        v-if="auth.isOwner"
+        class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5"
+      >
+        <div>
+          <h3 class="font-bold text-white text-sm">{{ t('settings.alertSubscriptionsTitle') }}</h3>
+          <p class="text-xs text-slate-500 mt-1">{{ t('settings.alertSubscriptionsDesc') }}</p>
+        </div>
+
+        <div class="flex items-start justify-between gap-4 pt-1 border-t border-slate-800">
+          <div class="min-w-0">
+            <p class="text-sm text-slate-200">{{ t('settings.orderAlertsSubscribe') }}</p>
+            <p class="text-xs text-slate-500 mt-1">{{ t('settings.orderAlertsHint') }}</p>
+            <p v-if="savingOrderAlerts" class="text-xs text-slate-500 mt-2">{{ t('settings.saving') }}</p>
+            <p
+              v-else-if="orderAlertsMessage"
+              class="text-xs mt-2"
+              :class="orderAlertsMessage.toLowerCase().includes('fail') ? 'text-red-300' : 'text-farm-green'"
+            >
+              {{ orderAlertsMessage }}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="orderAlertsSubscribed"
+            :aria-label="t('settings.orderAlertsSubscribe')"
+            :disabled="savingOrderAlerts"
+            class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+            :class="orderAlertsSubscribed ? 'bg-farm-green' : 'bg-slate-700'"
+            @click="
+              orderAlertsSubscribed = !orderAlertsSubscribed;
+              saveOrderAlertsPreference()
+            "
+          >
+            <span
+              class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+              :class="orderAlertsSubscribed ? 'translate-x-5' : 'translate-x-0'"
+            />
+          </button>
+        </div>
+
+        <div class="flex items-start justify-between gap-4 pt-4 border-t border-slate-800">
+          <div class="min-w-0">
+            <p class="text-sm text-slate-200">{{ t('settings.workerAlertsSubscribe') }}</p>
+            <p class="text-xs text-slate-500 mt-1">{{ t('settings.workerAlertsHint') }}</p>
+            <p v-if="savingWorkerAlerts" class="text-xs text-slate-500 mt-2">{{ t('settings.saving') }}</p>
+            <p
+              v-else-if="workerAlertsMessage"
+              class="text-xs mt-2"
+              :class="workerAlertsMessage.toLowerCase().includes('fail') ? 'text-red-300' : 'text-farm-green'"
+            >
+              {{ workerAlertsMessage }}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="workerAlertsSubscribed"
+            :aria-label="t('settings.workerAlertsSubscribe')"
+            :disabled="savingWorkerAlerts"
+            class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+            :class="workerAlertsSubscribed ? 'bg-farm-green' : 'bg-slate-700'"
+            @click="
+              workerAlertsSubscribed = !workerAlertsSubscribed;
+              saveWorkerAlertsPreference()
+            "
+          >
+            <span
+              class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+              :class="workerAlertsSubscribed ? 'translate-x-5' : 'translate-x-0'"
+            />
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
         <h3 class="font-bold text-white text-sm">{{ t('settings.butlerVoiceMode') }}</h3>
         <p class="text-xs text-slate-500">{{ t('settings.butlerVoiceDesc') }}</p>
         <div class="flex flex-wrap items-center gap-3">
@@ -1198,11 +1322,6 @@ function formatBackupTime(iso: string | null): string {
         <p v-if="resetMessage" class="text-xs text-slate-400">{{ resetMessage }}</p>
         <p v-if="generateMessage" class="text-xs text-slate-400">{{ generateMessage }}</p>
         <p v-if="revokeMessage" class="text-xs text-slate-400">{{ revokeMessage }}</p>
-        <p class="text-xs text-slate-600 mt-2">
-          Backup: <code class="font-mono">./scripts/backup-db.sh</code> ·
-          Restore: <code class="font-mono">./scripts/restore-db.sh &lt;file&gt;</code> ·
-          Verify: <code class="font-mono">./scripts/verify-backup.sh</code>
-        </p>
         <p class="text-xs text-slate-500">
           {{ t('settings.privacyNotice') }}
           <a

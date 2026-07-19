@@ -95,6 +95,35 @@ export async function answerTelegramCallbackQuery(
   )
 }
 
+/** Register slash-command menu for the staff butler (shows when users type /). */
+export async function setTelegramStaffCommands(): Promise<void> {
+  await tgCall(
+    'setMyCommands',
+    {
+      commands: [
+        { command: 'clockin', description: 'Clock in (field workers)' },
+        { command: 'clockout', description: 'Clock out (field workers)' },
+        { command: 'tasks', description: 'List my open tasks' },
+        { command: 'taskstart', description: 'Start a task (pick list)' },
+        { command: 'done', description: 'Submit task for approval (pick list)' },
+        { command: 'approve', description: 'Approve a task (supervisor)' },
+        { command: 'reject', description: 'Reject a task (supervisor)' },
+        { command: 'confirm', description: 'Confirm a pending order (pick from list)' },
+        { command: 'dispatch', description: 'Mark order dispatched (pick from list)' },
+        { command: 'delivered', description: 'Mark order delivered (pick from list)' },
+        { command: 'cancel', description: 'Cancel an order — /cancel TRV-ORD-…' },
+        { command: 'orders', description: 'Show order command help' },
+        { command: 'ops', description: 'Field / ops command help' },
+        { command: 'lots', description: 'List harvest lots needing pack details' },
+        { command: 'printqr', description: 'Print box QR label (pick lot)' },
+        { command: 'language', description: 'Change butler reply language' },
+        { command: 'handover', description: 'Handover checklist progress' },
+      ],
+    },
+    'staff',
+  )
+}
+
 export function confirmCancelKeyboard(draftId: string) {
   return {
     inline_keyboard: [
@@ -103,6 +132,30 @@ export function confirmCancelKeyboard(draftId: string) {
         { text: '❌ Cancel', callback_data: `cancel:${draftId}` },
       ],
     ],
+  }
+}
+
+export async function sendTelegramPhoto(
+  chatId: number | string,
+  imageBuffer: Buffer,
+  opts?: { caption?: string; filename?: string },
+): Promise<void> {
+  const config = getTelegramConfig()
+  if (!config) throw new Error('Telegram not configured - set TELEGRAM_BOT_TOKEN')
+
+  const filename = opts?.filename?.trim() || 'qr.png'
+  const form = new FormData()
+  form.append('chat_id', String(chatId))
+  form.append('photo', new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }), filename)
+  if (opts?.caption?.trim()) form.append('caption', opts.caption.trim().slice(0, 1024))
+
+  const res = await fetch(`${config.apiBase}/sendPhoto`, {
+    method: 'POST',
+    body: form,
+  })
+  const data = (await res.json()) as { ok: boolean; description?: string }
+  if (!data.ok) {
+    throw new Error(`Telegram sendPhoto failed: ${data.description ?? res.status}`)
   }
 }
 
@@ -277,6 +330,14 @@ export function startTelegramPollLoop(
 
   let offset = 0
   console.log(`Telegram ${kind} bot: long-polling started`)
+  if (kind === 'staff') {
+    void setTelegramStaffCommands().catch((err) => {
+      console.error(
+        'Telegram setMyCommands failed:',
+        err instanceof Error ? err.message : err,
+      )
+    })
+  }
 
   const loop = async () => {
     while (pollingKinds.has(kind)) {

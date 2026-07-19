@@ -14,7 +14,7 @@ import {
   check,
 } from 'drizzle-orm/pg-core'
 
-export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker'])
+export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker', 'sales'])
 export const butlerTtsModeEnum = pgEnum('butler_tts_mode', ['off', 'voice_replies', 'always'])
 export const taskStatusEnum = pgEnum('task_status', [
   'pending',
@@ -135,6 +135,18 @@ export const users = pgTable(
     totpEnabled: boolean('totp_enabled').default(false).notNull(),
     totpRecoveryCodes: jsonb('totp_recovery_codes'),
     butlerTtsMode: butlerTtsModeEnum('butler_tts_mode').default('voice_replies').notNull(),
+    /** Staff butler reply language: en | yo | pcm | fr */
+    preferredLocale: text('preferred_locale').default('en').notNull(),
+    /**
+     * Owner-only opt-in for customer order alerts (new order, feedback, etc.).
+     * Supervisor and sales always receive those alerts; field workers never do.
+     */
+    orderAlertsSubscribed: boolean('order_alerts_subscribed').default(false).notNull(),
+    /**
+     * Owner-only opt-in for field-worker alerts (task submitted for approval, urgent TG/WA).
+     * Supervisors always receive these; sales and field workers do not.
+     */
+    workerAlertsSubscribed: boolean('worker_alerts_subscribed').default(false).notNull(),
     active: boolean('active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -495,8 +507,12 @@ export const harvestLots = pgTable('harvest_lots', {
     .$defaultFn(() => randomUUID()),
   plotId: uuid('plot_id').references(() => plots.id),
   cropCycleId: uuid('crop_cycle_id').references(() => cropCycles.id),
+  /** Linked customer/staff order that spawned this lot (auto-create on place). */
+  orderId: uuid('order_id'),
   productName: text('product_name').notNull(),
+  /** Numeric amount; interpret with `unit` (`kg` or `crates`). */
   quantityKg: integer('quantity_kg').notNull(),
+  unit: text('unit').default('kg').notNull(),
   publicNotes: text('public_notes'),
   internalNotes: text('internal_notes'),
   // Optional field evidence (allowlisted data URL) attached when a worker or
@@ -530,6 +546,10 @@ export const orders = pgTable('orders', {
   source: text('source').default('staff').notNull(),
   notes: text('notes'),
   dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+  deliveryPhotoUrl: text('delivery_photo_url'),
+  customerFeedback: text('customer_feedback'),
+  customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
+  feedbackRequestedAt: timestamp('feedback_requested_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -787,5 +807,6 @@ export const telegramProcessedUpdates = pgTable(
   (t) => [uniqueIndex('telegram_processed_updates_bot_update_uq').on(t.botKey, t.updateId)],
 )
 
-export type UserRole = 'owner' | 'supervisor' | 'field_worker'
+export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
+export type PreferredLocale = 'en' | 'yo' | 'pcm' | 'fr'
 export type TaskStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'completed' | 'rejected'

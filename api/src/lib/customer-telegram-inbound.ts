@@ -43,6 +43,21 @@ export async function handleCustomerTelegramUpdate(update: TelegramUpdate): Prom
 
   try {
     const contact = await upsertCustomerContact(farm.id, 'telegram', String(chatId), msg.from?.first_name)
+
+    const looksLikeNewChat = /^(hi|hello|hey|menu|start|order|track|1|2|help)\b/i.test(text)
+    if (!looksLikeNewChat) {
+      const { recordCustomerFeedback } = await import('./order-fulfillment.js')
+      const feedback = await recordCustomerFeedback({
+        farmId: farm.id,
+        contactId: contact.id,
+        text,
+      })
+      if (feedback.handled) {
+        await sendTelegramMessage(chatId, feedback.message ?? 'Thanks!', { kind: 'customer' })
+        return
+      }
+    }
+
     const reply = await advanceOrderConversation({
       farmId: farm.id,
       farmName: farm.name,

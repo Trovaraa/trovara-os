@@ -247,3 +247,24 @@ export async function getHandoverProgress(farmId: string) {
     openTasks: handoverTasks,
   }
 }
+
+export type HandoverProgress = Awaited<ReturnType<typeof getHandoverProgress>>
+
+/** Plain-text handover summary for Telegram / WhatsApp. */
+export function formatHandoverProgressText(progress: HandoverProgress): string {
+  const openLines =
+    progress.openTasks.length > 0
+      ? progress.openTasks.slice(0, 10).map((t, i) => `${i + 1}. ${t.title} (${t.status})`)
+      : ['None']
+
+  return [
+    'Handover progress',
+    `Zones: ${progress.zones}`,
+    `Active blocks: ${progress.activeBlocks}`,
+    `Open handover tasks: ${progress.handoverTasksOpen}`,
+    `Completed: ${progress.handoverTasksCompleted}`,
+    '',
+    'Open items:',
+    ...openLines,
+  ].join('\n')
+}

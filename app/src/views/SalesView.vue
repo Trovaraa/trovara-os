@@ -35,6 +35,9 @@ type Order = {
   items?: OrderItem[]
   notes?: string
   dispatchedAt?: string
+  deliveryPhotoUrl?: string | null
+  customerFeedback?: string | null
+  customerFeedbackAt?: string | null
   createdAt: string
 }
 
@@ -187,7 +190,12 @@ function closeCustomer() {
               {{ order.customerPhone }}
             </p>
             <p class="text-lg font-mono text-farm-gold mt-2">
-              {{ formatAmount(order.totalAmount, order.currency) }}
+              <template v-if="order.totalAmount > 0">
+                {{ formatAmount(order.totalAmount, order.currency) }}
+              </template>
+              <template v-else>
+                {{ t('sales.priceOnRequest') }}
+              </template>
             </p>
 
             <ul v-if="order.items && order.items.length" class="mt-2 space-y-0.5">
@@ -198,6 +206,11 @@ function closeCustomer() {
               >
                 {{ item.quantity }} × {{ item.productName }}
                 <span class="text-slate-600">({{ item.unit }})</span>
+                <span v-if="item.unitPriceKobo > 0" class="text-slate-500 font-mono">
+                  · {{ formatAmount(item.unitPriceKobo / 100, order.currency) }}
+                  = {{ formatAmount(item.lineTotalKobo / 100, order.currency) }}
+                </span>
+                <span v-else class="text-slate-600"> · {{ t('sales.priceOnRequest') }}</span>
               </li>
             </ul>
 
@@ -205,6 +218,15 @@ function closeCustomer() {
               <span v-if="order.lotCode">{{ t('sales.lot') }}: {{ order.lotCode }} · </span>
               {{ t('sales.created') }} {{ new Date(order.createdAt).toLocaleDateString() }}
             </p>
+            <a
+              v-if="order.lotId && auth.canManageOrders"
+              :href="`/api/traceability/${order.lotId}/label.html?autoprint=1`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block mt-2 text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
+            >
+              {{ t('sales.printQr') }}
+            </a>
             <p v-if="order.notes" class="text-sm text-slate-400 mt-2">{{ order.notes }}</p>
           </div>
           <span
@@ -216,7 +238,7 @@ function closeCustomer() {
         </div>
 
         <div
-          v-if="auth.canApprove && (nextStatus[order.status] || order.status === 'pending' || order.status === 'confirmed')"
+          v-if="auth.canManageOrders && (nextStatus[order.status] || order.status === 'pending' || order.status === 'confirmed')"
           class="flex flex-wrap gap-2 mt-4"
         >
           <button
@@ -234,13 +256,19 @@ function closeCustomer() {
             {{ t('sales.cancel') }}
           </button>
           <button
-            v-if="order.customerContactId && auth.canApprove"
+            v-if="order.customerContactId && auth.canManageOrders"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
             @click="openCustomer(order.customerContactId!)"
           >
             {{ t('sales.viewCustomer') }}
           </button>
         </div>
+        <p v-if="order.customerFeedback" class="text-xs text-amber-200/90 mt-3">
+          Feedback: {{ order.customerFeedback }}
+        </p>
+        <p v-if="order.deliveryPhotoUrl" class="text-xs text-slate-500 mt-1">
+          Delivery photo on file
+        </p>
       </div>
     </div>
 

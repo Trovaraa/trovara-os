@@ -6,15 +6,18 @@ import { api } from '@/lib/api'
 
 const { t } = useI18n()
 
-// Only public fields - the /public endpoint intentionally never returns internal notes.
+// Only public fields - the /public endpoint intentionally never returns phone or full legal name.
 type PublicLot = {
   lotCode: string
   productName: string
   quantityKg: number
+  unit?: string
   harvestedAt: string
   plotName?: string | null
   cropType?: string | null
   publicNotes?: string | null
+  preparedFor?: string | null
+  orderReference?: string | null
   farm: { slug?: string | null; name: string; location?: string | null }
 }
 
@@ -27,8 +30,9 @@ const verified = ref(false)
 const loading = ref(true)
 const error = ref<string | null>(null)
 
-const publicUrl = computed(() =>
-  `${window.location.origin}/lot/${farmSlug.value}/${publicToken.value}`,
+const certificateHref = computed(
+  () =>
+    `/public/lots/${encodeURIComponent(farmSlug.value)}/${encodeURIComponent(publicToken.value)}/certificate.html`,
 )
 
 onMounted(async () => {
@@ -61,21 +65,31 @@ onMounted(async () => {
         <p class="text-xs text-slate-500 mt-3 font-mono">{{ publicToken }}</p>
       </div>
 
-      <div v-else-if="lot" class="mt-10 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+      <div v-else-if="lot" class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
         <div class="text-center">
           <p class="text-xs text-slate-500 uppercase tracking-wide">{{ t('publicLot.lotCodeLabel') }}</p>
           <p class="text-3xl font-black font-mono text-farm-gold mt-1">{{ lot.lotCode }}</p>
           <p v-if="verified" class="text-xs text-farm-green mt-2 font-bold">{{ t('publicLot.verifiedBadge') }}</p>
         </div>
 
+        <p class="text-sm text-slate-400 leading-relaxed text-center">{{ t('publicLot.why') }}</p>
+
         <div class="space-y-3 text-sm">
+          <div v-if="lot.preparedFor" class="flex justify-between gap-4">
+            <span class="text-slate-500">{{ t('publicLot.preparedFor') }}</span>
+            <span class="text-white font-medium text-right">{{ lot.preparedFor }}</span>
+          </div>
+          <div v-if="lot.orderReference" class="flex justify-between gap-4">
+            <span class="text-slate-500">{{ t('publicLot.order') }}</span>
+            <span class="text-slate-300 font-mono text-right">{{ lot.orderReference }}</span>
+          </div>
           <div class="flex justify-between gap-4">
             <span class="text-slate-500">{{ t('publicLot.product') }}</span>
             <span class="text-white font-medium text-right">{{ lot.productName }}</span>
           </div>
           <div class="flex justify-between gap-4">
             <span class="text-slate-500">{{ t('publicLot.quantity') }}</span>
-            <span class="text-white font-mono">{{ t('publicLot.quantityKg', { count: lot.quantityKg }) }}</span>
+            <span class="text-white font-mono">{{ lot.quantityKg }} {{ lot.unit === 'crates' ? 'crates' : 'kg' }}</span>
           </div>
           <div v-if="lot.plotName" class="flex justify-between gap-4">
             <span class="text-slate-500">{{ t('publicLot.plot') }}</span>
@@ -103,11 +117,16 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="pt-4 border-t border-slate-800 text-center">
-          <p class="text-xs text-slate-500">
-            {{ t('publicLot.shareHint') }}
-          </p>
-          <p class="text-xs font-mono text-farm-green mt-2 break-all">{{ publicUrl }}</p>
+        <div class="pt-4 border-t border-slate-800 text-center space-y-3">
+          <a
+            :href="certificateHref"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-block text-sm px-5 py-2.5 rounded-lg bg-farm-green text-white font-semibold hover:bg-farm-green/90"
+          >
+            {{ t('publicLot.downloadCertificate') }}
+          </a>
+          <p class="text-xs text-slate-500">{{ t('publicLot.shareHint') }}</p>
         </div>
       </div>
     </div>

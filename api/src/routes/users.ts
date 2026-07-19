@@ -42,14 +42,14 @@ const staffProfileFields = {
 const createUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(200),
-  role: z.enum(['supervisor', 'field_worker']),
+  role: z.enum(['supervisor', 'field_worker', 'sales']),
   password: z.string().min(8).max(128),
   ...staffProfileFields,
 })
 
 const updateUserSchema = z.object({
   name: z.string().min(1).max(200).optional(),
-  role: z.enum(['supervisor', 'field_worker']).optional(),
+  role: z.enum(['supervisor', 'field_worker', 'sales']).optional(),
   password: z.string().min(8).max(128).optional(),
   active: z.boolean().optional(),
   ...staffProfileFields,

@@ -262,18 +262,39 @@ async function toggleVoiceRecording(taskId: string) {
 
   try {
     recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder = new MediaRecorder(recordingStream)
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    const mimeCandidates = isAppleMobile
+      ? ['audio/mp4', 'audio/aac', 'audio/mp4;codecs=mp4a.40.2', 'audio/webm']
+      : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+    mediaRecorder = mimeType
+      ? new MediaRecorder(recordingStream, { mimeType })
+      : new MediaRecorder(recordingStream)
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) recordingChunks.push(event.data)
     }
     mediaRecorder.onstop = () => {
-      const blob = new Blob(recordingChunks, {
-        type: mediaRecorder?.mimeType ?? 'audio/webm',
-      })
+      const first = recordingChunks[0]
+      const chunkType = first instanceof Blob ? first.type : ''
+      const raw = mediaRecorder?.mimeType || mimeType || chunkType || ''
+      const base = raw.split(';')[0].trim().toLowerCase()
+      const type =
+        base === 'audio/mp4' ||
+        base === 'audio/aac' ||
+        base === 'audio/x-m4a' ||
+        base === 'video/mp4' ||
+        (/iPhone|iPad|iPod/i.test(navigator.userAgent) && !base)
+          ? 'audio/mp4'
+          : base || 'audio/webm'
+      const blob = new Blob(recordingChunks, { type })
       const reader = new FileReader()
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          voices.value[taskId] = reader.result
+          const comma = reader.result.indexOf(',')
+          voices.value[taskId] =
+            comma >= 0
+              ? `data:${type};base64,${reader.result.slice(comma + 1).replace(/\s+/g, '')}`
+              : reader.result
         }
       }
       reader.readAsDataURL(blob)

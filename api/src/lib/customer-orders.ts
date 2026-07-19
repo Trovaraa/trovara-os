@@ -9,7 +9,7 @@ import {
   products,
 } from '../db/schema.js'
 import { recordFarmEvent } from './farm-events.js'
-import { notifyOwnerTelegram } from './farm-notify.js'
+import { notifyStaffNewOrder } from './order-fulfillment.js'
 import {
   answerCustomerInquiry,
   logInquiry,
@@ -18,11 +18,18 @@ import {
 import {
   addToCart,
   cartTotalKobo,
+  firstMissingDetailStep,
   formatCart,
   formatCatalog,
+  formatNaira,
+  formatOrderConfirmPrompt,
+  formatSavedDetailsPrompt,
+  hasCompleteDeliveryDetails,
+  isChangeDetailsIntent,
   orderReference,
   orderStatusLabel,
   parseChoice,
+  parseDeliveryAddress,
   type CartLine,
   type CatalogItem,
   type OrderDraft,
@@ -36,6 +43,7 @@ import {
 } from './order-abuse-controls.js'
 import { validateCustomerOrder } from './order-abuse-controls.js'
 import { logSecurityEvent } from './security-log.js'
+import { createHarvestLotForOrder } from './harvest-lots.js'
 
 export { resolveCustomerFarm, upsertCustomerContact, advanceOrderConversation }
 
@@ -245,6 +253,67 @@ async function saveSession(
   })
 }
 
+async function loadSavedDeliveryDetails(contactId: string): Promise<OrderDraft> {
+  const [contact] = await db
+    .select()
+    .from(customerContacts)
+    .where(eq(customerContacts.id, contactId))
+    .limit(1)
+
+  const [lastOrder] = await db
+    .select({
+      customerName: orders.customerName,
+      customerPhone: orders.customerPhone,
+      notes: orders.notes,
+    })
+    .from(orders)
+    .where(eq(orders.customerContactId, contactId))
+    .orderBy(desc(orders.createdAt))
+    .limit(1)
+
+  return {
+    name: contact?.name?.trim() || lastOrder?.customerName?.trim() || undefined,
+    phone: contact?.phone?.trim() || lastOrder?.customerPhone?.trim() || undefined,
+    address: parseDeliveryAddress(lastOrder?.notes) ?? undefined,
+  }
+}
+
+async function beginCheckout(params: {
+  farmId: string
+  channel: Channel
+  externalId: string
+  contactId: string
+  state: SessionState
+  catalog: CatalogItem[]
+}): Promise<string> {
+  const { farmId, channel, externalId, contactId, state, catalog } = params
+  const cartSummary = formatCart(state.cart, catalog)
+  const saved = await loadSavedDeliveryDetails(contactId)
+  const draft: OrderDraft = {
+    ...state.draft,
+    name: saved.name,
+    phone: saved.phone,
+    address: saved.address,
+    pendingProductId: undefined,
+    suggestions: undefined,
+  }
+
+  if (hasCompleteDeliveryDetails(draft)) {
+    await saveSession(farmId, channel, externalId, { ...state, step: 'confirm_details', draft })
+    return formatSavedDetailsPrompt(draft, cartSummary)
+  }
+
+  const nextStep = firstMissingDetailStep(draft)
+  await saveSession(farmId, channel, externalId, { ...state, step: nextStep, draft })
+  if (nextStep === 'need_name') {
+    return `Great.\n\n${cartSummary}\n\nWhat name should we put on the order?`
+  }
+  if (nextStep === 'need_phone') {
+    return `Great.\n\n${cartSummary}\n\nThanks ${draft.name}. What phone number should we call for delivery?`
+  }
+  return `Great.\n\n${cartSummary}\n\nAnd what’s the delivery address?`
+}
+
 async function createOrderFromCart(params: {
   farmId: string
   channel: Channel
@@ -307,6 +376,16 @@ async function createOrderFromCart(params: {
     await db.insert(orderItems).values(items.map((i) => ({ ...i, orderId: order.id })))
   }
 
+  // Persist name/phone on the contact for the next checkout.
+  await db
+    .update(customerContacts)
+    .set({
+      name: customerName,
+      phone: params.draft.phone?.trim() || null,
+      updatedAt: new Date(),
+    })
+    .where(eq(customerContacts.id, params.contactId))
+
   if (abuse.flagged) {
     logSecurityEvent('customer_order_flagged', {
       farmId: params.farmId,
@@ -319,6 +398,22 @@ async function createOrderFromCart(params: {
 
   const reference = orderReference(order.id)
 
+  let lotCode: string | undefined
+  try {
+    const lot = await createHarvestLotForOrder({
+      farmId: params.farmId,
+      orderId: order.id,
+      lines: items.map((i) => ({
+        productName: i.productName,
+        unit: i.unit,
+        quantity: i.quantity,
+      })),
+    })
+    lotCode = lot.lotCode
+  } catch (err) {
+    console.error('Auto harvest lot failed:', err instanceof Error ? err.message : err)
+  }
+
   await recordFarmEvent({
     farmId: params.farmId,
     entityType: 'order',
@@ -329,22 +424,41 @@ async function createOrderFromCart(params: {
       text: `New ${params.channel} order ${reference} from ${customerName}`,
       reference,
       status: 'pending',
+      lotCode,
     },
-    metadata: { source: params.channel, itemCount: items.length, totalKobo },
+    metadata: { source: params.channel, itemCount: items.length, totalKobo, lotCode },
   })
 
-  // Best-effort alert to the Founder via the staff butler bot; never block the order.
+  // Best-effort alert to owner + supervisor + sales (Telegram + WhatsApp).
   try {
-    const itemLines = items.map((i) => `• ${i.quantity} × ${i.productName}`).join('\n')
-    await notifyOwnerTelegram(
-      params.farmId,
-      `🛒 New order ${reference} (${params.channel})\n${itemLines}\n\nCustomer: ${customerName}\nPhone: ${
-        params.draft.phone?.trim() || 'n/a'
-      }\nDeliver to: ${address || 'n/a'}\n\nConfirm/dispatch it in Trovara OS → Sales.`,
-      { reason: 'new_customer_order' },
-    )
+    const itemLines = items
+      .map((i) => {
+        const unitLabel = i.unit ? ` (${i.unit})` : ''
+        if (i.unitPriceKobo > 0) {
+          return `• ${i.quantity} × ${i.productName}${unitLabel} @ ${formatNaira(i.unitPriceKobo)} = ${formatNaira(i.lineTotalKobo)}`
+        }
+        return `• ${i.quantity} × ${i.productName}${unitLabel} — price on request`
+      })
+      .join('\n')
+    const hasUnpriced = items.some((i) => i.unitPriceKobo <= 0)
+    const totalLine =
+      totalKobo > 0
+        ? `Total: ${formatNaira(totalKobo)}${hasUnpriced ? ' (+ items priced on request)' : ''}`
+        : 'Total: price on request'
+    await notifyStaffNewOrder({
+      farmId: params.farmId,
+      orderId: order.id,
+      reference,
+      channel: params.channel,
+      customerName,
+      phone: params.draft.phone?.trim() || 'n/a',
+      address: address || 'n/a',
+      lotCode,
+      itemLines,
+      totalLine,
+    })
   } catch (err) {
-    console.error('Order owner-notify failed:', err instanceof Error ? err.message : err)
+    console.error('Order staff-notify failed:', err instanceof Error ? err.message : err)
   }
 
   return { reference }
@@ -524,11 +638,14 @@ async function advanceOrderConversation(params: {
         if (!state.cart.length) {
           return 'Your cart is empty. Reply with an item number to add something first.'
         }
-        await saveSession(farmId, channel, externalId, { ...state, step: 'need_name' })
-        return `Great.\n\n${formatCart(
-          state.cart,
+        return beginCheckout({
+          farmId,
+          channel,
+          externalId,
+          contactId: params.contactId,
+          state,
           catalog,
-        )}\n\nWhat name should we put on the order?`
+        })
       }
       const choice = parseChoice(lower)
       if (choice && choice >= 1 && choice <= catalog.length) {
@@ -571,6 +688,24 @@ async function advanceOrderConversation(params: {
       )}\n\nReply another item number to add more, or "done" to check out.`
     }
 
+    case 'confirm_details': {
+      if (YES_WORDS.includes(lower)) {
+        await saveSession(farmId, channel, externalId, { ...state, step: 'confirm' })
+        return formatOrderConfirmPrompt(state.draft, formatCart(state.cart, catalog))
+      }
+      if (isChangeDetailsIntent(lower)) {
+        const draft: OrderDraft = {
+          ...state.draft,
+          name: undefined,
+          phone: undefined,
+          address: undefined,
+        }
+        await saveSession(farmId, channel, externalId, { ...state, step: 'need_name', draft })
+        return 'Okay — let’s update your details.\n\nWhat name should we put on the order?'
+      }
+      return 'Reply YES to keep these details, or CHANGE to update them.'
+    }
+
     case 'need_name': {
       const draft: OrderDraft = { ...state.draft, name: text.slice(0, 200) }
       await saveSession(farmId, channel, externalId, { ...state, step: 'need_phone', draft })
@@ -586,17 +721,7 @@ async function advanceOrderConversation(params: {
     case 'need_address': {
       const draft: OrderDraft = { ...state.draft, address: text.slice(0, 500) }
       await saveSession(farmId, channel, externalId, { ...state, step: 'confirm', draft })
-      return [
-        'Please confirm your order:',
-        '',
-        formatCart(state.cart, catalog),
-        '',
-        `Name: ${draft.name ?? '-'}`,
-        `Phone: ${draft.phone ?? '-'}`,
-        `Deliver to: ${draft.address ?? '-'}`,
-        '',
-        'Reply YES to place the order (pay on delivery), or "cancel".',
-      ].join('\n')
+      return formatOrderConfirmPrompt(draft, formatCart(state.cart, catalog))
     }
 
     case 'confirm': {

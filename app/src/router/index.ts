@@ -116,7 +116,7 @@ const router = createRouter({
       path: '/products',
       name: 'products',
       component: () => import('@/views/ProductsView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, orderStaffOnly: true },
     },
     {
       path: '/customer-insights',
@@ -210,6 +210,9 @@ router.beforeEach(async (to) => {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
+    return defaultHome(auth.user?.role)
+  }
+  if (to.meta.orderStaffOnly && !auth.canManageProducts) {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.managerOnly && !auth.canApprove) {

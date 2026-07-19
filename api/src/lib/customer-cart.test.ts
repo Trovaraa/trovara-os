@@ -3,18 +3,23 @@ import {
   addToCart,
   cartHasUnpriced,
   cartTotalKobo,
+  firstMissingDetailStep,
   formatCart,
   formatCatalog,
   formatNaira,
+  formatSavedDetailsPrompt,
+  hasCompleteDeliveryDetails,
+  isChangeDetailsIntent,
   orderReference,
   orderStatusLabel,
   parseChoice,
+  parseDeliveryAddress,
   type CatalogItem,
 } from './customer-cart.js'
 
 const catalog: CatalogItem[] = [
-  { id: 'p1', name: 'Trovara Farm Plantain', unit: 'bunch', priceKobo: 250000, currency: 'NGN' },
-  { id: 'p2', name: 'Trovara Farm Eggs', unit: 'crate', priceKobo: 0, currency: 'NGN' },
+  { id: 'p1', name: 'Trovara Fresh Plantain', unit: 'bunch', priceKobo: 250000, currency: 'NGN' },
+  { id: 'p2', name: 'Trovara Fresh Pasture-Raised Eggs', unit: 'crate', priceKobo: 0, currency: 'NGN' },
 ]
 
 describe('addToCart', () => {
@@ -73,8 +78,8 @@ describe('orderReference', () => {
 describe('formatCatalog', () => {
   it('numbers items and shows price on request when unpriced', () => {
     const out = formatCatalog(catalog)
-    expect(out).toContain('1. Trovara Farm Plantain - ₦2,500 / bunch')
-    expect(out).toContain('2. Trovara Farm Eggs - price on request')
+    expect(out).toContain('1. Trovara Fresh Plantain - ₦2,500 / bunch')
+    expect(out).toContain('2. Trovara Fresh Pasture-Raised Eggs - price on request')
   })
 
   it('handles an empty catalogue', () => {
@@ -91,7 +96,7 @@ describe('formatCart', () => {
       ],
       catalog,
     )
-    expect(out).toContain('2 × Trovara Farm Plantain')
+    expect(out).toContain('2 × Trovara Fresh Plantain')
     expect(out).toContain('Subtotal: ₦5,000 (+ items priced on request)')
   })
 
@@ -112,5 +117,36 @@ describe('orderStatusLabel', () => {
   it('maps known statuses to friendly text', () => {
     expect(orderStatusLabel('dispatched')).toBe('Out for delivery')
     expect(orderStatusLabel('unknown')).toBe('unknown')
+  })
+})
+
+describe('returning customer delivery details', () => {
+  it('parses delivery address from notes', () => {
+    expect(parseDeliveryAddress('Delivery: 12 Farm Road, Lagos')).toBe('12 Farm Road, Lagos')
+    expect(parseDeliveryAddress(null)).toBeNull()
+  })
+
+  it('detects complete details and change intent', () => {
+    expect(
+      hasCompleteDeliveryDetails({
+        name: 'Ada',
+        phone: '0800',
+        address: 'Lagos',
+      }),
+    ).toBe(true)
+    expect(hasCompleteDeliveryDetails({ name: 'Ada', phone: '0800' })).toBe(false)
+    expect(firstMissingDetailStep({ name: 'Ada' })).toBe('need_phone')
+    expect(isChangeDetailsIntent('change')).toBe(true)
+    expect(isChangeDetailsIntent('yes')).toBe(false)
+  })
+
+  it('formats saved-details prompt', () => {
+    const text = formatSavedDetailsPrompt(
+      { name: 'Ada', phone: '0800', address: 'Lagos' },
+      'Cart summary',
+    )
+    expect(text).toContain('YES')
+    expect(text).toContain('CHANGE')
+    expect(text).toContain('Ada')
   })
 })

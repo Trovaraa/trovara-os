@@ -225,7 +225,7 @@ export async function buildFarmContext(user: SessionUser): Promise<string> {
     lines.push(`RECENT HARVEST LOTS:`)
     for (const l of lotRows) {
       lines.push(
-        `  • ${sf(l.lotCode)}: ${sf(l.productName)}, ${l.quantityKg} kg, harvested ${l.harvestedAt.toISOString().slice(0, 10)}`,
+        `  • ${sf(l.lotCode)}: ${sf(l.productName)}, ${l.quantityKg} ${l.unit === 'crates' ? 'crates' : 'kg'}, harvested ${l.harvestedAt.toISOString().slice(0, 10)}`,
       )
     }
     lines.push('')

@@ -93,7 +93,11 @@ const useRecoveryCodeSchema = z.object({
 })
 
 const updatePreferencesSchema = z.object({
-  butlerTtsMode: z.enum(['off', 'voice_replies', 'always']),
+  butlerTtsMode: z.enum(['off', 'voice_replies', 'always']).optional(),
+  /** Owner opt-in for customer order alerts (Telegram / WhatsApp). */
+  orderAlertsSubscribed: z.boolean().optional(),
+  /** Owner opt-in for field-worker alerts (tasks, urgent TG/WA). */
+  workerAlertsSubscribed: z.boolean().optional(),
 })
 
 const RECOVERY_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -898,21 +902,51 @@ authRoutes.get('/preferences', authMiddleware, async (c) => {
   if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
 
   const [existing] = await db
-    .select({ butlerTtsMode: users.butlerTtsMode })
+    .select({
+      butlerTtsMode: users.butlerTtsMode,
+      orderAlertsSubscribed: users.orderAlertsSubscribed,
+      workerAlertsSubscribed: users.workerAlertsSubscribed,
+    })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1)
 
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
-  return c.json({ butlerTtsMode: existing.butlerTtsMode })
+  return c.json(existing)
 })
 
 authRoutes.patch('/preferences', authMiddleware, zValidator('json', updatePreferencesSchema), async (c) => {
   const user = c.get('user')
   if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
+  if (
+    body.butlerTtsMode === undefined &&
+    body.orderAlertsSubscribed === undefined &&
+    body.workerAlertsSubscribed === undefined
+  ) {
+    return c.json({ error: 'No preferences to update' }, 400)
+  }
 
-  await db.update(users).set({ butlerTtsMode: body.butlerTtsMode }).where(eq(users.id, user.id))
+  const patch: {
+    butlerTtsMode?: typeof body.butlerTtsMode
+    orderAlertsSubscribed?: boolean
+    workerAlertsSubscribed?: boolean
+  } = {}
+  if (body.butlerTtsMode !== undefined) patch.butlerTtsMode = body.butlerTtsMode
+  if (body.orderAlertsSubscribed !== undefined) patch.orderAlertsSubscribed = body.orderAlertsSubscribed
+  if (body.workerAlertsSubscribed !== undefined) patch.workerAlertsSubscribed = body.workerAlertsSubscribed
+
+  await db.update(users).set(patch).where(eq(users.id, user.id))
+
+  const [updated] = await db
+    .select({
+      butlerTtsMode: users.butlerTtsMode,
+      orderAlertsSubscribed: users.orderAlertsSubscribed,
+      workerAlertsSubscribed: users.workerAlertsSubscribed,
+    })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
 
   await logAudit({
     farmId: user.farmId,
@@ -920,10 +954,10 @@ authRoutes.patch('/preferences', authMiddleware, zValidator('json', updatePrefer
     action: 'update_preferences',
     entityType: 'user',
     entityId: user.id,
-    metadata: { butlerTtsMode: body.butlerTtsMode },
+    metadata: patch,
   })
 
-  return c.json({ ok: true, butlerTtsMode: body.butlerTtsMode })
+  return c.json({ ok: true, ...updated })
 })
 
 authRoutes.post('/revoke-all-sessions', authMiddleware, async (c) => {

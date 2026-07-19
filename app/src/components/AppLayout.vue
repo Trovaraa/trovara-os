@@ -24,13 +24,13 @@ onMounted(() => {
 })
 
 const isFieldWorker = computed(() => auth.user?.role === 'field_worker')
+const isSales = computed(() => auth.user?.role === 'sales')
 
-type NavItem = { to: string; labelKey: string; ownerOnly?: boolean }
+type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean }
 type NavGroup = { titleKey: string | null; items: NavItem[] }
 
-// Grouped sidebar. Field workers keep their flat two-item nav; everyone else
-// (supervisor/owner) sees labelled sections. `ownerOnly` items are hidden from
-// supervisors; the rest are visible to any non-worker (matches prior gating).
+// Grouped sidebar. Field workers keep their flat two-item nav; sales get a
+// focused sales nav; everyone else (supervisor/owner) sees labelled sections.
 const navGroups = computed<NavGroup[]>(() => {
   if (isFieldWorker.value) {
     return [
@@ -39,6 +39,27 @@ const navGroups = computed<NavGroup[]>(() => {
         items: [
           { to: '/today', labelKey: 'nav.today' },
           { to: '/worker', labelKey: 'nav.myTasks' },
+        ],
+      },
+    ]
+  }
+
+  if (isSales.value) {
+    return [
+      {
+        titleKey: 'nav.grpOverview',
+        items: [
+          { to: '/today', labelKey: 'nav.today' },
+          { to: '/dashboard', labelKey: 'nav.dashboard' },
+        ],
+      },
+      {
+        titleKey: 'nav.grpSales',
+        items: [
+          { to: '/sales', labelKey: 'nav.sales' },
+          { to: '/products', labelKey: 'nav.products' },
+          { to: '/whatsapp', labelKey: 'nav.whatsapp' },
+          { to: '/traceability', labelKey: 'nav.traceability' },
         ],
       },
     ]
@@ -66,7 +87,7 @@ const navGroups = computed<NavGroup[]>(() => {
       titleKey: 'nav.grpSales',
       items: [
         { to: '/sales', labelKey: 'nav.sales' },
-        { to: '/products', labelKey: 'nav.products', ownerOnly: true },
+        { to: '/products', labelKey: 'nav.products', orderStaff: true },
         { to: '/customer-insights', labelKey: 'nav.customerInsights', ownerOnly: true },
         { to: '/whatsapp', labelKey: 'nav.whatsapp' },
       ],
@@ -94,7 +115,14 @@ const navGroups = computed<NavGroup[]>(() => {
   ]
 
   return groups
-    .map((g) => ({ ...g, items: g.items.filter((i) => auth.isOwner || !i.ownerOnly) }))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) => {
+        if (i.ownerOnly && !auth.isOwner) return false
+        if (i.orderStaff && !auth.canManageProducts) return false
+        return true
+      }),
+    }))
     .filter((g) => g.items.length > 0)
 })
 

@@ -78,6 +78,12 @@ describe('isValidOrderTransition / canTransitionOrder', () => {
     expect(canTransitionOrder('dispatched', 'delivered', 'owner')).toBe(true)
   })
 
+  it('allows sales role to transition orders', () => {
+    expect(canTransitionOrder('pending', 'confirmed', 'sales')).toBe(true)
+    expect(canTransitionOrder('confirmed', 'dispatched', 'sales')).toBe(true)
+    expect(canTransitionOrder('dispatched', 'delivered', 'sales')).toBe(true)
+  })
+
   it('blocks invalid order transitions', () => {
     expect(isValidOrderTransition('pending', 'delivered')).toBe(false)
     expect(canTransitionOrder('pending', 'delivered', 'field_worker')).toBe(false)

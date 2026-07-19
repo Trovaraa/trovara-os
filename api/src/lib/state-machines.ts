@@ -102,7 +102,7 @@ export function canTransitionOrder(
   to: OrderStatus,
   role: UserRole,
 ): boolean {
-  if (role !== 'owner' && role !== 'supervisor') return false
+  if (role !== 'owner' && role !== 'supervisor' && role !== 'sales') return false
   if (from === to) return true
   return isValidOrderTransition(from, to)
 }

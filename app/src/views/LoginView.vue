@@ -37,17 +37,11 @@ onMounted(() => {
     sessionStorage.removeItem('trovara_flash')
   }
   forgotEmail.value = email.value
-  void loadConsentStatus()
+  // Consent status is auth-only. Guest login never has a session (authenticated
+  // users are redirected away), so do not probe /api/consent/status here - it
+  // only produces a noisy 401 after logout. Status is fetched after sign-in in
+  // recordConsentIfNeeded().
 })
-
-async function loadConsentStatus() {
-  try {
-    consentStatus.value = await api<ConsentStatus>('/api/consent/status')
-    privacyAccepted.value = !!consentStatus.value.acceptedLatest
-  } catch {
-    // Requires auth - only succeeds when a session cookie is already present.
-  }
-}
 
 // Records consent after a successful sign-in. Version and required types come
 // from the API so the client cannot drift from the server contract. Failures
@@ -55,9 +49,7 @@ async function loadConsentStatus() {
 async function recordConsentIfNeeded() {
   if (!privacyAccepted.value) return
   try {
-    const status = consentStatus.value?.currentVersion
-      ? consentStatus.value
-      : await api<ConsentStatus>('/api/consent/status')
+    const status = await api<ConsentStatus>('/api/consent/status')
     consentStatus.value = status
     if (status.acceptedLatest) return
 
@@ -189,9 +181,9 @@ async function applyForcedPasswordChange() {
 
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
-    <div class="relative w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
-      <div class="absolute top-4 right-4">
-        <LanguageSwitcher />
+    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
+      <div class="flex justify-end mb-4">
+        <LanguageSwitcher compact />
       </div>
 
       <div class="text-center mb-8">

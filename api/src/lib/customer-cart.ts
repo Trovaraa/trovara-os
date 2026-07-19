@@ -29,6 +29,7 @@ export type OrderStep =
   | 'asking'
   | 'ordering'
   | 'awaiting_qty'
+  | 'confirm_details'
   | 'need_name'
   | 'need_phone'
   | 'need_address'
@@ -120,4 +121,64 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function orderStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status
+}
+
+/** Parse `Delivery: …` from staff/order notes. */
+export function parseDeliveryAddress(notes: string | null | undefined): string | null {
+  if (!notes?.trim()) return null
+  const match = notes.match(/Delivery:\s*(.+)/i)
+  const address = match?.[1]?.trim()
+  return address || null
+}
+
+export function hasCompleteDeliveryDetails(draft: OrderDraft): boolean {
+  return Boolean(draft.name?.trim() && draft.phone?.trim() && draft.address?.trim())
+}
+
+export function formatSavedDetailsPrompt(draft: OrderDraft, cartSummary: string): string {
+  return [
+    'Great.',
+    '',
+    cartSummary,
+    '',
+    'We still have your last delivery details:',
+    `Name: ${draft.name?.trim() || '-'}`,
+    `Phone: ${draft.phone?.trim() || '-'}`,
+    `Deliver to: ${draft.address?.trim() || '-'}`,
+    '',
+    'Reply YES to use these, or CHANGE to update them.',
+  ].join('\n')
+}
+
+export function formatOrderConfirmPrompt(draft: OrderDraft, cartSummary: string): string {
+  return [
+    'Please confirm your order:',
+    '',
+    cartSummary,
+    '',
+    `Name: ${draft.name ?? '-'}`,
+    `Phone: ${draft.phone ?? '-'}`,
+    `Deliver to: ${draft.address ?? '-'}`,
+    '',
+    'Reply YES to place the order (pay on delivery), or "cancel".',
+  ].join('\n')
+}
+
+export function firstMissingDetailStep(draft: OrderDraft): 'need_name' | 'need_phone' | 'need_address' {
+  if (!draft.name?.trim()) return 'need_name'
+  if (!draft.phone?.trim()) return 'need_phone'
+  return 'need_address'
+}
+
+export function isChangeDetailsIntent(lower: string): boolean {
+  return (
+    lower === 'change' ||
+    lower === 'edit' ||
+    lower === 'update' ||
+    lower === 'no' ||
+    lower === 'n' ||
+    lower === 'wrong' ||
+    lower.startsWith('change ') ||
+    lower.startsWith('edit ')
+  )
 }

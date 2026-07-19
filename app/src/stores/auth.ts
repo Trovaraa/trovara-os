@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { clearSensitiveClientData } from '@/lib/client-cleanup'
 import router from '@/router'
 
-export type UserRole = 'owner' | 'supervisor' | 'field_worker'
+export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
 
 export type User = {
   id: string
@@ -39,6 +39,14 @@ export const useAuthStore = defineStore('auth', () => {
   const canApprove = computed(
     () => user.value?.role === 'owner' || user.value?.role === 'supervisor',
   )
+  const canManageOrders = computed(
+    () =>
+      user.value?.role === 'owner' ||
+      user.value?.role === 'supervisor' ||
+      user.value?.role === 'sales',
+  )
+  const canManageProducts = computed(() => canManageOrders.value)
+  const isSales = computed(() => user.value?.role === 'sales')
 
   async function fetchMe() {
     try {
@@ -68,7 +76,7 @@ export const useAuthStore = defineStore('auth', () => {
       if ('user' in data) {
         user.value = data.user
         if (!options?.skipRedirect && user.value) {
-          await router.push(user.value.role === 'field_worker' ? '/today' : '/dashboard')
+          await router.push(user.value.role === 'field_worker' ? '/today' : user.value.role === 'sales' ? '/sales' : '/dashboard')
         }
       }
       return data
@@ -90,5 +98,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, loading, error, isAuthenticated, isOwner, canApprove, fetchMe, login, logout }
+  return {
+    user,
+    loading,
+    error,
+    isAuthenticated,
+    isOwner,
+    canApprove,
+    canManageOrders,
+    canManageProducts,
+    isSales,
+    fetchMe,
+    login,
+    logout,
+  }
 })

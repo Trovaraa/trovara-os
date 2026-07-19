@@ -107,10 +107,11 @@ user with role `owner` and a phone) should receive an alert message.
 7. **Send a test from your phone** to the business number:
    - "hi" → help menu
    - "What needs restocking?" → data answer
-   - "my goats are coughing and have nasal discharge" → diagnosis (+ owner alert)
+   - "my goats are coughing and have nasal discharge" → diagnosis (+ worker alert to supervisors / subscribed owners)
    - Send a photo of a plant/animal → vision diagnosis
-8. **Owner alert:** from a *worker's* phone send "many birds died" → the *owner's*
-   phone should get the escalation.
+8. **Worker alert:** from a *field worker's* phone send "many birds died" →
+   **supervisors** (and owners who opted into Worker alerts in Settings) get the
+   escalation on WhatsApp/Telegram.
 
 ---
 
@@ -118,13 +119,27 @@ user with role `owner` and a phone) should receive an alert message.
 
 | Inbound | Butler action |
 | --- | --- |
-| `hi` / `hello` / `help` / `menu` | Sends the help menu |
+| `hi` / `hello` / `help` / `menu` / `ops` | Field / ops command help (+ order help if sales/supervisor/owner) |
 | `brief` / `today` | Short daily attention summary |
-| Any other text | AI answer grounded in farm data + Africa farm knowledge, with 2-hour conversation memory |
-| Photo (image) | Downloads the media, runs vision diagnosis, replies in the sender's language |
-| Voice note (audio) | Transcribed (Yoruba/Pidgin/French/English auto-detected), echoed back, then answered/diagnosed |
-| Urgent keywords from a worker | Above reply **plus** an alert to the owner |
+| `/clockin` · `/clockout` | Attendance (field workers) |
+| `/tasks` · `/taskstart` · `/done` · `/done TSK-…` | List / start / submit tasks |
+| `/approve` · `/reject` | Approve or reject awaiting tasks (supervisor / owner) |
+| Photo captioned `done TSK-…` | Submit task with photo evidence |
+| `/lots` · `/handover` | Packs-needed lot list / handover progress summary |
+| `/printqr` · `/printqr LOT-…` | Box QR image + printable label link (sales / supervisor / owner) |
+| `confirm` / `dispatch` / `delivered` / `cancel` + order ref | Order status update (owner / supervisor / sales) |
+| Photo captioned `delivered TRV-ORD-…` | Mark delivered with optional photo |
+| Voice note (audio) | Transcribed, then same ops/order parsers, else AI answer |
+| Photo (image) | Vision diagnosis (unless caption is a `done` / `delivered` command) |
+| Any other text | AI answer grounded in farm data + Africa farm knowledge |
+| Urgent keywords from a worker | Above reply **plus** a worker alert (supervisors + subscribed owners) |
+| Task submitted (`/done`) | Worker alert: task awaiting approval |
+| `lang en\|yo\|pcm\|fr` | Set preferred reply language |
 | Unknown phone | Ignored (logged) |
+
+WhatsApp does not have Telegram-style inline buttons — pick lists are sent as numbered text; reply with the command + id (e.g. `/done TSK-ABCDEF`). Pack/enrich for harvest lots is still in Telegram or the Traceability app.
+
+**Customer order alerts** fan out WhatsApp to supervisor + sales (and owners who opted in via Settings). **Worker alerts** (task done / urgent field reports) go to supervisors + opted-in owners. Customer status pushes on WhatsApp only work when Meta session/templates allow (24h window); Telegram is unrestricted.
 
 Outbound owner alerts can also be triggered from the app/automation:
 

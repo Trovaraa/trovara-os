@@ -260,6 +260,7 @@ async function saveEdit() {
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
+            <option value="sales">{{ t('users.sales') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
           </select>
         </div>
@@ -476,6 +477,7 @@ async function saveEdit() {
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="supervisor">{{ t('users.supervisor') }}</option>
+            <option value="sales">{{ t('users.sales') }}</option>
             <option value="field_worker">{{ t('users.fieldWorker') }}</option>
           </select>
           <input

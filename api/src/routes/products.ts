@@ -5,7 +5,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { products } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { canManageProducts, requireRole } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 
 const createProductSchema = z.object({
@@ -36,11 +36,7 @@ productRoutes.get('/', async (c) => {
 
 productRoutes.post('/', zValidator('json', createProductSchema), async (c) => {
   const user = c.get('user')
-  try {
-    requireRole(user, 'owner')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
+  if (!canManageProducts(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const body = c.req.valid('json')
   const [product] = await db
@@ -61,11 +57,7 @@ productRoutes.post('/', zValidator('json', createProductSchema), async (c) => {
 
 productRoutes.patch('/:id', zValidator('json', updateProductSchema), async (c) => {
   const user = c.get('user')
-  try {
-    requireRole(user, 'owner')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
+  if (!canManageProducts(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const productId = c.req.param('id')
   const [existing] = await db

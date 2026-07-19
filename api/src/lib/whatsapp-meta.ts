@@ -90,6 +90,48 @@ export async function sendWhatsAppText(to: string, body: string): Promise<{ mess
   return { messageId }
 }
 
+export async function sendWhatsAppImage(
+  to: string,
+  imageBuffer: Buffer,
+  opts?: { caption?: string; filename?: string },
+): Promise<{ messageId: string }> {
+  const config = getWhatsAppConfig()
+  if (!config) {
+    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
+  }
+
+  const filename = opts?.filename?.trim() || 'qr.png'
+  const { mediaId } = await uploadWhatsAppMedia(imageBuffer, 'image/png', filename)
+  const normalizedTo = to.replace(/\D/g, '')
+  const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: normalizedTo,
+      type: 'image',
+      image: {
+        id: mediaId,
+        ...(opts?.caption?.trim() ? { caption: opts.caption.trim().slice(0, 1024) } : {}),
+      },
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`WhatsApp image send failed (${res.status}): ${err.slice(0, 300)}`)
+  }
+
+  const data = (await res.json()) as { messages?: { id: string }[] }
+  const messageId = data.messages?.[0]?.id ?? 'unknown'
+  return { messageId }
+}
+
 export async function uploadWhatsAppMedia(
   buffer: Buffer,
   mimeType: string,

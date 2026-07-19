@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { db } from '../db/index.js'
 import { actionDrafts } from '../db/schema.js'
@@ -147,6 +147,67 @@ export async function clearActionDraftsForUser(userId: string): Promise<number> 
     .where(and(eq(actionDrafts.userId, userId), eq(actionDrafts.status, 'pending')))
     .returning({ id: actionDrafts.id })
   return result.length
+}
+
+export async function getLatestPendingDraft(
+  userId: string,
+  actionType: string,
+): Promise<StoredActionDraft | null> {
+  const [row] = await db
+    .select()
+    .from(actionDrafts)
+    .where(
+      and(
+        eq(actionDrafts.userId, userId),
+        eq(actionDrafts.actionType, actionType),
+        eq(actionDrafts.status, 'pending'),
+      ),
+    )
+    .orderBy(desc(actionDrafts.expiresAt))
+    .limit(1)
+
+  if (!row) return null
+  if (row.expiresAt.getTime() <= Date.now()) {
+    await db.update(actionDrafts).set({ status: 'expired' }).where(eq(actionDrafts.id, row.id))
+    return null
+  }
+
+  return {
+    id: row.id,
+    farmId: row.farmId,
+    userId: row.userId,
+    channel: row.channel,
+    externalChatId: row.externalChatId,
+    actionType: row.actionType,
+    payload: (row.payload ?? {}) as ActionDraftPayload,
+    expiresAt: row.expiresAt,
+  }
+}
+
+export async function mergeActionDraftPayload(
+  draftId: string,
+  userId: string,
+  patch: ActionDraftPayload,
+): Promise<StoredActionDraft | null> {
+  const draft = await getPendingActionDraft(draftId, userId)
+  if (!draft) return null
+  const payload = { ...draft.payload, ...patch }
+  const [updated] = await db
+    .update(actionDrafts)
+    .set({ payload })
+    .where(and(eq(actionDrafts.id, draftId), eq(actionDrafts.userId, userId)))
+    .returning()
+  if (!updated) return null
+  return {
+    id: updated.id,
+    farmId: updated.farmId,
+    userId: updated.userId,
+    channel: updated.channel,
+    externalChatId: updated.externalChatId,
+    actionType: updated.actionType,
+    payload: (updated.payload ?? {}) as ActionDraftPayload,
+    expiresAt: updated.expiresAt,
+  }
 }
 
 /** Compatibility helpers matching the old in-memory task-drafts API. */

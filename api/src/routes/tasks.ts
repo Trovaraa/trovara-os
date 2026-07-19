@@ -21,6 +21,7 @@ import { canTransitionTask } from '../lib/state-machines.js'
 import type { TaskStatus } from '../db/schema.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { processEvidenceValue, validateEvidenceRef } from '../lib/evidence-store.js'
+import { notifyTaskSubmittedForApproval } from '../lib/farm-notify.js'
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -459,6 +460,17 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
     entityId: taskId,
     metadata: { status: task.status },
   })
+
+  if (transitionsToAwaitingApproval) {
+    void notifyTaskSubmittedForApproval({
+      farmId: user.farmId,
+      taskId: task.id,
+      taskTitle: task.title,
+      workerName: user.name,
+      note: body.completionNote ?? task.completionNote,
+      actorUserId: user.id,
+    }).catch(() => undefined)
+  }
 
   if (reopeningCompletedTask) {
     await logAudit({

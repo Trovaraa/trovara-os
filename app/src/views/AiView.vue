@@ -128,6 +128,37 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/** iOS Safari prefers AAC-in-MP4; Chrome prefers WebM. Strip codec params for a clean data URL. */
+function pickRecorderMime(): string {
+  const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const candidates = isAppleMobile
+    ? ['audio/mp4', 'audio/aac', 'audio/mp4;codecs=mp4a.40.2', 'audio/webm', 'audio/ogg']
+    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+  return candidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+}
+
+function normalizeAudioMime(raw: string): string {
+  const base = (raw || '').split(';')[0].trim().toLowerCase()
+  if (base === 'audio/mp4' || base === 'audio/aac' || base === 'audio/x-m4a' || base === 'audio/m4a') {
+    return 'audio/mp4'
+  }
+  if (base === 'video/mp4') return 'audio/mp4'
+  if (base === 'audio/webm') return 'audio/webm'
+  if (base === 'audio/ogg' || base === 'audio/opus') return 'audio/ogg'
+  if (base === 'audio/mpeg' || base === 'audio/mp3') return 'audio/mpeg'
+  if (base === 'audio/wav' || base === 'audio/wave' || base === 'audio/x-wav') return 'audio/wav'
+  // Empty type from Safari → assume MP4 on Apple, WebM elsewhere
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return 'audio/mp4'
+  return 'audio/webm'
+}
+
+/** Ensure the data: header is a bare allowed audio mime (no codec params / spaces). */
+function rewriteAudioDataUrl(dataUrl: string, mime: string): string {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0) return dataUrl
+  return `data:${mime};base64,${dataUrl.slice(comma + 1).replace(/\s+/g, '')}`
+}
+
 async function toggleVoice() {
   if (transcribing.value || sending.value || !aiStatus.value?.configured) return
   if (recording.value) {
@@ -149,8 +180,7 @@ async function toggleVoice() {
   }
 
   recordedChunks.length = 0
-  const mimeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
-  const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+  const mimeType = pickRecorderMime()
   mediaRecorder = mimeType
     ? new MediaRecorder(mediaStream, { mimeType })
     : new MediaRecorder(mediaStream)
@@ -160,7 +190,10 @@ async function toggleVoice() {
   }
 
   mediaRecorder.onstop = () => {
-    void finishRecording(mediaRecorder?.mimeType || mimeType || 'audio/webm')
+    const first = recordedChunks[0]
+    const chunkType = first instanceof Blob ? first.type : ''
+    const raw = mediaRecorder?.mimeType || mimeType || chunkType || ''
+    void finishRecording(normalizeAudioMime(String(raw)))
   }
 
   mediaRecorder.start()
@@ -180,7 +213,7 @@ async function finishRecording(mimeType: string) {
   try {
     const blob = new Blob(recordedChunks, { type: mimeType })
     recordedChunks.length = 0
-    const audioDataUrl = await blobToDataUrl(blob)
+    const audioDataUrl = rewriteAudioDataUrl(await blobToDataUrl(blob), mimeType)
     const data = await api<{ transcript: string }>('/api/ai/transcribe', {
       method: 'POST',
       body: JSON.stringify({ audioDataUrl }),

@@ -9,18 +9,21 @@ import {
   harvestLots,
   orderItems,
   orders,
+  products,
+  users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAssignTasks } from '../lib/rbac.js'
+import { canAssignTasks, canManageOrders } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
-import { canTransitionOrder, type OrderStatus } from '../lib/state-machines.js'
-import { recordFarmEvent } from '../lib/farm-events.js'
+import type { OrderStatus } from '../lib/state-machines.js'
 import { orderReference } from '../lib/customer-cart.js'
 import {
   redactContactForRole,
   redactOrderForRole,
   shouldRedactSalesPii,
 } from '../lib/sales-redaction.js'
+import { createHarvestLotForOrder } from '../lib/harvest-lots.js'
+import { transitionOrder } from '../lib/order-fulfillment.js'
 
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(200),
@@ -62,6 +65,9 @@ salesRoutes.get('/', async (c) => {
       customerContactId: orders.customerContactId,
       notes: orders.notes,
       dispatchedAt: orders.dispatchedAt,
+      deliveryPhotoUrl: orders.deliveryPhotoUrl,
+      customerFeedback: orders.customerFeedback,
+      customerFeedbackAt: orders.customerFeedbackAt,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
     })
@@ -71,19 +77,21 @@ salesRoutes.get('/', async (c) => {
     .orderBy(desc(orders.updatedAt))
 
   // Attach line items (for bot orders; staff orders usually have none).
+  // Prefer live catalogue name when productId still links — renames show immediately.
   const orderIds = rows.map((r) => r.id)
   const itemsByOrder: Record<string, unknown[]> = {}
   if (orderIds.length) {
     const itemRows = await db
       .select({
         orderId: orderItems.orderId,
-        productName: orderItems.productName,
+        productName: sql<string>`coalesce(${products.name}, ${orderItems.productName})`,
         unit: orderItems.unit,
         quantity: orderItems.quantity,
         unitPriceKobo: orderItems.unitPriceKobo,
         lineTotalKobo: orderItems.lineTotalKobo,
       })
       .from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(inArray(orderItems.orderId, orderIds))
     for (const it of itemRows) {
       ;(itemsByOrder[it.orderId] ??= []).push(it)
@@ -143,13 +151,14 @@ salesRoutes.get('/contacts/:id', async (c) => {
     const itemRows = await db
       .select({
         orderId: orderItems.orderId,
-        productName: orderItems.productName,
+        productName: sql<string>`coalesce(${products.name}, ${orderItems.productName})`,
         unit: orderItems.unit,
         quantity: orderItems.quantity,
         unitPriceKobo: orderItems.unitPriceKobo,
         lineTotalKobo: orderItems.lineTotalKobo,
       })
       .from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(inArray(orderItems.orderId, orderIds))
     for (const it of itemRows) {
       ;(itemsByOrder[it.orderId] ??= []).push(it)
@@ -202,7 +211,7 @@ salesRoutes.get('/contacts/:id', async (c) => {
 
 salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canManageOrders(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const body = c.req.valid('json')
 
@@ -226,8 +235,29 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
       lotId: body.lotId,
       notes: body.notes,
       status: 'pending',
+      source: 'staff',
     })
     .returning()
+
+  let lot = null
+  if (!body.lotId) {
+    try {
+      lot = await createHarvestLotForOrder({
+        farmId: user.farmId,
+        orderId: order.id,
+        reportedById: user.id,
+        lines: [
+          {
+            productName: body.notes?.trim() || 'Staff order',
+            unit: 'kg',
+            quantity: 1,
+          },
+        ],
+      })
+    } catch (err) {
+      console.error('Auto harvest lot (staff order) failed:', err instanceof Error ? err.message : err)
+    }
+  }
 
   await logAudit({
     farmId: user.farmId,
@@ -235,14 +265,16 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
     action: 'create',
     entityType: 'order',
     entityId: order.id,
+    metadata: lot ? { lotCode: lot.lotCode } : undefined,
   })
 
-  return c.json({ order }, 201)
+  const [fresh] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1)
+  return c.json({ order: fresh ?? order, lot }, 201)
 })
 
 salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canManageOrders(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const orderId = c.req.param('id')
   const body = c.req.valid('json')
@@ -277,38 +309,34 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
     }
   }
 
-  if (body.status) {
-    const fromStatus = existing.status as OrderStatus
-    const toStatus = body.status as OrderStatus
-
-    if (!canTransitionOrder(fromStatus, toStatus, user.role)) {
-      return c.json({ error: 'Invalid status transition' }, 400)
-    }
-
-    updates.status = body.status
-    if (body.status === 'dispatched') {
-      updates.dispatchedAt = new Date()
-    }
+  const hasFieldUpdates = Object.keys(updates).length > 1 // more than updatedAt
+  if (hasFieldUpdates) {
+    await db.update(orders).set(updates).where(eq(orders.id, orderId))
   }
-
-  const [order] = await db
-    .update(orders)
-    .set(updates)
-    .where(eq(orders.id, orderId))
-    .returning()
 
   if (body.status && body.status !== existing.status) {
-    await recordFarmEvent({
+    const [freshUser] = await db
+      .select({ preferredLocale: users.preferredLocale })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1)
+
+    const result = await transitionOrder({
       farmId: user.farmId,
-      actorUserId: user.id,
-      entityType: 'order',
-      entityId: orderId,
-      eventType: body.status === 'delivered' ? 'sold' : 'other',
-      beforeValue: { status: existing.status },
-      afterValue: { status: order.status },
-      metadata: { lotId: order.lotId ?? undefined, totalAmount: order.totalAmount },
+      orderId,
+      toStatus: body.status as OrderStatus,
+      actor: {
+        id: user.id,
+        farmId: user.farmId,
+        role: user.role,
+        preferredLocale: freshUser?.preferredLocale,
+      },
     })
+    if (!result.ok) return c.json({ error: result.error }, 400)
+    return c.json({ order: result.order })
   }
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
 
   await logAudit({
     farmId: user.farmId,
@@ -316,7 +344,7 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
     action: 'update',
     entityType: 'order',
     entityId: orderId,
-    metadata: { status: order.status },
+    metadata: { status: order?.status },
   })
 
   return c.json({ order })

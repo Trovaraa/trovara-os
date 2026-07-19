@@ -4,7 +4,7 @@ import { farmEvents } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { recordFarmEvent } from './farm-events.js'
 import { buildFarmContext } from './farm-context.js'
-import { buildButlerPrompt, VISUAL_DIAGNOSIS_PROMPT } from './ai-advisor.js'
+import { buildButlerPrompt, buildVisualDiagnosisPrompt } from './ai-advisor.js'
 import { sanitizeForLlm } from './sanitize-input.js'
 import {
   completeChatHistory,
@@ -20,7 +20,7 @@ import {
   butlerLlmOffMessage,
   butlerPhotoFailedMessage,
   butlerPhotoLlmOffMessage,
-  detectReplyLocale,
+  resolveStaffReplyLocale,
   type ReplyLocale,
 } from './reply-locale.js'
 
@@ -80,10 +80,10 @@ export async function recordChatMessage(params: {
   })
 }
 
-async function buildBriefReply(user: SessionUser): Promise<string> {
+async function buildBriefReply(user: SessionUser, locale: ReplyLocale): Promise<string> {
   const context = await buildFarmContext(user)
   const { text } = await completeChatHistory(
-    buildButlerPrompt(context, { plainText: true }),
+    buildButlerPrompt(context, { plainText: true, replyLocale: locale }),
     [],
     'Give me a very short briefing of what needs attention today. Max 5 short lines, use "-" bullets.',
   )
@@ -93,6 +93,7 @@ async function buildBriefReply(user: SessionUser): Promise<string> {
 /**
  * Channel-agnostic text reply. Handles help/brief commands and otherwise runs the
  * butler with farm context + recent conversation memory. Does NOT record or send.
+ * When `localeHint` is the staff preferred_locale, all replies stay in that language.
  */
 export async function answerText(
   user: SessionUser,
@@ -101,7 +102,8 @@ export async function answerText(
   localeHint?: string | null,
 ): Promise<string> {
   const lower = text.toLowerCase().trim()
-  const locale: ReplyLocale = detectReplyLocale(text, localeHint)
+  // Staff preferred language wins for the whole butler lifecycle (not message heuristics).
+  const locale: ReplyLocale = resolveStaffReplyLocale(localeHint)
 
   if (!isLlmConfigured()) {
     return butlerLlmOffMessage(locale, user.name.split(' ')[0], text.slice(0, 160))
@@ -111,7 +113,7 @@ export async function answerText(
   }
   if (['brief', 'briefing', 'today', 'bref'].includes(lower)) {
     try {
-      return await buildBriefReply(user)
+      return await buildBriefReply(user, locale)
     } catch {
       return butlerBriefFailedMessage(locale)
     }
@@ -122,7 +124,7 @@ export async function answerText(
     const sanitized = sanitizeForLlm(text)
     const userPrompt = `User message (untrusted): ${sanitized || '[empty after sanitization]'}`
     const { text: aiText } = await completeChatHistory(
-      buildButlerPrompt(context, { plainText: true }),
+      buildButlerPrompt(context, { plainText: true, replyLocale: locale }),
       history,
       userPrompt,
     )
@@ -157,14 +159,14 @@ export async function answerPhoto(
   imageDataUrl: string,
   localeHint?: string | null,
 ): Promise<string> {
-  const locale = detectReplyLocale(caption, localeHint)
+  const locale = resolveStaffReplyLocale(localeHint)
   if (!isLlmConfigured()) {
     return butlerPhotoLlmOffMessage(locale)
   }
   try {
     const safeCaption = sanitizeForLlm(caption)
     const { text } = await completeChatVision(
-      VISUAL_DIAGNOSIS_PROMPT,
+      buildVisualDiagnosisPrompt(locale),
       `Farmer note: ${safeCaption || 'none'}. Diagnose what you see in this photo.`,
       [imageDataUrl],
     )

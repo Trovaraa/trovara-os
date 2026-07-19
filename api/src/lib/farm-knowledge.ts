@@ -1,52 +1,25 @@
 /**
- * Canonical Trovara Farm product & farm knowledge.
- *
- * Source of truth mirrored from the public marketing site (`trovera/src/stores/
- * products.ts`). Kept as a plain, committed data module (NOT a runtime import of
- * the marketing app) so the OS API has no cross-repo/runtime dependency. When the
- * website content changes, update this file and re-run `npm run sync-catalog -w api`.
- *
- * Two consumers:
- *  - `scripts/sync-catalog.ts` upserts the orderable subset into the `products`
- *    table (prices/units the bot needs to build carts + orders).
- *  - `customer-inquiry.ts` renders the descriptive knowledge (price-free) into the
- *    LLM grounding so answers about produce are accurate and rich.
- *
- * Prices live in the `products` table (single price source). Keep money OUT of the
- * knowledge text so the AI never sees two conflicting figures for one item.
+ * Farm product knowledge + canonical customer-bot catalogue.
+ * Names/units/prices sync into `products` via `npm run sync-catalog`.
  */
 
 export type CanonicalProduct = {
-  /** Customer-facing catalogue name (used to match/upsert by name). */
   name: string
-  /** Ordering unit shown in the catalogue and carts. */
   unit: string
-  /** Price per unit in kobo. 0 = "price on request" (quote-based/bulk). */
+  /** Integer minor units (kobo). 0 => price on request. */
   priceKobo: number
   currency: string
-  /** Display order in the catalogue. */
   sortOrder: number
-  /** Whether the item is orderable right now. */
   active: boolean
-  /** Short marketing line. */
   tagline: string
-  /** Rich description used to ground AI answers. */
   description: string
-  /** Selling points used to ground AI answers. */
   benefits: string[]
-  /** Fact rows (grades, packaging, shelf life, delivery). */
-  specs: { label: string; value: string }[]
-  /** Optional extra note (e.g. subscription availability) - no money figures. */
+  specs: Array<{ label: string; value: string }>
   note?: string
 }
 
-/** Regions the farm delivers to. */
-export const FARM_DELIVERY_AREAS = ['Ogun', 'Lagos', 'Ibadan']
-
-/** Short farm story used to ground the AI persona. */
-export const FARM_STORY =
-  'Trovara Farm grows fresh produce in rich tropical soil with no synthetic chemicals, ' +
-  'harvested at peak maturity and graded before it leaves the farm. We sell directly to ' +
+export const FARM_BLURB =
+  'Trovara Fresh grows pasture-raised eggs, plantain, coconut and free-range poultry for ' +
   'homes, shops, restaurants and retailers, delivering on scheduled routes.'
 
 /**
@@ -56,8 +29,8 @@ export const FARM_STORY =
  */
 export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
   {
-    name: 'Pasture-Raised Eggs',
-    unit: 'crate (30)',
+    name: 'Trovara Fresh Pasture-Raised Eggs',
+    unit: 'crate',
     priceKobo: 650000,
     currency: 'NGN',
     sortOrder: 1,
@@ -81,7 +54,7 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     note: 'A weekly egg subscription (4 crates/month) is available - ask for current subscription pricing.',
   },
   {
-    name: 'Plantain',
+    name: 'Trovara Fresh Plantain',
     unit: 'bunch',
     priceKobo: 0,
     currency: 'NGN',
@@ -105,7 +78,7 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     ],
   },
   {
-    name: 'Coconut',
+    name: 'Trovara Fresh Coconut',
     unit: 'piece',
     priceKobo: 0,
     currency: 'NGN',
@@ -129,7 +102,7 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     note: 'Sold in bulk - price on request based on volume.',
   },
   {
-    name: 'Free-Range Poultry',
+    name: 'Trovara Fresh Chicken',
     unit: 'bird',
     priceKobo: 0,
     currency: 'NGN',
@@ -152,6 +125,30 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     ],
     note: 'Sold whole or in cuts - price on request. Recurring supply contracts available.',
   },
+  {
+    name: 'Trovara Fresh Plantain Flour',
+    unit: 'pack',
+    priceKobo: 0,
+    currency: 'NGN',
+    sortOrder: 5,
+    active: true,
+    tagline: 'Plantain, milled fine.',
+    description: 'Naturally dried plantain milled into flour for baking and cooking.',
+    benefits: ['Gluten-free staple', 'No additives', 'Farm-milled'],
+    specs: [{ label: 'Packaging', value: 'Sealed packs' }],
+  },
+  {
+    name: 'Trovara Fresh Dried Plantain',
+    unit: 'pack',
+    priceKobo: 0,
+    currency: 'NGN',
+    sortOrder: 6,
+    active: true,
+    tagline: 'Crisp, natural chips.',
+    description: 'Sun-dried or low-heat dried plantain chips for snacking and trade.',
+    benefits: ['No artificial ripening', 'Long shelf life'],
+    specs: [{ label: 'Packaging', value: 'Sealed packs' }],
+  },
 ]
 
 /**
@@ -159,20 +156,10 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
  * supplied separately from the live catalogue so there is a single price source.
  */
 export function farmKnowledgeText(): string {
-  const lines: string[] = []
-  lines.push('About the farm:')
-  lines.push(FARM_STORY)
-  lines.push('')
-  lines.push(`Delivery areas: ${FARM_DELIVERY_AREAS.join(', ')} (scheduled routes).`)
-  lines.push('')
-  lines.push('Produce details (for descriptions only - use the price list above for prices):')
+  const lines: string[] = [FARM_BLURB, '', 'Products:']
   for (const p of CANONICAL_PRODUCTS) {
-    lines.push('')
-    lines.push(`• ${p.name} - ${p.tagline}`)
+    lines.push(`- ${p.name} (${p.unit}): ${p.tagline}`)
     lines.push(`  ${p.description}`)
-    if (p.benefits.length) lines.push(`  Benefits: ${p.benefits.join('; ')}.`)
-    for (const s of p.specs) lines.push(`  ${s.label}: ${s.value}.`)
-    if (p.note) lines.push(`  Note: ${p.note}`)
   }
   return lines.join('\n')
 }

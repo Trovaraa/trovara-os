@@ -81,9 +81,9 @@ async function submitRegister() {
 
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
-    <div class="relative w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
-      <div class="absolute top-4 right-4">
-        <LanguageSwitcher />
+    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
+      <div class="flex justify-end mb-4">
+        <LanguageSwitcher compact />
       </div>
 
       <div class="text-center mb-8">

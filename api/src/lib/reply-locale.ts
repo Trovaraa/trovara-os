@@ -1,6 +1,6 @@
 /**
  * Lightweight reply-locale detection for offline (no-LLM) fallbacks.
- * Heuristic only - when the LLM is on, the model mirrors language itself.
+ * Staff preferred_locale (from Telegram/WhatsApp onboarding) overrides heuristics.
  */
 
 export type ReplyLocale = 'en' | 'yo' | 'pcm' | 'fr'
@@ -26,9 +26,31 @@ export function normalizeLocaleHint(hint?: string | null): ReplyLocale | null {
   return null
 }
 
+export function localeDisplayName(locale: ReplyLocale): string {
+  switch (locale) {
+    case 'fr':
+      return 'French'
+    case 'yo':
+      return 'Yoruba'
+    case 'pcm':
+      return 'Nigerian Pidgin'
+    default:
+      return 'English'
+  }
+}
+
+/**
+ * Staff butler language: preferred_locale always wins when set.
+ * Used for all chat replies, help, briefings, and outbound staff alerts.
+ */
+export function resolveStaffReplyLocale(preferredLocale?: string | null): ReplyLocale {
+  return normalizeLocaleHint(preferredLocale) ?? 'en'
+}
+
 /**
  * Detect reply language from user text. Prefer strong text signals; if the
  * message is empty/very short, fall back to an optional UI locale hint.
+ * For staff channels, prefer resolveStaffReplyLocale(preferred) instead.
  */
 export function detectReplyLocale(text: string, hint?: string | null): ReplyLocale {
   const trimmed = (text ?? '').trim()

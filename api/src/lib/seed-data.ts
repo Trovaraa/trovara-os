@@ -510,15 +510,21 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     },
   ])
 
-  // Customer-bot catalog. Prices seed at 0 ("price on request") - an Admin sets
-  // real prices in the Products admin. Units are sensible defaults, editable.
+  // Customer-bot catalog (Trovara Fresh *). Eggs have a default price; others
+  // are "price on request" (0) until staff set them in Products.
   await db.insert(products).values([
-    { farmId, name: 'Trovara Farm Plantain', unit: 'bunch', sortOrder: 1 },
-    { farmId, name: 'Trovara Farm Coconut', unit: 'piece', sortOrder: 2 },
-    { farmId, name: 'Trovara Farm Plantain Flour', unit: 'pack', sortOrder: 3 },
-    { farmId, name: 'Trovara Farm Dried Plantain', unit: 'pack', sortOrder: 4 },
-    { farmId, name: 'Trovara Farm Chicken', unit: 'bird', sortOrder: 5 },
-    { farmId, name: 'Trovara Farm Eggs', unit: 'crate', sortOrder: 6 },
+    {
+      farmId,
+      name: 'Trovara Fresh Pasture-Raised Eggs',
+      unit: 'crate',
+      sortOrder: 1,
+      priceKobo: 650000,
+    },
+    { farmId, name: 'Trovara Fresh Plantain', unit: 'bunch', sortOrder: 2, priceKobo: 0 },
+    { farmId, name: 'Trovara Fresh Coconut', unit: 'piece', sortOrder: 3, priceKobo: 0 },
+    { farmId, name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0 },
+    { farmId, name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0 },
+    { farmId, name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0 },
   ])
 
   // Equipment/asset register (pool model). An Admin/supervisor maintains these;

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const canRemove = computed(() => auth.isOwner)
 
 type Product = {
   id: string
@@ -149,7 +152,7 @@ async function deactivate(p: Product) {
       <div class="mt-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
         <input
           v-model="newName"
-          :placeholder="t('products.productName')"
+          :placeholder="t('products.productNamePlaceholder')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
@@ -209,7 +212,7 @@ async function deactivate(p: Product) {
             {{ t('products.edit') }}
           </button>
           <button
-            v-if="p.active"
+            v-if="p.active && canRemove"
             class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60"
             @click="deactivate(p)"
           >

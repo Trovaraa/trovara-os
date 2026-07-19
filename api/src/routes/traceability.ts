@@ -5,27 +5,61 @@ import QRCode from 'qrcode'
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index.js'
-import { auditEvents, cropCycles, farmEvents, farms, harvestLots, plots, users } from '../db/schema.js'
+import {
+  auditEvents,
+  cropCycles,
+  farmEvents,
+  farms,
+  harvestLots,
+  orders,
+  plots,
+  users,
+  zones,
+} from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAccessFinance, canAssignTasks } from '../lib/rbac.js'
+import { canAccessFinance, canAssignTasks, canManageOrders } from '../lib/rbac.js'
+import { buildBoxLabelHtml, findPrintableLotById } from '../lib/lot-print.js'
 import { logAudit } from '../lib/audit.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { validateEvidenceDataUrl } from '../lib/evidence-url.js'
 import type { SessionUser } from '../lib/session.js'
+import { orderReference } from '../lib/customer-cart.js'
+import {
+  allocateLotCode,
+  buildLotCodeBase,
+  harvestPeriodAt,
+  normalizeLotUnit,
+} from '../lib/lot-codes.js'
+import { enrichHarvestLot } from '../lib/harvest-lots.js'
+import {
+  escapeHtml,
+  renderTraceabilityCertificateHtml,
+} from '../lib/traceability-certificate.js'
+
+const LOT_UNITS = ['kg', 'crates'] as const
 
 const createLotSchema = z.object({
-  lotCode: z.string().min(1).max(50),
-  plotId: z.string().uuid().optional(),
-  cropCycleId: z.string().uuid().optional(),
   productName: z.string().min(1).max(200),
   quantityKg: z.number().int().min(1),
-  harvestedAt: z.string().datetime(),
-  publicNotes: z.string().max(4000).optional(),
-  internalNotes: z.string().max(4000).optional(),
-  photoUrl: z.string().max(2_000_000).optional(),
+  unit: z.enum(LOT_UNITS).optional(),
+  plotId: z.string().uuid().optional(),
+  cropCycleId: z.string().uuid().optional(),
+  harvestedAt: z.string().datetime().optional(),
+  publicNotes: z.string().max(4000).nullable().optional(),
+  internalNotes: z.string().max(4000).nullable().optional(),
+  photoUrl: z.string().max(2_000_000).nullable().optional(),
 })
 
-const updateLotSchema = createLotSchema.partial()
+const updateLotSchema = z.object({
+  productName: z.string().min(1).max(200).optional(),
+  quantityKg: z.number().int().min(1).optional(),
+  unit: z.enum(LOT_UNITS).optional(),
+  plotId: z.string().uuid().nullable().optional(),
+  cropCycleId: z.string().uuid().nullable().optional(),
+  publicNotes: z.string().max(4000).nullable().optional(),
+  internalNotes: z.string().max(4000).nullable().optional(),
+  photoUrl: z.string().max(2_000_000).nullable().optional(),
+})
 
 const verifyLotSchema = z.object({
   status: z.enum(['verified', 'rejected']),
@@ -49,16 +83,6 @@ function publicLotUrl(farmSlug: string | null | undefined, publicToken: string):
   return `${appBaseUrl()}/lot/${farmSlug ?? 'farm'}/${publicToken}`
 }
 
-function escapeHtml(value: string | null | undefined): string {
-  if (!value) return ''
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
 traceabilityRoutes.get('/', async (c) => {
   // Visible to all staff so supervisors/workers can see reports + statuses.
   const user = c.get('user')
@@ -73,9 +97,13 @@ traceabilityRoutes.get('/', async (c) => {
       publicToken: harvestLots.publicToken,
       plotId: harvestLots.plotId,
       plotName: plots.name,
+      zoneName: zones.name,
       cropCycleId: harvestLots.cropCycleId,
+      orderId: harvestLots.orderId,
+      orderSource: orders.source,
       productName: harvestLots.productName,
       quantityKg: harvestLots.quantityKg,
+      unit: harvestLots.unit,
       publicNotes: harvestLots.publicNotes,
       internalNotes: harvestLots.internalNotes,
       photoUrl: harvestLots.photoUrl,
@@ -92,20 +120,24 @@ traceabilityRoutes.get('/', async (c) => {
     .from(harvestLots)
     .innerJoin(farms, eq(harvestLots.farmId, farms.id))
     .leftJoin(plots, eq(harvestLots.plotId, plots.id))
+    .leftJoin(zones, eq(plots.zoneId, zones.id))
+    .leftJoin(orders, eq(harvestLots.orderId, orders.id))
     .leftJoin(reporter, eq(harvestLots.reportedById, reporter.id))
     .leftJoin(verifier, eq(harvestLots.verifiedById, verifier.id))
     .where(eq(harvestLots.farmId, user.farmId))
     .orderBy(desc(harvestLots.harvestedAt))
 
-  return c.json({ lots: rows })
+  return c.json({
+    lots: rows.map((row) => ({
+      ...row,
+      orderReference: row.orderId ? orderReference(row.orderId) : null,
+    })),
+  })
 })
 
+/** Standalone harvest (no customer order). Prefer order auto-create for sales. */
 traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
-  // Any staff member can report a harvest. Supervisor/owner reports are trusted
-  // (verified immediately); field-worker reports land as 'reported' and need a
-  // supervisor/owner to verify before they go public.
   const user = c.get('user')
-
   const body = c.req.valid('json')
 
   if (body.photoUrl && !validateEvidenceDataUrl(body.photoUrl)) {
@@ -130,29 +162,42 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
     if (!cycle) return c.json({ error: 'Invalid crop cycle' }, 400)
   }
 
-  const [existingCode] = await db
-    .select()
-    .from(harvestLots)
-    .where(and(eq(harvestLots.farmId, user.farmId), eq(harvestLots.lotCode, body.lotCode)))
+  const [farm] = await db
+    .select({ timezone: farms.timezone })
+    .from(farms)
+    .where(eq(farms.id, user.farmId))
     .limit(1)
 
-  if (existingCode) return c.json({ error: 'Lot code already exists' }, 400)
+  const harvestedAt = body.harvestedAt ? new Date(body.harvestedAt) : new Date()
+  const timeZone = farm?.timezone ?? 'Africa/Lagos'
+  const period = harvestPeriodAt(harvestedAt, timeZone)
+  const base = buildLotCodeBase({ period, when: harvestedAt, timeZone })
+  const existingCodes = await db
+    .select({ lotCode: harvestLots.lotCode })
+    .from(harvestLots)
+    .where(eq(harvestLots.farmId, user.farmId))
+  const lotCode = allocateLotCode(
+    base,
+    existingCodes.map((r) => r.lotCode),
+  )
 
   const trusted = canAssignTasks(user)
+  const unit = normalizeLotUnit(body.unit)
 
   const [lot] = await db
     .insert(harvestLots)
     .values({
       farmId: user.farmId,
-      lotCode: body.lotCode,
+      lotCode,
       plotId: body.plotId,
       cropCycleId: body.cropCycleId,
       productName: body.productName,
       quantityKg: body.quantityKg,
-      publicNotes: body.publicNotes,
-      internalNotes: body.internalNotes,
-      photoUrl: body.photoUrl,
-      harvestedAt: new Date(body.harvestedAt),
+      unit,
+      publicNotes: body.publicNotes ?? null,
+      internalNotes: body.internalNotes ?? null,
+      photoUrl: body.photoUrl ?? null,
+      harvestedAt,
       reportedById: user.id,
       verificationStatus: trusted ? 'verified' : 'reported',
       verifiedById: trusted ? user.id : null,
@@ -175,7 +220,7 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
     entityType: 'harvest_lot',
     entityId: lot.id,
     eventType: 'harvested',
-    afterValue: { quantityKg: lot.quantityKg, status: lot.verificationStatus },
+    afterValue: { quantityKg: lot.quantityKg, unit: lot.unit, status: lot.verificationStatus },
     metadata: { lotCode: lot.lotCode, plotId: lot.plotId ?? undefined },
   })
 
@@ -184,77 +229,45 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
 
 traceabilityRoutes.patch('/:id', zValidator('json', updateLotSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
-
   const lotId = c.req.param('id')
   const body = c.req.valid('json')
 
-  if (body.photoUrl && !validateEvidenceDataUrl(body.photoUrl)) {
-    return c.json({ error: 'Invalid photo evidence URL' }, 400)
-  }
-
-  const [existing] = await db
-    .select()
-    .from(harvestLots)
-    .where(and(eq(harvestLots.id, lotId), eq(harvestLots.farmId, user.farmId)))
-    .limit(1)
-
-  if (!existing) return c.json({ error: 'Not found' }, 404)
-
-  if (body.lotCode && body.lotCode !== existing.lotCode) {
-    const [duplicate] = await db
-      .select()
-      .from(harvestLots)
-      .where(and(eq(harvestLots.farmId, user.farmId), eq(harvestLots.lotCode, body.lotCode)))
-      .limit(1)
-    if (duplicate) return c.json({ error: 'Lot code already exists' }, 400)
-  }
-
-  if (body.plotId) {
-    const [plot] = await db
-      .select()
-      .from(plots)
-      .where(and(eq(plots.id, body.plotId), eq(plots.farmId, user.farmId)))
-      .limit(1)
-    if (!plot) return c.json({ error: 'Invalid plot' }, 400)
-  }
-
-  if (body.cropCycleId) {
-    const [cycle] = await db
-      .select()
-      .from(cropCycles)
-      .where(and(eq(cropCycles.id, body.cropCycleId), eq(cropCycles.farmId, user.farmId)))
-      .limit(1)
-    if (!cycle) return c.json({ error: 'Invalid crop cycle' }, 400)
-  }
-
-  const updates: Partial<typeof existing> = {}
-  if (body.lotCode !== undefined) updates.lotCode = body.lotCode
-  if (body.plotId !== undefined) updates.plotId = body.plotId
-  if (body.cropCycleId !== undefined) updates.cropCycleId = body.cropCycleId
-  if (body.productName !== undefined) updates.productName = body.productName
-  if (body.quantityKg !== undefined) updates.quantityKg = body.quantityKg
-  if (body.publicNotes !== undefined) updates.publicNotes = body.publicNotes
-  if (body.internalNotes !== undefined) updates.internalNotes = body.internalNotes
-  if (body.photoUrl !== undefined) updates.photoUrl = body.photoUrl
-  if (body.harvestedAt !== undefined) updates.harvestedAt = new Date(body.harvestedAt)
-
-  const [lot] = await db
-    .update(harvestLots)
-    .set(updates)
-    .where(eq(harvestLots.id, lotId))
-    .returning()
-
-  await logAudit({
+  // Any linked staff can enrich pack details; managers may also change crop cycle.
+  const result = await enrichHarvestLot({
     farmId: user.farmId,
+    lotId,
     userId: user.id,
-    action: 'update',
-    entityType: 'harvest_lot',
-    entityId: lotId,
-    metadata: { lotCode: lot.lotCode },
+    updates: {
+      productName: body.productName,
+      quantityKg: body.quantityKg,
+      unit: body.unit,
+      plotId: body.plotId,
+      publicNotes: body.publicNotes,
+      internalNotes: canAssignTasks(user) ? body.internalNotes : undefined,
+      photoUrl: body.photoUrl,
+    },
   })
 
-  return c.json({ lot })
+  if ('error' in result) return c.json({ error: result.error }, result.status)
+
+  if (body.cropCycleId !== undefined && canAssignTasks(user)) {
+    if (body.cropCycleId) {
+      const [cycle] = await db
+        .select()
+        .from(cropCycles)
+        .where(and(eq(cropCycles.id, body.cropCycleId), eq(cropCycles.farmId, user.farmId)))
+        .limit(1)
+      if (!cycle) return c.json({ error: 'Invalid crop cycle' }, 400)
+    }
+    const [lot] = await db
+      .update(harvestLots)
+      .set({ cropCycleId: body.cropCycleId })
+      .where(eq(harvestLots.id, lotId))
+      .returning()
+    return c.json({ lot })
+  }
+
+  return c.json({ lot: result.lot })
 })
 
 // Supervisor/owner verify (or reject) a reported harvest. Only verified lots
@@ -297,8 +310,8 @@ traceabilityRoutes.post('/:id/verify', zValidator('json', verifyLotSchema), asyn
 })
 
 traceabilityRoutes.get('/:id/qr', async (c) => {
-  const user = requireOwner(c.get('user'))
-  if (!user) return c.json({ error: 'Forbidden' }, 403)
+  const user = c.get('user')
+  if (!canManageOrders(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const lotId = c.req.param('id')
   const [lot] = await db
@@ -318,6 +331,22 @@ traceabilityRoutes.get('/:id/qr', async (c) => {
   const svg = await QRCode.toString(qrUrl, { type: 'svg' })
   c.header('Content-Type', 'image/svg+xml')
   return c.body(svg)
+})
+
+/** Printable box sticker (QR + lot code). Owner / supervisor / sales. */
+traceabilityRoutes.get('/:id/label.html', async (c) => {
+  const user = c.get('user')
+  if (!canManageOrders(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const lot = await findPrintableLotById(user.farmId, c.req.param('id'))
+  if (!lot) return c.json({ error: 'Not found' }, 404)
+
+  const { html } = await buildBoxLabelHtml(lot, {
+    autoPrint: c.req.query('autoprint') === '1',
+  })
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  c.header('Content-Disposition', `inline; filename="trovara-label-${lot.lotCode}.html"`)
+  return c.body(html)
 })
 
 traceabilityRoutes.get('/:id/timeline', async (c) => {
@@ -369,20 +398,24 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
       publicToken: harvestLots.publicToken,
       productName: harvestLots.productName,
       quantityKg: harvestLots.quantityKg,
+      unit: harvestLots.unit,
       publicNotes: harvestLots.publicNotes,
       harvestedAt: harvestLots.harvestedAt,
       plotId: harvestLots.plotId,
       cropCycleId: harvestLots.cropCycleId,
+      orderId: harvestLots.orderId,
       plotName: plots.name,
       cropType: cropCycles.cropType,
       farmSlug: farms.slug,
       farmName: farms.name,
       farmLocation: farms.location,
+      customerName: orders.customerName,
     })
     .from(harvestLots)
     .innerJoin(farms, eq(harvestLots.farmId, farms.id))
     .leftJoin(plots, eq(harvestLots.plotId, plots.id))
     .leftJoin(cropCycles, eq(harvestLots.cropCycleId, cropCycles.id))
+    .leftJoin(orders, eq(harvestLots.orderId, orders.id))
     .where(and(eq(harvestLots.id, lotId), eq(harvestLots.farmId, user.farmId)))
     .limit(1)
 
@@ -392,9 +425,6 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
     .select({
       id: farmEvents.id,
       eventType: farmEvents.eventType,
-      entityType: farmEvents.entityType,
-      source: farmEvents.source,
-      metadata: farmEvents.metadata,
       createdAt: farmEvents.createdAt,
     })
     .from(farmEvents)
@@ -414,75 +444,31 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
   const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', margin: 1, width: 180 })
 
   const timelineItems = timeline
-    .map((event) => {
-      const metadata = event.metadata && typeof event.metadata === 'object'
-        ? JSON.stringify(event.metadata)
-        : ''
-      return `<tr>
+    .map(
+      (event) => `<tr>
   <td>${new Date(event.createdAt).toLocaleString()}</td>
   <td>${escapeHtml(event.eventType)}</td>
-  <td>${escapeHtml(event.entityType)}</td>
-  <td>${escapeHtml(event.source ?? 'web')}</td>
-  <td>${escapeHtml(metadata)}</td>
-</tr>`
-    })
+</tr>`,
+    )
     .join('\n')
 
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Traceability Certificate - ${escapeHtml(lot.lotCode)}</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #111827; margin: 24px; }
-    h1 { margin: 0 0 4px; font-size: 24px; }
-    h2 { margin: 24px 0 8px; font-size: 16px; }
-    .subtle { color: #6b7280; font-size: 13px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; margin-top: 16px; }
-    .row b { display: inline-block; min-width: 140px; }
-    .qr { margin-top: 20px; display: flex; gap: 20px; align-items: flex-start; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-    th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
-    th { background: #f3f4f6; }
-    @media print { body { margin: 10mm; } a { color: inherit; text-decoration: none; } }
-  </style>
-</head>
-<body>
-  <h1>Trovara Traceability Certificate</h1>
-  <div class="subtle">Generated ${new Date().toLocaleString()}</div>
-
-  <div class="grid">
-    <div class="row"><b>Farm</b> ${escapeHtml(lot.farmName)}</div>
-    <div class="row"><b>Location</b> ${escapeHtml(lot.farmLocation)}</div>
-    <div class="row"><b>Lot code</b> ${escapeHtml(lot.lotCode)}</div>
-    <div class="row"><b>Product</b> ${escapeHtml(lot.productName)}</div>
-    <div class="row"><b>Quantity</b> ${lot.quantityKg} kg</div>
-    <div class="row"><b>Harvested</b> ${new Date(lot.harvestedAt).toLocaleDateString()}</div>
-    <div class="row"><b>Plot</b> ${escapeHtml(lot.plotName ?? '-')}</div>
-    <div class="row"><b>Crop type</b> ${escapeHtml(lot.cropType ?? '-')}</div>
-  </div>
-
-  <h2>Public verification link</h2>
-  <div class="qr">
-    <div>${qrSvg}</div>
-    <div>
-      <div><a href="${escapeHtml(publicUrl)}">${escapeHtml(publicUrl)}</a></div>
-      <div class="subtle" style="margin-top:8px;">Scan to open the public lot page.</div>
-      <div style="margin-top:12px;"><b>Public notes:</b> ${escapeHtml(lot.publicNotes ?? '-')}</div>
-    </div>
-  </div>
-
-  <h2>Timeline events</h2>
-  <table>
-    <thead>
-      <tr><th>Time</th><th>Event</th><th>Entity</th><th>Source</th><th>Metadata</th></tr>
-    </thead>
-    <tbody>
-      ${timelineItems || '<tr><td colspan="5">No events found.</td></tr>'}
-    </tbody>
-  </table>
-</body>
-</html>`
+  const html = renderTraceabilityCertificateHtml(
+    {
+      lotCode: lot.lotCode,
+      productName: lot.productName,
+      quantityKg: lot.quantityKg,
+      unit: lot.unit,
+      harvestedAt: lot.harvestedAt,
+      plotName: lot.plotName,
+      cropType: lot.cropType,
+      publicNotes: lot.publicNotes,
+      farmName: lot.farmName,
+      farmLocation: lot.farmLocation,
+      customerName: lot.customerName,
+      orderReference: lot.orderId ? orderReference(lot.orderId) : null,
+    },
+    { publicUrl, qrSvg, audience: 'staff', timelineHtml: timelineItems },
+  )
 
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -527,6 +513,7 @@ traceabilityRoutes.get('/export', async (c) => {
         lotCode: harvestLots.lotCode,
         productName: harvestLots.productName,
         quantityKg: harvestLots.quantityKg,
+        unit: harvestLots.unit,
         harvestedAt: harvestLots.harvestedAt,
         plotName: plots.name,
         createdAt: harvestLots.createdAt,
