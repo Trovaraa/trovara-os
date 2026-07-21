@@ -13,6 +13,7 @@ import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import {
   getWhatsAppConfig,
   isWhatsAppConfigured,
+  isWhatsAppCustomerConfigured,
   renderTemplate,
   sendWhatsAppText,
 } from '../lib/whatsapp-meta.js'
@@ -86,8 +87,21 @@ function verifyMetaSignature(rawBody: string, header: string | undefined): boole
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+function extractWebhookPhoneNumberId(payload: unknown): string | undefined {
+  const body = payload as {
+    entry?: { changes?: { value?: { metadata?: { phone_number_id?: string } } }[] }[]
+  }
+  for (const entry of body.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const id = change.value?.metadata?.phone_number_id?.trim()
+      if (id) return id
+    }
+  }
+  return undefined
+}
+
 whatsappRoutes.post('/webhook', async (c) => {
-  if (!isWhatsAppConfigured()) {
+  if (!isWhatsAppConfigured() && !isWhatsAppCustomerConfigured()) {
     return c.json({ error: 'WhatsApp not configured' }, 501)
   }
 
@@ -106,6 +120,14 @@ whatsappRoutes.post('/webhook', async (c) => {
     body = JSON.parse(raw)
   } catch {
     return c.json({ error: 'Invalid payload' }, 400)
+  }
+
+  const phoneNumberId = extractWebhookPhoneNumberId(body)
+  const customerPhoneNumberId = process.env.WHATSAPP_CUSTOMER_PHONE_NUMBER_ID?.trim()
+  if (customerPhoneNumberId && phoneNumberId === customerPhoneNumberId) {
+    const { handleInboundCustomerWhatsApp } = await import('../lib/whatsapp-customer-inbound.js')
+    const result = await handleInboundCustomerWhatsApp(body)
+    return c.json({ ok: true, ...result })
   }
 
   const { handleInboundWhatsApp } = await import('../lib/whatsapp-inbound.js')

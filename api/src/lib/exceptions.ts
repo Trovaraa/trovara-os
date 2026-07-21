@@ -91,6 +91,8 @@ export async function gatherExceptions(user: SessionUser): Promise<{
   const todayStart = startOfToday()
 
   const isWorker = user.role === 'field_worker'
+  const isSales = user.role === 'sales'
+  const skipFieldOps = isWorker || isSales
   const farmFilter = eq(tasks.farmId, user.farmId)
   const workerTaskFilter = isWorker
     ? and(farmFilter, eq(tasks.assignedToId, user.id))
@@ -110,7 +112,9 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     rejectedCensusRows,
     staleCensusPlots,
   ] = await Promise.all([
-    db
+    isSales
+      ? Promise.resolve([])
+      : db
       .select({
         id: tasks.id,
         title: tasks.title,
@@ -142,7 +146,7 @@ export async function gatherExceptions(user: SessionUser): Promise<{
               sql`${inventoryItems.quantity} <= ${inventoryItems.reorderLevel}`,
             ),
           ),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : db
           .select({
@@ -161,7 +165,7 @@ export async function gatherExceptions(user: SessionUser): Promise<{
             ),
           )
           .orderBy(tasks.updatedAt),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : db
           .select({
@@ -200,7 +204,9 @@ export async function gatherExceptions(user: SessionUser): Promise<{
             ),
           )
           .orderBy(orders.createdAt),
-    db
+    isSales
+      ? Promise.resolve([])
+      : db
       .select({
         id: tasks.id,
         title: tasks.title,
@@ -211,20 +217,20 @@ export async function gatherExceptions(user: SessionUser): Promise<{
       .leftJoin(users, eq(tasks.assignedToId, users.id))
       .where(and(workerTaskFilter, eq(tasks.status, 'rejected')))
       .orderBy(tasks.updatedAt),
-    // Asset alerts are Founder/supervisor concerns - skipped for workers.
-    isWorker
+    // Asset alerts are Founder/supervisor concerns - skipped for workers and sales.
+    skipFieldOps
       ? Promise.resolve([])
       : db
           .select({ id: assets.id, name: assets.name })
           .from(assets)
           .where(and(eq(assets.farmId, user.farmId), eq(assets.active, true))),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : db
           .selectDistinct({ assetId: assetLogs.assetId })
           .from(assetLogs)
           .where(and(eq(assetLogs.farmId, user.farmId), gte(assetLogs.logDate, todayStart))),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : db
           .select({
@@ -240,13 +246,13 @@ export async function gatherExceptions(user: SessionUser): Promise<{
             and(eq(assetLogs.farmId, user.farmId), eq(assetLogs.verificationStatus, 'reported')),
           )
           .orderBy(assetLogs.createdAt),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : plotsMissingVerifiedCensus(user.farmId),
-    isWorker
+    skipFieldOps
       ? Promise.resolve([])
       : rejectedCensusSurveys(user.farmId),
-    isWorker ? Promise.resolve([]) : staleVerifiedCensus(user.farmId, 30),
+    skipFieldOps ? Promise.resolve([]) : staleVerifiedCensus(user.farmId, 30),
   ])
 
   const loggedTodayAssetIds = new Set(

@@ -22,6 +22,11 @@ type Summary = {
   currency: string
   revenue: number
   deliveredRevenue: number
+  paidRevenue?: number
+  outstandingInvoices?: number
+  refunds?: number
+  refundsPending?: number
+  invoiceCount?: number
   totalExpenses: number
   netProfit: number
   orderCount: number
@@ -89,6 +94,39 @@ onMounted(async () => {
             :class="summary.netProfit >= 0 ? 'text-farm-gold' : 'text-red-400'"
           >
             {{ formatAmount(summary.netProfit, summary.currency) }}
+          </p>
+        </div>
+      </div>
+
+      <div
+        v-if="summary"
+        class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4"
+      >
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.paidRevenue') }}</p>
+          <p class="text-xl font-black text-emerald-400 mt-1">
+            {{ formatAmount(summary.paidRevenue ?? 0, summary.currency) }}
+          </p>
+          <p class="text-xs text-slate-600 mt-2">
+            {{ t('finance.invoiceCount', { count: summary.invoiceCount ?? 0 }) }}
+          </p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.outstandingInvoices') }}</p>
+          <p class="text-xl font-black text-amber-300 mt-1">
+            {{ formatAmount(summary.outstandingInvoices ?? 0, summary.currency) }}
+          </p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.refunds') }}</p>
+          <p class="text-xl font-black text-orange-300 mt-1">
+            {{ formatAmount(summary.refunds ?? 0, summary.currency) }}
+          </p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <p class="text-xs text-slate-500 font-medium">{{ t('finance.refundsPending') }}</p>
+          <p class="text-xl font-black text-orange-200 mt-1">
+            {{ formatAmount(summary.refundsPending ?? 0, summary.currency) }}
           </p>
         </div>
       </div>

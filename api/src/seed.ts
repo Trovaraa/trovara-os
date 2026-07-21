@@ -17,6 +17,7 @@ async function seed() {
   console.log('  owner@trovara.farm')
   console.log('  supervisor1@trovara.farm / supervisor2@trovara.farm')
   console.log('  worker1@trovara.farm / worker2@trovara.farm')
+  console.log('  sales@trovara.farm')
   process.exit(0)
 }
 

@@ -163,6 +163,27 @@ export const INCIDENT_SUMMARY_PROMPT = [
   'Respond ONLY with valid JSON (no markdown): {"summaryText":"2-3 sentence plain English summary using specific details from the report","severity":"low|medium|high","category":"short_category_slug","recommendedActions":["concrete farm action"]}. Never say details are missing if the report contains them.',
 ].join(' ')
 
+/** Structured weather farm actions for the Today weather card. */
+export function buildWeatherActionsPrompt(replyLocale?: ReplyLocale | null): string {
+  return [
+    BUTLER_PERSONA,
+    butlerLanguageRule(replyLocale),
+    PROMPT_INJECTION_RULES,
+    SAFETY_RULES,
+    AFRICA_AGRONOMY_KNOWLEDGE,
+    AFRICA_VET_KNOWLEDGE,
+    'Suggest practical weather-based farm actions for the next 1-3 days from the forecast and farm context.',
+    'Ground tips in the crops and livestock listed when present (plantain, oil palm, coconut, poultry, etc.).',
+    'Return 0 to 4 actions. Return an empty actions array when the forecast is mild and nothing useful to do.',
+    'Each action must be concrete and actionable for a Nigerian farm crew today or tomorrow.',
+    'priority high = urgent today; medium = plan soon; low = nice to know.',
+    'relatedAlert must be rain, heat, wind, cold, or null.',
+    'title max ~60 chars; detail max ~180 chars; id is a short kebab-case slug.',
+    'Respond ONLY with valid JSON (no markdown):',
+    '{"actions":[{"id":"slug","priority":"high|medium|low","title":"...","detail":"...","relatedAlert":"rain|heat|wind|cold"|null}]}',
+  ].join(' ')
+}
+
 export function buildVisualDiagnosisPrompt(replyLocale?: ReplyLocale | null): string {
   return [
     BUTLER_PERSONA,

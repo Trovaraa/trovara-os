@@ -194,8 +194,9 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   const breakGlassPassword = process.env.BREAK_GLASS_PASSWORD
   const supervisorPassword = process.env.SEED_SUPERVISOR_PASSWORD
   const workerPassword = process.env.SEED_WORKER_PASSWORD
+  const salesPassword = process.env.SEED_SALES_PASSWORD
 
-  if (!breakGlassPassword || !supervisorPassword || !workerPassword) {
+  if (!breakGlassPassword || !supervisorPassword || !workerPassword || !salesPassword) {
     throw new Error(
       'Set BREAK_GLASS_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD in .env',
     )
@@ -205,7 +206,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   // Store a random unusable hash so the real secret is never the DB password.
   const breakGlassPlaceholderHash = await hashPassword(randomBytes(32).toString('base64url'))
 
-  const [owner, sup1, sup2, worker1, worker2] = await db
+  const [owner, sup1, sup2, worker1, worker2, sales] = await db
     .insert(users)
     .values([
       {
@@ -271,6 +272,25 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         employeeNumber: 'W-002',
         jobTitle: 'Field hand',
         employmentType: 'casual',
+        employmentStartDate: '2025-09-01',
+        employmentStatus: 'employed',
+        mustChangePassword: true,
+      },
+      {
+        farmId: farmId,
+        email: 'sales@trovara.farm',
+        name: 'Yemi Sales',
+        phone: '2348100000004',
+        passwordHash: await hashPassword(salesPassword),
+        role: 'sales',
+        monthlyWageNgn: 110000,
+        monthlyWageEffectiveFrom: '2026-01-01',
+        nextOfKinName: 'Kemi Sales',
+        nextOfKinPhone: '2348100000104',
+        nextOfKinRelationship: 'sibling',
+        employeeNumber: 'S-001',
+        jobTitle: 'Sales associate',
+        employmentType: 'permanent',
         employmentStartDate: '2025-09-01',
         employmentStatus: 'employed',
         mustChangePassword: true,

@@ -2,7 +2,7 @@
 
 Step-by-step setup for WhatsApp, AI, cron jobs, public traceability, offline mode, and production deployment.
 
-See also: [`API.md`](./API.md), [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md), [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md), [`security.md`](./security.md), [`backup-runbook.md`](./backup-runbook.md).
+See also: [`API.md`](./API.md), [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md), [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md), [`PAYSTACK.md`](./PAYSTACK.md), [`security.md`](./security.md), [`backup-runbook.md`](./backup-runbook.md).
 
 ---
 
@@ -17,7 +17,8 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | CORS / frontend | Production | `CORS_ORIGIN`, `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, `PUBLIC_APP_URL` |
 | Break-glass | Emergency owner login | `BREAK_GLASS_PASSWORD`, optional `BREAK_GLASS_EMAIL` |
 | Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD` |
-| WhatsApp | Outbound + webhook | `WHATSAPP_*`, `META_APP_SECRET` |
+| WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` |
+| Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` |
 | LLM | AI briefing / incidents | `OPENAI_API_KEY` or `LLM_*` |
 | Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
 | Backup | `scripts/backup-db.sh` | `BACKUP_DIR`, `BACKUP_GPG_PASSPHRASE`, `PGHOST`, `PGPORT` (optional) |
@@ -48,10 +49,11 @@ Trovara OS sends farm notifications via the [WhatsApp Cloud API](https://develop
 1. Open [Meta for Developers](https://developers.facebook.com/) → **My Apps** → **Create App** → type **Business**.
 2. Add the **WhatsApp** product to the app.
 3. Under **WhatsApp → API Setup**, note:
-   - **Phone number ID** → `WHATSAPP_PHONE_NUMBER_ID`
+   - **Staff Phone number ID** → `WHATSAPP_PHONE_NUMBER_ID` (butler / ops alerts)
    - Add and verify your business phone (Nigeria: `+234…` format).
-4. Create a **System User** in Business Settings with `whatsapp_business_messaging` permission and generate a **permanent** access token (not the 24-hour test token) → `WHATSAPP_ACCESS_TOKEN`.
-5. Choose a random secret string for webhook verification → `WHATSAPP_VERIFY_TOKEN` (e.g. `openssl rand -hex 32`).
+4. For **customer ordering**, add a **second** WhatsApp phone number under the same WABA (or a linked number). Copy its Phone number ID → `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`. Leave blank to disable customer WhatsApp.
+5. Create a **System User** in Business Settings with `whatsapp_business_messaging` permission and generate a **permanent** access token (not the 24-hour test token) → `WHATSAPP_ACCESS_TOKEN`. Optional: a separate token for the customer number → `WHATSAPP_CUSTOMER_ACCESS_TOKEN` (otherwise the staff token is reused).
+6. Choose a random secret string for webhook verification → `WHATSAPP_VERIFY_TOKEN` (e.g. `openssl rand -hex 32`).
 
 Optional: set `WHATSAPP_API_VERSION` (default `v21.0`) if Meta deprecates your current version.
 
@@ -60,11 +62,12 @@ Add to `.env`:
 ```bash
 WHATSAPP_ACCESS_TOKEN=EAAxxxx...
 WHATSAPP_PHONE_NUMBER_ID=123456789012345
+WHATSAPP_CUSTOMER_PHONE_NUMBER_ID=987654321098765
 WHATSAPP_VERIFY_TOKEN=your_random_verify_secret
 WHATSAPP_API_VERSION=v21.0
 ```
 
-Restart the API after changing env vars.
+Inbound routing uses `metadata.phone_number_id` on the shared webhook: staff id → butler; customer id → catalogue/cart. Restart the API after changing env vars.
 
 ### Step 3 - Webhook URL
 
@@ -481,6 +484,21 @@ When migrating from demo: export anything you need (`/api/traceability/export`, 
 
 ---
 
+## 8. Paystack (customer order payments)
+
+Full setup runbook: **[`PAYSTACK.md`](./PAYSTACK.md)** (keys, webhook, smoke test, go-live, troubleshooting).
+
+Short version:
+
+1. Set `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`, and `PUBLIC_APP_URL`.
+2. Register webhook `POST {PUBLIC_APP_URL}/api/paystack/webhook` for `charge.success`.
+3. Run `npm run db:migrate -w api` and restart the API.
+4. Place a priced customer order → pay with a test card → confirm **Paid** + invoice in Sales.
+
+Behaviour summary (priced + configured → pay link; otherwise COD; 24h cancel; dispatch blocked while unpaid) is documented in `PAYSTACK.md`.
+
+---
+
 ## Quick reference - integration endpoints
 
 | Integration | Method | Path | Auth |
@@ -490,6 +508,9 @@ When migrating from demo: export anything you need (`/api/traceability/export`, 
 | WhatsApp send | POST | `/api/whatsapp/send` | owner, supervisor |
 | WhatsApp templates | GET | `/api/whatsapp/templates` | No |
 | WhatsApp status | GET | `/api/whatsapp/status` | No |
+| Paystack webhook | POST | `/api/paystack/webhook` | No (HMAC) |
+| Public invoice | GET | `/public/invoices/:token` | No |
+| Public invoice PDF | GET | `/public/invoices/:token/pdf` | No |
 | AI briefing | GET | `/api/ai/briefing` | owner, supervisor |
 | AI incident | POST | `/api/ai/summarize-incident` | owner, supervisor |
 | AI status | GET | `/api/ai/status` | session |

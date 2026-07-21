@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { expenses, orders } from '../db/schema.js'
+import { expenses, invoices, orders, paymentAttempts, paymentRefunds } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAccessFinance } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
@@ -46,18 +46,44 @@ financeRoutes.get('/summary', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
-  const [orderRows, expenseRows] = await Promise.all([
-    db
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.farmId, user.farmId),
-          inArray(orders.status, ['confirmed', 'dispatched', 'delivered']),
+  const [orderRows, expenseRows, paidAttempts, unpaidOrders, refundRows, invoiceCountRow] =
+    await Promise.all([
+      db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.farmId, user.farmId),
+            inArray(orders.status, ['confirmed', 'dispatched', 'delivered']),
+          ),
         ),
-      ),
-    db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
-  ])
+      db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
+      db
+        .select({
+          totalKobo: sql<number>`coalesce(sum(${paymentAttempts.amountKobo}), 0)`,
+        })
+        .from(paymentAttempts)
+        .where(
+          and(eq(paymentAttempts.farmId, user.farmId), eq(paymentAttempts.status, 'success')),
+        ),
+      db
+        .select({
+          totalAmount: orders.totalAmount,
+        })
+        .from(orders)
+        .where(and(eq(orders.farmId, user.farmId), eq(orders.paymentStatus, 'unpaid'))),
+      db
+        .select({
+          amountKobo: paymentRefunds.amountKobo,
+          status: paymentRefunds.status,
+        })
+        .from(paymentRefunds)
+        .where(eq(paymentRefunds.farmId, user.farmId)),
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(invoices)
+        .where(eq(invoices.farmId, user.farmId)),
+    ])
 
   const revenue = orderRows.reduce((sum, o) => sum + o.totalAmount, 0)
   const totalExpenses = expenseRows.reduce((sum, e) => sum + e.amount, 0)
@@ -71,12 +97,31 @@ financeRoutes.get('/summary', async (c) => {
     .filter((o) => o.status === 'delivered')
     .reduce((sum, o) => sum + o.totalAmount, 0)
 
+  // Payment metrics are independent of fulfilment revenue (kobo → Naira major units).
+  const paidRevenue = Math.round(Number(paidAttempts[0]?.totalKobo ?? 0) / 100)
+  const outstandingInvoices = unpaidOrders.reduce((sum, o) => sum + o.totalAmount, 0)
+  const refunds = Math.round(
+    refundRows
+      .filter((r) => r.status === 'success')
+      .reduce((sum, r) => sum + r.amountKobo, 0) / 100,
+  )
+  const refundsPending = Math.round(
+    refundRows
+      .filter((r) => r.status === 'pending')
+      .reduce((sum, r) => sum + r.amountKobo, 0) / 100,
+  )
+
   return c.json({
     summary: {
       generatedAt: new Date().toISOString(),
       currency: 'NGN',
       revenue,
       deliveredRevenue,
+      paidRevenue,
+      outstandingInvoices,
+      refunds,
+      refundsPending,
+      invoiceCount: Number(invoiceCountRow[0]?.total ?? 0),
       totalExpenses,
       netProfit: revenue - totalExpenses,
       orderCount: orderRows.length,

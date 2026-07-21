@@ -26,7 +26,7 @@ onMounted(() => {
 const isFieldWorker = computed(() => auth.user?.role === 'field_worker')
 const isSales = computed(() => auth.user?.role === 'sales')
 
-type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean }
+type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean; financeAccess?: boolean }
 type NavGroup = { titleKey: string | null; items: NavItem[] }
 
 // Grouped sidebar. Field workers keep their flat two-item nav; sales get a
@@ -61,6 +61,7 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/products', labelKey: 'nav.products' },
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
           { to: '/traceability', labelKey: 'nav.traceability' },
+          { to: '/finance', labelKey: 'nav.finance' },
         ],
       },
       {
@@ -104,7 +105,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/events', labelKey: 'nav.events' },
         { to: '/ai', labelKey: 'nav.ai' },
         { to: '/reports', labelKey: 'nav.reports', ownerOnly: true },
-        { to: '/finance', labelKey: 'nav.finance', ownerOnly: true },
+        { to: '/finance', labelKey: 'nav.finance', financeAccess: true },
       ],
     },
     {
@@ -124,6 +125,7 @@ const navGroups = computed<NavGroup[]>(() => {
       ...g,
       items: g.items.filter((i) => {
         if (i.ownerOnly && !auth.isOwner) return false
+        if (i.financeAccess && !auth.canAccessFinance) return false
         if (i.orderStaff && !auth.canManageProducts) return false
         return true
       }),

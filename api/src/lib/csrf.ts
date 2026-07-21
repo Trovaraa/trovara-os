@@ -23,6 +23,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/api/whatsapp/webhook',
   '/api/telegram/webhook',
   '/api/telegram/customer/webhook',
+  '/api/paystack/webhook',
   '/api/system/run-retention',
   '/api/alerts/run-proactive',
   '/api/alerts/evening-digest',

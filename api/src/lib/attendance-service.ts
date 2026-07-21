@@ -167,6 +167,8 @@ export async function clockOut(user: SessionUser) {
 }
 
 export async function listToday(user: SessionUser) {
+  if (user.role === 'sales') return []
+
   const farmTimezone = sql<string>`COALESCE(
     (SELECT "timezone" FROM "farms" WHERE "id" = ${user.farmId}),
     'Africa/Lagos'

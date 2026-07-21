@@ -18,6 +18,7 @@ import { customerInsightsRoutes } from './routes/customer-insights.js'
 import { aiRoutes } from './routes/ai.js'
 import { whatsappRoutes } from './routes/whatsapp.js'
 import { telegramRoutes } from './routes/telegram.js'
+import { paystackRoutes } from './routes/paystack.js'
 import { startTelegramPolling } from './lib/telegram-inbound.js'
 import { startCustomerTelegramPolling } from './lib/customer-telegram-inbound.js'
 import { userRoutes } from './routes/users.js'
@@ -84,6 +85,7 @@ app.route('/api/assets', assetRoutes)
 app.route('/api/ai', aiRoutes)
 app.route('/api/whatsapp', whatsappRoutes)
 app.route('/api/telegram', telegramRoutes)
+app.route('/api/paystack', paystackRoutes)
 app.route('/public', publicRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/zones', zoneRoutes)

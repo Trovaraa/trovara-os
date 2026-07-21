@@ -2,10 +2,15 @@ import { Hono } from 'hono'
 import { and, eq } from 'drizzle-orm'
 import QRCode from 'qrcode'
 import { db } from '../db/index.js'
-import { cropCycles, farms, harvestLots, orders, plots } from '../db/schema.js'
+import { cropCycles, farms, harvestLots, invoices, orders, plots } from '../db/schema.js'
 import { orderReference } from '../lib/customer-cart.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
+import {
+  renderInvoiceHtml,
+  type InvoiceSnapshot,
+} from '../lib/invoice-html.js'
+import { renderInvoicePdf } from '../lib/invoice-pdf.js'
 import {
   redactCustomerDisplayName,
   renderBoxLabelHtml,
@@ -181,4 +186,89 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode/label.html', async (c) => {
   c.header('Content-Type', 'text/html; charset=utf-8')
   c.header('Content-Disposition', `inline; filename="trovara-label-${lot.lotCode}.html"`)
   return c.body(html)
+})
+
+const PUBLIC_INVOICE_RATE = { max: 60, windowMs: 60_000 }
+
+async function loadPublicInvoice(token: string) {
+  const [row] = await db
+    .select({
+      invoiceNumber: invoices.invoiceNumber,
+      amountKobo: invoices.amountKobo,
+      currency: invoices.currency,
+      createdAt: invoices.createdAt,
+      snapshot: invoices.snapshot,
+      publicToken: invoices.publicToken,
+      farmName: farms.name,
+    })
+    .from(invoices)
+    .innerJoin(farms, eq(invoices.farmId, farms.id))
+    .where(eq(invoices.publicToken, token))
+    .limit(1)
+  return row ?? null
+}
+
+/** Public printable invoice by token (no auth). */
+publicRoutes.get('/invoices/:token', async (c) => {
+  const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
+  const { allowed, retryAfterSec } = checkRateLimit(
+    `public-invoice:${ip}`,
+    PUBLIC_INVOICE_RATE.max,
+    PUBLIC_INVOICE_RATE.windowMs,
+  )
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfterSec))
+    return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  }
+
+  const row = await loadPublicInvoice(c.req.param('token'))
+  if (!row) return c.json({ error: 'Invoice not found' }, 404)
+
+  const publicUrl = `${appBaseUrl()}/public/invoices/${row.publicToken}`
+  const html = renderInvoiceHtml({
+    invoiceNumber: row.invoiceNumber,
+    amountKobo: row.amountKobo,
+    currency: row.currency,
+    createdAt: row.createdAt,
+    snapshot: (row.snapshot ?? {}) as InvoiceSnapshot,
+    farmName: row.farmName,
+    publicUrl,
+    autoPrint: c.req.query('autoprint') === '1',
+  })
+
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  c.header('Content-Disposition', `inline; filename="${row.invoiceNumber}.html"`)
+  return c.body(html)
+})
+
+/** Public PDF invoice by token (no auth). */
+publicRoutes.get('/invoices/:token/pdf', async (c) => {
+  const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
+  const { allowed, retryAfterSec } = checkRateLimit(
+    `public-invoice-pdf:${ip}`,
+    PUBLIC_INVOICE_RATE.max,
+    PUBLIC_INVOICE_RATE.windowMs,
+  )
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfterSec))
+    return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  }
+
+  const row = await loadPublicInvoice(c.req.param('token'))
+  if (!row) return c.json({ error: 'Invoice not found' }, 404)
+
+  const publicUrl = `${appBaseUrl()}/public/invoices/${row.publicToken}`
+  const pdf = await renderInvoicePdf({
+    invoiceNumber: row.invoiceNumber,
+    amountKobo: row.amountKobo,
+    currency: row.currency,
+    createdAt: row.createdAt,
+    snapshot: (row.snapshot ?? {}) as InvoiceSnapshot,
+    farmName: row.farmName,
+    publicUrl,
+  })
+
+  c.header('Content-Type', 'application/pdf')
+  c.header('Content-Disposition', `attachment; filename="${row.invoiceNumber}.pdf"`)
+  return c.body(new Uint8Array(pdf))
 })

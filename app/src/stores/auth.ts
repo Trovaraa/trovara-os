@@ -47,6 +47,9 @@ export const useAuthStore = defineStore('auth', () => {
   )
   const canManageProducts = computed(() => canManageOrders.value)
   const isSales = computed(() => user.value?.role === 'sales')
+  const canAccessFinance = computed(
+    () => user.value?.role === 'owner' || user.value?.role === 'sales',
+  )
 
   async function fetchMe() {
     try {
@@ -108,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
     canManageOrders,
     canManageProducts,
     isSales,
+    canAccessFinance,
     fetchMe,
     login,
     logout,

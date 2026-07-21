@@ -30,12 +30,17 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 | --- | --- |
 | AI key | `OPENAI_API_KEY` in `.env` (vision needs `gpt-4o-mini` or `gpt-4o` - already the default) |
 | Meta WhatsApp app + permanent token | See `docs/INTEGRATIONS.md → 1. Meta WhatsApp Cloud API` |
-| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` | `.env` |
+| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` | `.env` (staff butler) |
+| Optional `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` | Second Meta number for public ordering (same webhook URL) |
 | A public URL to your laptop | `ngrok http 3000` (or a deployed HTTPS domain) |
-| Worker/owner rows with a `phone` that matches their WhatsApp number | Users page or seed data |
+| Worker/owner rows with a `phone` that matches their WhatsApp number | Users page or seed data (staff only) |
 
-> The Butler matches an inbound WhatsApp number to a Trovara user by phone. **If the
+> **Staff butler:** matches inbound WhatsApp to a Trovara user by phone. **If the
 > number isn't on any user, the message is ignored.** Set phones first.
+>
+> **Customer number:** when `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` is set, messages to
+> that number run the order catalogue (no staff user match). Paystack pay links use
+> the same flow as the Telegram customer bot — see `docs/INTEGRATIONS.md` §8.
 
 ---
 

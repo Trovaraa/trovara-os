@@ -175,7 +175,7 @@ export async function suggestedQuestions(farmId: string, limit = 3): Promise<str
 function policyLines(): string[] {
   return [
     'How to order: reply "1" and pick items by number.',
-    'Payment: pay on delivery (card/transfer coming soon).',
+    'Payment: pay online via the Paystack link we send after you order (when prices are set), or pay on delivery otherwise. Cancel within 24h: cancel TRV-ORD-…',
     'Delivery: we call to confirm your order, then deliver to your address.',
   ]
 }

@@ -4,6 +4,12 @@ import { fileURLToPath } from 'url'
 
 const templatesPath = join(dirname(fileURLToPath(import.meta.url)), '../../../whatsapp/templates.json')
 
+/**
+ * Which WhatsApp Business number a call targets. Staff butler and customer
+ * ordering use separate phone number IDs (same Meta app is typical).
+ */
+export type WhatsAppKind = 'staff' | 'customer'
+
 export type WhatsAppConfig = {
   accessToken: string
   phoneNumberId: string
@@ -11,10 +17,26 @@ export type WhatsAppConfig = {
   apiVersion: string
 }
 
-export function getWhatsAppConfig(): WhatsAppConfig | null {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN
+function phoneNumberIdFor(kind: WhatsAppKind): string | undefined {
+  const raw =
+    kind === 'customer'
+      ? process.env.WHATSAPP_CUSTOMER_PHONE_NUMBER_ID
+      : process.env.WHATSAPP_PHONE_NUMBER_ID
+  return raw?.trim() || undefined
+}
+
+function accessTokenFor(kind: WhatsAppKind): string | undefined {
+  if (kind === 'customer') {
+    const customer = process.env.WHATSAPP_CUSTOMER_ACCESS_TOKEN?.trim()
+    if (customer) return customer
+  }
+  return process.env.WHATSAPP_ACCESS_TOKEN?.trim() || undefined
+}
+
+export function getWhatsAppConfig(kind: WhatsAppKind = 'staff'): WhatsAppConfig | null {
+  const accessToken = accessTokenFor(kind)
+  const phoneNumberId = phoneNumberIdFor(kind)
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim()
   if (!accessToken || !phoneNumberId || !verifyToken) return null
   return {
     accessToken,
@@ -25,7 +47,12 @@ export function getWhatsAppConfig(): WhatsAppConfig | null {
 }
 
 export function isWhatsAppConfigured(): boolean {
-  return getWhatsAppConfig() !== null
+  return getWhatsAppConfig('staff') !== null
+}
+
+/** Customer ordering number is enabled when its phone number ID is set. */
+export function isWhatsAppCustomerConfigured(): boolean {
+  return Boolean(phoneNumberIdFor('customer'))
 }
 
 type TemplateDef = {
@@ -57,11 +84,27 @@ export function renderTemplate(
   return text
 }
 
-export async function sendWhatsAppText(to: string, body: string): Promise<{ messageId: string }> {
-  const config = getWhatsAppConfig()
+type SendOpts = { kind?: WhatsAppKind }
+
+function configOrThrow(kind: WhatsAppKind): WhatsAppConfig {
+  const config = getWhatsAppConfig(kind)
   if (!config) {
-    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
+    throw new Error(
+      kind === 'customer'
+        ? 'WhatsApp customer number not configured - set WHATSAPP_CUSTOMER_PHONE_NUMBER_ID (and WHATSAPP_ACCESS_TOKEN or WHATSAPP_CUSTOMER_ACCESS_TOKEN)'
+        : 'WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN',
+    )
   }
+  return config
+}
+
+export async function sendWhatsAppText(
+  to: string,
+  body: string,
+  opts?: SendOpts,
+): Promise<{ messageId: string }> {
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   const normalizedTo = to.replace(/\D/g, '')
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
@@ -93,15 +136,13 @@ export async function sendWhatsAppText(to: string, body: string): Promise<{ mess
 export async function sendWhatsAppImage(
   to: string,
   imageBuffer: Buffer,
-  opts?: { caption?: string; filename?: string },
+  opts?: { caption?: string; filename?: string; kind?: WhatsAppKind },
 ): Promise<{ messageId: string }> {
-  const config = getWhatsAppConfig()
-  if (!config) {
-    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
-  }
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   const filename = opts?.filename?.trim() || 'qr.png'
-  const { mediaId } = await uploadWhatsAppMedia(imageBuffer, 'image/png', filename)
+  const { mediaId } = await uploadWhatsAppMedia(imageBuffer, 'image/png', filename, { kind })
   const normalizedTo = to.replace(/\D/g, '')
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
 
@@ -136,11 +177,10 @@ export async function uploadWhatsAppMedia(
   buffer: Buffer,
   mimeType: string,
   filename: string,
+  opts?: SendOpts,
 ): Promise<{ mediaId: string }> {
-  const config = getWhatsAppConfig()
-  if (!config) {
-    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
-  }
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/media`
   const form = new FormData()
@@ -166,11 +206,10 @@ export async function uploadWhatsAppMedia(
 export async function sendWhatsAppAudio(
   to: string,
   audioBuffer: Buffer,
+  opts?: SendOpts,
 ): Promise<{ messageId: string }> {
-  const config = getWhatsAppConfig()
-  if (!config) {
-    throw new Error('WhatsApp not configured - set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN')
-  }
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   const normalizedTo = to.replace(/\D/g, '')
   const format = (process.env.LLM_TTS_FORMAT?.trim().toLowerCase() || 'mp3').replace(/[^a-z0-9]/g, '')
@@ -185,7 +224,7 @@ export async function sendWhatsAppAudio(
   }
   const mimeType = mimeByExt[format] ?? 'audio/mpeg'
   const filename = `reply.${format || 'mp3'}`
-  const { mediaId } = await uploadWhatsAppMedia(audioBuffer, mimeType, filename)
+  const { mediaId } = await uploadWhatsAppMedia(audioBuffer, mimeType, filename, { kind })
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
 
   const res = await fetch(url, {
@@ -218,9 +257,12 @@ export async function sendWhatsAppAudio(
  */
 const MAX_WHATSAPP_MEDIA_BYTES = 10 * 1024 * 1024
 
-export async function downloadWhatsAppMedia(mediaId: string): Promise<string> {
-  const config = getWhatsAppConfig()
-  if (!config) throw new Error('WhatsApp not configured')
+export async function downloadWhatsAppMedia(
+  mediaId: string,
+  opts?: SendOpts,
+): Promise<string> {
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   // Step 1: resolve the temporary download URL for this media ID
   const metaRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
@@ -253,9 +295,10 @@ export async function downloadWhatsAppMedia(mediaId: string): Promise<string> {
 /** Download inbound media as raw bytes (for audio → transcription). */
 export async function downloadWhatsAppMediaBuffer(
   mediaId: string,
+  opts?: SendOpts,
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const config = getWhatsAppConfig()
-  if (!config) throw new Error('WhatsApp not configured')
+  const kind = opts?.kind ?? 'staff'
+  const config = configOrThrow(kind)
 
   const metaRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
     headers: { Authorization: `Bearer ${config.accessToken}` },

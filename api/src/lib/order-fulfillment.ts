@@ -8,7 +8,7 @@ import { recordFarmEvent } from './farm-events.js'
 import { notifyOrderAlertStaff, notifyOrderAlertStaffTelegram } from './farm-notify.js'
 import { canTransitionOrder, type OrderStatus } from './state-machines.js'
 import { sendTelegramMessage } from './telegram.js'
-import { isWhatsAppConfigured, sendWhatsAppText } from './whatsapp-meta.js'
+import { isWhatsAppConfigured, isWhatsAppCustomerConfigured, sendWhatsAppText } from './whatsapp-meta.js'
 import {
   customerStatusMessage,
   feedbackStaffSummary,
@@ -126,10 +126,10 @@ async function notifyCustomerChannel(params: {
       return
     }
     if (contact.channel === 'whatsapp') {
-      if (!isWhatsAppConfigured()) return
+      if (!isWhatsAppCustomerConfigured() && !isWhatsAppConfigured()) return
       const phone = contact.phone || contact.externalId
       if (!phone) return
-      await sendWhatsAppText(phone, params.message)
+      await sendWhatsAppText(phone, params.message, { kind: 'customer' })
     }
   } catch (err) {
     console.error('Customer order notify failed:', err instanceof Error ? err.message : err)
@@ -194,6 +194,15 @@ export async function transitionOrder(params: {
   const fromStatus = existing.status as OrderStatus
   if (!canTransitionOrder(fromStatus, params.toStatus, params.actor.role)) {
     return { ok: false, error: 'Invalid status transition' }
+  }
+
+  // Payment gate: unpaid orders cannot leave the farm (dispatch/deliver).
+  // not_required, paid, refunded, etc. are allowed; only unpaid blocks.
+  if (
+    (params.toStatus === 'dispatched' || params.toStatus === 'delivered') &&
+    existing.paymentStatus === 'unpaid'
+  ) {
+    return { ok: false, error: 'Cannot dispatch or deliver an unpaid order' }
   }
 
   const updates: Partial<typeof existing> = {

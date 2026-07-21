@@ -69,6 +69,9 @@ taskRoutes.use('*', authMiddleware)
 
 taskRoutes.get('/', async (c) => {
   const user = c.get('user')
+  if (user.role === 'sales') {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const rows = await db
     .select({
       id: tasks.id,

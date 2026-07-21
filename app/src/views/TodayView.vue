@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import TaskStatusBadge from '@/components/TaskStatusBadge.vue'
+import WeatherTipsLoader from '@/components/WeatherTipsLoader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 
@@ -78,6 +79,8 @@ type WeatherSnapshot = {
     detail: string
     relatedAlert?: string
   }>
+  actionsSource?: 'ai' | 'rules'
+  actionsLocale?: string
   message?: string
 }
 
@@ -117,9 +120,10 @@ type AttendanceSession = {
 type PlotOption = { id: string; name: string; active: boolean }
 
 type DayCloseData = {
+  scope?: 'farm' | 'sales'
   date: string
   generatedAt: string
-  tasks: {
+  tasks?: {
     total: number
     completed: number
     overdue: number
@@ -127,14 +131,14 @@ type DayCloseData = {
     rejected: number
     inProgress: number
   }
-  pendingApprovals: {
+  pendingApprovals?: {
     id: string
     title: string
     worker: string | null
     plot: string | null
     submittedAt: string
   }[]
-  overdueTasks: {
+  overdueTasks?: {
     id: string
     title: string
     status: string
@@ -142,16 +146,44 @@ type DayCloseData = {
     worker: string | null
     plot: string | null
   }[]
-  inventory: {
+  inventory?: {
     lowStockCount: number
     lowStockItems: { id: string; name: string; quantity: number; reorderLevel: number; unit: string }[]
-    movementsToday: number
+    movementsToday?: number
   }
-  livestock: {
+  livestock?: {
     mortalityToday: number
     incidents: { batch: string | null; headCount: number | null; notes: string | null; at: string }[]
   }
-  finance: { expensesToday: number; totalExpenses: number; currency: string }
+  finance?: { expensesToday: number; totalExpenses: number; currency: string }
+  orders?: {
+    totalToday: number
+    pending: number
+    confirmed: number
+    dispatched: number
+    delivered: number
+    cancelled: number
+    revenueToday: number
+    currency: string
+    unpaidCount: number
+    unpaidTotal: number
+    items: Array<{
+      id: string
+      customerName: string
+      status: string
+      paymentStatus: string
+      totalAmount: number
+      currency: string
+    }>
+    unpaid: Array<{
+      id: string
+      customerName: string
+      status: string
+      paymentStatus: string
+      totalAmount: number
+      currency: string
+    }>
+  }
   tomorrowActions: string[]
   status: 'clear' | 'needs_attention'
 }
@@ -174,8 +206,14 @@ const correctingId = ref<string | null>(null)
 const correctionClockIn = ref('')
 const correctionClockOut = ref('')
 const correctionNotes = ref('')
+const weatherTipsLoading = ref(false)
+const weatherTipsError = ref<string | null>(null)
 
 const isWorker = computed(() => auth.user?.role === 'field_worker')
+const isSales = computed(() => auth.user?.role === 'sales')
+const showAttendance = computed(() => !isSales.value)
+const showFarmDayClose = computed(() => !isWorker.value && !isSales.value)
+const showSalesDayClose = computed(() => isSales.value)
 const openAttendance = computed(
   () => attendance.value.find((session) => session.clockOutAt === null) ?? null,
 )
@@ -219,31 +257,67 @@ const exceptionLabel: Record<string, string> = {
 const summaryCards = computed(() => {
   if (!data.value) return []
   const s = data.value.summary
-  const cards: { key: keyof ExceptionSummary; labelKey: string; color: string }[] = [
-    { key: 'overdueTasks', labelKey: 'today.lblOverdue', color: 'text-red-400' },
-    { key: 'lowStock', labelKey: 'today.lblLowStock', color: 'text-amber-400' },
-    { key: 'pendingApprovals', labelKey: 'today.lblApprovals', color: 'text-purple-400' },
-    { key: 'mortalityToday', labelKey: 'today.lblMortality', color: 'text-red-500' },
-    { key: 'ordersPending', labelKey: 'today.lblOrders', color: 'text-orange-400' },
-    { key: 'rejectedTasks', labelKey: 'today.lblRejected', color: 'text-rose-400' },
-    { key: 'assetLogsMissing', labelKey: 'today.lblNotLogged', color: 'text-amber-400' },
-    { key: 'assetVerificationPending', labelKey: 'today.lblVerifyAssets', color: 'text-cyan-400' },
-  ]
-  return cards.filter((card) => (Number(s[card.key] ?? 0) > 0) || !isWorker.value)
+  const cards: { key: keyof ExceptionSummary; labelKey: string; color: string }[] = isSales.value
+    ? [
+        { key: 'ordersPending', labelKey: 'today.lblOrders', color: 'text-orange-400' },
+        { key: 'lowStock', labelKey: 'today.lblLowStock', color: 'text-amber-400' },
+      ]
+    : [
+        { key: 'overdueTasks', labelKey: 'today.lblOverdue', color: 'text-red-400' },
+        { key: 'lowStock', labelKey: 'today.lblLowStock', color: 'text-amber-400' },
+        { key: 'pendingApprovals', labelKey: 'today.lblApprovals', color: 'text-purple-400' },
+        { key: 'mortalityToday', labelKey: 'today.lblMortality', color: 'text-red-500' },
+        { key: 'ordersPending', labelKey: 'today.lblOrders', color: 'text-orange-400' },
+        { key: 'rejectedTasks', labelKey: 'today.lblRejected', color: 'text-rose-400' },
+        { key: 'assetLogsMissing', labelKey: 'today.lblNotLogged', color: 'text-amber-400' },
+        { key: 'assetVerificationPending', labelKey: 'today.lblVerifyAssets', color: 'text-cyan-400' },
+      ]
+  return isSales.value
+    ? cards
+    : cards.filter((card) => (Number(s[card.key] ?? 0) > 0) || !isWorker.value)
 })
+
+async function regenerateWeatherTips(force = false) {
+  if (!data.value?.weather) return
+  if (!force && data.value.weather.actionsSource === 'ai') return
+  if (weatherTipsLoading.value) return
+  if (data.value.weather.status !== 'ok' && data.value.weather.status !== 'stale') return
+
+  weatherTipsLoading.value = true
+  weatherTipsError.value = null
+  try {
+    const result = await api<{
+      actions: NonNullable<WeatherSnapshot['actions']>
+      actionsSource: 'ai' | 'rules'
+      actionsLocale: string
+    }>('/api/today/weather-actions/regenerate', { method: 'POST', body: '{}' })
+    if (data.value?.weather) {
+      data.value.weather.actions = result.actions
+      data.value.weather.actionsSource = result.actionsSource
+      data.value.weather.actionsLocale = result.actionsLocale
+    }
+  } catch (e) {
+    weatherTipsError.value = e instanceof Error ? e.message : t('today.weatherTipsFailed')
+  } finally {
+    weatherTipsLoading.value = false
+  }
+}
 
 onMounted(async () => {
   try {
-    const [todayData, attendanceData] = await Promise.all([
-      api<TodayData>('/api/today'),
-      api<{ sessions: AttendanceSession[] }>('/api/attendance/today'),
-    ])
+    const todayPromise = api<TodayData>('/api/today')
+    const attendancePromise = showAttendance.value
+      ? api<{ sessions: AttendanceSession[] }>('/api/attendance/today')
+      : Promise.resolve({ sessions: [] as AttendanceSession[] })
+
+    const [todayData, attendanceData] = await Promise.all([todayPromise, attendancePromise])
     data.value = todayData
     attendance.value = attendanceData.sessions
     if (auth.user?.role === 'field_worker') {
       const plotData = await api<{ plots: PlotOption[] }>('/api/zones/plots')
       plots.value = plotData.plots.filter((plot) => plot.active)
     }
+    void regenerateWeatherTips(false)
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('today.loadFailed')
   } finally {
@@ -369,15 +443,21 @@ function formatCurrency(amount: number, currency: string) {
       <div>
         <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('today.eyebrow') }}</p>
         <h2 class="text-2xl sm:text-3xl font-black text-white mt-1 leading-tight">
-          {{ isWorker ? t('today.myTasks') : t('today.exceptionDashboard') }}
+          {{ isWorker ? t('today.myTasks') : isSales ? t('today.salesDashboard') : t('today.exceptionDashboard') }}
         </h2>
         <p class="text-slate-400 text-sm mt-1">
-          {{ isWorker ? t('today.workerSubtitle') : t('today.needAttention', { count: data.summary.total }) }}
+          {{
+            isWorker
+              ? t('today.workerSubtitle')
+              : isSales
+                ? t('today.salesSubtitle', { count: data.summary.total })
+                : t('today.needAttention', { count: data.summary.total })
+          }}
         </p>
       </div>
 
       <!-- Attendance -->
-      <section class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+      <section v-if="showAttendance" class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 class="font-bold text-white">{{ t('today.attendance') }}</h3>
@@ -572,14 +652,27 @@ function formatCurrency(amount: number, currency: string) {
           </div>
         </div>
 
-        <div
-          v-if="data.weather.actions?.length"
-          class="mt-4 border-t border-slate-800 pt-4"
-        >
-          <h4 class="text-xs font-bold uppercase tracking-wide text-slate-400">
-            {{ t('today.weatherActions') }}
-          </h4>
-          <ul class="mt-2 space-y-2">
+        <div class="mt-4 border-t border-slate-800 pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <h4 class="text-xs font-bold uppercase tracking-wide text-slate-400">
+              {{ t('today.weatherActions') }}
+            </h4>
+            <button
+              type="button"
+              class="text-xs font-semibold text-farm-green hover:underline disabled:opacity-50"
+              :disabled="weatherTipsLoading"
+              @click="regenerateWeatherTips(true)"
+            >
+              {{ t('today.refreshWeatherTips') }}
+            </button>
+          </div>
+          <p v-if="weatherTipsError" class="mt-2 text-xs text-red-400">{{ weatherTipsError }}</p>
+          <WeatherTipsLoader
+            v-if="weatherTipsLoading"
+            class="mt-2"
+            :label="t('today.generatingWeatherTips')"
+          />
+          <ul v-else-if="data.weather.actions?.length" class="mt-2 space-y-2">
             <li
               v-for="action in data.weather.actions"
               :key="action.id"
@@ -603,6 +696,7 @@ function formatCurrency(amount: number, currency: string) {
               </div>
             </li>
           </ul>
+          <p v-else class="mt-2 text-xs text-slate-500">{{ t('today.noWeatherActions') }}</p>
         </div>
 
         <p v-if="data.weather.attribution" class="mt-3 text-[10px] text-slate-600">
@@ -704,8 +798,8 @@ function formatCurrency(amount: number, currency: string) {
         </p>
       </section>
 
-      <!-- ── Farm Day Close (supervisor/owner only) ── -->
-      <section v-if="!isWorker" class="mt-10">
+      <!-- ── Day Close (farm for owner/supervisor; sales-scoped for sales) ── -->
+      <section v-if="showFarmDayClose || showSalesDayClose" class="mt-10">
         <button
           type="button"
           class="w-full flex items-center justify-between bg-slate-900 border border-slate-700 rounded-2xl px-5 py-4 transition-all hover:border-farm-green/50 active:scale-[0.99]"
@@ -714,8 +808,12 @@ function formatCurrency(amount: number, currency: string) {
           <div class="flex items-center gap-3">
             <span class="text-farm-green text-lg">🌙</span>
             <div class="text-left">
-              <p class="font-bold text-white text-sm">{{ t('today.dayClose') }}</p>
-              <p class="text-xs text-slate-400 mt-0.5">{{ t('today.dayCloseSubtitle') }}</p>
+              <p class="font-bold text-white text-sm">
+                {{ isSales ? t('today.salesDayClose') : t('today.dayClose') }}
+              </p>
+              <p class="text-xs text-slate-400 mt-0.5">
+                {{ isSales ? t('today.salesDayCloseSubtitle') : t('today.dayCloseSubtitle') }}
+              </p>
             </div>
           </div>
           <svg
@@ -730,8 +828,7 @@ function formatCurrency(amount: number, currency: string) {
         <div v-if="dayCloseOpen" class="mt-3 space-y-4">
           <div v-if="dayCloseLoading" class="text-slate-400 text-sm px-1">{{ t('today.dayCloseLoading') }}</div>
 
-          <template v-else-if="dayClose">
-            <!-- Status banner -->
+          <template v-else-if="dayClose && dayClose.scope === 'sales' && dayClose.orders">
             <div
               class="rounded-2xl px-5 py-4 flex items-center gap-3"
               :class="dayClose.status === 'clear'
@@ -747,7 +844,83 @@ function formatCurrency(amount: number, currency: string) {
               </div>
             </div>
 
-            <!-- Task breakdown -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <h4 class="font-bold text-white text-sm mb-3">{{ t('today.ordersToday') }}</h4>
+              <div class="grid grid-cols-3 gap-3">
+                <div class="text-center">
+                  <p class="text-2xl font-black text-orange-400">{{ dayClose.orders.pending }}</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.lblOrders') }}</p>
+                </div>
+                <div class="text-center">
+                  <p class="text-2xl font-black text-sky-400">{{ dayClose.orders.dispatched }}</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.dispatched') }}</p>
+                </div>
+                <div class="text-center">
+                  <p class="text-2xl font-black text-farm-green">{{ dayClose.orders.delivered }}</p>
+                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.delivered') }}</p>
+                </div>
+              </div>
+              <p class="mt-4 text-sm text-slate-300">
+                {{ t('today.revenueToday') }}:
+                <span class="font-bold text-white">
+                  {{ formatCurrency(dayClose.orders.revenueToday, dayClose.orders.currency) }}
+                </span>
+              </p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <p class="text-xs text-slate-500 font-medium">{{ t('today.unpaidOrders') }}</p>
+                <p class="text-2xl font-black mt-1" :class="dayClose.orders.unpaidCount > 0 ? 'text-amber-400' : 'text-slate-400'">
+                  {{ dayClose.orders.unpaidCount }}
+                </p>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  {{ formatCurrency(dayClose.orders.unpaidTotal, dayClose.orders.currency) }}
+                </p>
+              </div>
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <p class="text-xs text-slate-500 font-medium">{{ t('today.lowStock') }}</p>
+                <p class="text-2xl font-black mt-1" :class="(dayClose.inventory?.lowStockCount ?? 0) > 0 ? 'text-amber-400' : 'text-slate-400'">
+                  {{ dayClose.inventory?.lowStockCount ?? 0 }}
+                </p>
+                <RouterLink to="/finance" class="text-xs text-farm-green hover:underline mt-1 inline-block">
+                  {{ t('nav.finance') }}
+                </RouterLink>
+              </div>
+            </div>
+
+            <div v-if="dayClose.tomorrowActions.length" class="bg-slate-900 border border-farm-green/20 rounded-2xl p-5">
+              <h4 class="font-bold text-farm-green text-sm mb-3">{{ t('today.forTomorrow') }}</h4>
+              <ul class="space-y-2">
+                <li
+                  v-for="(action, idx) in dayClose.tomorrowActions"
+                  :key="idx"
+                  class="flex items-start gap-2 text-sm text-slate-300"
+                >
+                  <span class="text-farm-green shrink-0">→</span>
+                  <span>{{ action }}</span>
+                </li>
+              </ul>
+            </div>
+            <p v-else class="text-xs text-slate-500 px-1">{{ t('today.noCarryForward') }}</p>
+          </template>
+
+          <template v-else-if="dayClose && dayClose.tasks">
+            <div
+              class="rounded-2xl px-5 py-4 flex items-center gap-3"
+              :class="dayClose.status === 'clear'
+                ? 'bg-farm-green/10 border border-farm-green/30'
+                : 'bg-amber-950/40 border border-amber-700/40'"
+            >
+              <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
+              <div>
+                <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
+                  {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
+                </p>
+                <p class="text-xs text-slate-400 mt-0.5">{{ dayClose.date }}</p>
+              </div>
+            </div>
+
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
               <h4 class="font-bold text-white text-sm mb-3">{{ t('today.tasksToday') }}</h4>
               <div class="grid grid-cols-3 gap-3">
@@ -770,8 +943,7 @@ function formatCurrency(amount: number, currency: string) {
               </div>
             </div>
 
-            <!-- Pending approvals -->
-            <div v-if="dayClose.pendingApprovals.length" class="bg-slate-900 border border-purple-900/40 rounded-2xl p-5">
+            <div v-if="dayClose.pendingApprovals?.length" class="bg-slate-900 border border-purple-900/40 rounded-2xl p-5">
               <h4 class="font-bold text-purple-300 text-sm mb-3">
                 {{ t('today.awaitingApprovalCount', { count: dayClose.pendingApprovals.length }) }}
               </h4>
@@ -790,8 +962,7 @@ function formatCurrency(amount: number, currency: string) {
               </ul>
             </div>
 
-            <!-- Overdue tasks -->
-            <div v-if="dayClose.overdueTasks.length" class="bg-slate-900 border border-red-900/40 rounded-2xl p-5">
+            <div v-if="dayClose.overdueTasks?.length" class="bg-slate-900 border border-red-900/40 rounded-2xl p-5">
               <h4 class="font-bold text-red-400 text-sm mb-3">
                 {{ t('today.overdueTasksCount', { count: dayClose.overdueTasks.length }) }}
               </h4>
@@ -813,26 +984,24 @@ function formatCurrency(amount: number, currency: string) {
               </p>
             </div>
 
-            <!-- Inventory & livestock -->
             <div class="grid grid-cols-2 gap-3">
               <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <p class="text-xs text-slate-500 font-medium">{{ t('today.lowStock') }}</p>
-                <p class="text-2xl font-black mt-1" :class="dayClose.inventory.lowStockCount > 0 ? 'text-amber-400' : 'text-slate-400'">
-                  {{ dayClose.inventory.lowStockCount }}
+                <p class="text-2xl font-black mt-1" :class="(dayClose.inventory?.lowStockCount ?? 0) > 0 ? 'text-amber-400' : 'text-slate-400'">
+                  {{ dayClose.inventory?.lowStockCount ?? 0 }}
                 </p>
-                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.movementsToday', { count: dayClose.inventory.movementsToday }) }}</p>
+                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.movementsToday', { count: dayClose.inventory?.movementsToday ?? 0 }) }}</p>
               </div>
               <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <p class="text-xs text-slate-500 font-medium">{{ t('today.mortality') }}</p>
-                <p class="text-2xl font-black mt-1" :class="dayClose.livestock.mortalityToday > 0 ? 'text-red-400' : 'text-slate-400'">
-                  {{ dayClose.livestock.mortalityToday }}
+                <p class="text-2xl font-black mt-1" :class="(dayClose.livestock?.mortalityToday ?? 0) > 0 ? 'text-red-400' : 'text-slate-400'">
+                  {{ dayClose.livestock?.mortalityToday ?? 0 }}
                 </p>
                 <p class="text-xs text-slate-500 mt-0.5">{{ t('today.headToday') }}</p>
               </div>
             </div>
 
-            <!-- Finance -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <div v-if="dayClose.finance" class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
               <h4 class="font-bold text-white text-sm mb-1">{{ t('today.expensesToday') }}</h4>
               <p class="text-xl font-black text-white">
                 {{ formatCurrency(dayClose.finance.totalExpenses, dayClose.finance.currency) }}
@@ -840,7 +1009,6 @@ function formatCurrency(amount: number, currency: string) {
               <p class="text-xs text-slate-500 mt-0.5">{{ t('today.expensesLogged', { count: dayClose.finance.expensesToday }) }}</p>
             </div>
 
-            <!-- Tomorrow's actions -->
             <div v-if="dayClose.tomorrowActions.length" class="bg-slate-900 border border-farm-green/20 rounded-2xl p-5">
               <h4 class="font-bold text-farm-green text-sm mb-3">{{ t('today.forTomorrow') }}</h4>
               <ul class="space-y-2">

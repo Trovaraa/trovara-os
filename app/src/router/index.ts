@@ -1,10 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-function defaultHome(role?: string) {
-  return role === 'field_worker' ? '/today' : '/dashboard'
-}
-
 const workerAllowedNames = new Set([
   'change-password',
   'today',
@@ -13,6 +9,27 @@ const workerAllowedNames = new Set([
   'traceability',
   'settings',
 ])
+
+const salesAllowedNames = new Set([
+  'change-password',
+  'today',
+  'dashboard',
+  'sales',
+  'products',
+  'whatsapp',
+  'traceability',
+  'finance',
+  'settings',
+  'ai',
+  'pay-callback',
+  'public-lot',
+])
+
+function defaultHome(role?: string) {
+  if (role === 'field_worker') return '/today'
+  if (role === 'sales') return '/sales'
+  return '/dashboard'
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -52,6 +69,13 @@ const router = createRouter({
       name: 'register',
       component: () => import('@/views/RegisterView.vue'),
       meta: { guest: true },
+    },
+    {
+      path: '/pay/callback',
+      name: 'pay-callback',
+      component: () => import('@/views/PayCallbackView.vue'),
+      // Public post-checkout page (no auth). Do not set guest:true or logged-in
+      // staff testing the flow get bounced home.
     },
     {
       path: '/today',
@@ -129,7 +153,7 @@ const router = createRouter({
       path: '/finance',
       name: 'finance',
       component: () => import('@/views/FinanceView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, financeAccess: true },
     },
     {
       path: '/traceability',
@@ -213,6 +237,9 @@ router.beforeEach(async (to) => {
   if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
     return defaultHome(auth.user?.role)
   }
+  if (to.meta.financeAccess && !auth.canAccessFinance) {
+    return defaultHome(auth.user?.role)
+  }
   if (to.meta.orderStaffOnly && !auth.canManageProducts) {
     return defaultHome(auth.user?.role)
   }
@@ -235,6 +262,14 @@ router.beforeEach(async (to) => {
     !workerAllowedNames.has(String(to.name))
   ) {
     return { name: 'today' }
+  }
+  if (
+    auth.user?.role === 'sales' &&
+    to.meta.requiresAuth &&
+    to.name &&
+    !salesAllowedNames.has(String(to.name))
+  ) {
+    return { name: 'sales' }
   }
 })
 

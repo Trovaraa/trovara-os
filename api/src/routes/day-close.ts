@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { and, desc, eq, gte, isNotNull, lt, ne, or, count, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, lt, ne, or, count, sql, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   tasks,
@@ -10,6 +10,7 @@ import {
   livestockLogs,
   livestockBatches,
   expenses,
+  orders,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
@@ -29,7 +30,142 @@ function startOfTomorrow(): Date {
   return d
 }
 
-// GET /api/day-close - owner/supervisor only
+async function salesDayClose(farmId: string) {
+  const todayStart = startOfToday()
+  const tomorrowStart = startOfTomorrow()
+
+  const [orderRows, lowStock, unpaidOrders] = await Promise.all([
+    db
+      .select({
+        id: orders.id,
+        customerName: orders.customerName,
+        status: orders.status,
+        paymentStatus: orders.paymentStatus,
+        totalAmount: orders.totalAmount,
+        currency: orders.currency,
+        createdAt: orders.createdAt,
+        dispatchedAt: orders.dispatchedAt,
+      })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.farmId, farmId),
+          or(
+            and(gte(orders.createdAt, todayStart), lt(orders.createdAt, tomorrowStart)),
+            and(
+              isNotNull(orders.dispatchedAt),
+              gte(orders.dispatchedAt, todayStart),
+              lt(orders.dispatchedAt, tomorrowStart),
+            ),
+          ),
+        ),
+      )
+      .orderBy(desc(orders.createdAt)),
+    db
+      .select({
+        id: inventoryItems.id,
+        name: inventoryItems.name,
+        quantity: inventoryItems.quantity,
+        reorderLevel: inventoryItems.reorderLevel,
+        unit: inventoryItems.unit,
+      })
+      .from(inventoryItems)
+      .where(
+        and(
+          eq(inventoryItems.farmId, farmId),
+          sql`${inventoryItems.quantity} <= ${inventoryItems.reorderLevel}`,
+        ),
+      )
+      .orderBy(inventoryItems.quantity)
+      .limit(20),
+    db
+      .select({
+        id: orders.id,
+        customerName: orders.customerName,
+        totalAmount: orders.totalAmount,
+        currency: orders.currency,
+        status: orders.status,
+        paymentStatus: orders.paymentStatus,
+      })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.farmId, farmId),
+          eq(orders.paymentStatus, 'unpaid'),
+          inArray(orders.status, ['pending', 'confirmed', 'dispatched', 'delivered']),
+        ),
+      )
+      .orderBy(desc(orders.createdAt))
+      .limit(20),
+  ])
+
+  const byStatus: Record<string, number> = {}
+  let revenueToday = 0
+  let currency = 'NGN'
+  for (const o of orderRows) {
+    byStatus[o.status] = (byStatus[o.status] ?? 0) + 1
+    revenueToday += o.totalAmount
+    currency = o.currency || currency
+  }
+
+  const pending = byStatus.pending ?? 0
+  const confirmed = byStatus.confirmed ?? 0
+  const dispatched = byStatus.dispatched ?? 0
+  const delivered = byStatus.delivered ?? 0
+  const cancelled = byStatus.cancelled ?? 0
+  const unpaidCount = unpaidOrders.length
+  const unpaidTotal = unpaidOrders.reduce((s, o) => s + o.totalAmount, 0)
+
+  const tomorrowActions: string[] = []
+  if (pending > 0) tomorrowActions.push(`${pending} pending order(s) to confirm or pack`)
+  if (unpaidCount > 0) tomorrowActions.push(`${unpaidCount} unpaid order(s) to follow up`)
+  if (dispatched > 0) tomorrowActions.push(`Confirm delivery for ${dispatched} dispatched order(s)`)
+  if (lowStock.length > 0) tomorrowActions.push(`${lowStock.length} low-stock item(s) for packing`)
+
+  const needsAttention = pending > 0 || unpaidCount > 0 || cancelled > 0
+
+  return {
+    scope: 'sales' as const,
+    date: todayStart.toISOString().slice(0, 10),
+    generatedAt: new Date().toISOString(),
+    orders: {
+      totalToday: orderRows.length,
+      pending,
+      confirmed,
+      dispatched,
+      delivered,
+      cancelled,
+      revenueToday,
+      currency,
+      unpaidCount,
+      unpaidTotal,
+      items: orderRows.slice(0, 10).map((o) => ({
+        id: o.id,
+        customerName: o.customerName,
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        totalAmount: o.totalAmount,
+        currency: o.currency,
+      })),
+      unpaid: unpaidOrders.map((o) => ({
+        id: o.id,
+        customerName: o.customerName,
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        totalAmount: o.totalAmount,
+        currency: o.currency,
+      })),
+    },
+    inventory: {
+      lowStockCount: lowStock.length,
+      lowStockItems: lowStock,
+    },
+    tomorrowActions,
+    status: needsAttention ? ('needs_attention' as const) : ('clear' as const),
+  }
+}
+
+// GET /api/day-close — owner/supervisor farm close; sales get sales-scoped close
 dayCloseRoutes.get('/', async (c) => {
   const user = c.get('user')
   if (user.role === 'field_worker') {
@@ -37,6 +173,11 @@ dayCloseRoutes.get('/', async (c) => {
   }
 
   const farmId = user.farmId
+
+  if (user.role === 'sales') {
+    return c.json(await salesDayClose(farmId))
+  }
+
   const todayStart = startOfToday()
   const tomorrowStart = startOfTomorrow()
 
@@ -49,7 +190,6 @@ dayCloseRoutes.get('/', async (c) => {
     inventoryMovementsToday,
     expensesToday,
   ] = await Promise.all([
-    // Task completion summary for today
     db
       .select({
         status: tasks.status,
@@ -71,7 +211,6 @@ dayCloseRoutes.get('/', async (c) => {
       )
       .groupBy(tasks.status),
 
-    // Tasks awaiting approval
     db
       .select({
         id: tasks.id,
@@ -86,7 +225,6 @@ dayCloseRoutes.get('/', async (c) => {
       .where(and(eq(tasks.farmId, farmId), eq(tasks.status, 'awaiting_approval')))
       .orderBy(tasks.updatedAt),
 
-    // Overdue tasks (due today or earlier, not completed)
     db
       .select({
         id: tasks.id,
@@ -110,7 +248,6 @@ dayCloseRoutes.get('/', async (c) => {
       )
       .orderBy(tasks.dueDate),
 
-    // Low stock items
     db
       .select({
         id: inventoryItems.id,
@@ -129,7 +266,6 @@ dayCloseRoutes.get('/', async (c) => {
       )
       .orderBy(inventoryItems.quantity),
 
-    // Mortality logs today
     db
       .select({
         id: livestockLogs.id,
@@ -149,7 +285,6 @@ dayCloseRoutes.get('/', async (c) => {
         ),
       ),
 
-    // Inventory movements today
     db
       .select({
         id: inventoryMovements.id,
@@ -170,7 +305,6 @@ dayCloseRoutes.get('/', async (c) => {
       .orderBy(desc(inventoryMovements.createdAt))
       .limit(20),
 
-    // Expenses today
     db
       .select({
         id: expenses.id,
@@ -190,7 +324,6 @@ dayCloseRoutes.get('/', async (c) => {
       ),
   ])
 
-  // Build task status map
   const taskCounts: Record<string, number> = {}
   for (const row of taskSummary) {
     taskCounts[row.status] = Number(row.cnt)
@@ -205,7 +338,6 @@ dayCloseRoutes.get('/', async (c) => {
   const totalExpenses = expensesToday.reduce((sum, e) => sum + (e.amount ?? 0), 0)
   const currency = expensesToday[0]?.currency ?? 'NGN'
 
-  // Tomorrow's checklist - carry-forward overdue + pending approvals
   const tomorrowActions: string[] = []
   if (overdueTasks.length > 0) {
     tomorrowActions.push(`${overdueTasks.length} overdue task(s) to reschedule or follow up`)
@@ -221,6 +353,7 @@ dayCloseRoutes.get('/', async (c) => {
   }
 
   return c.json({
+    scope: 'farm' as const,
     date: todayStart.toISOString().slice(0, 10),
     generatedAt: new Date().toISOString(),
     tasks: {

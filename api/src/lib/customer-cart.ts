@@ -123,6 +123,19 @@ export function orderStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status
 }
 
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  unpaid: 'Unpaid',
+  paid: 'Paid',
+  not_required: 'COD',
+  refund_pending: 'Refund pending',
+  refunded: 'Refunded',
+  partially_refunded: 'Partially refunded',
+}
+
+export function paymentStatusLabel(status: string): string {
+  return PAYMENT_STATUS_LABELS[status] ?? status
+}
+
 /** Parse `Delivery: …` from staff/order notes. */
 export function parseDeliveryAddress(notes: string | null | undefined): string | null {
   if (!notes?.trim()) return null
@@ -160,7 +173,7 @@ export function formatOrderConfirmPrompt(draft: OrderDraft, cartSummary: string)
     `Phone: ${draft.phone ?? '-'}`,
     `Deliver to: ${draft.address ?? '-'}`,
     '',
-    'Reply YES to place the order (pay on delivery), or "cancel".',
+    'Reply YES to place the order, or "cancel".',
   ].join('\n')
 }
 

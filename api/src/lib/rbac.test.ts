@@ -3,6 +3,7 @@ import {
   canAccessFinance,
   canApproveTasks,
   canAssignTasks,
+  canViewAttendanceRoster,
   hasRole,
   requireRole,
 } from './rbac.js'
@@ -59,9 +60,19 @@ describe('canApproveTasks', () => {
 })
 
 describe('canAccessFinance', () => {
-  it('allows owner only', () => {
+  it('allows owner and sales', () => {
     expect(canAccessFinance(user('owner'))).toBe(true)
+    expect(canAccessFinance(user('sales'))).toBe(true)
     expect(canAccessFinance(user('supervisor'))).toBe(false)
     expect(canAccessFinance(user('field_worker'))).toBe(false)
+  })
+})
+
+describe('canViewAttendanceRoster', () => {
+  it('allows owner and supervisor only', () => {
+    expect(canViewAttendanceRoster(user('owner'))).toBe(true)
+    expect(canViewAttendanceRoster(user('supervisor'))).toBe(true)
+    expect(canViewAttendanceRoster(user('sales'))).toBe(false)
+    expect(canViewAttendanceRoster(user('field_worker'))).toBe(false)
   })
 })

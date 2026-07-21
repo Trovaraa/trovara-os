@@ -253,19 +253,19 @@ export function customerLocationReply(
 
 export function customerDeliveryReply(locale: ReplyLocale): string {
   return pick(locale, {
-    en: 'We deliver to your address. After you order, we call to confirm, then deliver. Payment is on delivery.',
-    fr: 'Nous livrons à votre adresse. Après votre commande, nous appelons pour confirmer, puis nous livrons. Paiement à la livraison.',
-    yo: 'A máa mú ọjà wá sí àdírẹ́sì rẹ. Lẹ́yìn òrder, a máa pè ọ́ láti jẹ́rìí, lẹ́yìn náà a óò fi ránṣẹ́. San owó nígbà tí a bá dé.',
-    pcm: 'We go deliver to your address. After you order, we go call to confirm, then deliver. Payment na on delivery.',
+    en: 'We deliver to your address. After you order, we call to confirm, then deliver. Pay online via the link we send when prices are set, or pay on delivery otherwise.',
+    fr: 'Nous livrons à votre adresse. Après votre commande, nous appelons pour confirmer, puis nous livrons. Payez en ligne via le lien envoyé lorsque les prix sont fixés, ou à la livraison sinon.',
+    yo: 'A máa mú ọjà wá sí àdírẹ́sì rẹ. Lẹ́yìn òrder, a máa pè ọ́ láti jẹ́rìí, lẹ́yìn náà a óò fi ránṣẹ́. San owó lórí ayélujára nípasẹ̀ ìjápọ̀ tí a ránṣẹ́ tí owó bá ti wà, tàbí nígbà tí a bá dé.',
+    pcm: 'We go deliver to your address. After you order, we go call to confirm, then deliver. Pay online with the link we send when price dey set, or pay on delivery if no link.',
   })
 }
 
 export function customerPaymentReply(locale: ReplyLocale): string {
   return pick(locale, {
-    en: 'Payment is on delivery for now (card/transfer coming soon).',
-    fr: 'Le paiement se fait à la livraison pour le moment (carte/virement bientôt).',
-    yo: 'San owó nígbà tí a bá dé fún báyìí (káàdì/títànṣẹ́ ń bọ̀).',
-    pcm: 'Payment na on delivery for now (card/transfer dey come soon).',
+    en: 'After you order, we send a Paystack payment link when all items have prices. Otherwise pay on delivery. Cancel within 24 hours with: cancel TRV-ORD-…',
+    fr: 'Après votre commande, nous envoyons un lien Paystack lorsque tous les articles ont un prix. Sinon, paiement à la livraison. Annulez sous 24 h avec : cancel TRV-ORD-…',
+    yo: 'Lẹ́yìn òrder, a máa fi ìjápọ̀ ìsanwó Paystack ránṣẹ́ tí gbogbo ọjà bá ní owó. Bí kò ṣe bẹ́ẹ̀, san nígbà tí a bá dé. Fagilé láàárín wákàtí 24 pẹ̀lú: cancel TRV-ORD-…',
+    pcm: 'After you order, we go send Paystack payment link when all items get price. If no price, pay on delivery. Cancel within 24 hours with: cancel TRV-ORD-…',
   })
 }
 

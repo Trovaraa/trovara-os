@@ -7,6 +7,8 @@ import {
   type WeatherDay,
 } from './weather-alerts.js'
 import { buildWeatherActions, type WeatherAction } from './weather-actions.js'
+import { resolveWeatherActions } from './weather-ai-actions.js'
+import { resolveStaffReplyLocale } from './reply-locale.js'
 
 export type { WeatherAlert, WeatherAlertType, WeatherDay } from './weather-alerts.js'
 export { buildWeatherAlerts } from './weather-alerts.js'
@@ -30,6 +32,8 @@ export type WeatherSnapshot = {
   daily: WeatherDay[]
   alerts: WeatherAlert[]
   actions: WeatherAction[]
+  actionsSource?: 'ai' | 'rules'
+  actionsLocale?: string
   message?: string
 }
 
@@ -38,6 +42,12 @@ type NormalizedForecast = {
   attribution: string
   current: NonNullable<WeatherSnapshot['current']>
   daily: WeatherDay[]
+}
+
+type CachedWeatherPayload = NormalizedForecast & {
+  actions?: WeatherAction[]
+  actionsSource?: 'ai' | 'rules'
+  actionsLocale?: string
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -68,15 +78,40 @@ function parseCoord(value: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function asNormalizedForecast(payload: CachedWeatherPayload): NormalizedForecast {
+  return {
+    provider: payload.provider,
+    attribution: payload.attribution,
+    current: payload.current,
+    daily: payload.daily,
+  }
+}
+
 function snapshotFromNormalized(
   status: WeatherSnapshot['status'],
   normalized: NormalizedForecast,
   fetchedAt: Date,
   timezone: string | null,
   locationLabel: string | null,
-  message?: string,
+  options?: {
+    message?: string
+    actions?: WeatherAction[]
+    actionsSource?: 'ai' | 'rules'
+    actionsLocale?: string
+    preferredLocale?: string | null
+  },
 ): WeatherSnapshot {
   const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh)
+  const locale = resolveStaffReplyLocale(options?.preferredLocale)
+  const cachedActionsOk =
+    Array.isArray(options?.actions) &&
+    options?.actionsSource === 'ai' &&
+    options?.actionsLocale === locale
+
+  const actions = cachedActionsOk
+    ? (options!.actions as WeatherAction[])
+    : buildWeatherActions(normalized.daily, normalized.current.windKmh, alerts)
+
   return {
     status,
     provider: normalized.provider,
@@ -87,9 +122,37 @@ function snapshotFromNormalized(
     current: normalized.current,
     daily: normalized.daily,
     alerts,
-    actions: buildWeatherActions(normalized.daily, normalized.current.windKmh, alerts),
-    message,
+    actions,
+    actionsSource: cachedActionsOk ? 'ai' : 'rules',
+    actionsLocale: locale,
+    message: options?.message,
   }
+}
+
+async function persistWeatherCache(
+  farmId: string,
+  payload: CachedWeatherPayload,
+  fetchedAt: Date,
+  expiresAt: Date,
+): Promise<void> {
+  await db
+    .insert(weatherCache)
+    .values({
+      farmId,
+      provider: payload.provider,
+      payload: payload as unknown as Record<string, unknown>,
+      fetchedAt,
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: weatherCache.farmId,
+      set: {
+        provider: payload.provider,
+        payload: payload as unknown as Record<string, unknown>,
+        fetchedAt,
+        expiresAt,
+      },
+    })
 }
 
 async function fetchOpenWeatherMap(lat: number, lon: number): Promise<NormalizedForecast> {
@@ -287,11 +350,19 @@ function emptySnapshot(
     daily: [],
     alerts: [],
     actions: [],
+    actionsSource: 'rules',
     message,
   }
 }
 
-export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
+export type GetFarmWeatherOptions = {
+  preferredLocale?: string | null
+}
+
+export async function getFarmWeather(
+  farmId: string,
+  options: GetFarmWeatherOptions = {},
+): Promise<WeatherSnapshot> {
   const [farm] = await db
     .select({
       location: farms.location,
@@ -309,6 +380,7 @@ export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
   const lon = parseCoord(farm.longitude)
   const timezone = farm.timezone?.trim() || 'Africa/Lagos'
   const locationLabel = farm.location
+  const preferredLocale = options.preferredLocale
 
   if (lat == null || lon == null) {
     return emptySnapshot(
@@ -337,13 +409,19 @@ export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
     .limit(1)
 
   if (cached && cached.expiresAt.getTime() > now) {
-    const payload = cached.payload as unknown as NormalizedForecast
+    const payload = cached.payload as unknown as CachedWeatherPayload
     return snapshotFromNormalized(
       'ok',
-      payload,
+      asNormalizedForecast(payload),
       cached.fetchedAt,
       timezone,
       locationLabel,
+      {
+        preferredLocale,
+        actions: payload.actions,
+        actionsSource: payload.actionsSource,
+        actionsLocale: payload.actionsLocale,
+      },
     )
   }
 
@@ -351,41 +429,84 @@ export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
     const normalized = await fetchNormalized(lat, lon, timezone)
     const fetchedAt = new Date()
     const expiresAt = new Date(fetchedAt.getTime() + cacheTtlMs())
+    // Fresh forecast: clear prior AI actions so the client can regenerate for this horizon.
+    const payload: CachedWeatherPayload = { ...normalized }
 
-    await db
-      .insert(weatherCache)
-      .values({
-        farmId,
-        provider: normalized.provider,
-        payload: normalized as unknown as Record<string, unknown>,
-        fetchedAt,
-        expiresAt,
-      })
-      .onConflictDoUpdate({
-        target: weatherCache.farmId,
-        set: {
-          provider: normalized.provider,
-          payload: normalized as unknown as Record<string, unknown>,
-          fetchedAt,
-          expiresAt,
-        },
-      })
+    await persistWeatherCache(farmId, payload, fetchedAt, expiresAt)
 
-    return snapshotFromNormalized('ok', normalized, fetchedAt, timezone, locationLabel)
+    return snapshotFromNormalized('ok', normalized, fetchedAt, timezone, locationLabel, {
+      preferredLocale,
+    })
   } catch (err) {
     if (cached && now - cached.fetchedAt.getTime() <= staleMaxMs()) {
-      const payload = cached.payload as unknown as NormalizedForecast
+      const payload = cached.payload as unknown as CachedWeatherPayload
       return snapshotFromNormalized(
         'stale',
-        payload,
+        asNormalizedForecast(payload),
         cached.fetchedAt,
         timezone,
         locationLabel,
-        'Showing cached weather — live fetch failed.',
+        {
+          message: 'Showing cached weather — live fetch failed.',
+          preferredLocale,
+          actions: payload.actions,
+          actionsSource: payload.actionsSource,
+          actionsLocale: payload.actionsLocale,
+        },
       )
     }
 
     const message = err instanceof Error ? err.message : 'Weather unavailable'
     return emptySnapshot('unavailable', message, locationLabel, timezone)
+  }
+}
+
+/**
+ * Force AI (or rules fallback) weather actions for the farm's cached forecast.
+ * Updates weather_cache actions fields without refetching the provider.
+ */
+export async function regenerateWeatherActions(
+  farmId: string,
+  preferredLocale?: string | null,
+): Promise<{
+  actions: WeatherAction[]
+  actionsSource: 'ai' | 'rules'
+  actionsLocale: string
+  alerts: WeatherAlert[]
+} | null> {
+  const [cached] = await db
+    .select()
+    .from(weatherCache)
+    .where(eq(weatherCache.farmId, farmId))
+    .limit(1)
+
+  if (!cached) return null
+
+  const payload = cached.payload as unknown as CachedWeatherPayload
+  const normalized = asNormalizedForecast(payload)
+  if (!normalized.current || !normalized.daily?.length) return null
+
+  const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh)
+  const resolved = await resolveWeatherActions(farmId, normalized, alerts, preferredLocale)
+
+  const nextPayload: CachedWeatherPayload = {
+    ...normalized,
+    actions: resolved.actions,
+    actionsSource: resolved.source,
+    actionsLocale: resolved.locale,
+  }
+
+  await db
+    .update(weatherCache)
+    .set({
+      payload: nextPayload as unknown as Record<string, unknown>,
+    })
+    .where(eq(weatherCache.farmId, farmId))
+
+  return {
+    actions: resolved.actions,
+    actionsSource: resolved.source,
+    actionsLocale: resolved.locale,
+    alerts,
   }
 }

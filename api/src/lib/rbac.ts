@@ -19,7 +19,12 @@ export function requireRole(user: SessionUser, ...roles: UserRole[]): void {
 }
 
 export function canAccessFinance(user: SessionUser): boolean {
-  return user.role === 'owner'
+  return user.role === 'owner' || user.role === 'sales'
+}
+
+/** Farm-wide attendance roster (not own clock-in). */
+export function canViewAttendanceRoster(user: SessionUser): boolean {
+  return user.role === 'owner' || user.role === 'supervisor'
 }
 
 export function canApproveTasks(user: SessionUser): boolean {

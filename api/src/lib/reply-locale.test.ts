@@ -39,7 +39,7 @@ describe('normalizeLocaleHint', () => {
 
 describe('localized fallbacks', () => {
   it('returns French payment FAQ copy', () => {
-    expect(customerPaymentReply('fr')).toMatch(/livraison/i)
+    expect(customerPaymentReply('fr')).toMatch(/Paystack|livraison/i)
   })
 
   it('returns French web Copilot offline message', () => {

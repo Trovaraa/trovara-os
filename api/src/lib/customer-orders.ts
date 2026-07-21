@@ -28,6 +28,7 @@ import {
   isChangeDetailsIntent,
   orderReference,
   orderStatusLabel,
+  paymentStatusLabel,
   parseChoice,
   parseDeliveryAddress,
   type CartLine,
@@ -44,6 +45,11 @@ import {
 import { validateCustomerOrder } from './order-abuse-controls.js'
 import { logSecurityEvent } from './security-log.js'
 import { createHarvestLotForOrder } from './harvest-lots.js'
+import {
+  createPaymentAttemptForOrder,
+  requestCustomerCancel,
+} from './order-payments.js'
+import { isPaystackConfigured } from './paystack.js'
 
 export { resolveCustomerFarm, upsertCustomerContact, advanceOrderConversation }
 
@@ -322,7 +328,13 @@ async function createOrderFromCart(params: {
   cart: CartLine[]
   draft: OrderDraft
   catalog: CatalogItem[]
-}): Promise<{ reference: string } | { error: string }> {
+}): Promise<
+  | {
+      reference: string
+      payment?: { authorizationUrl: string; amountKobo: number }
+    }
+  | { error: string }
+> {
   const abuse = await validateCustomerOrder({
     farmId: params.farmId,
     contactId: params.contactId,
@@ -461,6 +473,22 @@ async function createOrderFromCart(params: {
     console.error('Order staff-notify failed:', err instanceof Error ? err.message : err)
   }
 
+  const allPriced = items.length > 0 && items.every((i) => i.unitPriceKobo > 0) && totalKobo > 0
+  if (isPaystackConfigured() && allPriced) {
+    const pay = await createPaymentAttemptForOrder({
+      farmId: params.farmId,
+      orderId: order.id,
+      phone: params.draft.phone?.trim() || undefined,
+    })
+    if (!('error' in pay)) {
+      return {
+        reference,
+        payment: { authorizationUrl: pay.authorizationUrl, amountKobo: totalKobo },
+      }
+    }
+    console.error('Paystack payment link failed:', pay.error)
+  }
+
   return { reference }
 }
 
@@ -469,6 +497,7 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
     .select({
       id: orders.id,
       status: orders.status,
+      paymentStatus: orders.paymentStatus,
       totalAmount: orders.totalAmount,
       createdAt: orders.createdAt,
     })
@@ -481,7 +510,7 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
 
   const lines = rows.map((o) => {
     const when = new Date(o.createdAt).toLocaleDateString('en-NG')
-    return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} (${when})`
+    return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} · ${paymentStatusLabel(o.paymentStatus)} (${when})`
   })
   return `Your recent orders:\n\n${lines.join('\n')}`
 }
@@ -561,6 +590,23 @@ async function advanceOrderConversation(params: {
 
   const reset = async () => {
     await saveSession(farmId, channel, externalId, { step: 'idle', cart: [], draft: {} })
+  }
+
+  // Customer cancel: "cancel TRV-ORD-…" or "cancel <uuid>" — before bare "cancel" reset.
+  const cancelMatch = text.match(
+    /^cancel\s+(TRV-ORD-[A-Fa-f0-9]{6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+  )
+  if (cancelMatch) {
+    const result = await requestCustomerCancel({
+      farmId,
+      contactId: params.contactId,
+      orderIdOrRef: cancelMatch[1]!,
+    })
+    if (result.ok) {
+      await reset()
+      return result.message
+    }
+    return result.error
   }
 
   // Answer a free-text question, log it for Founder insights, then return to menu.
@@ -737,6 +783,18 @@ async function advanceOrderConversation(params: {
         })
         if ('error' in result) return result.error
         await reset()
+        if (result.payment) {
+          return [
+            `✅ Order placed! Your reference is ${result.reference}.`,
+            `We’ll call ${state.draft.phone ?? 'you'} to confirm delivery.`,
+            '',
+            `Pay now: ${result.payment.authorizationUrl}`,
+            `Amount: ${formatNaira(result.payment.amountKobo)}`,
+            `You can cancel within 24 hours with: cancel ${result.reference}`,
+            '',
+            'Reply "2" any time to track your order.',
+          ].join('\n')
+        }
         return [
           `✅ Order placed! Your reference is ${result.reference}.`,
           `We’ll call ${state.draft.phone ?? 'you'} to confirm delivery. Payment is on delivery.`,

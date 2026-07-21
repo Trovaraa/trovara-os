@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 
 type DashboardData = {
+  scope?: 'farm' | 'sales'
   farm: { name: string; location: string } | null
   summary: {
     tasksPending: number
@@ -17,6 +18,11 @@ type DashboardData = {
     plotCount: number
     lowStockCount: number
     pendingApprovals: number
+    ordersPending?: number
+    ordersConfirmed?: number
+    ordersDispatched?: number
+    ordersDelivered?: number
+    unpaidOrders?: number
   }
   alerts: { type: string; message: string }[]
   lowStockItems: { name: string; quantity: number; reorderLevel: number; unit: string }[]
@@ -36,6 +42,7 @@ type WorkerTodayData = {
 const auth = useAuthStore()
 const { t } = useI18n()
 const isWorker = computed(() => auth.user?.role === 'field_worker')
+const isSales = computed(() => auth.user?.role === 'sales')
 const isManager = computed(() => auth.user?.role === 'owner' || auth.user?.role === 'supervisor')
 
 const data = ref<DashboardData | null>(null)
@@ -57,12 +64,21 @@ onMounted(async () => {
   }
 })
 
-const statCards = [
+const farmStatCards = [
   { key: 'tasksPending', labelKey: 'dashboard.pendingTasks', color: 'text-amber-400', to: '/tasks' },
   { key: 'tasksInProgress', labelKey: 'dashboard.inProgress', color: 'text-blue-400', to: '/tasks' },
   { key: 'tasksAwaitingApproval', labelKey: 'dashboard.awaitingApproval', color: 'text-purple-400', to: '/tasks' },
   { key: 'tasksCompleted', labelKey: 'dashboard.completed', color: 'text-farm-green', to: '/tasks' },
 ] as const
+
+const salesStatCards = [
+  { key: 'ordersPending', labelKey: 'dashboard.ordersPending', color: 'text-orange-400', to: '/sales' },
+  { key: 'unpaidOrders', labelKey: 'dashboard.unpaidOrders', color: 'text-amber-400', to: '/sales' },
+  { key: 'ordersDispatched', labelKey: 'dashboard.ordersDispatched', color: 'text-sky-400', to: '/sales' },
+  { key: 'ordersDelivered', labelKey: 'dashboard.ordersDelivered', color: 'text-farm-green', to: '/sales' },
+] as const
+
+const statCards = computed(() => (isSales.value ? salesStatCards : farmStatCards))
 
 function alertText(alert: DashboardData['alerts'][number]): string {
   if (alert.type === 'low_stock') {
@@ -71,7 +87,18 @@ function alertText(alert: DashboardData['alerts'][number]): string {
   if (alert.type === 'approval') {
     return t('dashboard.approvalAlert', { count: data.value?.summary.pendingApprovals ?? 0 })
   }
+  if (alert.type === 'order_pending') {
+    return t('dashboard.orderPendingAlert', { count: data.value?.summary.ordersPending ?? 0 })
+  }
+  if (alert.type === 'unpaid_orders') {
+    return t('dashboard.unpaidAlert', { count: data.value?.summary.unpaidOrders ?? 0 })
+  }
   return alert.message
+}
+
+function summaryValue(key: string): number {
+  const s = data.value?.summary as Record<string, number> | undefined
+  return Number(s?.[key] ?? 0)
 }
 </script>
 
@@ -123,22 +150,24 @@ function alertText(alert: DashboardData['alerts'][number]): string {
       </div>
     </div>
 
-    <!-- Supervisor / owner: ops hub with Today emphasis -->
+    <!-- Supervisor / owner / sales hub -->
     <div v-else-if="data" class="relative z-0">
       <RouterLink
-        v-if="isManager"
+        v-if="isManager || isSales"
         to="/today"
         class="block mb-8 bg-farm-green/10 border border-farm-green/30 rounded-2xl p-5 transition-all hover:border-farm-green/50 hover:bg-farm-green/15 min-h-[44px]"
       >
         <p class="text-farm-green text-xs font-bold tracking-widest uppercase">{{ t('dashboard.startHere') }}</p>
         <p class="text-lg font-bold text-white mt-1">{{ t('dashboard.openToday') }}</p>
         <p class="text-sm text-slate-400 mt-1">
-          {{ t('dashboard.openTodaySubtitle') }}
+          {{ isSales ? t('dashboard.openTodaySalesSubtitle') : t('dashboard.openTodaySubtitle') }}
         </p>
       </RouterLink>
 
       <div>
-        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('dashboard.operationsHub') }}</p>
+        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">
+          {{ isSales ? t('dashboard.salesHub') : t('dashboard.operationsHub') }}
+        </p>
         <h2 class="text-3xl font-black text-white mt-1">
           {{ data.farm?.name ?? t('dashboard.farmFallback') }}
         </h2>
@@ -154,9 +183,11 @@ function alertText(alert: DashboardData['alerts'][number]): string {
         >
           <p class="text-xs text-slate-500 font-medium">{{ t(card.labelKey) }}</p>
           <p class="text-3xl font-black mt-1" :class="card.color">
-            {{ data.summary[card.key] }}
+            {{ summaryValue(card.key) }}
           </p>
-          <p class="text-xs text-slate-600 mt-2">{{ t('dashboard.viewTasks') }}</p>
+          <p class="text-xs text-slate-600 mt-2">
+            {{ isSales ? t('dashboard.viewSales') : t('dashboard.viewTasks') }}
+          </p>
         </RouterLink>
       </div>
 
@@ -181,7 +212,7 @@ function alertText(alert: DashboardData['alerts'][number]): string {
         </RouterLink>
 
         <RouterLink
-          to="/inventory"
+          :to="isSales ? '/sales' : '/inventory'"
           class="bg-slate-900 border border-slate-800 rounded-2xl p-6 block cursor-pointer transition-all hover:border-red-500/30 hover:bg-slate-800/80"
         >
           <h3 class="font-bold text-white mb-4">{{ t('dashboard.lowStock') }}</h3>
@@ -198,7 +229,9 @@ function alertText(alert: DashboardData['alerts'][number]): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('dashboard.allStockHealthy') }}</p>
-          <p v-if="data.lowStockItems.length" class="text-xs text-slate-600 mt-4">{{ t('dashboard.viewInventory') }}</p>
+          <p v-if="data.lowStockItems.length" class="text-xs text-slate-600 mt-4">
+            {{ isSales ? t('dashboard.viewSales') : t('dashboard.viewInventory') }}
+          </p>
         </RouterLink>
       </div>
     </div>

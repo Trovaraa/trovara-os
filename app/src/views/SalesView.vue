@@ -12,6 +12,11 @@ function statusLabel(status: string): string {
   return te(key) ? t(key) : status
 }
 
+function paymentStatusLabel(status: string): string {
+  const key = `sales.paymentStatus.${status}`
+  return te(key) ? t(key) : status.replaceAll('_', ' ')
+}
+
 type OrderItem = {
   productName: string
   unit: string
@@ -25,6 +30,7 @@ type Order = {
   customerName: string
   customerPhone?: string
   status: string
+  paymentStatus?: string
   totalAmount: number
   currency: string
   lotId?: string
@@ -38,6 +44,9 @@ type Order = {
   deliveryPhotoUrl?: string | null
   customerFeedback?: string | null
   customerFeedbackAt?: string | null
+  cancelledBy?: string | null
+  refundRequestedAt?: string | null
+  hasInvoice?: boolean
   createdAt: string
 }
 
@@ -81,6 +90,8 @@ const sourceColor: Record<string, string> = {
 const auth = useAuthStore()
 const orders = ref<Order[]>([])
 const loading = ref(true)
+const actionBusy = ref<string | null>(null)
+const actionMessage = ref<string | null>(null)
 
 function displayCustomerName(order: Order): string {
   if (order.customerName === '[redacted]') return 'Customer'
@@ -95,6 +106,15 @@ const statusColor: Record<string, string> = {
   cancelled: 'bg-red-900/50 text-red-300',
 }
 
+const paymentStatusColor: Record<string, string> = {
+  unpaid: 'bg-amber-900/50 text-amber-200',
+  paid: 'bg-farm-green/20 text-farm-green',
+  not_required: 'bg-slate-700/80 text-slate-400',
+  refunded: 'bg-slate-700 text-slate-300',
+  partially_refunded: 'bg-orange-900/40 text-orange-300',
+  refund_pending: 'bg-orange-900/50 text-orange-200',
+}
+
 const nextStatus: Record<string, { status: string; labelKey: string }> = {
   pending: { status: 'confirmed', labelKey: 'sales.confirm' },
   confirmed: { status: 'dispatched', labelKey: 'sales.dispatch' },
@@ -103,6 +123,23 @@ const nextStatus: Record<string, { status: string; labelKey: string }> = {
 
 function formatAmount(amount: number, currency: string) {
   return new Intl.NumberFormat('en-NG', { style: 'currency', currency }).format(amount)
+}
+
+function isUnpaid(order: Order): boolean {
+  return order.paymentStatus === 'unpaid'
+}
+
+function blocksFulfillment(order: Order, next: string): boolean {
+  return isUnpaid(order) && (next === 'dispatched' || next === 'delivered')
+}
+
+function canRefund(order: Order): boolean {
+  const ps = order.paymentStatus
+  return ps === 'paid' || ps === 'refund_pending' || ps === 'partially_refunded'
+}
+
+function canResendPayLink(order: Order): boolean {
+  return order.paymentStatus === 'unpaid'
 }
 
 async function load() {
@@ -118,11 +155,16 @@ async function load() {
 onMounted(load)
 
 async function updateStatus(id: string, status: string) {
-  await api(`/api/sales/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  })
-  await load()
+  actionMessage.value = null
+  try {
+    await api(`/api/sales/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
+    await load()
+  } catch (err) {
+    actionMessage.value = err instanceof Error ? err.message : 'Update failed'
+  }
 }
 
 async function cancelOrder(id: string) {
@@ -131,6 +173,69 @@ async function cancelOrder(id: string) {
     body: JSON.stringify({ status: 'cancelled' }),
   })
   await load()
+}
+
+async function resendPayLink(order: Order) {
+  actionBusy.value = `pay-${order.id}`
+  actionMessage.value = null
+  try {
+    const data = await api<{ authorizationUrl: string; reused?: boolean }>(
+      `/api/sales/${order.id}/resend-pay-link`,
+      { method: 'POST', body: '{}' },
+    )
+    try {
+      await navigator.clipboard.writeText(data.authorizationUrl)
+      actionMessage.value = `${t('sales.payLinkCopied')}: ${data.authorizationUrl}`
+    } catch {
+      actionMessage.value = `${t('sales.payLink')}: ${data.authorizationUrl}`
+    }
+  } catch (err) {
+    actionMessage.value = err instanceof Error ? err.message : t('sales.payLinkFailed')
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+async function verifyPayment(order: Order) {
+  actionBusy.value = `verify-${order.id}`
+  actionMessage.value = null
+  try {
+    await api(`/api/sales/${order.id}/verify-payment`, { method: 'POST', body: '{}' })
+    actionMessage.value = t('sales.paymentVerified')
+    await load()
+  } catch (err) {
+    actionMessage.value = err instanceof Error ? err.message : t('sales.verifyFailed')
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+async function refundOrder(order: Order) {
+  const ok = window.confirm(t('sales.refundConfirm'))
+  if (!ok) return
+
+  const reason = window.prompt(t('sales.refundReasonPrompt'), t('sales.refundReasonDefault'))
+  if (reason == null) return
+  const trimmed = reason.trim()
+  if (!trimmed) {
+    actionMessage.value = t('sales.refundReasonRequired')
+    return
+  }
+
+  actionBusy.value = `refund-${order.id}`
+  actionMessage.value = null
+  try {
+    await api(`/api/sales/${order.id}/refund`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: trimmed }),
+    })
+    actionMessage.value = t('sales.refundStarted')
+    await load()
+  } catch (err) {
+    actionMessage.value = err instanceof Error ? err.message : t('sales.refundFailed')
+  } finally {
+    actionBusy.value = null
+  }
 }
 
 const profile = ref<CustomerProfile | null>(null)
@@ -161,6 +266,13 @@ function closeCustomer() {
       <p class="text-slate-400 text-sm mt-1">{{ t('sales.subtitle') }}</p>
     </div>
 
+    <p
+      v-if="actionMessage"
+      class="mt-4 text-sm text-amber-200/90 bg-amber-950/40 border border-amber-900/50 rounded-lg px-3 py-2"
+    >
+      {{ actionMessage }}
+    </p>
+
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('sales.loading') }}</div>
 
     <div v-else-if="!orders.length" class="mt-8 text-slate-500 text-sm">{{ t('sales.noOrders') }}</div>
@@ -169,7 +281,12 @@ function closeCustomer() {
       <div
         v-for="order in orders"
         :key="order.id"
-        class="bg-slate-900 border border-slate-800 rounded-xl p-5"
+        class="bg-slate-900 border rounded-xl p-5"
+        :class="
+          order.refundRequestedAt
+            ? 'border-orange-700/70 ring-1 ring-orange-800/40'
+            : 'border-slate-800'
+        "
       >
         <div class="flex items-start justify-between gap-4">
           <div>
@@ -182,12 +299,34 @@ function closeCustomer() {
               >
                 {{ sourceText(order.source) }}
               </span>
+              <span
+                v-if="order.paymentStatus && order.paymentStatus !== 'not_required'"
+                class="text-[10px] font-bold px-2 py-0.5 rounded-full capitalize"
+                :class="paymentStatusColor[order.paymentStatus] ?? 'bg-slate-700 text-slate-300'"
+              >
+                {{ paymentStatusLabel(order.paymentStatus) }}
+              </span>
+              <span
+                v-else-if="order.paymentStatus === 'not_required'"
+                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                :class="paymentStatusColor.not_required"
+              >
+                {{ paymentStatusLabel('not_required') }}
+              </span>
             </div>
             <p v-if="order.reference" class="text-xs font-mono text-slate-500 mt-0.5">
               {{ order.reference }}
             </p>
             <p v-if="order.customerPhone" class="text-slate-400 text-sm mt-1">
               {{ order.customerPhone }}
+            </p>
+            <p
+              v-if="order.refundRequestedAt"
+              class="text-xs text-orange-300 mt-1 font-semibold"
+            >
+              {{ t('sales.refundRequested') }}
+              {{ new Date(order.refundRequestedAt).toLocaleString() }}
+              <span v-if="order.cancelledBy"> · {{ order.cancelledBy }}</span>
             </p>
             <p class="text-lg font-mono text-farm-gold mt-2">
               <template v-if="order.totalAmount > 0">
@@ -238,12 +377,18 @@ function closeCustomer() {
         </div>
 
         <div
-          v-if="auth.canManageOrders && (nextStatus[order.status] || order.status === 'pending' || order.status === 'confirmed')"
+          v-if="auth.canManageOrders"
           class="flex flex-wrap gap-2 mt-4"
         >
           <button
             v-if="nextStatus[order.status]"
-            class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
+            class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="blocksFulfillment(order, nextStatus[order.status].status)"
+            :title="
+              blocksFulfillment(order, nextStatus[order.status].status)
+                ? t('sales.unpaidBlocksFulfillment')
+                : undefined
+            "
             @click="updateStatus(order.id, nextStatus[order.status].status)"
           >
             {{ t(nextStatus[order.status].labelKey) }}
@@ -256,7 +401,47 @@ function closeCustomer() {
             {{ t('sales.cancel') }}
           </button>
           <button
-            v-if="order.customerContactId && auth.canManageOrders"
+            v-if="canResendPayLink(order)"
+            class="text-xs px-3 py-1.5 rounded-lg bg-sky-900/40 text-sky-300 hover:bg-sky-900/60 disabled:opacity-50"
+            :disabled="actionBusy === `pay-${order.id}`"
+            @click="resendPayLink(order)"
+          >
+            {{ t('sales.resendPayLink') }}
+          </button>
+          <button
+            v-if="order.paymentStatus === 'unpaid'"
+            class="text-xs px-3 py-1.5 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 disabled:opacity-50"
+            :disabled="actionBusy === `verify-${order.id}`"
+            @click="verifyPayment(order)"
+          >
+            {{ t('sales.verifyPayment') }}
+          </button>
+          <button
+            v-if="canRefund(order)"
+            class="text-xs px-3 py-1.5 rounded-lg bg-orange-900/40 text-orange-300 hover:bg-orange-900/60 disabled:opacity-50"
+            :disabled="actionBusy === `refund-${order.id}`"
+            @click="refundOrder(order)"
+          >
+            {{ t('sales.refund') }}
+          </button>
+          <a
+            v-if="order.hasInvoice"
+            :href="`/api/sales/${order.id}/invoice`"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            {{ t('sales.openInvoice') }}
+          </a>
+          <a
+            v-if="order.hasInvoice"
+            :href="`/api/sales/${order.id}/invoice/pdf`"
+            class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            {{ t('sales.downloadPdf') }}
+          </a>
+          <button
+            v-if="order.customerContactId"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
             @click="openCustomer(order.customerContactId!)"
           >
@@ -350,6 +535,13 @@ function closeCustomer() {
                     <p class="text-farm-gold font-mono mt-0.5">
                       {{ formatAmount(o.totalAmount, o.currency) }}
                     </p>
+                    <span
+                      v-if="o.paymentStatus"
+                      class="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full capitalize"
+                      :class="paymentStatusColor[o.paymentStatus] ?? 'bg-slate-700 text-slate-300'"
+                    >
+                      {{ paymentStatusLabel(o.paymentStatus) }}
+                    </span>
                   </div>
                   <span
                     class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"

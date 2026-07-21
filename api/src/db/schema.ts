@@ -47,6 +47,14 @@ export const orderStatusEnum = pgEnum('order_status', [
   'delivered',
   'cancelled',
 ])
+export const paymentStatusEnum = pgEnum('payment_status', [
+  'unpaid',
+  'paid',
+  'not_required',
+  'refunded',
+  'partially_refunded',
+  'refund_pending',
+])
 export const expenseCategoryEnum = pgEnum('expense_category', [
   'inputs',
   'labour',
@@ -537,6 +545,8 @@ export const orders = pgTable('orders', {
   customerName: text('customer_name').notNull(),
   customerPhone: text('customer_phone'),
   status: orderStatusEnum('status').default('pending').notNull(),
+  // Existing rows default to not_required; paid-path orders set unpaid at create.
+  paymentStatus: paymentStatusEnum('payment_status').default('not_required').notNull(),
   totalAmount: integer('total_amount').default(0).notNull(),
   currency: text('currency').default('NGN').notNull(),
   lotId: uuid('lot_id').references(() => harvestLots.id),
@@ -550,6 +560,9 @@ export const orders = pgTable('orders', {
   customerFeedback: text('customer_feedback'),
   customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
   feedbackRequestedAt: timestamp('feedback_requested_at', { withTimezone: true }),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelledBy: text('cancelled_by'),
+  refundRequestedAt: timestamp('refund_requested_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -596,6 +609,78 @@ export const orderItems = pgTable('order_items', {
   quantity: integer('quantity').notNull(),
   lineTotalKobo: integer('line_total_kobo').default(0).notNull(),
 })
+
+// Paystack (and future providers) payment attempts for an order. Status is kept
+// separate from fulfilment (`orders.status`). Amounts are always kobo.
+export const paymentAttempts = pgTable(
+  'payment_attempts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    provider: text('provider').default('paystack').notNull(),
+    providerReference: text('provider_reference').notNull().unique(),
+    accessCode: text('access_code'),
+    amountKobo: integer('amount_kobo').notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    // initiated | success | failed | abandoned
+    status: text('status').default('initiated').notNull(),
+    providerEventId: text('provider_event_id'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  },
+  (t) => [index('payment_attempts_order_id_idx').on(t.orderId)],
+)
+
+// Immutable invoice snapshot for an order (printable / public link).
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    invoiceNumber: text('invoice_number').notNull(),
+    snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    amountKobo: integer('amount_kobo').notNull(),
+    publicToken: text('public_token').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('invoices_order_id_idx').on(t.orderId)],
+)
+
+// One receipt per successful payment attempt, linked to its invoice.
+export const paymentReceipts = pgTable('payment_receipts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+  paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id).notNull(),
+  receiptNumber: text('receipt_number').notNull(),
+  amountKobo: integer('amount_kobo').notNull(),
+  paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
+  publicToken: text('public_token').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const paymentRefunds = pgTable(
+  'payment_refunds',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    amountKobo: integer('amount_kobo').notNull(),
+    providerRefundId: text('provider_refund_id'),
+    // pending | success | failed
+    status: text('status').default('pending').notNull(),
+    reason: text('reason'),
+    createdById: uuid('created_by_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('payment_refunds_order_id_idx').on(t.orderId)],
+)
 
 // Ephemeral shopping-cart / conversation state for a customer chat. One row per
 // (farm, channel, external_id); rewritten as the buyer moves through the flow.
@@ -810,3 +895,10 @@ export const telegramProcessedUpdates = pgTable(
 export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
 export type PreferredLocale = 'en' | 'yo' | 'pcm' | 'fr'
 export type TaskStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'completed' | 'rejected'
+export type PaymentStatus =
+  | 'unpaid'
+  | 'paid'
+  | 'not_required'
+  | 'refunded'
+  | 'partially_refunded'
+  | 'refund_pending'
