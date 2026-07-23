@@ -8,14 +8,16 @@
 #   3. rsync the built frontend into the nginx web root
 #   4. restart the systemd API service
 #   5. health-check the API
+#   6. pull encrypted backups to this computer (default; --skip-pull-backups to disable)
 #
 # Usage:
-#   ./deploy.sh                 # full deploy (install, migrate, build, restart)
+#   ./deploy.sh                 # full deploy (install, migrate, build, restart, pull backups)
 #   ./deploy.sh --catalog       # also run sync-catalog (when farm-knowledge changed)
 #   ./deploy.sh --skip-install  # skip npm ci (no lockfile change)
 #   ./deploy.sh --skip-migrate  # skip db:migrate (no new migrations)
 #   ./deploy.sh --skip-backup   # disposable/demo DB only; never use with real data
-#   ./deploy.sh --pull-backups  # after success, copy encrypted backups to this computer
+#   ./deploy.sh --skip-pull-backups  # keep server backup only (do not copy to this computer)
+#   ./deploy.sh --pull-backups  # (default) copy encrypted backups to this computer after success
 #   ./deploy.sh --install-backup-timers  # enable nightly backup + weekly restore test
 #
 # Config: create a gitignored .env.deploy next to this script:
@@ -76,7 +78,8 @@ RUN_CATALOG=0
 SKIP_INSTALL=0
 SKIP_MIGRATE=0
 SKIP_BACKUP=0
-PULL_BACKUPS=0
+# Default on: after a successful deploy, copy encrypted backups to this computer.
+PULL_BACKUPS=1
 INSTALL_BACKUP_TIMERS=0
 for arg in "$@"; do
   case "$arg" in
@@ -84,16 +87,17 @@ for arg in "$@"; do
     --skip-install) SKIP_INSTALL=1 ;;
     --skip-migrate) SKIP_MIGRATE=1 ;;
     --skip-backup) SKIP_BACKUP=1 ;;
+    --skip-pull-backups) PULL_BACKUPS=0 ;;
     --pull-backups) PULL_BACKUPS=1 ;;
     --install-backup-timers) INSTALL_BACKUP_TIMERS=1 ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ "$PULL_BACKUPS" -eq 1 && "$SKIP_BACKUP" -eq 1 ]]; then
-  echo "ERROR: --pull-backups cannot be combined with --skip-backup" >&2
-  exit 1
+  echo "NOTE: --skip-backup also skips local backup pull (use scripts/pull-production-backups.sh to copy existing artifacts)."
+  PULL_BACKUPS=0
 fi
 
 SSH="ssh -p $SSH_PORT"
@@ -258,11 +262,17 @@ REMOTE
 $SCP -q "$REMOTE_RUNNER" "$VM_HOST:/tmp/trovara-deploy-remote.sh"
 $SSH -t "$VM_HOST" 'bash /tmp/trovara-deploy-remote.sh; rc=$?; rm -f /tmp/trovara-deploy-remote.sh; exit $rc'
 
-if [[ "$PULL_BACKUPS" -eq 1 ]]; then
+pull_local_backups() {
   echo "==> Pulling encrypted backup artifacts to $LOCAL_BACKUP_DIR"
   REMOTE_BACKUP_DIR="$REMOTE_BACKUP_DIR" \
     LOCAL_BACKUP_DIR="$LOCAL_BACKUP_DIR" \
     "$SCRIPT_DIR/scripts/pull-production-backups.sh"
+}
+
+if [[ "$PULL_BACKUPS" -eq 1 ]]; then
+  pull_local_backups
+else
+  echo "==> Skipping local backup pull"
 fi
 
 echo ""
