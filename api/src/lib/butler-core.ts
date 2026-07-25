@@ -5,6 +5,7 @@ import type { SessionUser } from './session.js'
 import { recordFarmEvent } from './farm-events.js'
 import { buildFarmContext } from './farm-context.js'
 import { buildButlerPrompt, buildVisualDiagnosisPrompt } from './ai-advisor.js'
+import { ensureAdvisoryClose } from './advisory-close.js'
 import { sanitizeForLlm } from './sanitize-input.js'
 import {
   completeChatHistory,
@@ -172,7 +173,7 @@ export async function answerPhoto(
       `Farmer note: ${safeCaption || 'none'}. Diagnose what you see in this photo.`,
       [imageDataUrl],
     )
-    return text
+    return ensureAdvisoryClose(text, locale, 'general')
   } catch {
     return butlerPhotoFailedMessage(locale)
   }

@@ -61,7 +61,7 @@ export const ORDER_STAFF_ROLES: UserRole[] = ['owner', 'supervisor', 'sales']
 export const ORDER_ALERT_ALWAYS_ROLES: UserRole[] = ['supervisor', 'sales']
 
 /**
- * Roles that always receive field-worker alerts (task done → awaiting approval, urgent reports).
- * Owner is separate (opt-in via users.worker_alerts_subscribed).
+ * Roles that always receive field-worker alerts (task done → awaiting approval,
+ * urgent reports, clock-in). Owner is separate (opt-in via users.worker_alerts_subscribed).
  */
 export const WORKER_ALERT_ALWAYS_ROLES: UserRole[] = ['supervisor']

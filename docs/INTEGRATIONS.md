@@ -19,7 +19,8 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD` |
 | WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` |
 | Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` |
-| LLM | AI briefing / incidents | `OPENAI_API_KEY` or `LLM_*` |
+| LLM | AI briefing / incidents / Advisory fallback | `OPENAI_API_KEY` or `LLM_*` |
+| Marketplace search | Trovara OS Advisory product links | `MARKETPLACE_SEARCH_API_KEY`, `MARKETPLACE_SEARCH_PROVIDER` |
 | Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
 | Backup | `scripts/backup-db.sh` | `BACKUP_DIR`, `BACKUP_GPG_PASSPHRASE`, `PGHOST`, `PGPORT` (optional) |
 
@@ -33,6 +34,11 @@ Staff alerts fan out on Telegram and WhatsApp:
 | Worker alerts (task awaiting approval, urgent field messages) | Supervisor | `worker_alerts_subscribed` |
 
 See [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) and [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
+
+### Trovara OS Advisory
+
+Stage/weather rules create recommendations (now → next → safe inputs → notify roles). Product links use SerpAPI when `MARKETPLACE_SEARCH_API_KEY` is set; otherwise the LLM suggests local product types (no invented URLs). Cron `POST /api/alerts/run-proactive` also runs the advisory engine; or call `POST /api/advisory/run`.
+
 ---
 
 ## 1. Meta WhatsApp Cloud API

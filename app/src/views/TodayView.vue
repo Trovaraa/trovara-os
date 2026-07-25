@@ -90,6 +90,20 @@ type TodayData = {
   actionList: ActionItem[]
   summary: ExceptionSummary
   weather?: WeatherSnapshot
+  advisory?: {
+    subject: {
+      id: string
+      label: string
+      kind: string
+      daysUntilNextHint: number | null
+      nextHint: string | null
+    } | null
+    recommendation: {
+      id: string
+      payload: { happeningNow: string; whatNext: string }
+    } | null
+    openCount: number
+  } | null
   myTasksToday?: {
     id: string
     title: string
@@ -455,6 +469,40 @@ function formatCurrency(amount: number, currency: string) {
           }}
         </p>
       </div>
+
+      <!-- Trovara OS Advisory teaser -->
+      <section
+        v-if="!isSales && data.advisory !== undefined"
+        class="mt-6 rounded-2xl border border-teal-800/50 bg-gradient-to-br from-teal-950/80 to-slate-900 p-5"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p class="text-teal-300 text-xs font-bold tracking-widest uppercase">{{ t('advisory.todayTeaser') }}</p>
+            <p v-if="data.advisory?.recommendation" class="text-white font-semibold mt-2">
+              {{ data.advisory.recommendation.payload.happeningNow }}
+            </p>
+            <p v-else-if="data.advisory?.subject?.nextHint" class="text-white font-semibold mt-2">
+              <template v-if="data.advisory.subject.daysUntilNextHint != null">
+                {{ t('advisory.daysUntil', { n: data.advisory.subject.daysUntilNextHint }) }} —
+              </template>
+              {{ data.advisory.subject.nextHint }}
+            </p>
+            <p v-else class="text-slate-400 text-sm mt-2">{{ t('advisory.todayEmpty') }}</p>
+            <p
+              v-if="data.advisory?.recommendation"
+              class="text-slate-300 text-sm mt-1"
+            >
+              {{ data.advisory.recommendation.payload.whatNext }}
+            </p>
+          </div>
+          <RouterLink
+            to="/advisory"
+            class="rounded-full bg-teal-600 px-4 py-2 text-sm font-bold text-white min-h-[40px] inline-flex items-center"
+          >
+            {{ t('advisory.todayOpen') }}
+          </RouterLink>
+        </div>
+      </section>
 
       <!-- Attendance -->
       <section v-if="showAttendance" class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">

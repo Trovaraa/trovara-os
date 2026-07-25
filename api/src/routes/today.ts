@@ -5,6 +5,7 @@ import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { gatherExceptions, gatherWorkerTodayTasks } from '../lib/exceptions.js'
 import { getFarmWeather, regenerateWeatherActions } from '../lib/weather.js'
+import { listAdvisorySubjects, listRecommendationsForRole } from '../lib/advisory-engine.js'
 
 export const todayRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -79,6 +80,18 @@ todayRoutes.get('/', async (c) => {
   summary.weatherAlerts = weather.alerts.length
   summary.total = exceptions.length
 
+  const advisoryTeaser =
+    user.role === 'sales'
+      ? null
+      : await Promise.all([
+          listAdvisorySubjects(user.farmId),
+          listRecommendationsForRole(user.farmId, user.role, 3),
+        ]).then(([subjects, recommendations]) => ({
+          subject: subjects[0] ?? null,
+          recommendation: recommendations[0] ?? null,
+          openCount: recommendations.length,
+        }))
+
   if (user.role === 'field_worker') {
     const myTasksToday = await gatherWorkerTodayTasks(user)
     return c.json({
@@ -87,6 +100,7 @@ todayRoutes.get('/', async (c) => {
       actionList,
       summary,
       weather,
+      advisory: advisoryTeaser,
       myTasksToday: myTasksToday.map((t) => ({
         id: t.id,
         title: t.title,
@@ -104,6 +118,7 @@ todayRoutes.get('/', async (c) => {
     actionList,
     summary,
     weather,
+    advisory: advisoryTeaser,
   })
 })
 

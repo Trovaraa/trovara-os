@@ -3,6 +3,7 @@ import { db } from '../db/index.js'
 import { farms, weatherCache } from '../db/schema.js'
 import {
   buildWeatherAlerts,
+  formatLocalClockLabel,
   type WeatherAlert,
   type WeatherDay,
 } from './weather-alerts.js'
@@ -101,7 +102,7 @@ function snapshotFromNormalized(
     preferredLocale?: string | null
   },
 ): WeatherSnapshot {
-  const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh)
+  const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh, timezone ?? 'Africa/Lagos')
   const locale = resolveStaffReplyLocale(options?.preferredLocale)
   const cachedActionsOk =
     Array.isArray(options?.actions) &&
@@ -155,7 +156,11 @@ async function persistWeatherCache(
     })
 }
 
-async function fetchOpenWeatherMap(lat: number, lon: number): Promise<NormalizedForecast> {
+async function fetchOpenWeatherMap(
+  lat: number,
+  lon: number,
+  timezone: string,
+): Promise<NormalizedForecast> {
   const key = process.env.WEATHER_API_KEY?.trim()
   if (!key) throw new Error('WEATHER_API_KEY is required for openweathermap')
 
@@ -163,6 +168,7 @@ async function fetchOpenWeatherMap(lat: number, lon: number): Promise<Normalized
     process.env.WEATHER_API_BASE_URL?.trim() || 'https://api.openweathermap.org/data/2.5'
   const qs = `lat=${lat}&lon=${lon}&appid=${encodeURIComponent(key)}&units=metric`
   const timeout = AbortSignal.timeout(10_000)
+  const tz = timezone || 'Africa/Lagos'
 
   const [currentRes, forecastRes] = await Promise.all([
     fetch(`${base}/weather?${qs}`, { signal: timeout }),
@@ -196,11 +202,26 @@ async function fetchOpenWeatherMap(lat: number, lon: number): Promise<Normalized
 
   const byDay = new Map<
     string,
-    { mins: number[]; maxs: number[]; precip: number; pop: number; wind: number[]; conditions: string[] }
+    {
+      mins: number[]
+      maxs: number[]
+      precip: number
+      pop: number
+      wind: number[]
+      conditions: string[]
+      peakScore: number
+      peakPrecipAt: string | null
+    }
   >()
 
   for (const row of forecastJson.list ?? []) {
-    const date = new Date(row.dt * 1000).toISOString().slice(0, 10)
+    const at = new Date(row.dt * 1000)
+    const date = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(at)
     const bucket = byDay.get(date) ?? {
       mins: [],
       maxs: [],
@@ -208,11 +229,21 @@ async function fetchOpenWeatherMap(lat: number, lon: number): Promise<Normalized
       pop: 0,
       wind: [],
       conditions: [],
+      peakScore: -1,
+      peakPrecipAt: null,
     }
     if (row.main?.temp_min != null) bucket.mins.push(row.main.temp_min)
     if (row.main?.temp_max != null) bucket.maxs.push(row.main.temp_max)
-    bucket.precip += row.rain?.['3h'] ?? 0
-    bucket.pop = Math.max(bucket.pop, (row.pop ?? 0) * 100)
+    const slotMm = row.rain?.['3h'] ?? 0
+    const popPct = (row.pop ?? 0) * 100
+    bucket.precip += slotMm
+    // Prefer the 3h slot with the strongest rain signal (mm, then probability).
+    const score = slotMm * 10 + popPct
+    if (score > bucket.peakScore) {
+      bucket.peakScore = score
+      bucket.peakPrecipAt = at.toISOString()
+    }
+    bucket.pop = Math.max(bucket.pop, popPct)
     if (row.wind?.speed != null) bucket.wind.push(row.wind.speed * 3.6)
     const cond = row.weather?.[0]?.description
     if (cond) bucket.conditions.push(cond)
@@ -222,15 +253,20 @@ async function fetchOpenWeatherMap(lat: number, lon: number): Promise<Normalized
   const daily: WeatherDay[] = [...byDay.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 5)
-    .map(([date, b]) => ({
-      date,
-      tempMinC: Math.min(...b.mins),
-      tempMaxC: Math.max(...b.maxs),
-      precipMm: Math.round(b.precip * 10) / 10,
-      precipProb: Math.round(b.pop),
-      windKmh: b.wind.length ? Math.round(Math.max(...b.wind)) : 0,
-      condition: b.conditions[0] ?? '—',
-    }))
+    .map(([date, b]) => {
+      const peakAt = b.peakPrecipAt
+      return {
+        date,
+        tempMinC: Math.min(...(b.mins.length ? b.mins : [0])),
+        tempMaxC: Math.max(...(b.maxs.length ? b.maxs : [0])),
+        precipMm: Math.round(b.precip * 10) / 10,
+        precipProb: Math.round(b.pop),
+        windKmh: b.wind.length ? Math.round(Math.max(...b.wind)) : 0,
+        condition: b.conditions[0] ?? '—',
+        peakPrecipAt: peakAt,
+        peakPrecipLocal: peakAt ? formatLocalClockLabel(peakAt, tz) : null,
+      }
+    })
 
   return {
     provider: 'openweathermap',
@@ -259,6 +295,8 @@ async function fetchOpenMeteo(lat: number, lon: number, timezone: string): Promi
     current: 'temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code',
     daily:
       'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,weather_code',
+    hourly: 'precipitation,precipitation_probability',
+    forecast_days: '5',
     wind_speed_unit: 'kmh',
   })
 
@@ -282,17 +320,55 @@ async function fetchOpenMeteo(lat: number, lon: number, timezone: string): Promi
       wind_speed_10m_max?: number[]
       weather_code?: number[]
     }
+    hourly?: {
+      time?: string[]
+      precipitation?: number[]
+      precipitation_probability?: (number | null)[]
+    }
   }
 
-  const daily: WeatherDay[] = (json.daily?.time ?? []).slice(0, 5).map((date, i) => ({
-    date,
-    tempMinC: json.daily?.temperature_2m_min?.[i] ?? 0,
-    tempMaxC: json.daily?.temperature_2m_max?.[i] ?? 0,
-    precipMm: Math.round((json.daily?.precipitation_sum?.[i] ?? 0) * 10) / 10,
-    precipProb: json.daily?.precipitation_probability_max?.[i] ?? null,
-    windKmh: Math.round(json.daily?.wind_speed_10m_max?.[i] ?? 0),
-    condition: weatherCodeLabel(json.daily?.weather_code?.[i] ?? 0),
-  }))
+  const peakByDate = new Map<string, { score: number; at: string }>()
+  const hourlyTimes = json.hourly?.time ?? []
+  for (let i = 0; i < hourlyTimes.length; i++) {
+    const localStamp = hourlyTimes[i] // e.g. 2026-07-25T15:00
+    const date = localStamp.slice(0, 10)
+    const mm = json.hourly?.precipitation?.[i] ?? 0
+    const pop = json.hourly?.precipitation_probability?.[i] ?? 0
+    // Ignore empty hours so we don't pin "peak" to midnight.
+    if (mm <= 0 && (pop ?? 0) < 30) continue
+    const score = mm * 10 + (pop ?? 0)
+    const prev = peakByDate.get(date)
+    if (!prev || score > prev.score) {
+      const at = localStamp.length === 16 ? `${localStamp}:00` : localStamp
+      peakByDate.set(date, { score, at })
+    }
+  }
+
+  const daily: WeatherDay[] = (json.daily?.time ?? []).slice(0, 5).map((date, i) => {
+    const peak = peakByDate.get(date)
+    let peakPrecipLocal: string | null = null
+    if (peak?.at) {
+      // Format clock from the local wall-time stamp without shifting TZ twice.
+      const hourPart = peak.at.slice(11, 16) // HH:mm
+      const [hh, mm] = hourPart.split(':').map(Number)
+      if (Number.isFinite(hh)) {
+        const period = hh >= 12 ? 'PM' : 'AM'
+        const h12 = ((hh + 11) % 12) + 1
+        peakPrecipLocal = `around ${h12}:${String(mm || 0).padStart(2, '0')} ${period}`
+      }
+    }
+    return {
+      date,
+      tempMinC: json.daily?.temperature_2m_min?.[i] ?? 0,
+      tempMaxC: json.daily?.temperature_2m_max?.[i] ?? 0,
+      precipMm: Math.round((json.daily?.precipitation_sum?.[i] ?? 0) * 10) / 10,
+      precipProb: json.daily?.precipitation_probability_max?.[i] ?? null,
+      windKmh: Math.round(json.daily?.wind_speed_10m_max?.[i] ?? 0),
+      condition: weatherCodeLabel(json.daily?.weather_code?.[i] ?? 0),
+      peakPrecipAt: peak?.at ?? null,
+      peakPrecipLocal,
+    }
+  })
 
   return {
     provider: 'open-meteo',
@@ -330,7 +406,7 @@ async function fetchNormalized(
 ): Promise<NormalizedForecast> {
   const provider = providerName()
   if (provider === 'open-meteo') return fetchOpenMeteo(lat, lon, timezone)
-  return fetchOpenWeatherMap(lat, lon)
+  return fetchOpenWeatherMap(lat, lon, timezone)
 }
 
 function emptySnapshot(
@@ -357,6 +433,8 @@ function emptySnapshot(
 
 export type GetFarmWeatherOptions = {
   preferredLocale?: string | null
+  /** Bypass cache and fetch a fresh forecast (used for on-demand weather insights). */
+  forceRefresh?: boolean
 }
 
 export async function getFarmWeather(
@@ -408,19 +486,26 @@ export async function getFarmWeather(
     .where(eq(weatherCache.farmId, farmId))
     .limit(1)
 
-  if (cached && cached.expiresAt.getTime() > now) {
-    const payload = cached.payload as unknown as CachedWeatherPayload
+  const cacheFresh = Boolean(cached && cached.expiresAt.getTime() > now)
+  const cachedPayload = cached
+    ? (cached.payload as unknown as CachedWeatherPayload)
+    : null
+  const cachedHasPeakTiming = Boolean(
+    cachedPayload?.daily?.some((d) => d.peakPrecipLocal || d.peakPrecipAt),
+  )
+
+  if (cacheFresh && !options.forceRefresh && cachedHasPeakTiming) {
     return snapshotFromNormalized(
       'ok',
-      asNormalizedForecast(payload),
-      cached.fetchedAt,
+      asNormalizedForecast(cachedPayload!),
+      cached!.fetchedAt,
       timezone,
       locationLabel,
       {
         preferredLocale,
-        actions: payload.actions,
-        actionsSource: payload.actionsSource,
-        actionsLocale: payload.actionsLocale,
+        actions: cachedPayload!.actions,
+        actionsSource: cachedPayload!.actionsSource,
+        actionsLocale: cachedPayload!.actionsLocale,
       },
     )
   }
@@ -486,7 +571,16 @@ export async function regenerateWeatherActions(
   const normalized = asNormalizedForecast(payload)
   if (!normalized.current || !normalized.daily?.length) return null
 
-  const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh)
+  const [farm] = await db
+    .select({ timezone: farms.timezone })
+    .from(farms)
+    .where(eq(farms.id, farmId))
+    .limit(1)
+  const alerts = buildWeatherAlerts(
+    normalized.daily,
+    normalized.current.windKmh,
+    farm?.timezone?.trim() || 'Africa/Lagos',
+  )
   const resolved = await resolveWeatherActions(farmId, normalized, alerts, preferredLocale)
 
   const nextPayload: CachedWeatherPayload = {

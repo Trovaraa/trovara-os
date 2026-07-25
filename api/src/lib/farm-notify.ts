@@ -411,6 +411,35 @@ export async function notifyTaskSubmittedForApproval(params: {
   })
 }
 
+/** Alert supervisors (and opted-in owners) when a field worker clocks in. */
+export async function notifyWorkerClockIn(params: {
+  farmId: string
+  workerName: string
+  clockInAt: Date
+  actorUserId?: string
+  notes?: string | null
+}): Promise<void> {
+  const when = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(params.clockInAt)
+  const noteLine = params.notes?.trim() ? `\nNote: ${params.notes.trim().slice(0, 200)}` : ''
+  const text =
+    `🟢 Worker clocked in\n` +
+    `${params.workerName} · ${when}${noteLine}\n\n` +
+    `See Trovara OS → Today → Attendance.`
+
+  await notifyWorkerAlertChannels(params.farmId, text, {
+    actorUserId: params.actorUserId,
+    reason: 'attendance_clock_in',
+    kind: 'worker_alert',
+  })
+}
+
 /** WhatsApp alert to the farm owner(s). */
 export function notifyOwner(
   farmId: string,

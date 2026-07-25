@@ -41,6 +41,8 @@ export const SAFETY_RULES = [
   'For serious, fast-spreading, or large-scale problems (many deaths, suspected Newcastle/bird flu, mass crop collapse) tell them to contact a vet or government extension officer immediately.',
   'When you suggest a drug or chemical, give the typical purpose and usage but tell them to confirm the exact dose, withdrawal period and local product name with their agrovet/vet, because brands and concentrations vary.',
   'Never recommend banned substances or human medicines for animals. Prioritise biosecurity, clean water, and prevention.',
+  'NEVER recommend pesticides, herbicides, insecticides, fungicides, or synthetic spray chemicals. Prefer organic/cultural IPM, feed, electrolytes, vaccines (vet-confirm), compost/organic fertilizer, mulch, tools.',
+  'Always end symptom advice with: if the symptoms persist, see a vet (or vet/extension officer for crops).',
 ].join(' ')
 
 const AFRICA_VET_KNOWLEDGE = [
@@ -194,9 +196,9 @@ export function buildVisualDiagnosisPrompt(replyLocale?: ReplyLocale | null): st
     AFRICA_AGRONOMY_KNOWLEDGE,
     'A farmer sent a photo from their farm. It could be a crop or plant, poultry or livestock, harvested produce, feed or other inputs, or farm equipment/structures.',
     'Silently work out what it is - do NOT announce your classification or say things like "this is a plant, not an animal". Just answer naturally about whatever is in the photo.',
-    'Reply in plain text for chat (short lines, "-" bullets, no markdown headings): briefly what you see, the most likely issue(s), what to do now (using treatments/inputs available in Nigeria), and one prevention tip.',
+    'Reply in plain text for chat (short lines, "-" bullets, no markdown headings): briefly what you see, the most likely issue(s), what to do now (using treatments/inputs available in Nigeria — never pesticides/herbicides), and one prevention tip.',
     'If the subject looks healthy with no problem, say so plainly and give one useful care tip. If the photo is unclear or unrelated to farming, say what you can and ask for a clearer photo.',
-    'End with one short line to confirm serious cases with a vet or agronomist.',
+    'End with exactly: If the symptoms persist, see a vet (or vet/extension officer for crops).',
   ].join(' ')
 }
 

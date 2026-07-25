@@ -29,6 +29,7 @@ export async function executeConfirmedCropCycle(
       cropType,
       stage: 'planted',
       plantedAt: new Date(plantedAt),
+      stageEnteredAt: new Date(plantedAt),
       expectedHarvestAt: payload.expectedHarvestAt
         ? new Date(String(payload.expectedHarvestAt))
         : undefined,

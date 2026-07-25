@@ -48,6 +48,8 @@ import {
   inventoryCountLines,
   weatherCache,
   telegramProcessedUpdates,
+  advisoryRecommendations,
+  advisoryObservations,
 } from '../db/schema.js'
 
 async function deleteFarmScopedData(farmId: string): Promise<void> {
@@ -122,6 +124,8 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
   await db.delete(harvestLots).where(eq(harvestLots.farmId, farmId))
   await db.delete(livestockLogs).where(eq(livestockLogs.farmId, farmId))
   await db.delete(farmEvents).where(eq(farmEvents.farmId, farmId))
+  await db.delete(advisoryObservations).where(eq(advisoryObservations.farmId, farmId))
+  await db.delete(advisoryRecommendations).where(eq(advisoryRecommendations.farmId, farmId))
   await db.delete(livestockBatches).where(eq(livestockBatches.farmId, farmId))
   await db.delete(cropCycles).where(eq(cropCycles.farmId, farmId))
   await db.delete(auditEvents).where(eq(auditEvents.farmId, farmId))
@@ -527,6 +531,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         cropType: 'coconut',
         stage: 'vegetative',
         plantedAt: new Date(now - 180 * 86400000),
+        stageEnteredAt: new Date(now - 90 * 86400000),
         expectedHarvestAt: new Date(now + 365 * 86400000),
         expectedYieldKg: 2400,
         notes: 'Year-one coconut seedlings - Block A',
@@ -537,6 +542,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         cropType: 'plantain',
         stage: 'fruiting',
         plantedAt: new Date(now - 120 * 86400000),
+        stageEnteredAt: new Date(now - 30 * 86400000),
         expectedHarvestAt: new Date(now + 60 * 86400000),
         expectedYieldKg: 1800,
         notes: 'Second ratoon - Block B',

@@ -8,6 +8,7 @@ const workerAllowedNames = new Set([
   'assets',
   'traceability',
   'settings',
+  'advisory',
 ])
 
 const salesAllowedNames = new Set([
@@ -81,6 +82,12 @@ const router = createRouter({
       path: '/today',
       name: 'today',
       component: () => import('@/views/TodayView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/advisory',
+      name: 'advisory',
+      component: () => import('@/views/AdvisoryView.vue'),
       meta: { requiresAuth: true },
     },
     {

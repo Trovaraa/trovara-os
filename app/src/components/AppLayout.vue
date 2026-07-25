@@ -38,6 +38,7 @@ const navGroups = computed<NavGroup[]>(() => {
         titleKey: null,
         items: [
           { to: '/today', labelKey: 'nav.today' },
+          { to: '/advisory', labelKey: 'nav.advisory' },
           { to: '/worker', labelKey: 'nav.myTasks' },
           { to: '/settings', labelKey: 'nav.settings' },
         ],
@@ -76,6 +77,7 @@ const navGroups = computed<NavGroup[]>(() => {
       titleKey: 'nav.grpOverview',
       items: [
         { to: '/today', labelKey: 'nav.today' },
+        { to: '/advisory', labelKey: 'nav.advisory' },
         { to: '/dashboard', labelKey: 'nav.dashboard' },
       ],
     },

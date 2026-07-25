@@ -8,6 +8,7 @@ import {
 } from '../db/schema.js'
 import { logAudit } from './audit.js'
 import { payableMinutes } from './attendance-calculations.js'
+import { notifyWorkerClockIn } from './farm-notify.js'
 import { canApproveTasks } from './rbac.js'
 import type { SessionUser } from './session.js'
 
@@ -120,6 +121,15 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     entityId: session.id,
     metadata: allocation,
   })
+
+  void notifyWorkerClockIn({
+    farmId: user.farmId,
+    workerName: user.name,
+    clockInAt: session.clockInAt,
+    actorUserId: user.id,
+    notes: session.notes,
+  }).catch(() => undefined)
+
   return { session, idempotent: false }
 }
 

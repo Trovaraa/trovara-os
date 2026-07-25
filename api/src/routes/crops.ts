@@ -123,6 +123,7 @@ cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
 
   const stage = body.stage ?? 'planted'
 
+  const plantedAt = new Date(body.plantedAt)
   const [cropCycle] = await db
     .insert(cropCycles)
     .values({
@@ -130,7 +131,8 @@ cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
       plotId: body.plotId,
       cropType: body.cropType,
       stage,
-      plantedAt: new Date(body.plantedAt),
+      plantedAt,
+      stageEnteredAt: plantedAt,
       expectedHarvestAt: body.expectedHarvestAt ? new Date(body.expectedHarvestAt) : undefined,
       expectedYieldKg: body.expectedYieldKg,
       notes: body.notes,
@@ -192,7 +194,12 @@ cropRoutes.patch('/:id', zValidator('json', updateCropSchema), async (c) => {
 
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
 
-  if (body.stage !== undefined) updates.stage = body.stage
+  if (body.stage !== undefined) {
+    updates.stage = body.stage
+    if (body.stage !== existing.stage) {
+      updates.stageEnteredAt = new Date()
+    }
+  }
   if (body.expectedHarvestAt !== undefined) {
     updates.expectedHarvestAt = new Date(body.expectedHarvestAt)
   }

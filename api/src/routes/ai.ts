@@ -24,6 +24,10 @@ import {
   type CropDiagnosis,
   type LivestockDiagnosis,
 } from '../lib/ai-advisor.js'
+import { advisoryCloseLine, ensureAdvisoryClose } from '../lib/advisory-close.js'
+import { containsPesticideLanguage } from '../lib/pesticide-filter.js'
+import { resolveMarketplaceProducts } from '../lib/marketplace-search.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import { checkLlmBudget, consumeLlmBudget } from '../lib/llm-budget.js'
 import { parseTaskDraft } from '../lib/butler-actions.js'
 import { logAudit } from '../lib/audit.js'
@@ -572,8 +576,36 @@ aiRoutes.post('/diagnose-livestock', zValidator('json', livestockSchema), async 
       `Animal: ${species}\nSymptoms observed:\n${symptoms}`,
     )
     const parsed = parseJsonFromLlm<LivestockDiagnosis>(text)
+    parsed.treatments = (parsed.treatments ?? []).filter(
+      (t) => !containsPesticideLanguage(`${t.name} ${t.usage} ${t.note ?? ''}`),
+    )
+    parsed.summary = ensureAdvisoryClose(parsed.summary ?? '', 'en', 'livestock')
     consumeLlmBudget(user.farmId)
-    return c.json({ placeholder: false, model, diagnosis: parsed, disclaimer: ADVISORY_DISCLAIMER })
+
+    const [[farmRow], [pref]] = await Promise.all([
+      db.select({ location: farms.location }).from(farms).where(eq(farms.id, user.farmId)).limit(1),
+      db.select({ preferredLocale: users.preferredLocale }).from(users).where(eq(users.id, user.id)).limit(1),
+    ])
+    const locale = resolveStaffReplyLocale(pref?.preferredLocale)
+    const needQuery =
+      parsed.treatments[0]?.name && !containsPesticideLanguage(parsed.treatments[0].name)
+        ? parsed.treatments[0].name
+        : 'poultry electrolytes vitamins agrovet'
+    const recommendedProducts = await resolveMarketplaceProducts({
+      farmLocation: farmRow?.location,
+      needQuery,
+      locale,
+      farmId: user.farmId,
+    })
+
+    return c.json({
+      placeholder: false,
+      model,
+      diagnosis: parsed,
+      recommendedProducts,
+      closeLine: advisoryCloseLine(locale, 'livestock'),
+      disclaimer: ADVISORY_DISCLAIMER,
+    })
   } catch {
     return c.json({
       placeholder: true,
@@ -623,8 +655,36 @@ aiRoutes.post('/diagnose-crop', zValidator('json', cropSchema), async (c) => {
       [body.imageUrl],
     )
     const parsed = parseJsonFromLlm<CropDiagnosis>(text)
+    parsed.treatments = (parsed.treatments ?? []).filter(
+      (t) => !containsPesticideLanguage(`${t.name} ${t.usage} ${t.note ?? ''}`),
+    )
+    parsed.summary = ensureAdvisoryClose(parsed.summary ?? '', 'en', 'crop')
     consumeLlmBudget(user.farmId)
-    return c.json({ placeholder: false, model, diagnosis: parsed, disclaimer: ADVISORY_DISCLAIMER })
+
+    const [[farmRow], [pref]] = await Promise.all([
+      db.select({ location: farms.location }).from(farms).where(eq(farms.id, user.farmId)).limit(1),
+      db.select({ preferredLocale: users.preferredLocale }).from(users).where(eq(users.id, user.id)).limit(1),
+    ])
+    const locale = resolveStaffReplyLocale(pref?.preferredLocale)
+    const needQuery =
+      parsed.treatments[0]?.name && !containsPesticideLanguage(parsed.treatments[0].name)
+        ? parsed.treatments[0].name
+        : 'organic fertilizer compost mulch'
+    const recommendedProducts = await resolveMarketplaceProducts({
+      farmLocation: farmRow?.location,
+      needQuery,
+      locale,
+      farmId: user.farmId,
+    })
+
+    return c.json({
+      placeholder: false,
+      model,
+      diagnosis: parsed,
+      recommendedProducts,
+      closeLine: advisoryCloseLine(locale, 'crop'),
+      disclaimer: ADVISORY_DISCLAIMER,
+    })
   } catch {
     return c.json({
       placeholder: true,

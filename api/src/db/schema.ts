@@ -461,6 +461,20 @@ export const auditEvents = pgTable('audit_events', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+export const advisoryRecommendationStatusEnum = pgEnum('advisory_recommendation_status', [
+  'pending',
+  'notified',
+  'accepted',
+  'ignored',
+  'completed',
+])
+export const advisorySourceTypeEnum = pgEnum('advisory_source_type', [
+  'crop_cycle',
+  'livestock_batch',
+  'weather',
+  'farm',
+])
+
 export const cropCycles = pgTable('crop_cycles', {
   id: uuid('id').defaultRandom().primaryKey(),
   farmId: uuid('farm_id').references(() => farms.id).notNull(),
@@ -468,6 +482,8 @@ export const cropCycles = pgTable('crop_cycles', {
   cropType: text('crop_type').notNull(),
   stage: cropStageEnum('stage').default('planted').notNull(),
   plantedAt: timestamp('planted_at', { withTimezone: true }).notNull(),
+  /** When the current stage began; defaults to plantedAt on create. */
+  stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull(),
   expectedHarvestAt: timestamp('expected_harvest_at', { withTimezone: true }),
   actualHarvestAt: timestamp('actual_harvest_at', { withTimezone: true }),
   expectedYieldKg: integer('expected_yield_kg'),
@@ -476,6 +492,56 @@ export const cropCycles = pgTable('crop_cycles', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const advisoryRecommendations = pgTable(
+  'advisory_recommendations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    ruleKey: text('rule_key').notNull(),
+    sourceType: advisorySourceTypeEnum('source_type').notNull(),
+    sourceId: text('source_id').notNull(),
+    status: advisoryRecommendationStatusEnum('status').default('pending').notNull(),
+    notifyRoles: text('notify_roles').array().default([]).notNull(),
+    payload: jsonb('payload').notNull(),
+    aiSummary: text('ai_summary'),
+    firedAt: timestamp('fired_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('advisory_recommendations_farm_source_rule_uq').on(
+      t.farmId,
+      t.sourceId,
+      t.ruleKey,
+    ),
+    index('advisory_recommendations_farm_status_idx').on(t.farmId, t.status),
+  ],
+)
+
+export const advisoryObservations = pgTable(
+  'advisory_observations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    loggedAt: timestamp('logged_at', { withTimezone: true }).defaultNow().notNull(),
+    sourceType: advisorySourceTypeEnum('source_type'),
+    sourceId: text('source_id'),
+    tiles: text('tiles').array().default([]).notNull(),
+    note: text('note'),
+    createdBy: uuid('created_by')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('advisory_observations_farm_logged_idx').on(t.farmId, t.loggedAt)],
+)
 
 export const livestockBatches = pgTable('livestock_batches', {
   id: uuid('id').defaultRandom().primaryKey(),

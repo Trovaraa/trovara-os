@@ -7,6 +7,7 @@ import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
 import { checkProactiveAlerts } from '../lib/proactive-alerts.js'
+import { runAdvisoryEngine } from '../lib/advisory-engine.js'
 import { gatherExceptions } from '../lib/exceptions.js'
 import {
   notifyOwner,
@@ -86,6 +87,7 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
   if (!auth) return c.json({ error: 'Unauthorized' }, 401)
 
   const alerts = await checkProactiveAlerts(auth.user.farmId)
+  const advisory = await runAdvisoryEngine(auth.user.farmId)
   const msg = formatProactiveAlertMessage(auth.user.farmId, alerts)
   const reason = auth.usedCronSecret ? 'cron_proactive' : 'manual_proactive'
   const tg = await notifyOwnerTelegram(auth.user.farmId, msg, {
@@ -152,6 +154,7 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
     farmId: auth.user.farmId,
     alertsCount: alerts.length,
     alerts,
+    advisoryCreated: advisory.created,
     notified: {
       owner: {
         telegram: tg.notified,

@@ -31,6 +31,7 @@ import { billingRoutes } from './routes/billing.js'
 import { systemRoutes } from './routes/system.js'
 import { dayCloseRoutes } from './routes/day-close.js'
 import { alertsRoutes } from './routes/alerts.js'
+import { advisoryRoutes } from './routes/advisory.js'
 import { exportRoutes } from './routes/exports.js'
 import { consentRoutes } from './routes/consent.js'
 import { privacyRoutes } from './routes/privacy.js'
@@ -95,6 +96,7 @@ app.route('/api/onboarding', onboardingRoutes)
 app.route('/api/billing', billingRoutes)
 app.route('/api/day-close', dayCloseRoutes)
 app.route('/api/alerts', alertsRoutes)
+app.route('/api/advisory', advisoryRoutes)
 app.route('/api/exports', exportRoutes)
 app.route('/api/consent', consentRoutes)
 app.route('/api', privacyRoutes)
