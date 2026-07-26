@@ -6,7 +6,14 @@ import { canAssignTasks } from './rbac.js'
 import { logAudit } from './audit.js'
 import { createCensusSurvey } from './census-service.js'
 import { resolvePlotByName } from './action-draft-farm.js'
-import { storeActionDraft, storeTaskDraft } from './task-drafts.js'
+import { matchByName, matchedRow } from './entity-name-match.js'
+import { canonicalizeDraftPayload } from './draft-canonical.js'
+import {
+  contentLocaleValues,
+  storeActionDraft,
+  storeTaskDraft,
+  type ContentLocaleMeta,
+} from './task-drafts.js'
 
 export {
   parseAssetCountIntent,
@@ -18,6 +25,7 @@ export async function executeConfirmedCreateTask(
   user: SessionUser,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   if (!canAssignTasks(user)) return 'Only Admin or Supervisor can create tasks.'
   const title = String(payload.title ?? '').trim()
@@ -50,6 +58,7 @@ export async function executeConfirmedCreateTask(
         payload.actionPayload && typeof payload.actionPayload === 'object'
           ? (payload.actionPayload as Record<string, unknown>)
           : null,
+      ...contentLocaleValues(locale),
     })
     .returning({ id: tasks.id, title: tasks.title })
 
@@ -68,6 +77,7 @@ export async function executeConfirmedCreateTask(
 export async function executeConfirmedCensus(
   user: SessionUser,
   payload: Record<string, unknown>,
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   const plotId = String(payload.plotId ?? '')
   const cropType = String(payload.cropType ?? '').trim()
@@ -83,6 +93,7 @@ export async function executeConfirmedCensus(
     minHeight: payload.minHeight != null ? Number(payload.minHeight) : null,
     maxHeight: payload.maxHeight != null ? Number(payload.maxHeight) : null,
     heightUnit: 'cm',
+    ...locale,
   })
 
   return `✅ Census saved for ${payload.plotName ?? 'block'} · ${cropType} (${plantCount}). Awaiting verification.`
@@ -133,6 +144,11 @@ export async function executeConfirmedAssetCount(
   return `✅ Asset count saved for ${asset.name}: ${countAvailable} available. Awaiting verification.`
 }
 
+/**
+ * The active asset a worker's words name, by name or by asset tag. Accents,
+ * hyphens, case and spacing are folded at comparison time only — the row keeps
+ * the farm's own spelling.
+ */
 export async function resolveAssetByQuery(
   farmId: string,
   query: string,
@@ -146,12 +162,7 @@ export async function resolveAssetByQuery(
     .from(assets)
     .where(and(eq(assets.farmId, farmId), eq(assets.active, true)))
 
-  const q = query.toLowerCase()
-  const asset = farmAssets.find(
-    (a) =>
-      a.name.toLowerCase() === q ||
-      (a.assetTag != null && a.assetTag.toLowerCase() === q),
-  )
+  const asset = matchedRow(matchByName(farmAssets, query, (a) => [a.name, a.assetTag]))
   return asset ? { id: asset.id, name: asset.name } : null
 }
 
@@ -185,6 +196,14 @@ export async function prepareCreateTaskDraft(params: {
   }
 }
 
+/**
+ * The census payload keys that must reach the row exactly as they are: two ids,
+ * the block name the worker retypes to address the same plot, the crop lexicon
+ * key the playbooks are matched on, and the height unit. Everything else the
+ * payload carries counts as prose.
+ */
+const CENSUS_VERBATIM_FIELDS = ['plotId', 'plotName', 'cropType', 'heightUnit'] as const
+
 export async function prepareCensusDraft(params: {
   user: SessionUser
   blockName: string
@@ -194,6 +213,7 @@ export async function prepareCensusDraft(params: {
   maxHeight?: number
   channel: string
   externalChatId: string
+  authorLocale?: string | null
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
   const plot = await resolvePlotByName(params.user.farmId, params.blockName)
   if (!plot) {
@@ -203,10 +223,10 @@ export async function prepareCensusDraft(params: {
     }
   }
 
-  const stored = await storeActionDraft({
-    userId: params.user.id,
+  const { payload, locale } = await canonicalizeDraftPayload({
     farmId: params.user.farmId,
-    actionType: 'create_census',
+    authorLocale: params.authorLocale,
+    verbatim: CENSUS_VERBATIM_FIELDS,
     payload: {
       plotId: plot.id,
       plotName: plot.name,
@@ -216,8 +236,16 @@ export async function prepareCensusDraft(params: {
       maxHeight: params.maxHeight ?? null,
       heightUnit: 'cm',
     },
+  })
+
+  const stored = await storeActionDraft({
+    userId: params.user.id,
+    farmId: params.user.farmId,
+    actionType: 'create_census',
+    payload,
     channel: params.channel,
     externalChatId: params.externalChatId,
+    ...locale,
   })
 
   return {
@@ -286,9 +314,12 @@ export async function applyConfirmedOpsDraft(
   actionType: string,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string | null> {
-  if (actionType === 'create_task') return executeConfirmedCreateTask(user, payload, source)
-  if (actionType === 'create_census') return executeConfirmedCensus(user, payload)
+  if (actionType === 'create_task') {
+    return executeConfirmedCreateTask(user, payload, source, locale)
+  }
+  if (actionType === 'create_census') return executeConfirmedCensus(user, payload, locale)
   if (actionType === 'asset_count') return executeConfirmedAssetCount(user, payload, source)
   return null
 }

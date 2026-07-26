@@ -165,11 +165,17 @@ export const INCIDENT_SUMMARY_PROMPT = [
   'Respond ONLY with valid JSON (no markdown): {"summaryText":"2-3 sentence plain English summary using specific details from the report","severity":"low|medium|high","category":"short_category_slug","recommendedActions":["concrete farm action"]}. Never say details are missing if the report contains them.',
 ].join(' ')
 
-/** Structured weather farm actions for the Today weather card. */
-export function buildWeatherActionsPrompt(replyLocale?: ReplyLocale | null): string {
+/**
+ * Structured weather farm actions for the Today weather card.
+ *
+ * Deliberately locale-free: weather actions are generated once in English so
+ * every viewer of the same forecast sees the same advice, and are translated on
+ * read (see `toViewerLocaleMany`). Do not add a language rule here.
+ */
+export function buildWeatherActionsPrompt(): string {
   return [
     BUTLER_PERSONA,
-    butlerLanguageRule(replyLocale),
+    'LANGUAGE (required): Write every title and detail in English, whatever language the farm context uses.',
     PROMPT_INJECTION_RULES,
     SAFETY_RULES,
     AFRICA_AGRONOMY_KNOWLEDGE,

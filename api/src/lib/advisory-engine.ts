@@ -10,25 +10,39 @@ import {
   type UserRole,
 } from '../db/schema.js'
 import {
-  BROILER_ADVISORY_PLAYBOOK,
-  CROP_ADVISORY_PLAYBOOKS,
+  isAdvisoryReasonCode,
+  renderAdvisoryFallback,
+  type FallbackText,
+} from './advisory-fallback-messages.js'
+import {
+  advisoryRulesForBatch,
+  loadBatchScheduleEntries,
+  loadCropCycleStages,
+  loadCropCycleTasks,
+} from './advisory-insights.js'
+import {
   WEATHER_ADVISORY_RULES,
+  cropRulesForCycle,
   daysBetween,
   dueRulesForDay,
   type AdvisoryNotifyRole,
-  type AdvisoryRuleDef,
 } from './advisory-playbooks.js'
-import { notifyRoles, notifyRolesTelegram } from './farm-notify.js'
+import {
+  notifyRoles,
+  notifyRolesTelegram,
+  relayFreeFormEnglish,
+  type NotifyRenderer,
+} from './farm-notify.js'
 import { completeChat, isLlmConfigured } from './llm.js'
 import { checkLlmBudget, consumeLlmBudget } from './llm-budget.js'
 import {
   resolveMarketplaceProducts,
   type MarketplaceProductHit,
 } from './marketplace-search.js'
-import { resolveStaffReplyLocale } from './reply-locale.js'
+import { resolveStaffReplyLocale, type ReplyLocale } from './reply-locale.js'
 import { sanitizeForLlm } from './sanitize-input.js'
 import { getFarmWeather } from './weather.js'
-import { withWeatherTiming } from './weather-alerts.js'
+import { renderWeatherAlert, withWeatherTiming, type WeatherAlert } from './weather-alerts.js'
 
 export type AdvisoryPayload = {
   happeningNow: string
@@ -45,35 +59,234 @@ export type AdvisoryPayload = {
 
 export type AdvisoryRecommendationRow = typeof advisoryRecommendations.$inferSelect
 
+/**
+ * Where the "Now" line comes from, kept as parts rather than one string.
+ *
+ * `english` is the playbook seed (or generated) prose and is the only piece a
+ * translator ever sees. The plot/batch name and the forecast numbers are
+ * composed in afterwards: names are proper nouns, and dates, clock times and
+ * amounts render from the weather locale table instead, because a translator
+ * asked for French may well rewrite "3:00 PM" or a weekday and silently move a
+ * rain window by hours.
+ */
+type AdvisoryNowSource =
+  | { kind: 'subject'; english: string; subjectName: string }
+  | { kind: 'weather'; english: string; alert: WeatherAlert }
+
+/** Canonical-English source of one advisory push, before any reader is known. */
+type AdvisoryMessageSource = {
+  farmName: string
+  now: AdvisoryNowSource
+  whatNext: string
+  aiSummary: string | null
+  products: MarketplaceProductHit[]
+  /** The rule's generic category, which keys the pre-translated seed fallback. */
+  reasonCode: string
+}
+
+type MsgTable = Record<ReplyLocale, string>
+
+function pick(locale: ReplyLocale, table: MsgTable): string {
+  return table[locale] ?? table.en
+}
+
+/**
+ * Locale tables for the advisory push chrome, in the style of digest-messages.ts:
+ * developer-authored labels render from a table, so they are instant, free, and
+ * still correct with the AI switched off.
+ *
+ * The farm, plot and batch names, the product titles and the URLs are data and
+ * stay verbatim in every language.
+ */
+const HEADER: MsgTable = {
+  en: '🌱 Trovara OS Advisory',
+  fr: '🌱 Avis Trovara OS',
+  yo: '🌱 Ìmọ̀ràn Trovara OS',
+  pcm: '🌱 Trovara OS Advice',
+}
+
+const NOW_LABEL: MsgTable = {
+  en: 'Now',
+  fr: 'Maintenant',
+  yo: 'Lọ́wọ́lọ́wọ́',
+  pcm: 'Now',
+}
+
+const NEXT_LABEL: MsgTable = {
+  en: 'Next',
+  fr: 'Ensuite',
+  yo: 'Èyí tó kàn',
+  pcm: 'Next',
+}
+
+const WHY_LABEL: MsgTable = {
+  en: 'Why',
+  fr: 'Pourquoi',
+  yo: 'Ìdí',
+  pcm: 'Why',
+}
+
+const SUGGESTED_INPUTS: MsgTable = {
+  en: 'Suggested inputs:',
+  fr: 'Intrants suggérés :',
+  yo: 'Àwọn ohun èlò tí a dábàá:',
+  pcm: 'Things you fit use:',
+}
+
+const NO_PRODUCTS: MsgTable = {
+  en: '• (no product links right now)',
+  fr: '• (aucun lien produit pour le moment)',
+  yo: '• (kò sí ìjápọ̀ ọjà lọ́wọ́lọ́wọ́)',
+  pcm: '• (no product link for now)',
+}
+
+const SUGGESTED_FOR_AREA: MsgTable = {
+  en: '(suggested for your area)',
+  fr: '(suggéré pour votre région)',
+  yo: '(a dábàá fún agbègbè rẹ)',
+  pcm: '(we suggest am for your area)',
+}
+
+/**
+ * Liability disclaimer. NEEDS HUMAN REVIEW before this ships: the fr/yo/pcm
+ * wording below is a faithful translation of the English, but it carries legal
+ * weight and no reviewer has signed off on the non-English versions.
+ */
+const DISCLAIMER: MsgTable = {
+  en: 'Confirm sensitive actions with your supervisor. Trovara does not sell these products.',
+  fr: 'Confirmez les actions sensibles avec votre superviseur. Trovara ne vend pas ces produits.',
+  yo: 'Jẹ́rìí àwọn ìgbésẹ̀ pàtàkì pẹ̀lú alábojútó rẹ. Trovara kò ta àwọn ọjà wọ̀nyí.',
+  pcm: 'Confirm any serious action with your supervisor. Trovara no dey sell dis products.',
+}
+
+/**
+ * Compose the "Now" line from its parts.
+ *
+ * Called with `'en'` and the untranslated headline it reproduces the string that
+ * goes into the database, which is what keeps the stored row and the English
+ * push identical.
+ */
+function composeNowLine(
+  locale: ReplyLocale,
+  now: AdvisoryNowSource,
+  headline: string,
+): string {
+  if (now.kind === 'subject') return `${headline} (${now.subjectName})`
+  // renderWeatherAlert re-renders the alert's `params` (amounts, date, farm-local
+  // peak clock) through weather-alert-messages.ts. Without params it returns the
+  // alert untouched, so the timing degrades to canonical English rather than to a
+  // translated guess at a date.
+  const alert = locale === 'en' ? now.alert : renderWeatherAlert(locale, now.alert)
+  return withWeatherTiming(headline, alert)
+}
+
 function formatAdvisoryMessage(
-  farmName: string,
-  payload: AdvisoryPayload,
-  aiSummary?: string | null,
+  locale: ReplyLocale,
+  src: AdvisoryMessageSource,
+  text: { happeningNow: string; whatNext: string; aiSummary: string | null },
 ): string {
   const productLines =
-    payload.products.length > 0
-      ? payload.products
+    src.products.length > 0
+      ? src.products
           .map((p) => {
             if (p.url) return `• ${p.title}: ${p.url}`
-            return `• ${p.title}${p.reason ? ` — ${p.reason}` : ''} (suggested for your area)`
+            return `• ${p.title}${p.reason ? ` — ${p.reason}` : ''} ${pick(locale, SUGGESTED_FOR_AREA)}`
           })
           .join('\n')
-      : '• (no product links right now)'
+      : pick(locale, NO_PRODUCTS)
 
   return [
-    `🌱 Trovara OS Advisory — ${farmName}`,
+    `${pick(locale, HEADER)} — ${src.farmName}`,
     '',
-    `Now: ${payload.happeningNow}`,
-    `Next: ${payload.whatNext}`,
-    aiSummary ? `Why: ${aiSummary}` : null,
+    `${pick(locale, NOW_LABEL)}: ${text.happeningNow}`,
+    `${pick(locale, NEXT_LABEL)}: ${text.whatNext}`,
+    text.aiSummary ? `${pick(locale, WHY_LABEL)}: ${text.aiSummary}` : null,
     '',
-    'Suggested inputs:',
+    pick(locale, SUGGESTED_INPUTS),
     productLines,
     '',
-    'Confirm sensitive actions with your supervisor. Trovara does not sell these products.',
+    pick(locale, DISCLAIMER),
   ]
     .filter((line) => line !== null)
     .join('\n')
+}
+
+/**
+ * One seed line in the recipient's language when the relay could not put it
+ * there.
+ *
+ * Every "Now" and "Next" line the engine pushes is deterministic seed prose,
+ * from the playbook or from the batch's own schedule — nothing on this path is
+ * generated — so rendering it for a French worker needs the LLM,
+ * which is exactly what the degraded path does not have. The relay still runs
+ * first, so a working translator keeps producing the specific seed sentence it
+ * always has and the LLM-on push is byte-identical. Only when the relay hands
+ * back the English it was given does the pre-translated table take over: that is
+ * the difference between a French worker reading French and reading English. A
+ * reason code the table does not know keeps the English, which is no worse than
+ * today.
+ */
+function seedLine(
+  locale: ReplyLocale,
+  reasonCode: string,
+  key: keyof FallbackText,
+  english: string,
+  relayed: string,
+): string {
+  if (locale === 'en' || relayed !== english) return relayed
+  if (!isAdvisoryReasonCode(reasonCode)) return relayed
+  return renderAdvisoryFallback(reasonCode, locale)[key]
+}
+
+/** The English "Now" line exactly as it is stored in advisory_recommendations. */
+function englishHappeningNow(now: AdvisoryNowSource): string {
+  return composeNowLine('en', now, now.english)
+}
+
+/**
+ * One renderer for every recipient of one advisory, in their own language.
+ *
+ * The playbook prose and the AI summary are free-form English with no template,
+ * so they go through `relayFreeFormEnglish`; the labels come from the tables
+ * above. The result is memoized per language and the same renderer instance is
+ * handed to both fan-outs, so a locale costs one render for the whole
+ * recommendation no matter how many recipients or channels it reaches.
+ *
+ * Nothing here can drop a push: the relay already falls back to English on a
+ * translation failure, and farm-notify re-renders in English if this throws.
+ */
+function advisoryRenderer(farmId: string, src: AdvisoryMessageSource): NotifyRenderer {
+  const relayNow = relayFreeFormEnglish(src.now.english, farmId)
+  const relayNext = relayFreeFormEnglish(src.whatNext, farmId)
+  const relaySummary = src.aiSummary ? relayFreeFormEnglish(src.aiSummary, farmId) : null
+
+  const byLocale = new Map<ReplyLocale, Promise<string>>()
+
+  return ({ locale }) => {
+    const inFlight = byLocale.get(locale)
+    if (inFlight) return inFlight
+
+    const pending = (async () => {
+      const ctx = { preferredLocale: locale, locale }
+      const [headline, whatNext, aiSummary] = await Promise.all([
+        relayNow(ctx),
+        relayNext(ctx),
+        relaySummary ? relaySummary(ctx) : Promise.resolve(null),
+      ])
+      return formatAdvisoryMessage(locale, src, {
+        happeningNow: composeNowLine(
+          locale,
+          src.now,
+          seedLine(locale, src.reasonCode, 'happeningNow', src.now.english, headline),
+        ),
+        whatNext: seedLine(locale, src.reasonCode, 'whatNext', src.whatNext, whatNext),
+        aiSummary,
+      })
+    })()
+
+    byLocale.set(locale, pending)
+    return pending
+  }
 }
 
 async function draftAiSummary(
@@ -106,7 +319,13 @@ async function persistAndNotify(args: {
   sourceType: 'crop_cycle' | 'livestock_batch' | 'weather' | 'farm'
   sourceId: string
   notifyRolesList: AdvisoryNotifyRole[]
-  basePayload: Omit<AdvisoryPayload, 'products'>
+  now: AdvisoryNowSource
+  basePayload: Omit<AdvisoryPayload, 'products' | 'happeningNow'>
+  /**
+   * The owner's language, and only a hint for sourcing product suggestions. It
+   * must not reach the payload as language, and it is not the reader's: one
+   * recommendation is stored once, in canonical English, for everyone.
+   */
   locale: ReturnType<typeof resolveStaffReplyLocale>
 }): Promise<AdvisoryRecommendationRow | null> {
   const existing = await db
@@ -129,7 +348,11 @@ async function persistAndNotify(args: {
     farmId: args.farmId,
   })
 
-  const payload: AdvisoryPayload = { ...args.basePayload, products }
+  const payload: AdvisoryPayload = {
+    ...args.basePayload,
+    happeningNow: englishHappeningNow(args.now),
+    products,
+  }
   const aiSummary = await draftAiSummary(args.farmId, payload)
 
   let row: AdvisoryRecommendationRow
@@ -153,7 +376,16 @@ async function persistAndNotify(args: {
     return null
   }
 
-  const message = formatAdvisoryMessage(args.farmName, payload, aiSummary)
+  // Rendering happens strictly after the insert, from the parts rather than from
+  // the stored payload, so no reader's language can reach the row above.
+  const message = advisoryRenderer(args.farmId, {
+    farmName: args.farmName,
+    now: args.now,
+    whatNext: payload.whatNext,
+    aiSummary,
+    products,
+    reasonCode: payload.reasonCode,
+  })
   const roles = args.notifyRolesList as UserRole[]
   await Promise.all([
     notifyRolesTelegram(args.farmId, roles, message, {
@@ -201,36 +433,37 @@ export async function runAdvisoryEngine(farmId: string): Promise<{ created: numb
     .innerJoin(plots, eq(plots.id, cropCycles.plotId))
     .where(and(eq(cropCycles.farmId, farmId), ne(cropCycles.stage, 'harvested')))
 
+  const cyclePlans = await loadCropCycleTasks(cycles.map((cycle) => cycle.id))
+
   for (const cycle of cycles) {
     const stageStart = cycle.stageEnteredAt ?? cycle.plantedAt
     const dayInStage = daysBetween(stageStart, now)
-    const playbooks = CROP_ADVISORY_PLAYBOOKS.filter(
-      (p) =>
-        p.cropType === cycle.cropType.toLowerCase() && p.stage === cycle.stage,
-    )
-    for (const pb of playbooks) {
-      for (const rule of dueRulesForDay(dayInStage, pb.rules)) {
-        const row = await persistAndNotify({
-          farmId,
-          farmName: farm.name,
-          farmLocation: farm.location,
-          ruleKey: rule.ruleKey,
-          sourceType: 'crop_cycle',
-          sourceId: cycle.id,
-          notifyRolesList: rule.notifyRoles,
-          locale,
-          basePayload: {
-            happeningNow: `${rule.happeningNow} (${cycle.plotName})`,
-            whatNext: rule.whatNext,
-            needQuery: rule.needQuery,
-            reasonCode: rule.reasonCode,
-            cropType: cycle.cropType,
-            stage: cycle.stage,
-            dayInCycle: dayInStage,
-          },
-        })
-        if (row) created++
-      }
+    const rules = cropRulesForCycle(cycle, cyclePlans.get(cycle.id) ?? [])
+    for (const rule of dueRulesForDay(dayInStage, rules)) {
+      const row = await persistAndNotify({
+        farmId,
+        farmName: farm.name,
+        farmLocation: farm.location,
+        ruleKey: rule.ruleKey,
+        sourceType: 'crop_cycle',
+        sourceId: cycle.id,
+        notifyRolesList: rule.notifyRoles,
+        locale,
+        now: {
+          kind: 'subject',
+          english: rule.happeningNow,
+          subjectName: cycle.plotName,
+        },
+        basePayload: {
+          whatNext: rule.whatNext,
+          needQuery: rule.needQuery,
+          reasonCode: rule.reasonCode,
+          cropType: cycle.cropType,
+          stage: cycle.stage,
+          dayInCycle: dayInStage,
+        },
+      })
+      if (row) created++
     }
   }
 
@@ -239,12 +472,12 @@ export async function runAdvisoryEngine(farmId: string): Promise<{ created: numb
     .from(livestockBatches)
     .where(and(eq(livestockBatches.farmId, farmId), eq(livestockBatches.active, true)))
 
+  const schedules = await loadBatchScheduleEntries(batches.map((batch) => batch.id))
+
   for (const batch of batches) {
-    const isBroiler =
-      batch.batchType === 'broiler' || batch.species.toLowerCase().includes('broiler')
-    if (!isBroiler) continue
+    const rules = advisoryRulesForBatch(batch, schedules.get(batch.id) ?? [])
     const dayInCycle = daysBetween(batch.acquiredAt, now)
-    for (const rule of dueRulesForDay(dayInCycle, BROILER_ADVISORY_PLAYBOOK.rules)) {
+    for (const rule of dueRulesForDay(dayInCycle, rules)) {
       const row = await persistAndNotify({
         farmId,
         farmName: farm.name,
@@ -254,8 +487,8 @@ export async function runAdvisoryEngine(farmId: string): Promise<{ created: numb
         sourceId: batch.id,
         notifyRolesList: rule.notifyRoles,
         locale,
+        now: { kind: 'subject', english: rule.happeningNow, subjectName: batch.name },
         basePayload: {
-          happeningNow: `${rule.happeningNow} (${batch.name})`,
           whatNext: rule.whatNext,
           needQuery: rule.needQuery,
           reasonCode: rule.reasonCode,
@@ -283,8 +516,8 @@ export async function runAdvisoryEngine(farmId: string): Promise<{ created: numb
         sourceId: `weather:${dayBucket}:${rule.alertType}`,
         notifyRolesList: rule.notifyRoles,
         locale,
+        now: { kind: 'weather', english: rule.happeningNow, alert },
         basePayload: {
-          happeningNow: withWeatherTiming(rule.happeningNow, alert),
           whatNext: rule.whatNext,
           needQuery: rule.needQuery,
           reasonCode: rule.reasonCode,
@@ -401,12 +634,16 @@ export async function listAdvisorySubjects(farmId: string): Promise<AdvisorySubj
 
   const subjects: AdvisorySubject[] = []
 
+  const cycleIds = cycles.map((cycle) => cycle.id)
+  const [cyclePlans, cycleStages] = await Promise.all([
+    loadCropCycleTasks(cycleIds),
+    loadCropCycleStages(cycleIds),
+  ])
+
   for (const cycle of cycles) {
     const stageStart = cycle.stageEnteredAt ?? cycle.plantedAt
     const dayInStage = daysBetween(stageStart, now)
-    const rules = CROP_ADVISORY_PLAYBOOKS.filter(
-      (p) => p.cropType === cycle.cropType.toLowerCase() && p.stage === cycle.stage,
-    ).flatMap((p) => p.rules)
+    const rules = cropRulesForCycle(cycle, cyclePlans.get(cycle.id) ?? [])
     const upcoming = rules
       .map((r) => ({ rule: r, daysUntil: r.offsetDays - dayInStage }))
       .filter((x) => x.daysUntil >= 0)
@@ -422,7 +659,12 @@ export async function listAdvisorySubjects(farmId: string): Promise<AdvisorySubj
       plantedAt: cycle.plantedAt.toISOString(),
       stageEnteredAt: stageStart.toISOString(),
       dayInStage,
-      totalStageDays: null,
+      // How long the stage should run is per cycle, so it is read off the
+      // cycle's own row. A cycle with no plan reports nothing rather than a
+      // length borrowed from a crop it may not be.
+      totalStageDays:
+        cycleStages.get(cycle.id)?.find((entry) => entry.stage === cycle.stage)?.durationDays ??
+        null,
       daysUntilNextHint: upcoming?.daysUntil ?? null,
       nextHint: upcoming?.rule.whatNext ?? null,
     })
@@ -433,16 +675,14 @@ export async function listAdvisorySubjects(farmId: string): Promise<AdvisorySubj
     .from(livestockBatches)
     .where(and(eq(livestockBatches.farmId, farmId), eq(livestockBatches.active, true)))
 
+  const schedules = await loadBatchScheduleEntries(batches.map((batch) => batch.id))
+
   for (const batch of batches) {
     const dayInCycle = daysBetween(batch.acquiredAt, now)
-    const isBroiler =
-      batch.batchType === 'broiler' || batch.species.toLowerCase().includes('broiler')
-    const upcoming = isBroiler
-      ? BROILER_ADVISORY_PLAYBOOK.rules
-          .map((r) => ({ rule: r, daysUntil: r.offsetDays - dayInCycle }))
-          .filter((x) => x.daysUntil >= 0)
-          .sort((a, b) => a.daysUntil - b.daysUntil)[0]
-      : undefined
+    const upcoming = advisoryRulesForBatch(batch, schedules.get(batch.id) ?? [])
+      .map((r) => ({ rule: r, daysUntil: r.offsetDays - dayInCycle }))
+      .filter((x) => x.daysUntil >= 0)
+      .sort((a, b) => a.daysUntil - b.daysUntil)[0]
 
     subjects.push({
       kind: 'livestock',
@@ -475,245 +715,5 @@ export async function recommendationStats(farmId: string) {
   return byStatus
 }
 
-export type InsightKey = 'weather' | 'inputs' | 'vaccination' | 'harvest'
-
-export type InsightTip = {
-  id: string
-  sourceType: 'crop_cycle' | 'livestock_batch' | 'weather' | 'farm'
-  sourceId: string
-  ruleKey: string
-  reasonCode: string
-  happeningNow: string
-  whatNext: string
-  needQuery: string
-  products: MarketplaceProductHit[]
-  ephemeral: true
-}
-
-function matchesInsight(key: InsightKey, rule: AdvisoryRuleDef): boolean {
-  const blob = `${rule.ruleKey} ${rule.reasonCode} ${rule.needQuery} ${rule.whatNext}`.toLowerCase()
-  if (key === 'weather') return rule.reasonCode.startsWith('weather_') || blob.includes('weather')
-  if (key === 'vaccination') {
-    return (
-      rule.reasonCode.includes('vaccination') ||
-      blob.includes('vaccine') ||
-      blob.includes('gumboro') ||
-      blob.includes('newcastle') ||
-      blob.includes('lasota')
-    )
-  }
-  if (key === 'harvest') return rule.reasonCode.includes('harvest') || blob.includes('harvest')
-  // inputs: almost every safe needQuery tip
-  return (
-    Boolean(rule.needQuery) ||
-    blob.includes('fertiliz') ||
-    blob.includes('mulch') ||
-    blob.includes('feed') ||
-    blob.includes('compost') ||
-    blob.includes('electrolyte')
-  )
-}
-
-/** Build live insight tips from current farm state (on-demand, not only stored rows). */
-export async function buildInsightTips(
-  farmId: string,
-  key: InsightKey,
-): Promise<InsightTip[]> {
-  const [farm] = await db.select().from(farms).where(eq(farms.id, farmId)).limit(1)
-  if (!farm) return []
-
-  const [owner] = await db
-    .select({ preferredLocale: users.preferredLocale })
-    .from(users)
-    .where(and(eq(users.farmId, farmId), eq(users.role, 'owner')))
-    .limit(1)
-  const locale = resolveStaffReplyLocale(owner?.preferredLocale)
-  const tips: InsightTip[] = []
-  const now = new Date()
-
-  if (key === 'weather') {
-    // Fresh fetch so peak rainfall times are present (not a stale daily-only cache).
-    const weather = await getFarmWeather(farmId, { forceRefresh: true, preferredLocale: locale })
-    if (weather.status === 'ok' || weather.status === 'stale') {
-      const alertByType = new Map(weather.alerts.map((a) => [a.type, a]))
-      for (const rule of WEATHER_ADVISORY_RULES) {
-        const alert = alertByType.get(rule.alertType)
-        if (!alert) continue
-
-        const products = await resolveMarketplaceProducts({
-          farmLocation: farm.location ?? weather.locationLabel,
-          needQuery: rule.needQuery,
-          locale,
-          farmId,
-        })
-        tips.push({
-          id: `insight:${rule.ruleKey}`,
-          sourceType: 'weather',
-          sourceId: `weather:${rule.alertType}`,
-          ruleKey: rule.ruleKey,
-          reasonCode: rule.reasonCode,
-          happeningNow: withWeatherTiming(rule.happeningNow, alert),
-          whatNext: rule.whatNext,
-          needQuery: rule.needQuery,
-          products,
-          ephemeral: true,
-        })
-      }
-      if (tips.length === 0 && weather.current) {
-        const needQuery = 'poultry electrolytes shade farm'
-        const products = await resolveMarketplaceProducts({
-          farmLocation: farm.location ?? weather.locationLabel,
-          needQuery,
-          locale,
-          farmId,
-        })
-        tips.push({
-          id: 'insight:weather.general',
-          sourceType: 'weather',
-          sourceId: 'weather:general',
-          ruleKey: 'weather.general',
-          reasonCode: 'weather_general',
-          happeningNow: `Current conditions: ${weather.current.condition}, ${weather.current.tempC.toFixed(0)}°C.`,
-          whatNext: 'Review the Today weather card and plan field or poultry work around the forecast.',
-          needQuery,
-          products,
-          ephemeral: true,
-        })
-      }
-    } else {
-      tips.push({
-        id: 'insight:weather.unavailable',
-        sourceType: 'weather',
-        sourceId: 'weather:unavailable',
-        ruleKey: 'weather.unavailable',
-        reasonCode: 'weather_unavailable',
-        happeningNow: 'Weather data is not available for this farm yet.',
-        whatNext: 'Set farm location / weather API keys, then refresh Advisory.',
-        needQuery: '',
-        products: [],
-        ephemeral: true,
-      })
-    }
-    return tips.slice(0, 6)
-  }
-
-  const cycles = await db
-    .select({
-      id: cropCycles.id,
-      cropType: cropCycles.cropType,
-      stage: cropCycles.stage,
-      plantedAt: cropCycles.plantedAt,
-      stageEnteredAt: cropCycles.stageEnteredAt,
-      plotName: plots.name,
-    })
-    .from(cropCycles)
-    .innerJoin(plots, eq(plots.id, cropCycles.plotId))
-    .where(and(eq(cropCycles.farmId, farmId), ne(cropCycles.stage, 'harvested')))
-
-  for (const cycle of cycles) {
-    const dayInStage = daysBetween(cycle.stageEnteredAt ?? cycle.plantedAt, now)
-    const stageRules = CROP_ADVISORY_PLAYBOOKS.filter(
-      (p) => p.cropType === cycle.cropType.toLowerCase() && p.stage === cycle.stage,
-    ).flatMap((p) => p.rules)
-
-    // Harvest insights also look at harvest_ready playbooks even if not in that stage yet.
-    const harvestStageRules =
-      key === 'harvest'
-        ? CROP_ADVISORY_PLAYBOOKS.filter(
-            (p) =>
-              p.cropType === cycle.cropType.toLowerCase() &&
-              (p.stage === 'harvest_ready' || p.stage === cycle.stage),
-          ).flatMap((p) => p.rules)
-        : stageRules
-
-    const rules = key === 'harvest' ? harvestStageRules : stageRules
-    const due = dueRulesForDay(dayInStage, stageRules).filter((rule) => matchesInsight(key, rule))
-
-    let candidates = due
-    if (candidates.length === 0 && (key === 'harvest' || key === 'inputs')) {
-      if (key === 'harvest' && cycle.stage !== 'harvest_ready') {
-        candidates = rules.filter((rule) => matchesInsight(key, rule)).slice(0, 2)
-      } else {
-        candidates = rules
-          .filter((rule) => matchesInsight(key, rule))
-          .map((rule) => ({ rule, daysUntil: rule.offsetDays - dayInStage }))
-          .filter((x) => x.daysUntil >= 0 && x.daysUntil <= 21)
-          .sort((a, b) => a.daysUntil - b.daysUntil)
-          .slice(0, 2)
-          .map((x) => x.rule)
-      }
-    }
-
-    for (const rule of candidates) {
-      const products =
-        key === 'inputs' || rule.needQuery
-          ? await resolveMarketplaceProducts({
-              farmLocation: farm.location,
-              needQuery: rule.needQuery,
-              locale,
-              farmId,
-            })
-          : []
-      tips.push({
-        id: `insight:${cycle.id}:${rule.ruleKey}`,
-        sourceType: 'crop_cycle',
-        sourceId: cycle.id,
-        ruleKey: rule.ruleKey,
-        reasonCode: rule.reasonCode,
-        happeningNow: `${rule.happeningNow} (${cycle.plotName})`,
-        whatNext: rule.whatNext,
-        needQuery: rule.needQuery,
-        products,
-        ephemeral: true,
-      })
-    }
-  }
-
-  const batches = await db
-    .select()
-    .from(livestockBatches)
-    .where(and(eq(livestockBatches.farmId, farmId), eq(livestockBatches.active, true)))
-
-  for (const batch of batches) {
-    const isBroiler =
-      batch.batchType === 'broiler' || batch.species.toLowerCase().includes('broiler')
-    if (!isBroiler) continue
-    const dayInCycle = daysBetween(batch.acquiredAt, now)
-    const due = dueRulesForDay(dayInCycle, BROILER_ADVISORY_PLAYBOOK.rules).filter((rule) =>
-      matchesInsight(key, rule),
-    )
-    const upcoming =
-      due.length === 0 && (key === 'vaccination' || key === 'inputs')
-        ? BROILER_ADVISORY_PLAYBOOK.rules
-            .filter((rule) => matchesInsight(key, rule))
-            .map((rule) => ({ rule, daysUntil: rule.offsetDays - dayInCycle }))
-            .filter((x) => x.daysUntil >= 0 && x.daysUntil <= 14)
-            .sort((a, b) => a.daysUntil - b.daysUntil)
-            .slice(0, 2)
-            .map((x) => x.rule)
-        : []
-
-    for (const rule of [...due, ...upcoming]) {
-      const products = await resolveMarketplaceProducts({
-        farmLocation: farm.location,
-        needQuery: rule.needQuery,
-        locale,
-        farmId,
-      })
-      tips.push({
-        id: `insight:${batch.id}:${rule.ruleKey}`,
-        sourceType: 'livestock_batch',
-        sourceId: batch.id,
-        ruleKey: rule.ruleKey,
-        reasonCode: rule.reasonCode,
-        happeningNow: `${rule.happeningNow} (${batch.name})`,
-        whatNext: rule.whatNext,
-        needQuery: rule.needQuery,
-        products,
-        ephemeral: true,
-      })
-    }
-  }
-
-  return tips.slice(0, 8)
-}
+export type { InsightKey, InsightTip } from './advisory-insights.js'
+export { buildInsightTips, isLocalizedFallbackTip } from './advisory-insights.js'

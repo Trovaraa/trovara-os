@@ -4,11 +4,12 @@ import { farms, weatherCache } from '../db/schema.js'
 import {
   buildWeatherAlerts,
   formatLocalClockLabel,
+  localizeWeatherAlerts,
   type WeatherAlert,
   type WeatherDay,
 } from './weather-alerts.js'
 import { buildWeatherActions, type WeatherAction } from './weather-actions.js'
-import { resolveWeatherActions } from './weather-ai-actions.js'
+import { localizeWeatherActions, resolveWeatherActions } from './weather-ai-actions.js'
 import { resolveStaffReplyLocale } from './reply-locale.js'
 
 export type { WeatherAlert, WeatherAlertType, WeatherDay } from './weather-alerts.js'
@@ -34,6 +35,7 @@ export type WeatherSnapshot = {
   alerts: WeatherAlert[]
   actions: WeatherAction[]
   actionsSource?: 'ai' | 'rules'
+  /** Language the actions were rendered into for this viewer, not generated in. */
   actionsLocale?: string
   message?: string
 }
@@ -46,10 +48,17 @@ type NormalizedForecast = {
 }
 
 type CachedWeatherPayload = NormalizedForecast & {
+  /** Canonical English actions. Viewer language is applied when serving, never here. */
   actions?: WeatherAction[]
   actionsSource?: 'ai' | 'rules'
+  /**
+   * Language of the STORED actions, always 'en'. Older cache entries were
+   * written in the requesting viewer's language; those are discarded on read.
+   */
   actionsLocale?: string
 }
+
+const STORED_ACTIONS_LOCALE = 'en'
 
 const HOUR_MS = 60 * 60 * 1000
 const MINUTE_MS = 60 * 1000
@@ -88,12 +97,13 @@ function asNormalizedForecast(payload: CachedWeatherPayload): NormalizedForecast
   }
 }
 
-function snapshotFromNormalized(
+async function snapshotFromNormalized(
   status: WeatherSnapshot['status'],
   normalized: NormalizedForecast,
   fetchedAt: Date,
   timezone: string | null,
   locationLabel: string | null,
+  farmId: string,
   options?: {
     message?: string
     actions?: WeatherAction[]
@@ -101,17 +111,24 @@ function snapshotFromNormalized(
     actionsLocale?: string
     preferredLocale?: string | null
   },
-): WeatherSnapshot {
+): Promise<WeatherSnapshot> {
+  // English alerts feed the rules engine; the viewer's copy is rendered below.
   const alerts = buildWeatherAlerts(normalized.daily, normalized.current.windKmh, timezone ?? 'Africa/Lagos')
   const locale = resolveStaffReplyLocale(options?.preferredLocale)
   const cachedActionsOk =
     Array.isArray(options?.actions) &&
     options?.actionsSource === 'ai' &&
-    options?.actionsLocale === locale
+    (options?.actionsLocale ?? STORED_ACTIONS_LOCALE) === STORED_ACTIONS_LOCALE
 
-  const actions = cachedActionsOk
+  const actionsSource = cachedActionsOk ? 'ai' : 'rules'
+  const english = cachedActionsOk
     ? (options!.actions as WeatherAction[])
     : buildWeatherActions(normalized.daily, normalized.current.windKmh, alerts)
+
+  // Both hold canonical English, but they are rendered differently: generated
+  // text is translated, the rules themes come off a pre-translated table that
+  // still works with the LLM off.
+  const actions = await localizeWeatherActions(farmId, english, locale, actionsSource)
 
   return {
     status,
@@ -122,9 +139,11 @@ function snapshotFromNormalized(
     locationLabel,
     current: normalized.current,
     daily: normalized.daily,
-    alerts,
+    // Localized at serve time from a language-neutral cache, so the API returns
+    // alert text the client can print as-is in any of the four languages.
+    alerts: localizeWeatherAlerts(locale, alerts),
     actions,
-    actionsSource: cachedActionsOk ? 'ai' : 'rules',
+    actionsSource,
     actionsLocale: locale,
     message: options?.message,
   }
@@ -501,6 +520,7 @@ export async function getFarmWeather(
       cached!.fetchedAt,
       timezone,
       locationLabel,
+      farmId,
       {
         preferredLocale,
         actions: cachedPayload!.actions,
@@ -519,7 +539,7 @@ export async function getFarmWeather(
 
     await persistWeatherCache(farmId, payload, fetchedAt, expiresAt)
 
-    return snapshotFromNormalized('ok', normalized, fetchedAt, timezone, locationLabel, {
+    return snapshotFromNormalized('ok', normalized, fetchedAt, timezone, locationLabel, farmId, {
       preferredLocale,
     })
   } catch (err) {
@@ -531,6 +551,7 @@ export async function getFarmWeather(
         cached.fetchedAt,
         timezone,
         locationLabel,
+        farmId,
         {
           message: 'Showing cached weather — live fetch failed.',
           preferredLocale,
@@ -549,6 +570,9 @@ export async function getFarmWeather(
 /**
  * Force AI (or rules fallback) weather actions for the farm's cached forecast.
  * Updates weather_cache actions fields without refetching the provider.
+ *
+ * The cache holds the English generation; the caller's language is applied to
+ * the returned copy only, so two viewers never store divergent advice.
  */
 export async function regenerateWeatherActions(
   farmId: string,
@@ -587,7 +611,7 @@ export async function regenerateWeatherActions(
     ...normalized,
     actions: resolved.actions,
     actionsSource: resolved.source,
-    actionsLocale: resolved.locale,
+    actionsLocale: STORED_ACTIONS_LOCALE,
   }
 
   await db
@@ -598,9 +622,11 @@ export async function regenerateWeatherActions(
     .where(eq(weatherCache.farmId, farmId))
 
   return {
-    actions: resolved.actions,
+    actions: resolved.localizedActions,
     actionsSource: resolved.source,
-    actionsLocale: resolved.locale,
-    alerts,
+    actionsLocale: resolved.renderedLocale,
+    // The English `alerts` above drove action generation; the caller gets the
+    // viewer's language, matching the /api/today alert path.
+    alerts: localizeWeatherAlerts(resolveStaffReplyLocale(preferredLocale), alerts),
   }
 }

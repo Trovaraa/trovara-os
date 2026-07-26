@@ -3,10 +3,118 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { cropCycles, farmEvents, plantingUnits, plots, tasks, zones } from '../db/schema.js'
+import {
+  cropCycles,
+  farmEvents,
+  plantingUnits,
+  plots,
+  tasks,
+  users,
+  zones,
+} from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAssignTasks } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
+import { normalizeCropType } from '../lib/crop-normalize.js'
+import {
+  authorLocaleForUserId,
+  authorLocaleHint,
+  toCanonicalEnglish,
+  toViewerLocaleMany,
+} from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import {
+  contentLocaleValues,
+  mergeContentLocale,
+  type ContentLocaleMeta,
+} from '../lib/task-drafts.js'
+
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return row?.preferredLocale ?? null
+}
+
+/**
+ * Normalize a zone's `description` or a block's `notes` to English for storage -
+ * the only prose these endpoints persist, and the two columns the translation
+ * retry job repairs on `zones` and `plots`.
+ *
+ * `cropType` is deliberately not normalized here: it is an exact lookup key
+ * resolved through the deterministic crop lexicon below, so it never reaches a
+ * translator. Zone and block names, block codes, planting-unit labels and unit
+ * types are proper nouns or lookup keys; areas, coordinates, counts and statuses
+ * are not prose.
+ *
+ * A translation failure yields the author's own words at 'pending' so the retry
+ * job repairs the row later; it must never fail the write it serves.
+ */
+async function canonicalProse(
+  text: string | null | undefined,
+  farmId: string,
+  hint: string | null,
+): Promise<{ text?: string; locale: ContentLocaleMeta }> {
+  if (typeof text !== 'string' || text.trim() === '') {
+    return { locale: { sourceLocale: null, translationStatus: 'done' } }
+  }
+
+  try {
+    const result = await toCanonicalEnglish({ text, farmId, sourceLocale: hint })
+    return {
+      text: result.english,
+      locale: { sourceLocale: result.sourceLocale, translationStatus: result.status },
+    }
+  } catch {
+    return { text, locale: { sourceLocale: hint, translationStatus: 'pending' } }
+  }
+}
+
+/**
+ * Render prose in the viewer's language with ONE batched translation call per
+ * response, mapping the results back by position. An English viewer
+ * short-circuits before the cache query and the LLM call.
+ *
+ * On these endpoints the prose is a block's `notes` and a zone's `description`,
+ * the two columns their `translation_status` covers. Block and zone names, block
+ * codes, `cropType`, planting-unit labels and unit types are lookup keys or
+ * proper nouns; areas, coordinates, counts, statuses and event types are not
+ * prose.
+ */
+async function localizeRows<T extends object>(
+  rows: T[],
+  fields: readonly (keyof T & string)[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<T[]> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return rows
+  if (rows.length === 0 || fields.length === 0) return rows
+
+  const texts: string[] = []
+  for (const row of rows) {
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') texts.push(value)
+    }
+  }
+  if (texts.length === 0) return rows
+
+  const translated = await toViewerLocaleMany({ texts, targetLocale, farmId })
+
+  let cursor = 0
+  return rows.map((row) => {
+    const out = { ...row }
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') {
+        ;(out as Record<string, unknown>)[field] = translated[cursor++]
+      }
+    }
+    return out
+  })
+}
 
 const createZoneSchema = z.object({
   name: z.string().min(1).max(200),
@@ -208,7 +316,10 @@ zoneRoutes.get('/plots', async (c) => {
     .where(and(...conditions))
     .orderBy(plots.name)
 
-  return c.json({ plots: rows, blocks: rows })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(rows, ['notes'], user.farmId, viewerLocale)
+
+  return c.json({ plots: localized, blocks: localized })
 })
 
 zoneRoutes.post('/plots', zValidator('json', createBlockSchema), async (c) => {
@@ -223,6 +334,13 @@ zoneRoutes.post('/plots', zValidator('json', createBlockSchema), async (c) => {
     .limit(1)
   if (!zone) return c.json({ error: 'Invalid zone' }, 400)
 
+  const typedNotes = body.notes?.trim() || null
+  const canonical = await canonicalProse(
+    typedNotes,
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [block] = await db
     .insert(plots)
     .values({
@@ -230,8 +348,13 @@ zoneRoutes.post('/plots', zValidator('json', createBlockSchema), async (c) => {
       zoneId: body.zoneId,
       name: body.name.trim(),
       code: body.code?.trim() || null,
-      notes: body.notes?.trim() || null,
-      cropType: body.cropType?.trim() || 'mixed',
+      notes: canonical.text ?? typedNotes,
+      ...contentLocaleValues(canonical.locale),
+      // The lifecycle and advisory lookups exact-match this string against their
+      // English keys, so a block crop typed in the operator's own language is
+      // resolved here, the same way crop cycles do it. Crops we have no playbook
+      // for are stored as typed.
+      cropType: normalizeCropType(body.cropType?.trim() || 'mixed').canonical,
       cropVariety: body.cropVariety?.trim() || null,
       areaAcres: body.areaAcres?.trim() || null,
       latitude: body.latitude?.trim() || null,
@@ -249,7 +372,10 @@ zoneRoutes.post('/plots', zValidator('json', createBlockSchema), async (c) => {
     entityId: block.id,
   })
 
-  return c.json({ plot: block, block }, 201)
+  // The author reads back their own words; the row holds the English.
+  const created = { ...block, notes: typedNotes ?? block.notes }
+
+  return c.json({ plot: created, block: created }, 201)
 })
 
 zoneRoutes.patch('/plots/:plotId', zValidator('json', updateBlockSchema), async (c) => {
@@ -274,13 +400,25 @@ zoneRoutes.patch('/plots/:plotId', zValidator('json', updateBlockSchema), async 
     if (!zone) return c.json({ error: 'Invalid zone' }, 400)
   }
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const typedNotes = body.notes !== undefined ? body.notes?.trim() || null : undefined
+  const canonical = await canonicalProse(typedNotes, user.farmId, authorLocale)
+
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
   if (body.zoneId !== undefined) updates.zoneId = body.zoneId
   if (body.name !== undefined) updates.name = body.name.trim()
   if (body.code !== undefined) updates.code = body.code?.trim() || null
-  if (body.notes !== undefined) updates.notes = body.notes?.trim() || null
+  if (typedNotes !== undefined) {
+    updates.notes = canonical.text ?? typedNotes
+    // Escalates a row to 'pending' but never downgrades one the retry job still
+    // owes work on. A patch that carries no notes never touches the pair.
+    Object.assign(updates, mergeContentLocale(existing, canonical.locale))
+  }
   if (body.areaAcres !== undefined) updates.areaAcres = body.areaAcres?.trim() || null
-  if (body.cropType !== undefined) updates.cropType = body.cropType.trim() || 'mixed'
+  if (body.cropType !== undefined) {
+    updates.cropType = normalizeCropType(body.cropType.trim() || 'mixed').canonical
+  }
   if (body.cropVariety !== undefined) updates.cropVariety = body.cropVariety?.trim() || null
   if (body.latitude !== undefined) updates.latitude = body.latitude?.trim() || null
   if (body.longitude !== undefined) updates.longitude = body.longitude?.trim() || null
@@ -295,7 +433,17 @@ zoneRoutes.patch('/plots/:plotId', zValidator('json', updateBlockSchema), async 
     entityId: plotId,
   })
 
-  return c.json({ plot: block, block })
+  // Notes this author just wrote are echoed in their own words (no round trip);
+  // a patch that left them alone renders the stored English for the viewer.
+  const [localized] = await localizeRows(
+    [block],
+    typedNotes !== undefined ? [] : ['notes'],
+    user.farmId,
+    viewerLocale,
+  )
+  const patched = typedNotes !== undefined ? { ...localized, notes: typedNotes } : localized
+
+  return c.json({ plot: patched, block: patched })
 })
 
 zoneRoutes.post('/plots/:plotId/archive', async (c) => {
@@ -324,7 +472,12 @@ zoneRoutes.post('/plots/:plotId/archive', async (c) => {
     entityId: plotId,
   })
 
-  return c.json({ plot: block, block })
+  // Archiving writes no text, so the notes on the row are someone's canonical
+  // English and are rendered for whoever is reading them.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const [localized] = await localizeRows([block], ['notes'], user.farmId, viewerLocale)
+
+  return c.json({ plot: localized, block: localized })
 })
 
 zoneRoutes.get('/plots/:plotId/timeline', async (c) => {
@@ -390,8 +543,13 @@ zoneRoutes.get('/plots/:plotId/timeline', async (c) => {
           .where(and(eq(farmEvents.farmId, user.farmId), or(...entityFilters)))
       : []
 
+  // A farm event's `title` is its event type, a machine key the client renders,
+  // so task titles are the only prose on this endpoint.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localizedTasks = await localizeRows(plotTasks, ['title'], user.farmId, viewerLocale)
+
   const timeline = [
-    ...plotTasks.map((t) => ({
+    ...localizedTasks.map((t) => ({
       id: t.id,
       type: 'task' as const,
       title: t.title,
@@ -421,7 +579,10 @@ zoneRoutes.get('/', async (c) => {
     .where(eq(zones.farmId, user.farmId))
     .orderBy(zones.name)
 
-  return c.json({ zones: rows })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(rows, ['description'], user.farmId, viewerLocale)
+
+  return c.json({ zones: localized })
 })
 
 zoneRoutes.get('/:id', async (c) => {
@@ -436,7 +597,10 @@ zoneRoutes.get('/:id', async (c) => {
 
   if (!zone) return c.json({ error: 'Not found' }, 404)
 
-  return c.json({ zone })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const [localized] = await localizeRows([zone], ['description'], user.farmId, viewerLocale)
+
+  return c.json({ zone: localized })
 })
 
 zoneRoutes.post('/', zValidator('json', createZoneSchema), async (c) => {
@@ -445,12 +609,19 @@ zoneRoutes.post('/', zValidator('json', createZoneSchema), async (c) => {
 
   const body = c.req.valid('json')
 
+  const canonical = await canonicalProse(
+    body.description,
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [zone] = await db
     .insert(zones)
     .values({
       farmId: user.farmId,
       name: body.name,
-      description: body.description,
+      description: canonical.text ?? body.description,
+      ...contentLocaleValues(canonical.locale),
     })
     .returning()
 
@@ -462,7 +633,8 @@ zoneRoutes.post('/', zValidator('json', createZoneSchema), async (c) => {
     entityId: zone.id,
   })
 
-  return c.json({ zone }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json({ zone: { ...zone, description: body.description ?? zone.description } }, 201)
 })
 
 zoneRoutes.patch('/:id', zValidator('json', updateZoneSchema), async (c) => {
@@ -480,9 +652,18 @@ zoneRoutes.patch('/:id', zValidator('json', updateZoneSchema), async (c) => {
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const canonical = await canonicalProse(body.description, user.farmId, authorLocale)
+
   const updates: Partial<typeof existing> = {}
   if (body.name !== undefined) updates.name = body.name
-  if (body.description !== undefined) updates.description = body.description
+  if (body.description !== undefined) {
+    updates.description = canonical.text ?? body.description
+    // Escalates a row to 'pending' but never downgrades one the retry job still
+    // owes work on. A rename that carries no description never touches the pair.
+    Object.assign(updates, mergeContentLocale(existing, canonical.locale))
+  }
 
   const [zone] = await db
     .update(zones)
@@ -498,7 +679,21 @@ zoneRoutes.patch('/:id', zValidator('json', updateZoneSchema), async (c) => {
     entityId: zoneId,
   })
 
-  return c.json({ zone })
+  // A description this author just wrote is echoed in their own words (no round
+  // trip); a rename renders the stored English for the viewer.
+  const [localized] = await localizeRows(
+    [zone],
+    body.description !== undefined ? [] : ['description'],
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({
+    zone:
+      body.description !== undefined
+        ? { ...localized, description: body.description }
+        : localized,
+  })
 })
 
 zoneRoutes.delete('/:id', async (c) => {

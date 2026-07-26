@@ -1,5 +1,81 @@
-import { describe, expect, it } from 'vitest'
-import { parseStaffOpsCommand, taskReference } from './staff-ops.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  parseStaffOpsCommand,
+  taskReference,
+  transitionTaskFromCallback,
+  tryHandleStaffOpsCommand,
+} from './staff-ops.js'
+
+/** The single task the mocked db knows about, and every `set(...)` applied to it. */
+const taskRows: Record<string, unknown>[] = []
+const taskUpdates: Record<string, unknown>[] = []
+
+function selectResult() {
+  const result = Promise.resolve(taskRows) as Promise<Record<string, unknown>[]> & {
+    limit: (n?: number) => Promise<Record<string, unknown>[]>
+  }
+  result.limit = async () => taskRows
+  return result
+}
+
+vi.mock('../db/index.js', () => ({
+  db: {
+    select: () => ({ from: () => ({ where: () => selectResult() }) }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => ({
+          returning: async () => {
+            taskUpdates.push(values)
+            return [{ ...taskRows[0], ...values }]
+          },
+        }),
+      }),
+    }),
+  },
+}))
+
+vi.mock('./audit.js', () => ({ logAudit: vi.fn(async () => undefined) }))
+vi.mock('./farm-notify.js', () => ({
+  notifyTaskSubmittedForApproval: vi.fn(async () => undefined),
+}))
+
+const TASK_ID = '11111111-1111-1111-1111-111111111111'
+
+function task(overrides: Record<string, unknown> = {}) {
+  return {
+    id: TASK_ID,
+    farmId: 'farm-1',
+    title: 'Weed Block 2',
+    status: 'in_progress',
+    assignedToId: 'user-1',
+    completionNote: null,
+    rejectionReason: null,
+    sourceLocale: null,
+    translationStatus: 'done',
+    ...overrides,
+  }
+}
+
+const worker = {
+  id: 'user-1',
+  farmId: 'farm-1',
+  role: 'field_worker' as const,
+  name: 'Ade',
+  preferredLocale: 'fr',
+}
+
+const supervisor = {
+  id: 'user-2',
+  farmId: 'farm-1',
+  role: 'supervisor' as const,
+  name: 'Bola',
+  preferredLocale: 'en',
+}
+
+beforeEach(() => {
+  taskRows.length = 0
+  taskUpdates.length = 0
+})
 
 describe('parseStaffOpsCommand', () => {
   it('parses clock and task commands', () => {
@@ -20,5 +96,100 @@ describe('parseStaffOpsCommand', () => {
 describe('taskReference', () => {
   it('builds short task refs', () => {
     expect(taskReference('abcdef12-3456-7890-abcd-ef1234567890')).toBe('TSK-ABCDEF')
+  })
+})
+
+describe('direct note commands', () => {
+  it('marks the task pending when the caller could not translate the note', async () => {
+    taskRows.push(task())
+
+    const result = await tryHandleStaffOpsCommand({
+      actor: worker,
+      text: `done ${taskReference(TASK_ID)} sarclage termine`,
+      noteLocale: { sourceLocale: 'fr', translationStatus: 'pending' },
+    })
+
+    expect(result.handled).toBe(true)
+    expect(taskUpdates[0]).toMatchObject({
+      status: 'awaiting_approval',
+      completionNote: 'sarclage termine',
+      sourceLocale: 'fr',
+      translationStatus: 'pending',
+    })
+  })
+
+  it('behaves exactly as before when the caller passes no metadata', async () => {
+    taskRows.push(task())
+
+    await tryHandleStaffOpsCommand({
+      actor: worker,
+      text: `done ${taskReference(TASK_ID)} weeding finished`,
+    })
+
+    expect(taskUpdates[0]).toMatchObject({ completionNote: 'weeding finished' })
+    expect(taskUpdates[0]).not.toHaveProperty('sourceLocale')
+    expect(taskUpdates[0]).not.toHaveProperty('translationStatus')
+  })
+
+  it('leaves a task that already owes a translation pending', async () => {
+    taskRows.push(task({ sourceLocale: 'fr', translationStatus: 'pending' }))
+
+    await tryHandleStaffOpsCommand({
+      actor: worker,
+      text: `done ${taskReference(TASK_ID)} weeding finished`,
+      noteLocale: { sourceLocale: null, translationStatus: 'done' },
+    })
+
+    expect(taskUpdates[0]).not.toHaveProperty('sourceLocale')
+    expect(taskUpdates[0]).not.toHaveProperty('translationStatus')
+  })
+
+  it('does not touch the locale columns when the command carries no note', async () => {
+    taskRows.push(task({ status: 'pending' }))
+
+    await tryHandleStaffOpsCommand({
+      actor: worker,
+      text: `start ${taskReference(TASK_ID)}`,
+      noteLocale: { sourceLocale: 'fr', translationStatus: 'pending' },
+    })
+
+    expect(taskUpdates[0]).toMatchObject({ status: 'in_progress' })
+    expect(taskUpdates[0]).not.toHaveProperty('completionNote')
+    expect(taskUpdates[0]).not.toHaveProperty('translationStatus')
+  })
+})
+
+describe('transitionTaskFromCallback', () => {
+  it('marks the task pending for an untranslated rejection reason', async () => {
+    taskRows.push(task({ status: 'awaiting_approval', assignedToId: 'user-1' }))
+
+    await transitionTaskFromCallback({
+      actor: supervisor,
+      taskId: TASK_ID,
+      action: 'reject',
+      note: 'travail incomplet',
+      noteLocale: { sourceLocale: 'fr', translationStatus: 'pending' },
+    })
+
+    expect(taskUpdates[0]).toMatchObject({
+      status: 'rejected',
+      rejectionReason: 'travail incomplet',
+      sourceLocale: 'fr',
+      translationStatus: 'pending',
+    })
+  })
+
+  it('keeps the schema default for an English rejection reason', async () => {
+    taskRows.push(task({ status: 'awaiting_approval', assignedToId: 'user-1' }))
+
+    await transitionTaskFromCallback({
+      actor: supervisor,
+      taskId: TASK_ID,
+      action: 'reject',
+      note: 'work incomplete',
+    })
+
+    expect(taskUpdates[0]).toMatchObject({ rejectionReason: 'work incomplete' })
+    expect(taskUpdates[0]).not.toHaveProperty('translationStatus')
   })
 })

@@ -4,17 +4,27 @@ import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import TaskStatusBadge from '@/components/TaskStatusBadge.vue'
+import TodayAttendancePanel from '@/components/today/TodayAttendancePanel.vue'
+import TodayDayClosePanel from '@/components/today/TodayDayClosePanel.vue'
 import WeatherTipsLoader from '@/components/WeatherTipsLoader.vue'
+import { useTodayAttendance } from '@/composables/useTodayAttendance'
+import { useTodayDayClose } from '@/composables/useTodayDayClose'
+import { useExceptionText, type ExceptionParams } from '@/composables/useExceptionText'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 
 const { t } = useI18n()
+const { exceptionTitle, exceptionMessage, actionLabel } = useExceptionText()
 
 type ExceptionItem = {
   type: string
   severity: 'high' | 'medium'
   title: string
+  titleKey?: string
+  titleParams?: ExceptionParams
   message: string
+  messageKey?: string
+  messageParams?: ExceptionParams
   entityType: string
   entityId: string
   timestamp: string
@@ -25,6 +35,10 @@ type ActionItem = {
   priority: number
   action: string
   label: string
+  labelKey?: string
+  labelParams?: ExceptionParams
+  titleKey?: string
+  titleParams?: ExceptionParams
   entityType: string
   entityId: string
   link: string
@@ -114,123 +128,46 @@ type TodayData = {
   }[]
 }
 
-type AttendanceSession = {
-  id: string
-  userId: string
-  userName: string
-  clockInAt: string
-  clockOutAt: string | null
-  monthlyWageSnapshotNgn: number
-  plotId: string | null
-  plotName: string | null
-  taskId: string | null
-  taskTitle: string | null
-  notes: string | null
-  correctedById: string | null
-  correctedAt: string | null
-  payableMinutes: number
-}
-
-type PlotOption = { id: string; name: string; active: boolean }
-
-type DayCloseData = {
-  scope?: 'farm' | 'sales'
-  date: string
-  generatedAt: string
-  tasks?: {
-    total: number
-    completed: number
-    overdue: number
-    pendingApproval: number
-    rejected: number
-    inProgress: number
-  }
-  pendingApprovals?: {
-    id: string
-    title: string
-    worker: string | null
-    plot: string | null
-    submittedAt: string
-  }[]
-  overdueTasks?: {
-    id: string
-    title: string
-    status: string
-    dueDate: string | null
-    worker: string | null
-    plot: string | null
-  }[]
-  inventory?: {
-    lowStockCount: number
-    lowStockItems: { id: string; name: string; quantity: number; reorderLevel: number; unit: string }[]
-    movementsToday?: number
-  }
-  livestock?: {
-    mortalityToday: number
-    incidents: { batch: string | null; headCount: number | null; notes: string | null; at: string }[]
-  }
-  finance?: { expensesToday: number; totalExpenses: number; currency: string }
-  orders?: {
-    totalToday: number
-    pending: number
-    confirmed: number
-    dispatched: number
-    delivered: number
-    cancelled: number
-    revenueToday: number
-    currency: string
-    unpaidCount: number
-    unpaidTotal: number
-    items: Array<{
-      id: string
-      customerName: string
-      status: string
-      paymentStatus: string
-      totalAmount: number
-      currency: string
-    }>
-    unpaid: Array<{
-      id: string
-      customerName: string
-      status: string
-      paymentStatus: string
-      totalAmount: number
-      currency: string
-    }>
-  }
-  tomorrowActions: string[]
-  status: 'clear' | 'needs_attention'
-}
-
 const auth = useAuthStore()
 const data = ref<TodayData | null>(null)
-const dayClose = ref<DayCloseData | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
-const dayCloseOpen = ref(false)
-const dayCloseLoading = ref(false)
-const attendance = ref<AttendanceSession[]>([])
-const plots = ref<PlotOption[]>([])
-const attendanceBusy = ref(false)
-const attendanceError = ref<string | null>(null)
-const selectedPlotId = ref('')
-const selectedTaskId = ref('')
-const attendanceNotes = ref('')
-const correctingId = ref<string | null>(null)
-const correctionClockIn = ref('')
-const correctionClockOut = ref('')
-const correctionNotes = ref('')
 const weatherTipsLoading = ref(false)
 const weatherTipsError = ref<string | null>(null)
 
+const {
+  attendance,
+  plots,
+  attendanceBusy,
+  attendanceError,
+  selectedPlotId,
+  selectedTaskId,
+  attendanceNotes,
+  correctingId,
+  correctionClockIn,
+  correctionClockOut,
+  correctionNotes,
+  showAttendance,
+  openAttendance,
+  loadAttendance,
+  clockInNow,
+  clockOutNow,
+  startCorrection,
+  saveCorrection,
+  formatMinutes,
+} = useTodayAttendance(() => auth.user?.role)
+
+const {
+  dayClose,
+  dayCloseOpen,
+  dayCloseLoading,
+  showFarmDayClose,
+  showSalesDayClose,
+  openDayClose,
+} = useTodayDayClose(() => auth.user?.role)
+
 const isWorker = computed(() => auth.user?.role === 'field_worker')
 const isSales = computed(() => auth.user?.role === 'sales')
-const showAttendance = computed(() => !isSales.value)
-const showFarmDayClose = computed(() => !isWorker.value && !isSales.value)
-const showSalesDayClose = computed(() => isSales.value)
-const openAttendance = computed(
-  () => attendance.value.find((session) => session.clockOutAt === null) ?? null,
-)
 
 const exceptionIcon: Record<string, string> = {
   overdue_task: 'text-red-400',
@@ -317,121 +254,21 @@ async function regenerateWeatherTips(force = false) {
   }
 }
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  error.value = null
   try {
-    const todayPromise = api<TodayData>('/api/today')
-    const attendancePromise = showAttendance.value
-      ? api<{ sessions: AttendanceSession[] }>('/api/attendance/today')
-      : Promise.resolve({ sessions: [] as AttendanceSession[] })
-
-    const [todayData, attendanceData] = await Promise.all([todayPromise, attendancePromise])
+    const [todayData] = await Promise.all([api<TodayData>('/api/today'), loadAttendance()])
     data.value = todayData
-    attendance.value = attendanceData.sessions
-    if (auth.user?.role === 'field_worker') {
-      const plotData = await api<{ plots: PlotOption[] }>('/api/zones/plots')
-      plots.value = plotData.plots.filter((plot) => plot.active)
-    }
     void regenerateWeatherTips(false)
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('today.loadFailed')
   } finally {
     loading.value = false
   }
-})
-
-async function reloadAttendance() {
-  const result = await api<{ sessions: AttendanceSession[] }>('/api/attendance/today')
-  attendance.value = result.sessions
 }
 
-async function clockInNow() {
-  attendanceBusy.value = true
-  attendanceError.value = null
-  try {
-    await api('/api/attendance/clock-in', {
-      method: 'POST',
-      body: JSON.stringify({
-        plotId: selectedPlotId.value || null,
-        taskId: selectedTaskId.value || null,
-        notes: attendanceNotes.value.trim() || null,
-      }),
-    })
-    await reloadAttendance()
-  } catch (e) {
-    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
-  } finally {
-    attendanceBusy.value = false
-  }
-}
-
-async function clockOutNow() {
-  attendanceBusy.value = true
-  attendanceError.value = null
-  try {
-    await api('/api/attendance/clock-out', { method: 'POST', body: '{}' })
-    await reloadAttendance()
-  } catch (e) {
-    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
-  } finally {
-    attendanceBusy.value = false
-  }
-}
-
-function toLocalInput(iso: string | null) {
-  if (!iso) return ''
-  const date = new Date(iso)
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-}
-
-function startCorrection(session: AttendanceSession) {
-  correctingId.value = session.id
-  correctionClockIn.value = toLocalInput(session.clockInAt)
-  correctionClockOut.value = toLocalInput(session.clockOutAt)
-  correctionNotes.value = session.notes ?? ''
-}
-
-async function saveCorrection(session: AttendanceSession) {
-  attendanceBusy.value = true
-  attendanceError.value = null
-  try {
-    await api(`/api/attendance/${session.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        clockInAt: new Date(correctionClockIn.value).toISOString(),
-        clockOutAt: correctionClockOut.value
-          ? new Date(correctionClockOut.value).toISOString()
-          : null,
-        notes: correctionNotes.value.trim() || null,
-      }),
-    })
-    correctingId.value = null
-    await reloadAttendance()
-  } catch (e) {
-    attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
-  } finally {
-    attendanceBusy.value = false
-  }
-}
-
-function formatMinutes(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const remainder = minutes % 60
-  return t('today.attendanceDuration', { hours, minutes: remainder })
-}
-
-async function openDayClose() {
-  if (dayClose.value) {
-    dayCloseOpen.value = !dayCloseOpen.value
-    return
-  }
-  dayCloseLoading.value = true
-  dayCloseOpen.value = true
-  try {
-    dayClose.value = await api<DayCloseData>('/api/day-close')
-  } finally {
-    dayCloseLoading.value = false
-  }
-}
+onMounted(load)
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
@@ -440,10 +277,6 @@ function formatTime(iso: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function formatCurrency(amount: number, currency: string) {
-  return `${currency} ${amount.toLocaleString()}`
 }
 </script>
 
@@ -504,133 +337,28 @@ function formatCurrency(amount: number, currency: string) {
         </div>
       </section>
 
-      <!-- Attendance -->
-      <section v-if="showAttendance" class="mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 class="font-bold text-white">{{ t('today.attendance') }}</h3>
-            <p class="text-xs text-slate-400 mt-1">
-              {{ isWorker ? t('today.attendanceWorkerSubtitle') : t('today.attendanceManagerSubtitle') }}
-            </p>
-          </div>
-          <span
-            v-if="isWorker"
-            class="rounded-full px-3 py-1 text-xs font-bold"
-            :class="openAttendance ? 'bg-farm-green/15 text-farm-green' : 'bg-slate-800 text-slate-400'"
-          >
-            {{ openAttendance ? t('today.clockedIn') : t('today.clockedOut') }}
-          </span>
-        </div>
-
-        <p v-if="attendanceError" class="mt-3 text-sm text-red-400">{{ attendanceError }}</p>
-
-        <div v-if="isWorker" class="mt-4">
-          <div v-if="openAttendance" class="space-y-3">
-            <p class="text-sm text-slate-300">
-              {{ t('today.since') }} {{ formatTime(openAttendance.clockInAt) }}
-              <span v-if="openAttendance.plotName"> · {{ openAttendance.plotName }}</span>
-              <span v-if="openAttendance.taskTitle"> · {{ openAttendance.taskTitle }}</span>
-            </p>
-            <button
-              type="button"
-              class="min-h-[44px] rounded-xl bg-red-500/90 px-5 py-2.5 font-bold text-white disabled:opacity-50"
-              :disabled="attendanceBusy"
-              @click="clockOutNow"
-            >
-              {{ attendanceBusy ? t('today.savingAttendance') : t('today.clockOut') }}
-            </button>
-          </div>
-
-          <div v-else class="grid gap-3 sm:grid-cols-2">
-            <label class="text-xs text-slate-400">
-              {{ t('today.blockOptional') }}
-              <select v-model="selectedPlotId" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
-                <option value="">{{ t('today.noAllocation') }}</option>
-                <option v-for="plot in plots" :key="plot.id" :value="plot.id">{{ plot.name }}</option>
-              </select>
-            </label>
-            <label class="text-xs text-slate-400">
-              {{ t('today.taskOptional') }}
-              <select v-model="selectedTaskId" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
-                <option value="">{{ t('today.noAllocation') }}</option>
-                <option v-for="task in data.myTasksToday ?? []" :key="task.id" :value="task.id">
-                  {{ task.title }}
-                </option>
-              </select>
-            </label>
-            <label class="text-xs text-slate-400 sm:col-span-2">
-              {{ t('today.notesOptional') }}
-              <input v-model="attendanceNotes" maxlength="2000" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
-            </label>
-            <button
-              type="button"
-              class="min-h-[44px] rounded-xl bg-farm-green px-5 py-2.5 font-bold text-slate-950 disabled:opacity-50 sm:w-fit"
-              :disabled="attendanceBusy"
-              @click="clockInNow"
-            >
-              {{ attendanceBusy ? t('today.savingAttendance') : t('today.clockIn') }}
-            </button>
-          </div>
-        </div>
-
-        <div v-else class="mt-4">
-          <p v-if="!attendance.length" class="text-sm text-slate-500">{{ t('today.noAttendanceToday') }}</p>
-          <ul v-else class="space-y-3">
-            <li
-              v-for="session in attendance"
-              :key="session.id"
-              class="rounded-xl border border-slate-800 bg-slate-950 p-4"
-            >
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p class="font-semibold text-white">{{ session.userName }}</p>
-                  <p class="mt-1 text-xs text-slate-400">
-                    {{ formatTime(session.clockInAt) }}
-                    → {{ session.clockOutAt ? formatTime(session.clockOutAt) : t('today.inProgress') }}
-                    · {{ formatMinutes(session.payableMinutes) }}
-                  </p>
-                  <p v-if="session.plotName || session.taskTitle" class="mt-1 text-xs text-slate-500">
-                    {{ session.plotName }}<span v-if="session.plotName && session.taskTitle"> · </span>{{ session.taskTitle }}
-                  </p>
-                  <p v-if="session.correctedAt" class="mt-1 text-[11px] text-amber-400">
-                    {{ t('today.corrected') }} · {{ formatTime(session.correctedAt) }}
-                  </p>
-                </div>
-                <button type="button" class="text-xs text-farm-green hover:underline" @click="startCorrection(session)">
-                  {{ t('today.correctAttendance') }}
-                </button>
-              </div>
-
-              <form
-                v-if="correctingId === session.id"
-                class="mt-4 grid gap-3 border-t border-slate-800 pt-4 sm:grid-cols-2"
-                @submit.prevent="saveCorrection(session)"
-              >
-                <label class="text-xs text-slate-400">
-                  {{ t('today.clockInTime') }}
-                  <input v-model="correctionClockIn" type="datetime-local" required class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
-                </label>
-                <label class="text-xs text-slate-400">
-                  {{ t('today.clockOutTime') }}
-                  <input v-model="correctionClockOut" type="datetime-local" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
-                </label>
-                <label class="text-xs text-slate-400 sm:col-span-2">
-                  {{ t('today.notesOptional') }}
-                  <input v-model="correctionNotes" maxlength="2000" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
-                </label>
-                <div class="flex gap-2 sm:col-span-2">
-                  <button type="submit" :disabled="attendanceBusy" class="rounded-lg bg-farm-green px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">
-                    {{ t('today.saveCorrection') }}
-                  </button>
-                  <button type="button" class="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300" @click="correctingId = null">
-                    {{ t('today.cancelCorrection') }}
-                  </button>
-                </div>
-              </form>
-            </li>
-          </ul>
-        </div>
-      </section>
+      <TodayAttendancePanel
+        v-if="showAttendance"
+        v-model:selected-plot-id="selectedPlotId"
+        v-model:selected-task-id="selectedTaskId"
+        v-model:attendance-notes="attendanceNotes"
+        v-model:correcting-id="correctingId"
+        v-model:correction-clock-in="correctionClockIn"
+        v-model:correction-clock-out="correctionClockOut"
+        v-model:correction-notes="correctionNotes"
+        :is-worker="isWorker"
+        :attendance="attendance"
+        :open-attendance="openAttendance"
+        :plots="plots"
+        :my-tasks-today="data.myTasksToday ?? []"
+        :attendance-busy="attendanceBusy"
+        :attendance-error="attendanceError"
+        :format-minutes="formatMinutes"
+        @clock-in="clockInNow"
+        @clock-out="clockOutNow"
+        @start-correction="startCorrection"
+        @save-correction="saveCorrection"
+      />
 
       <!-- Weather -->
       <section
@@ -800,7 +528,7 @@ function formatCurrency(amount: number, currency: string) {
               <span class="w-6 h-6 rounded-full bg-farm-green/20 text-farm-green text-xs font-bold flex items-center justify-center shrink-0">
                 {{ action.priority }}
               </span>
-              <span class="text-sm text-slate-200">{{ action.label }}</span>
+              <span class="text-sm text-slate-200">{{ actionLabel(action) }}</span>
             </RouterLink>
           </li>
         </ul>
@@ -834,8 +562,8 @@ function formatCurrency(amount: number, currency: string) {
                 >
                   {{ exceptionLabel[ex.type] ? t(exceptionLabel[ex.type]) : ex.type }}
                 </span>
-                <p class="font-medium text-white mt-1 truncate">{{ ex.title }}</p>
-                <p class="text-sm text-slate-400 mt-0.5">{{ ex.message }}</p>
+                <p class="font-medium text-white mt-1 truncate">{{ exceptionTitle(ex) }}</p>
+                <p class="text-sm text-slate-400 mt-0.5">{{ exceptionMessage(ex) }}</p>
               </div>
               <time class="text-xs text-slate-600 shrink-0">{{ formatTime(ex.timestamp) }}</time>
             </div>
@@ -846,234 +574,14 @@ function formatCurrency(amount: number, currency: string) {
         </p>
       </section>
 
-      <!-- ── Day Close (farm for owner/supervisor; sales-scoped for sales) ── -->
-      <section v-if="showFarmDayClose || showSalesDayClose" class="mt-10">
-        <button
-          type="button"
-          class="w-full flex items-center justify-between bg-slate-900 border border-slate-700 rounded-2xl px-5 py-4 transition-all hover:border-farm-green/50 active:scale-[0.99]"
-          @click="openDayClose"
-        >
-          <div class="flex items-center gap-3">
-            <span class="text-farm-green text-lg">🌙</span>
-            <div class="text-left">
-              <p class="font-bold text-white text-sm">
-                {{ isSales ? t('today.salesDayClose') : t('today.dayClose') }}
-              </p>
-              <p class="text-xs text-slate-400 mt-0.5">
-                {{ isSales ? t('today.salesDayCloseSubtitle') : t('today.dayCloseSubtitle') }}
-              </p>
-            </div>
-          </div>
-          <svg
-            class="w-4 h-4 text-slate-400 shrink-0 transition-transform"
-            :class="{ 'rotate-180': dayCloseOpen }"
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-
-        <div v-if="dayCloseOpen" class="mt-3 space-y-4">
-          <div v-if="dayCloseLoading" class="text-slate-400 text-sm px-1">{{ t('today.dayCloseLoading') }}</div>
-
-          <template v-else-if="dayClose && dayClose.scope === 'sales' && dayClose.orders">
-            <div
-              class="rounded-2xl px-5 py-4 flex items-center gap-3"
-              :class="dayClose.status === 'clear'
-                ? 'bg-farm-green/10 border border-farm-green/30'
-                : 'bg-amber-950/40 border border-amber-700/40'"
-            >
-              <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
-              <div>
-                <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
-                  {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
-                </p>
-                <p class="text-xs text-slate-400 mt-0.5">{{ dayClose.date }}</p>
-              </div>
-            </div>
-
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h4 class="font-bold text-white text-sm mb-3">{{ t('today.ordersToday') }}</h4>
-              <div class="grid grid-cols-3 gap-3">
-                <div class="text-center">
-                  <p class="text-2xl font-black text-orange-400">{{ dayClose.orders.pending }}</p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.lblOrders') }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-2xl font-black text-sky-400">{{ dayClose.orders.dispatched }}</p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.dispatched') }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-2xl font-black text-farm-green">{{ dayClose.orders.delivered }}</p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.delivered') }}</p>
-                </div>
-              </div>
-              <p class="mt-4 text-sm text-slate-300">
-                {{ t('today.revenueToday') }}:
-                <span class="font-bold text-white">
-                  {{ formatCurrency(dayClose.orders.revenueToday, dayClose.orders.currency) }}
-                </span>
-              </p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">{{ t('today.unpaidOrders') }}</p>
-                <p class="text-2xl font-black mt-1" :class="dayClose.orders.unpaidCount > 0 ? 'text-amber-400' : 'text-slate-400'">
-                  {{ dayClose.orders.unpaidCount }}
-                </p>
-                <p class="text-xs text-slate-500 mt-0.5">
-                  {{ formatCurrency(dayClose.orders.unpaidTotal, dayClose.orders.currency) }}
-                </p>
-              </div>
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">{{ t('today.lowStock') }}</p>
-                <p class="text-2xl font-black mt-1" :class="(dayClose.inventory?.lowStockCount ?? 0) > 0 ? 'text-amber-400' : 'text-slate-400'">
-                  {{ dayClose.inventory?.lowStockCount ?? 0 }}
-                </p>
-                <RouterLink to="/finance" class="text-xs text-farm-green hover:underline mt-1 inline-block">
-                  {{ t('nav.finance') }}
-                </RouterLink>
-              </div>
-            </div>
-
-            <div v-if="dayClose.tomorrowActions.length" class="bg-slate-900 border border-farm-green/20 rounded-2xl p-5">
-              <h4 class="font-bold text-farm-green text-sm mb-3">{{ t('today.forTomorrow') }}</h4>
-              <ul class="space-y-2">
-                <li
-                  v-for="(action, idx) in dayClose.tomorrowActions"
-                  :key="idx"
-                  class="flex items-start gap-2 text-sm text-slate-300"
-                >
-                  <span class="text-farm-green shrink-0">→</span>
-                  <span>{{ action }}</span>
-                </li>
-              </ul>
-            </div>
-            <p v-else class="text-xs text-slate-500 px-1">{{ t('today.noCarryForward') }}</p>
-          </template>
-
-          <template v-else-if="dayClose && dayClose.tasks">
-            <div
-              class="rounded-2xl px-5 py-4 flex items-center gap-3"
-              :class="dayClose.status === 'clear'
-                ? 'bg-farm-green/10 border border-farm-green/30'
-                : 'bg-amber-950/40 border border-amber-700/40'"
-            >
-              <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
-              <div>
-                <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
-                  {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
-                </p>
-                <p class="text-xs text-slate-400 mt-0.5">{{ dayClose.date }}</p>
-              </div>
-            </div>
-
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h4 class="font-bold text-white text-sm mb-3">{{ t('today.tasksToday') }}</h4>
-              <div class="grid grid-cols-3 gap-3">
-                <div class="text-center">
-                  <p class="text-2xl font-black text-farm-green">{{ dayClose.tasks.completed }}</p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.completed') }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-2xl font-black" :class="dayClose.tasks.overdue > 0 ? 'text-red-400' : 'text-slate-400'">
-                    {{ dayClose.tasks.overdue }}
-                  </p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.lblOverdue') }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-2xl font-black" :class="dayClose.tasks.pendingApproval > 0 ? 'text-purple-400' : 'text-slate-400'">
-                    {{ dayClose.tasks.pendingApproval }}
-                  </p>
-                  <p class="text-xs text-slate-500 mt-0.5">{{ t('today.forApproval') }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="dayClose.pendingApprovals?.length" class="bg-slate-900 border border-purple-900/40 rounded-2xl p-5">
-              <h4 class="font-bold text-purple-300 text-sm mb-3">
-                {{ t('today.awaitingApprovalCount', { count: dayClose.pendingApprovals.length }) }}
-              </h4>
-              <ul class="space-y-2">
-                <li
-                  v-for="item in dayClose.pendingApprovals"
-                  :key="item.id"
-                  class="flex items-start justify-between gap-2 text-sm"
-                >
-                  <div class="min-w-0">
-                    <p class="font-medium text-white truncate">{{ item.title }}</p>
-                    <p class="text-xs text-slate-500">{{ item.worker ?? t('today.unassigned') }}{{ item.plot ? ` · ${item.plot}` : '' }}</p>
-                  </div>
-                  <RouterLink to="/tasks" class="text-xs text-farm-green shrink-0 hover:underline">{{ t('today.approve') }}</RouterLink>
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="dayClose.overdueTasks?.length" class="bg-slate-900 border border-red-900/40 rounded-2xl p-5">
-              <h4 class="font-bold text-red-400 text-sm mb-3">
-                {{ t('today.overdueTasksCount', { count: dayClose.overdueTasks.length }) }}
-              </h4>
-              <ul class="space-y-2">
-                <li
-                  v-for="item in dayClose.overdueTasks.slice(0, 5)"
-                  :key="item.id"
-                  class="text-sm"
-                >
-                  <p class="font-medium text-white truncate">{{ item.title }}</p>
-                  <p class="text-xs text-slate-500">
-                    {{ item.worker ?? t('today.unassigned') }}{{ item.plot ? ` · ${item.plot}` : '' }}
-                    <span v-if="item.dueDate"> · {{ t('today.due') }} {{ formatTime(item.dueDate) }}</span>
-                  </p>
-                </li>
-              </ul>
-              <p v-if="dayClose.overdueTasks.length > 5" class="text-xs text-slate-500 mt-2">
-                {{ t('today.more', { count: dayClose.overdueTasks.length - 5 }) }}
-              </p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">{{ t('today.lowStock') }}</p>
-                <p class="text-2xl font-black mt-1" :class="(dayClose.inventory?.lowStockCount ?? 0) > 0 ? 'text-amber-400' : 'text-slate-400'">
-                  {{ dayClose.inventory?.lowStockCount ?? 0 }}
-                </p>
-                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.movementsToday', { count: dayClose.inventory?.movementsToday ?? 0 }) }}</p>
-              </div>
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-                <p class="text-xs text-slate-500 font-medium">{{ t('today.mortality') }}</p>
-                <p class="text-2xl font-black mt-1" :class="(dayClose.livestock?.mortalityToday ?? 0) > 0 ? 'text-red-400' : 'text-slate-400'">
-                  {{ dayClose.livestock?.mortalityToday ?? 0 }}
-                </p>
-                <p class="text-xs text-slate-500 mt-0.5">{{ t('today.headToday') }}</p>
-              </div>
-            </div>
-
-            <div v-if="dayClose.finance" class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h4 class="font-bold text-white text-sm mb-1">{{ t('today.expensesToday') }}</h4>
-              <p class="text-xl font-black text-white">
-                {{ formatCurrency(dayClose.finance.totalExpenses, dayClose.finance.currency) }}
-              </p>
-              <p class="text-xs text-slate-500 mt-0.5">{{ t('today.expensesLogged', { count: dayClose.finance.expensesToday }) }}</p>
-            </div>
-
-            <div v-if="dayClose.tomorrowActions.length" class="bg-slate-900 border border-farm-green/20 rounded-2xl p-5">
-              <h4 class="font-bold text-farm-green text-sm mb-3">{{ t('today.forTomorrow') }}</h4>
-              <ul class="space-y-2">
-                <li
-                  v-for="(action, idx) in dayClose.tomorrowActions"
-                  :key="idx"
-                  class="flex items-start gap-2 text-sm text-slate-300"
-                >
-                  <span class="text-farm-green shrink-0">→</span>
-                  <span>{{ action }}</span>
-                </li>
-              </ul>
-            </div>
-            <p v-else class="text-xs text-slate-500 px-1">{{ t('today.noCarryForward') }}</p>
-          </template>
-        </div>
-      </section>
+      <TodayDayClosePanel
+        v-if="showFarmDayClose || showSalesDayClose"
+        :is-sales="isSales"
+        :day-close="dayClose"
+        :day-close-open="dayCloseOpen"
+        :day-close-loading="dayCloseLoading"
+        @toggle="openDayClose"
+      />
     </div>
   </AppLayout>
 </template>

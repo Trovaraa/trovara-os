@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { isWeatherThemeId } from './advisory-fallback-messages.js'
 import { buildWeatherAlerts, type WeatherDay } from './weather-alerts.js'
-import { buildWeatherActions } from './weather-actions.js'
+import { buildWeatherActions, WEATHER_ACTION_THEME_IDS } from './weather-actions.js'
 
 describe('buildWeatherActions', () => {
   const baseDay = (overrides: Partial<WeatherDay>): WeatherDay => ({
@@ -70,6 +71,14 @@ describe('buildWeatherActions', () => {
     const fromAlerts = buildWeatherActions(daily, 5, alerts)
     const fromDaily = buildWeatherActions(daily, 5)
     expect(fromAlerts).toEqual(fromDaily)
+  })
+
+  // These seeds are only ever shown to a non-English viewer through the
+  // pre-translated table, keyed by id. A theme added here without an entry there
+  // would silently serve English on the one path that cannot translate.
+  it('emits only theme ids the fallback table can render', () => {
+    expect(WEATHER_ACTION_THEME_IDS.length).toBeGreaterThan(0)
+    expect(WEATHER_ACTION_THEME_IDS.filter((id) => !isWeatherThemeId(id))).toEqual([])
   })
 
   it('sorts high priority before medium', () => {

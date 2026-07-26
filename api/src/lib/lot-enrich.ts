@@ -1,19 +1,26 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { plots } from '../db/schema.js'
+import { actionDrafts, plots } from '../db/schema.js'
+import { findByName } from './entity-name-match.js'
 import type { SessionUser } from './session.js'
 import { canAssignTasks } from './rbac.js'
 import {
+  authorLocaleForUser,
   enrichHarvestLot,
   findLotByCode,
   listIncompleteLots,
   verifyHarvestLot,
 } from './harvest-lots.js'
 import { normalizeLotUnit } from './lot-codes.js'
+import { toCanonicalEnglish } from './content-locale.js'
+import { resolveStaffReplyLocale } from './reply-locale.js'
 import {
   getLatestPendingDraft,
   mergeActionDraftPayload,
+  mergeContentLocale,
   storeActionDraft,
+  type ContentLocaleMeta,
+  type StoredActionDraft,
 } from './task-drafts.js'
 
 export type LotEnrichChannel = {
@@ -93,10 +100,82 @@ export type LotEnrichApplyResult =
   | { handled: false }
   | { handled: true; reply: string; draftId: string }
 
+export type LotEnrichTextOptions = {
+  /** The author's `preferred_locale`; read from their profile when omitted. */
+  authorLocale?: string | null
+  /**
+   * Set by a caller that already normalized the notes line to English and tagged
+   * the draft itself (the chat channels do this as they parse the message), so
+   * the same text is not sent through the translator twice.
+   */
+  canonical?: boolean
+}
+
+type CanonicalNotes = { english: string; locale: ContentLocaleMeta }
+
+/**
+ * Normalize a `notes …` line to English before it reaches the draft payload.
+ *
+ * The draft is the last place this text is still separable from the lot row it
+ * becomes, and `harvest_lots.public_notes` is rendered on a public traceability
+ * URL, so storing the author's language here is externally visible and not just
+ * an audit-trail problem. A degraded translator yields the author's own words
+ * with status 'pending' rather than failing the message they just sent.
+ */
+async function canonicalNotes(
+  user: SessionUser,
+  text: string,
+  opts?: LotEnrichTextOptions,
+): Promise<CanonicalNotes> {
+  const hint =
+    opts?.authorLocale === undefined
+      ? await authorLocaleForUser(user.id)
+      : resolveStaffReplyLocale(opts.authorLocale) === 'en'
+        ? null
+        : resolveStaffReplyLocale(opts.authorLocale)
+
+  try {
+    const result = await toCanonicalEnglish({
+      text,
+      farmId: user.farmId,
+      sourceLocale: hint,
+    })
+    return {
+      english: result.english,
+      locale: { sourceLocale: result.sourceLocale, translationStatus: result.status },
+    }
+  } catch {
+    return { english: text, locale: { sourceLocale: hint, translationStatus: 'pending' } }
+  }
+}
+
+/**
+ * Record on the draft row how its payload was normalized, so the confirm path
+ * and the retry job both know the payload may still hold the author's words.
+ * Best-effort and escalate-only: it never fails the worker's message, and never
+ * overwrites bookkeeping the retry job already owns.
+ */
+async function tagDraftLocale(
+  draft: StoredActionDraft,
+  locale: ContentLocaleMeta,
+): Promise<void> {
+  const values = mergeContentLocale(
+    { sourceLocale: draft.sourceLocale, translationStatus: draft.translationStatus },
+    locale,
+  )
+  if (Object.keys(values).length === 0) return
+  try {
+    await db.update(actionDrafts).set(values).where(eq(actionDrafts.id, draft.id))
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Apply qty / plot / notes lines to the latest enrich_lot draft. */
 export async function applyLotEnrichText(
   user: SessionUser,
   text: string,
+  opts?: LotEnrichTextOptions,
 ): Promise<LotEnrichApplyResult> {
   const draft = await getLatestPendingDraft(user.id, 'enrich_lot')
   if (!draft) return { handled: false }
@@ -116,11 +195,15 @@ export async function applyLotEnrichText(
   const plotMatch = text.match(/^plot\s+(.+)$/i)
   if (plotMatch) {
     const name = plotMatch[1].trim()
-    const [plot] = await db
+    // Folded in JS rather than `lower()` in SQL: the worker types "Bloc Nord"
+    // for a plot stored as "Bloc-Nord". Every plot on the farm stays a
+    // candidate here, including retired ones, because a lot can be packed from
+    // a block that has since been closed.
+    const farmPlots = await db
       .select({ id: plots.id, name: plots.name })
       .from(plots)
-      .where(and(eq(plots.farmId, user.farmId), sql`lower(${plots.name}) = ${name.toLowerCase()}`))
-      .limit(1)
+      .where(eq(plots.farmId, user.farmId))
+    const plot = findByName(farmPlots, name)
     if (!plot) {
       return {
         handled: true,
@@ -136,9 +219,18 @@ export async function applyLotEnrichText(
     }
   }
 
+  // `qty` carries a number and a unit and `plot` carries a block name matched by
+  // exact string, so only the notes line is prose.
   const notesMatch = text.match(/^notes?\s+(.+)$/i)
   if (notesMatch) {
-    await mergeActionDraftPayload(draft.id, user.id, { publicNotes: notesMatch[1].trim() })
+    const notes = notesMatch[1].trim()
+    if (opts?.canonical) {
+      await mergeActionDraftPayload(draft.id, user.id, { publicNotes: notes })
+    } else {
+      const canonical = await canonicalNotes(user, notes, opts)
+      await mergeActionDraftPayload(draft.id, user.id, { publicNotes: canonical.english })
+      await tagDraftLocale(draft, canonical.locale)
+    }
     return {
       handled: true,
       draftId: draft.id,
@@ -162,6 +254,13 @@ export async function attachPhotoToLotEnrichDraft(
 export async function executeConfirmedEnrichLot(
   user: SessionUser,
   payload: Record<string, unknown>,
+  /**
+   * How the draft payload was normalized (`draftContentLocale(draft)`). Without
+   * it the notes are normalized again as they are written, because a payload the
+   * translator could not convert would otherwise land in `harvest_lots`
+   * claiming to be English, and the retry job only sweeps unfinished rows.
+   */
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   const lotId = typeof payload.lotId === 'string' ? payload.lotId : ''
   if (!lotId) return 'Draft is missing the lot id.'
@@ -170,6 +269,7 @@ export async function executeConfirmedEnrichLot(
     farmId: user.farmId,
     lotId,
     userId: user.id,
+    contentLocale: locale,
     updates: {
       productName: typeof payload.productName === 'string' ? payload.productName : undefined,
       quantityKg: payload.quantityKg != null ? Number(payload.quantityKg) : undefined,
@@ -278,6 +378,8 @@ export async function prepareVerifyLotDraft(params: {
 export async function executeConfirmedVerifyLot(
   user: SessionUser,
   payload: Record<string, unknown>,
+  /** How the draft note was normalized (`draftContentLocale(draft)`). */
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   if (!canAssignTasks(user)) return 'Only Admin or Supervisor can verify harvest lots.'
   const lotId = String(payload.lotId ?? '')
@@ -290,6 +392,7 @@ export async function executeConfirmedVerifyLot(
     userId: user.id,
     status,
     note: typeof payload.note === 'string' ? payload.note : null,
+    contentLocale: locale,
   })
   if ('error' in result) return result.error
 
@@ -302,8 +405,10 @@ export async function applyConfirmedLotDraft(
   user: SessionUser,
   actionType: string,
   payload: Record<string, unknown>,
+  /** How the draft's free text was normalized (`draftContentLocale(draft)`). */
+  locale?: ContentLocaleMeta,
 ): Promise<string | null> {
-  if (actionType === 'enrich_lot') return executeConfirmedEnrichLot(user, payload)
-  if (actionType === 'verify_lot') return executeConfirmedVerifyLot(user, payload)
+  if (actionType === 'enrich_lot') return executeConfirmedEnrichLot(user, payload, locale)
+  if (actionType === 'verify_lot') return executeConfirmedVerifyLot(user, payload, locale)
   return null
 }

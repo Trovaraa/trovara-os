@@ -3,17 +3,24 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { users } from '../db/schema.js'
+import { farms, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
-import { checkProactiveAlerts } from '../lib/proactive-alerts.js'
+import {
+  checkProactiveAlerts,
+  renderProactiveAlertPush,
+  type ProactiveAlert,
+} from '../lib/proactive-alerts.js'
 import { runAdvisoryEngine } from '../lib/advisory-engine.js'
 import { gatherExceptions } from '../lib/exceptions.js'
+import { renderEveningDigest } from '../lib/digest-messages.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import {
   notifyOwner,
   notifyOwnerTelegram,
   notifySupervisors,
   notifySupervisorsTelegram,
+  type NotifyLocaleContext,
 } from '../lib/farm-notify.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
@@ -42,6 +49,36 @@ async function getOwnerUserByFarmId(farmId: string): Promise<SessionUser | null>
   }
 }
 
+/**
+ * A farm's human-readable name, never its id. `farms.id` and `farms.name` are
+ * both plain strings, which is how a UUID ended up inside copy that reads
+ * "alerts for X" on all three proactive pushes. Only `resolveFarmName` mints
+ * this type, so a helper that asks for it cannot be handed a farm id.
+ */
+type FarmDisplayName = string & { readonly __brand: 'FarmDisplayName' }
+
+/** Stand-in when the farm row cannot be read: an unnamed alert beats silence. */
+const FALLBACK_FARM_NAME = 'Trovara' as FarmDisplayName
+
+/**
+ * Farm name for an owner-facing push. Alerts are the reason someone opens the
+ * app at 6am, so a farms lookup that fails degrades to the fallback name rather
+ * than throwing the whole run away.
+ */
+async function resolveFarmName(farmId: string): Promise<FarmDisplayName> {
+  try {
+    const [farm] = await db
+      .select({ name: farms.name })
+      .from(farms)
+      .where(eq(farms.id, farmId))
+      .limit(1)
+    return (farm?.name as FarmDisplayName | undefined) ?? FALLBACK_FARM_NAME
+  } catch (err) {
+    console.error('Farm name lookup failed:', err instanceof Error ? err.message : err)
+    return FALLBACK_FARM_NAME
+  }
+}
+
 async function resolveAlertActor(
   c: any,
   payloadFarmId?: string,
@@ -61,12 +98,35 @@ async function resolveAlertActor(
   return { user, usedCronSecret: false }
 }
 
-function formatProactiveAlertMessage(farmName: string, alerts: Awaited<ReturnType<typeof checkProactiveAlerts>>) {
-  if (alerts.length === 0) {
-    return `✅ Proactive check (${farmName}): no urgent issues detected.`
+/**
+ * Email subject and SMS first line for a critical alert. Takes a
+ * `FarmDisplayName` so the id this used to interpolate no longer compiles.
+ */
+function criticalAlertSubject(farmName: FarmDisplayName): string {
+  return `Critical Trovara alert (${farmName})`
+}
+
+/**
+ * Critical-alert body for one owner, in that owner's language.
+ *
+ * The notify helpers fall back to English on their own when a renderer
+ * misbehaves; email and SMS have no such net, so the fallback is spelled out
+ * here. It reuses the canonical English already stored on the alert rows rather
+ * than calling back into the render module, so the last resort cannot fail for
+ * the same reason the first attempt did.
+ */
+function renderCriticalAlert(
+  preferredLocale: string,
+  farmName: FarmDisplayName,
+  alerts: ProactiveAlert[],
+): string {
+  try {
+    return renderProactiveAlertPush(resolveStaffReplyLocale(preferredLocale), farmName, alerts)
+  } catch (err) {
+    console.error('Critical alert render failed:', err instanceof Error ? err.message : err)
+    const lines = alerts.map((alert) => `- ${alert.title}: ${alert.message}`)
+    return [`⚠️ Proactive alerts for ${farmName}:`, ...lines].join('\n')
   }
-  const lines = alerts.map((a) => `- ${a.title}: ${a.message}`)
-  return [`⚠️ Proactive alerts for ${farmName}:`, ...lines].join('\n')
 }
 
 export const alertsRoutes = new Hono<{ Variables: AppVariables }>()
@@ -88,13 +148,15 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
 
   const alerts = await checkProactiveAlerts(auth.user.farmId)
   const advisory = await runAdvisoryEngine(auth.user.farmId)
-  const msg = formatProactiveAlertMessage(auth.user.farmId, alerts)
+  const farmName = await resolveFarmName(auth.user.farmId)
+  const renderPush = ({ locale }: NotifyLocaleContext) =>
+    renderProactiveAlertPush(locale, farmName, alerts)
   const reason = auth.usedCronSecret ? 'cron_proactive' : 'manual_proactive'
-  const tg = await notifyOwnerTelegram(auth.user.farmId, msg, {
+  const tg = await notifyOwnerTelegram(auth.user.farmId, renderPush, {
     actorUserId: auth.user.id,
     reason,
   })
-  const wa = await notifyOwner(auth.user.farmId, msg, {
+  const wa = await notifyOwner(auth.user.farmId, renderPush, {
     actorUserId: auth.user.id,
     reason,
   })
@@ -103,7 +165,11 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
   let criticalDelivery = { email: 0, sms: 0 }
   if (criticalAlerts.length > 0) {
     const recipients = await db
-      .select({ email: users.email, phone: users.phone })
+      .select({
+        email: users.email,
+        phone: users.phone,
+        preferredLocale: users.preferredLocale,
+      })
       .from(users)
       .where(
         and(
@@ -112,12 +178,22 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
           eq(users.active, true),
         ),
       )
-    const criticalMessage = formatProactiveAlertMessage(auth.user.farmId, criticalAlerts)
-    const deliveries = await deliverCriticalAlert(
-      recipients,
-      `Critical Trovara alert (${auth.user.farmId})`,
-      criticalMessage,
-    )
+    // deliverCriticalAlert takes one subject and body per call, so owners go out
+    // one at a time - that is what lets a francophone and an anglophone owner
+    // each read the same alert in their own language. Rendering is a locale
+    // table, not a network call, so there is nothing to batch per language.
+    const subject = criticalAlertSubject(farmName)
+    const deliveries = (
+      await Promise.all(
+        recipients.map((recipient) =>
+          deliverCriticalAlert(
+            [recipient],
+            subject,
+            renderCriticalAlert(recipient.preferredLocale, farmName, criticalAlerts),
+          ),
+        ),
+      )
+    ).flat()
     criticalDelivery = {
       email: deliveries.filter(
         (delivery) => delivery.channel === 'email' && delivery.status === 'delivered',
@@ -172,26 +248,21 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
   const auth = await resolveAlertActor(c, body.farmId)
   if (!auth) return c.json({ error: 'Unauthorized' }, 401)
 
-  const { summary } = await gatherExceptions(auth.user)
-  const digestLines = [
-    '🌙 Trovara evening digest',
-    `Farm ID: ${auth.user.farmId}`,
-    `- Overdue tasks: ${summary.overdueTasks}`,
-    `- Low stock: ${summary.lowStock}`,
-    `- Pending approvals: ${summary.pendingApprovals}`,
-    `- Mortality today: ${summary.mortalityToday}`,
-    `- Orders pending: ${summary.ordersPending}`,
-    `- Rejected tasks: ${summary.rejectedTasks}`,
-    `- Equipment not logged today: ${summary.assetLogsMissing}`,
-    `- Asset logs to verify: ${summary.assetVerificationPending}`,
-  ]
-  const message = digestLines.join('\n')
+  const [{ summary }, farmName] = await Promise.all([
+    gatherExceptions(auth.user),
+    resolveFarmName(auth.user.farmId),
+  ])
+  // Same per-recipient shape as the proactive push: each owner gets the digest
+  // in their preferred_locale, and resolveFarmName's fallback keeps a failed
+  // farms lookup from silencing the whole run.
+  const renderDigest = ({ locale }: NotifyLocaleContext) =>
+    renderEveningDigest(locale, farmName, summary)
 
-  const tg = await notifyOwnerTelegram(auth.user.farmId, message, {
+  const tg = await notifyOwnerTelegram(auth.user.farmId, renderDigest, {
     actorUserId: auth.user.id,
     reason: auth.usedCronSecret ? 'cron_evening_digest' : 'manual_evening_digest',
   })
-  const wa = await notifyOwner(auth.user.farmId, message, {
+  const wa = await notifyOwner(auth.user.farmId, renderDigest, {
     actorUserId: auth.user.id,
     reason: auth.usedCronSecret ? 'cron_evening_digest' : 'manual_evening_digest',
   })

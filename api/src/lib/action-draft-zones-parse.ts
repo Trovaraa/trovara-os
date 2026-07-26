@@ -22,7 +22,7 @@ export function parseCreatePlotIntent(text: string): {
 } | null {
   const trimmed = text.trim()
   const match = trimmed.match(
-    /^(?:create\s+)?(?:plot|block)\s*[:\-–]?\s*(.+?)\s+zone\s*=\s*(.+?)(?:\s+crop\s*=\s*(\S+))?\s*$/i,
+    /^(?:create\s+)?(?:plot|block)\s*[:\-–]?\s*(.+?)\s+zone\s*=\s*(.+?)(?:\s+crop\s*=\s*(.+?))?\s*$/i,
   )
   if (!match) return null
   const name = match[1].trim()

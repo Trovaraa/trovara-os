@@ -39,6 +39,13 @@ import {
 } from '../lib/paystack.js'
 import { renderInvoiceHtml, type InvoiceSnapshot } from '../lib/invoice-html.js'
 import { renderInvoicePdf } from '../lib/invoice-pdf.js'
+import {
+  authorLocaleForUserId,
+  authorLocaleHint,
+  toCanonicalEnglish,
+  toViewerLocaleMany,
+} from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(200),
@@ -63,6 +70,167 @@ const refundSchema = z.object({
   amountKobo: z.number().int().positive().optional(),
   reason: z.string().min(1).max(2000),
 })
+
+/**
+ * Order prose, and the only columns on an order that ever reach a translator.
+ *
+ * Everything else is identity, money, an enum or an identifier: `customerName`
+ * and `customerPhone`, `totalAmount` / `currency` / every kobo figure, the
+ * fulfilment and payment status enums, `cancelledBy` (the 'customer' sentinel),
+ * `lotCode`, the `TRV-ORD-…` reference and the Paystack references. Line items
+ * keep their catalogue `productName` and unit verbatim.
+ */
+const ORDER_TEXT_FIELDS = ['notes', 'customerFeedback'] as const
+type OrderTextField = (typeof ORDER_TEXT_FIELDS)[number]
+
+/** The two columns that say where an order — and so its `notes` — came from. */
+type OrderOrigin = {
+  source?: string | null
+  customerContactId?: string | null
+}
+
+/**
+ * True when `orders.notes` holds staff prose on this row.
+ *
+ * A bot checkout writes `Delivery: <address>` into the same column, and
+ * `lib/customer-orders.ts` parses that exact string back out to pre-fill the
+ * buyer's next order. On a customer order the column is therefore a
+ * machine-read address the customer typed and is shown again as their saved
+ * details — translating it in either direction would corrupt a delivery
+ * address — so only staff-entered orders treat it as prose.
+ */
+function notesAreStaffProse(order: OrderOrigin): boolean {
+  return (order.source ?? 'staff') === 'staff' && !order.customerContactId
+}
+
+/**
+ * The prose fields of one order row.
+ *
+ * `customerFeedback` is the buyer's review of a delivered order. It is staff-only
+ * (the bot thanks the customer, it never quotes the review back), and the retry
+ * job canonicalizes it alongside `notes`, so it is rendered for the viewer on
+ * every row.
+ */
+function orderProseFields(order: OrderOrigin): readonly string[] {
+  return notesAreStaffProse(order) ? ORDER_TEXT_FIELDS : ['customerFeedback']
+}
+
+/**
+ * The viewer's language. A failed lookup degrades to English rather than
+ * failing the request it only decorates.
+ */
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  try {
+    const [row] = await db
+      .select({ preferredLocale: users.preferredLocale })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+    return row?.preferredLocale ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Render order prose in the viewer's language with ONE batched translation call
+ * per response: every string across every row is collected first, translated
+ * together (the service deduplicates and reads its cache in a single query),
+ * then mapped back by position. An English viewer short-circuits before any of
+ * this work.
+ *
+ * The fields are chosen per row rather than once per response, because whether
+ * `notes` is prose depends on where that order came from.
+ */
+async function localizeRows<T extends object>(
+  rows: T[],
+  fieldsFor: (row: T) => readonly string[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<T[]> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return rows
+  if (rows.length === 0) return rows
+
+  const perRow = rows.map((row) => fieldsFor(row))
+  const texts: string[] = []
+  rows.forEach((row, index) => {
+    for (const field of perRow[index]) {
+      const value = (row as Record<string, unknown>)[field]
+      if (typeof value === 'string' && value !== '') texts.push(value)
+    }
+  })
+  if (texts.length === 0) return rows
+
+  const translated = await toViewerLocaleMany({ texts, targetLocale, farmId })
+
+  let cursor = 0
+  return rows.map((row, index) => {
+    const out = { ...row } as Record<string, unknown>
+    for (const field of perRow[index]) {
+      const value = (row as Record<string, unknown>)[field]
+      if (typeof value === 'string' && value !== '') out[field] = translated[cursor++]
+    }
+    return out as T
+  })
+}
+
+/**
+ * One order rendered for the staff member reading it. Text this author just
+ * wrote is echoed in their own words with no round trip; the rest of the row is
+ * canonical English rendered for the viewer.
+ */
+async function orderForViewer<T extends OrderOrigin>(
+  order: T,
+  farmId: string,
+  targetLocale: string | null,
+  echo: Partial<Record<OrderTextField, string>> = {},
+): Promise<T> {
+  const [localized] = await localizeRows(
+    [order],
+    (row) => orderProseFields(row).filter((field) => !(field in echo)),
+    farmId,
+    targetLocale,
+  )
+  return { ...localized, ...echo }
+}
+
+type CanonicalProse = {
+  /** English text to store; absent when there was nothing to normalize. */
+  english?: string
+  sourceLocale: string | null
+  translationStatus: 'done' | 'pending'
+}
+
+/**
+ * Normalize one prose column to English for storage.
+ *
+ * A translation failure stores the author's own words at 'pending' so the write
+ * — an order, or a refund that has already moved money — can never fail on a
+ * translator, and `lib/translation-retry.ts` repairs the row later.
+ *
+ * `source_locale` stays null on that path rather than falling back to 'en': it is
+ * the hint the retry job feeds back into `toCanonicalEnglish`, and an 'en' hint
+ * short-circuits there, which would mark the row 'done' still holding French.
+ */
+async function canonicalProse(
+  text: string | null | undefined,
+  farmId: string,
+  authorLocale: string | null,
+): Promise<CanonicalProse> {
+  if (typeof text !== 'string' || text.trim() === '') {
+    return { sourceLocale: null, translationStatus: 'done' }
+  }
+  try {
+    const result = await toCanonicalEnglish({ text, farmId, sourceLocale: authorLocale })
+    return {
+      english: result.english,
+      sourceLocale: result.sourceLocale,
+      translationStatus: result.status,
+    }
+  } catch {
+    return { english: text, sourceLocale: authorLocale, translationStatus: 'pending' }
+  }
+}
 
 const orderListSelect = {
   id: orders.id,
@@ -140,7 +308,12 @@ salesRoutes.get('/', async (c) => {
     )
   })
 
-  return c.json({ orders: result })
+  // Redaction runs before localization, so text this viewer may not see is
+  // never handed to a translator.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(result, orderProseFields, user.farmId, viewerLocale)
+
+  return c.json({ orders: localized })
 })
 
 // Customer profile: identity (channel + handle) plus their full order history and
@@ -211,6 +384,24 @@ salesRoutes.get('/contacts/:id', async (c) => {
     .filter((o) => o.status === 'delivered')
     .reduce((sum, o) => sum + (o.totalAmount ?? 0), 0)
 
+  const shaped = orderRows.map((o) =>
+    redactOrderForRole(
+      {
+        ...o,
+        reference: orderReference(o.id),
+        items: itemsByOrder[o.id] ?? [],
+      },
+      user,
+    ),
+  )
+
+  // Every order here reached the farm through the bot, so its `notes` is the
+  // customer's own delivery address and stays verbatim; the contact's name and
+  // phone are identity. In practice that leaves nothing to translate and the
+  // batch never runs, but the same rule decides it as everywhere else.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(shaped, orderProseFields, user.farmId, viewerLocale)
+
   return c.json({
     contact: redactContactForRole(
       {
@@ -230,16 +421,7 @@ salesRoutes.get('/contacts/:id', async (c) => {
       lifetimeValue,
       currency: orderRows[0]?.currency ?? 'NGN',
     },
-    orders: orderRows.map((o) =>
-      redactOrderForRole(
-        {
-          ...o,
-          reference: orderReference(o.id),
-          items: itemsByOrder[o.id] ?? [],
-        },
-        user,
-      ),
-    ),
+    orders: localized,
   })
 })
 
@@ -258,6 +440,15 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
     if (!lot) return c.json({ error: 'Invalid harvest lot' }, 400)
   }
 
+  // A staff order's notes are the author's own prose, so the row stores the
+  // English. The customer's name, phone and the amount are never translated.
+  const canonical = await canonicalProse(
+    body.notes,
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+  const notes = canonical.english ?? body.notes ?? null
+
   const [order] = await db
     .insert(orders)
     .values({
@@ -267,7 +458,9 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
       totalAmount: body.totalAmount,
       currency: body.currency,
       lotId: body.lotId,
-      notes: body.notes,
+      notes,
+      sourceLocale: canonical.sourceLocale,
+      translationStatus: canonical.translationStatus,
       status: 'pending',
       source: 'staff',
     })
@@ -282,7 +475,11 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
         reportedById: user.id,
         lines: [
           {
-            productName: body.notes?.trim() || 'Staff order',
+            // `harvest_lots.product_name` is a label column the retry job never
+            // sweeps, so the derived lot takes the canonical English the order
+            // row just stored: text left here in another language is text
+            // nothing would ever come back and fix.
+            productName: notes?.trim() || 'Staff order',
             unit: 'kg',
             quantity: 1,
           },
@@ -303,7 +500,9 @@ salesRoutes.post('/', zValidator('json', createOrderSchema), async (c) => {
   })
 
   const [fresh] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1)
-  return c.json({ order: fresh ?? order, lot }, 201)
+  const stored = fresh ?? order
+  // The author reads back their own words; the row holds the English.
+  return c.json({ order: { ...stored, notes: body.notes ?? stored.notes }, lot }, 201)
 })
 
 salesRoutes.post('/:id/resend-pay-link', async (c) => {
@@ -443,10 +642,11 @@ salesRoutes.post('/:id/verify-payment', async (c) => {
   })
 
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
+  const viewerLocale = await preferredLocaleForUser(user.id)
   return c.json({
     ok: true,
     alreadyApplied: applied.alreadyApplied,
-    order,
+    order: order ? await orderForViewer(order, user.farmId, viewerLocale) : order,
     invoiceId: applied.invoiceId,
     receiptId: applied.receiptId,
   })
@@ -500,14 +700,46 @@ salesRoutes.post('/:id/refund', zValidator('json', refundSchema), async (c) => {
     }
   }
 
+  // The refund reason is staff prose, normalized before the money moves because
+  // `initiateRefund` both sends it to Paystack as the merchant note and stores
+  // it on the refund row: the English is the record of truth on both sides. The
+  // amount and every reference stay exactly as they are.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const canonical = await canonicalProse(body.reason, user.farmId, authorLocale)
+
   const result = await initiateRefund({
     farmId: user.farmId,
     orderId,
     amountKobo,
-    reason: body.reason,
+    reason: canonical.english ?? body.reason,
     userId: user.id,
   })
   if (!result.ok) return c.json({ error: result.error }, 400)
+
+  // `initiateRefund` inserts on the schema defaults ('done', no locale), so a
+  // row holding anything else says so here. The patch is best-effort on purpose:
+  // the money has already moved, and failing this response would invite a retry
+  // that refunds again.
+  if (
+    canonical.translationStatus === 'pending' ||
+    (canonical.sourceLocale != null && canonical.sourceLocale !== 'en')
+  ) {
+    try {
+      await db
+        .update(paymentRefunds)
+        .set({
+          sourceLocale: canonical.sourceLocale,
+          translationStatus: canonical.translationStatus,
+        })
+        .where(eq(paymentRefunds.id, result.refund.id))
+    } catch (err) {
+      console.error(
+        'Refund locale metadata write failed:',
+        err instanceof Error ? err.message : err,
+      )
+    }
+  }
 
   await logAudit({
     farmId: user.farmId,
@@ -524,9 +756,20 @@ salesRoutes.post('/:id/refund', zValidator('json', refundSchema), async (c) => {
   })
 
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
-  return c.json({ ok: true, refund: result.refund, order })
+  return c.json({
+    ok: true,
+    // The author reads their own reason back; the row holds the English.
+    refund: { ...result.refund, reason: body.reason },
+    order: order ? await orderForViewer(order, user.farmId, viewerLocale) : order,
+  })
 })
 
+/**
+ * The invoice is an immutable financial artifact: its snapshot holds the
+ * customer's name, the line items and the amounts as they stood when it was
+ * issued, and the same document is served to staff and to the customer. Nothing
+ * in it is translated, in either direction.
+ */
 async function loadFarmInvoice(farmId: string, orderId: string) {
   const [row] = await db
     .select({
@@ -601,13 +844,41 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
+  // One lookup serves all three needs: the hint the author's text is normalized
+  // with, the language the response is rendered in, and the actor locale the
+  // status transition notifies staff in.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
+  const echo: Partial<Record<OrderTextField, string>> = {}
 
   if (body.customerName !== undefined) updates.customerName = body.customerName
   if (body.customerPhone !== undefined) updates.customerPhone = body.customerPhone
   if (body.totalAmount !== undefined) updates.totalAmount = body.totalAmount
   if (body.currency !== undefined) updates.currency = body.currency
-  if (body.notes !== undefined) updates.notes = body.notes
+
+  if (body.notes !== undefined) {
+    if (notesAreStaffProse(existing)) {
+      const canonical = await canonicalProse(body.notes, user.farmId, authorLocale)
+      updates.notes = canonical.english ?? body.notes
+      if (canonical.english !== undefined) {
+        // Never downgrade a row the retry job still owes work on, and keep it
+        // labelled with the locale of the text that failed: `source_locale` is
+        // the hint that retry uses.
+        if (existing.translationStatus === 'done' || canonical.translationStatus === 'pending') {
+          updates.sourceLocale = canonical.sourceLocale ?? existing.sourceLocale
+        }
+        if (canonical.translationStatus === 'pending') updates.translationStatus = 'pending'
+      }
+      echo.notes = body.notes
+    } else {
+      // Verbatim: on a bot order this column is the customer's delivery address,
+      // parsed back out by the checkout and shown to them as their saved
+      // details. The locale columns are left alone for the same reason.
+      updates.notes = body.notes
+    }
+  }
 
   if (body.lotId !== undefined) {
     if (body.lotId === null) {
@@ -636,12 +907,6 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
       return c.json({ error: 'Cannot dispatch or deliver an unpaid order' }, 400)
     }
 
-    const [freshUser] = await db
-      .select({ preferredLocale: users.preferredLocale })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1)
-
     const result = await transitionOrder({
       farmId: user.farmId,
       orderId,
@@ -650,11 +915,13 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
         id: user.id,
         farmId: user.farmId,
         role: user.role,
-        preferredLocale: freshUser?.preferredLocale,
+        preferredLocale: viewerLocale,
       },
     })
     if (!result.ok) return c.json({ error: result.error }, 400)
-    return c.json({ order: result.order })
+    return c.json({
+      order: await orderForViewer(result.order, user.farmId, viewerLocale, echo),
+    })
   }
 
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
@@ -668,7 +935,9 @@ salesRoutes.patch('/:id', zValidator('json', updateOrderSchema), async (c) => {
     metadata: { status: order?.status },
   })
 
-  return c.json({ order })
+  return c.json({
+    order: order ? await orderForViewer(order, user.farmId, viewerLocale, echo) : order,
+  })
 })
 
 salesRoutes.delete('/:id', async (c) => {

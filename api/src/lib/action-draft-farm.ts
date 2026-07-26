@@ -5,6 +5,14 @@ import type { SessionUser } from './session.js'
 import { canAssignTasks } from './rbac.js'
 import { logAudit } from './audit.js'
 import { recordFarmEvent } from './farm-events.js'
+import {
+  asPoultryBatchType,
+  matchPoultryTypeAnswer,
+  normalizeSpeciesForWrite,
+  type PoultryBatchType,
+} from './species-normalize.js'
+import { findByName } from './entity-name-match.js'
+import { getLatestPendingDraft, mergeActionDraftPayload } from './task-drafts.js'
 
 export {
   parseCropCycleIntent,
@@ -72,12 +80,21 @@ export async function executeConfirmedLivestockBatch(
     return 'Draft was missing livestock fields.'
   }
 
+  // Drafts created after the lexicon landed already carry the canonical species,
+  // but a draft stored before it (or one created by a path that missed it) still
+  // holds raw text, so normalizing here is what makes the stored row consistent.
+  const { species: canonicalSpecies, batchType } = normalizeSpeciesForWrite(species)
+  // A type the worker answered cannot be derived from `species` a second time:
+  // they were asked precisely because their words do not name one.
+  const answeredType = asPoultryBatchType(payload.batchType)
+
   const [batch] = await db
     .insert(livestockBatches)
     .values({
       farmId: user.farmId,
       name,
-      species,
+      species: canonicalSpecies,
+      batchType: answeredType ?? batchType,
       headCount,
       plotId: payload.plotId ? String(payload.plotId) : undefined,
       acquiredAt: new Date(acquiredAt),
@@ -93,9 +110,42 @@ export async function executeConfirmedLivestockBatch(
     metadata: { source: 'butler' },
   })
 
-  return `✅ Livestock batch created: ${name} · ${species} · ${headCount} head.`
+  // The worker reads back the words they sent, not the lookup key we stored.
+  const typedSpecies = String(payload.speciesTyped ?? species).trim() || species
+  return `✅ Livestock batch created: ${name} · ${typedSpecies} · ${headCount} head.`
 }
 
+export type PoultryTypeAnswer =
+  | { handled: false }
+  | { handled: true; draftId: string; batchType: PoultryBatchType }
+
+/**
+ * Put a worker's answer to the poultry-type question onto the batch draft that
+ * is waiting for it, the way `applyLotEnrichText` applies the follow-up lines of
+ * a lot draft: the draft row is the pending question, and the next message is
+ * read against it.
+ *
+ * Nothing is claimed unless a draft is actually waiting and the message is one
+ * of the options, so every other message still reaches the butler.
+ */
+export async function applyPoultryTypeAnswer(
+  user: SessionUser,
+  text: string,
+): Promise<PoultryTypeAnswer> {
+  const draft = await getLatestPendingDraft(user.id, 'create_livestock_batch')
+  if (!draft?.payload.awaitingBatchType) return { handled: false }
+
+  const batchType = matchPoultryTypeAnswer(text)
+  if (!batchType) return { handled: false }
+
+  await mergeActionDraftPayload(draft.id, user.id, { batchType, awaitingBatchType: false })
+  return { handled: true, draftId: draft.id, batchType }
+}
+
+/**
+ * The active plot a worker's words name. Accents, hyphens, case and spacing are
+ * folded at comparison time only — the row keeps the farm's own spelling.
+ */
 export async function resolvePlotByName(
   farmId: string,
   plotName: string,
@@ -104,11 +154,5 @@ export async function resolvePlotByName(
     .select({ id: plots.id, name: plots.name })
     .from(plots)
     .where(and(eq(plots.farmId, farmId), eq(plots.active, true)))
-  return (
-    farmPlots.find((p) => p.name.toLowerCase() === plotName.toLowerCase()) ?? null
-  )
-}
-
-export function shortDraftHint(draftId: string): string {
-  return draftId.slice(0, 8)
+  return findByName(farmPlots, plotName)
 }

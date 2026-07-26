@@ -119,7 +119,7 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
       'Premium free-range poultry meat',
     ],
     specs: [
-      { label: 'Grades', value: 'Free-range broilers & mature hens' },
+      { label: 'Grades', value: 'Free-range noilers & mature hens' },
       { label: 'Packaging', value: 'Vacuum-sealed or ice-packed' },
       { label: 'Shelf life', value: 'Fresh: 3-5 days refrigerated; longer frozen' },
     ],

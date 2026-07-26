@@ -11,8 +11,8 @@ describe('pesticide-filter', () => {
     const out = filterUnsafeProductText([
       { title: 'Organic compost 25kg' },
       { title: 'Paraquat concentrate', reason: 'weed killer' },
-      { title: 'Broiler starter feed' },
+      { title: 'Noiler starter feed' },
     ])
-    expect(out.map((r) => r.title)).toEqual(['Organic compost 25kg', 'Broiler starter feed'])
+    expect(out.map((r) => r.title)).toEqual(['Organic compost 25kg', 'Noiler starter feed'])
   })
 })

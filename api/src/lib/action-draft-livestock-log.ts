@@ -3,10 +3,19 @@ import { db } from '../db/index.js'
 import { livestockBatches, livestockLogs } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { logAudit } from './audit.js'
-import { storeActionDraft } from './task-drafts.js'
+import {
+  contentLocaleValues,
+  storeActionDraft,
+  type ContentLocaleMeta,
+} from './task-drafts.js'
+import { findByName } from './entity-name-match.js'
 
 export { parseLivestockLogIntent } from './action-draft-livestock-log-parse.js'
 
+/**
+ * The livestock batch a worker's words name. Accents, hyphens, case and spacing
+ * are folded at comparison time only — the row keeps the farm's own spelling.
+ */
 export async function resolveLivestockBatchByName(
   farmId: string,
   query: string,
@@ -21,14 +30,14 @@ export async function resolveLivestockBatchByName(
     .from(livestockBatches)
     .where(eq(livestockBatches.farmId, farmId))
 
-  const q = query.toLowerCase()
-  return batches.find((b) => b.name.toLowerCase() === q) ?? null
+  return findByName(batches, query)
 }
 
 export async function executeConfirmedLivestockLog(
   user: SessionUser,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   const batchId = String(payload.batchId ?? '')
   const logType = String(payload.logType ?? '') as
@@ -69,6 +78,7 @@ export async function executeConfirmedLivestockLog(
         headCount,
         notes,
         recordedById: user.id,
+        ...contentLocaleValues(locale),
       })
       .returning()
 
@@ -166,9 +176,10 @@ export async function applyConfirmedLivestockLogDraft(
   actionType: string,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string | null> {
   if (actionType === 'livestock_log') {
-    return executeConfirmedLivestockLog(user, payload, source)
+    return executeConfirmedLivestockLog(user, payload, source, locale)
   }
   return null
 }

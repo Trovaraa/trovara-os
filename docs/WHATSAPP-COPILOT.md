@@ -5,7 +5,7 @@ NeuraAgro's "Joaquín". Workers and the owner can:
 
 - **Chat in any language** (English, Pidgin, Yoruba, French, Hausa, Igbo) - the Butler replies in the same language.
 - **Ask about the farm** - "How many birds are alive?", "What needs restocking?", "How much have we sold?" - answered from live data.
-- **Report a sick animal** - "3 broilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
+- **Report a sick animal** - "3 noilers are weak with green droppings" → likely causes, treatments available in Nigeria, prevention.
 - **Send a photo** of a sick plant or animal → AI vision diagnosis.
 - **Type `brief`** → a short "what needs attention today" summary.
 - **Type `help`** → commands for **your role only** (field ≠ sales ≠ admin).
@@ -16,7 +16,7 @@ NeuraAgro's "Joaquín". Workers and the owner can:
   - `Ack low stock`
   - `Create zone: North Field` · `Create plot: Block 2 zone=North Field`
   - Pack: `pack LOT-…` then qty/plot/notes/photo · `Verify LOT-…` / `Reject LOT-…`
-- **Field (+ supervisor) livestock logs:** `Feed: Broiler A` · `Vaccinate: …` · `Mortality: Broiler A heads=3`
+- **Field (+ supervisor) livestock logs:** `Feed: Noiler A` · `Vaccinate: …` · `Mortality: Noiler A heads=3`
 
 Urgent worker messages (death, disease, theft, fire, flood…) raise a **worker alert** to supervisors and owners who opted into Worker alerts in Settings (Telegram / WhatsApp).
 
@@ -51,7 +51,7 @@ You can fully test the intelligence in the web app before wiring Meta.
 1. Put your `OPENAI_API_KEY` in `.env`, restart the API (`npm run dev`).
 2. Open the app → **AI Assistant**. The badge should read **AI ready**.
 3. **Copilot:** ask "What is the total revenue so far?" → expect a real figure from your data.
-4. **Why is my animal sick?** enter `broiler` + "weak, not eating, greenish watery droppings since yesterday" → expect likely causes (e.g. Newcastle/coccidiosis), treatments, prevention.
+4. **Why is my animal sick?** enter `noiler` + "weak, not eating, greenish watery droppings since yesterday" → expect likely causes (e.g. Newcastle/coccidiosis), treatments, prevention.
 5. **Why is my crop not growing?** upload a leaf photo → expect a vision diagnosis.
 
 If these work, the AI is good - WhatsApp just adds the channel.

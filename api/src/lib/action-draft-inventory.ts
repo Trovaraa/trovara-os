@@ -4,7 +4,12 @@ import { inventoryItems, inventoryMovements } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { canManageInventory } from './rbac.js'
 import { logAudit } from './audit.js'
-import { storeActionDraft } from './task-drafts.js'
+import {
+  contentLocaleValues,
+  storeActionDraft,
+  type ContentLocaleMeta,
+} from './task-drafts.js'
+import { findByName } from './entity-name-match.js'
 
 export {
   parseStockMoveIntent,
@@ -19,6 +24,10 @@ type LowStockItemPayload = {
   reorderLevel: number
 }
 
+/**
+ * The inventory item a worker's words name. Accents, hyphens, case and spacing
+ * are folded at comparison time only — the row keeps the farm's own spelling.
+ */
 export async function resolveInventoryItemByName(
   farmId: string,
   query: string,
@@ -40,9 +49,7 @@ export async function resolveInventoryItemByName(
     .from(inventoryItems)
     .where(eq(inventoryItems.farmId, farmId))
 
-  const q = query.toLowerCase()
-  const item = items.find((row) => row.name.toLowerCase() === q)
-  return item ?? null
+  return findByName(items, query)
 }
 
 export async function prepareStockMoveDraft(params: {
@@ -240,6 +247,7 @@ export async function executeConfirmedStockMove(
   user: SessionUser,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string> {
   if (!canManageInventory(user)) {
     return 'Only Admin, Supervisor, or Sales can record stock moves.'
@@ -270,6 +278,7 @@ export async function executeConfirmedStockMove(
       delta,
       reason,
       recordedById: user.id,
+      ...contentLocaleValues(locale),
     })
 
     const [row] = await tx
@@ -409,8 +418,9 @@ export async function applyConfirmedInventoryDraft(
   actionType: string,
   payload: Record<string, unknown>,
   source = 'butler',
+  locale?: ContentLocaleMeta,
 ): Promise<string | null> {
-  if (actionType === 'stock_move') return executeConfirmedStockMove(user, payload, source)
+  if (actionType === 'stock_move') return executeConfirmedStockMove(user, payload, source, locale)
   if (actionType === 'opening_count') return executeConfirmedOpeningCount(user, payload, source)
   if (actionType === 'low_stock_ack') return executeConfirmedLowStockAck(user, payload, source)
   return null

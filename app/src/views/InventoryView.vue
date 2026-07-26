@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import InventoryProcurementSection from '@/components/inventory/InventoryProcurementSection.vue'
+import { useInventoryProcurement } from '@/composables/useInventoryProcurement'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 
@@ -61,47 +63,6 @@ const submittingCount = ref(false)
 const countMessage = ref<string | null>(null)
 const verifyingSessionId = ref<string | null>(null)
 
-type Supplier = {
-  id: string
-  name: string
-  phone?: string | null
-  email?: string | null
-  active: boolean
-}
-type PurchaseOrderLine = {
-  id: string
-  itemId?: string | null
-  itemName: string
-  unit: string
-  quantityOrdered: number
-  quantityReceived: number
-  unitCostMinor?: number | null
-}
-type PurchaseOrder = {
-  id: string
-  supplierId: string
-  supplierName: string
-  status: string
-  expectedAt?: string | null
-  createdAt: string
-  lines?: PurchaseOrderLine[]
-}
-const suppliers = ref<Supplier[]>([])
-const purchaseOrders = ref<PurchaseOrder[]>([])
-const selectedPurchaseOrder = ref<PurchaseOrder | null>(null)
-const newSupplierName = ref('')
-const supplierSaving = ref(false)
-const poSupplierId = ref('')
-const poExpectedAt = ref('')
-const poNotes = ref('')
-const poLines = ref<Array<{ itemId: string; quantityOrdered: number; unitCostMinor: number | '' }>>([
-  { itemId: '', quantityOrdered: 1, unitCostMinor: '' },
-])
-const poSaving = ref(false)
-const poActionId = ref<string | null>(null)
-const receiveQuantities = ref<Record<string, number | ''>>({})
-const poMessage = ref<string | null>(null)
-
 async function load() {
   loading.value = true
   try {
@@ -131,138 +92,36 @@ async function loadCountSessions() {
   }
 }
 
-async function loadProcurement() {
-  if (!auth.canApprove) return
-  try {
-    const [supplierData, orderData] = await Promise.all([
-      api<{ suppliers: Supplier[] }>('/api/suppliers'),
-      api<{ purchaseOrders: PurchaseOrder[] }>('/api/purchase-orders'),
-    ])
-    suppliers.value = supplierData.suppliers
-    purchaseOrders.value = orderData.purchaseOrders
-    if (!poSupplierId.value) poSupplierId.value = suppliers.value.find((s) => s.active)?.id ?? ''
-  } catch (e) {
-    poMessage.value = e instanceof Error ? e.message : t('inventory.poLoadFailed')
-  }
-}
+const {
+  suppliers,
+  purchaseOrders,
+  selectedPurchaseOrder,
+  newSupplierName,
+  supplierSaving,
+  poSupplierId,
+  poExpectedAt,
+  poNotes,
+  poLines,
+  poSaving,
+  poActionId,
+  receiveQuantities,
+  poMessage,
+  loadProcurement,
+  createSupplier,
+  addPoLine,
+  createPurchaseOrder,
+  openPurchaseOrder,
+  purchaseOrderAction,
+  receivePurchaseOrder,
+} = useInventoryProcurement({
+  canApprove: () => auth.canApprove,
+  getItems: () => items.value,
+  reloadItems: load,
+})
 
 onMounted(async () => {
   await Promise.all([load(), loadCountSessions(), loadProcurement()])
 })
-
-async function createSupplier() {
-  if (!newSupplierName.value.trim()) return
-  supplierSaving.value = true
-  poMessage.value = null
-  try {
-    await api('/api/suppliers', {
-      method: 'POST',
-      body: JSON.stringify({ name: newSupplierName.value.trim() }),
-    })
-    newSupplierName.value = ''
-    await loadProcurement()
-  } catch (e) {
-    poMessage.value = e instanceof Error ? e.message : t('inventory.supplierSaveFailed')
-  } finally {
-    supplierSaving.value = false
-  }
-}
-
-function addPoLine() {
-  poLines.value.push({ itemId: '', quantityOrdered: 1, unitCostMinor: '' })
-}
-
-async function createPurchaseOrder() {
-  const lines = poLines.value.filter((line) => line.itemId).map((line) => {
-    const item = items.value.find((candidate) => candidate.id === line.itemId)!
-    return {
-      itemId: item.id,
-      itemName: item.name,
-      unit: item.unit,
-      quantityOrdered: Math.max(1, Math.trunc(Number(line.quantityOrdered))),
-      unitCostMinor: line.unitCostMinor === '' ? null : Math.max(0, Math.trunc(Number(line.unitCostMinor))),
-    }
-  })
-  if (!poSupplierId.value || !lines.length) return
-  poSaving.value = true
-  poMessage.value = null
-  try {
-    await api('/api/purchase-orders', {
-      method: 'POST',
-      body: JSON.stringify({
-        supplierId: poSupplierId.value,
-        expectedAt: poExpectedAt.value ? new Date(poExpectedAt.value).toISOString() : null,
-        notes: poNotes.value.trim() || null,
-        lines,
-      }),
-    })
-    poLines.value = [{ itemId: '', quantityOrdered: 1, unitCostMinor: '' }]
-    poExpectedAt.value = ''
-    poNotes.value = ''
-    poMessage.value = t('inventory.poDraftSaved')
-    await loadProcurement()
-  } catch (e) {
-    poMessage.value = e instanceof Error ? e.message : t('inventory.poSaveFailed')
-  } finally {
-    poSaving.value = false
-  }
-}
-
-async function openPurchaseOrder(id: string) {
-  poActionId.value = id
-  try {
-    const data = await api<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${id}`)
-    selectedPurchaseOrder.value = data.purchaseOrder
-    receiveQuantities.value = Object.fromEntries(
-      (data.purchaseOrder.lines ?? []).map((line) => [line.id, '']),
-    )
-  } finally {
-    poActionId.value = null
-  }
-}
-
-async function purchaseOrderAction(id: string, action: 'approve' | 'send' | 'cancel') {
-  poActionId.value = id
-  poMessage.value = null
-  try {
-    await api(`/api/purchase-orders/${id}/${action}`, { method: 'POST' })
-    await loadProcurement()
-    await openPurchaseOrder(id)
-  } catch (e) {
-    poMessage.value = e instanceof Error ? e.message : t('inventory.poActionFailed')
-  } finally {
-    poActionId.value = null
-  }
-}
-
-async function receivePurchaseOrder() {
-  if (!selectedPurchaseOrder.value?.lines) return
-  const lines = selectedPurchaseOrder.value.lines
-    .filter((line) => Number(receiveQuantities.value[line.id]) > 0)
-    .map((line) => ({
-      purchaseOrderLineId: line.id,
-      quantityReceived: Math.trunc(Number(receiveQuantities.value[line.id])),
-    }))
-  if (!lines.length) return
-  poActionId.value = selectedPurchaseOrder.value.id
-  poMessage.value = null
-  try {
-    await api(`/api/purchase-orders/${selectedPurchaseOrder.value.id}/receipts`, {
-      method: 'POST',
-      body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), lines }),
-    })
-    poMessage.value = t('inventory.receiptPosted')
-    await Promise.all([
-      load(),
-      loadProcurement(),
-      openPurchaseOrder(selectedPurchaseOrder.value.id),
-    ])
-  } catch (e) {
-    poMessage.value = e instanceof Error ? e.message : t('inventory.receiveFailed')
-  } finally {
-    poActionId.value = null
-  }
-}
 
 function openOpeningStockModal() {
   openingCounts.value = Object.fromEntries(
@@ -419,212 +278,30 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
       <p v-if="openingMessage" class="mt-2 text-xs text-slate-400">{{ openingMessage }}</p>
     </div>
 
-    <section
+    <InventoryProcurementSection
       v-if="auth.canApprove && !loading"
-      class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5"
-    >
-      <div>
-        <h3 class="font-bold text-white">{{ t('inventory.procurement') }}</h3>
-        <p class="text-xs text-slate-500 mt-1">{{ t('inventory.procurementDesc') }}</p>
-      </div>
-
-      <form class="flex flex-col sm:flex-row gap-2" @submit.prevent="createSupplier">
-        <input
-          v-model="newSupplierName"
-          required
-          maxlength="200"
-          :placeholder="t('inventory.supplierName')"
-          class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-        />
-        <button
-          type="submit"
-          :disabled="supplierSaving || !newSupplierName.trim()"
-          class="text-xs font-bold px-4 py-2 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-        >
-          {{ supplierSaving ? t('inventory.saving') : t('inventory.addSupplier') }}
-        </button>
-      </form>
-
-      <form
-        v-if="suppliers.some((supplier) => supplier.active)"
-        class="border-t border-slate-800 pt-5 space-y-3"
-        @submit.prevent="createPurchaseOrder"
-      >
-        <h4 class="text-sm font-semibold text-white">{{ t('inventory.draftPo') }}</h4>
-        <div class="grid sm:grid-cols-3 gap-3">
-          <select
-            v-model="poSupplierId"
-            required
-            class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          >
-            <option value="" disabled>{{ t('inventory.chooseSupplier') }}</option>
-            <option
-              v-for="supplier in suppliers.filter((candidate) => candidate.active)"
-              :key="supplier.id"
-              :value="supplier.id"
-            >
-              {{ supplier.name }}
-            </option>
-          </select>
-          <input
-            v-model="poExpectedAt"
-            type="datetime-local"
-            class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          />
-          <input
-            v-model="poNotes"
-            maxlength="2000"
-            :placeholder="t('inventory.poNotes')"
-            class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          />
-        </div>
-        <div class="space-y-2">
-          <div
-            v-for="(line, index) in poLines"
-            :key="index"
-            class="grid sm:grid-cols-[1fr_110px_150px] gap-2"
-          >
-            <select
-              v-model="line.itemId"
-              required
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="" disabled>{{ t('inventory.chooseItem') }}</option>
-              <option v-for="item in items" :key="item.id" :value="item.id">
-                {{ item.name }} ({{ item.unit }})
-              </option>
-            </select>
-            <input
-              v-model.number="line.quantityOrdered"
-              type="number"
-              min="1"
-              step="1"
-              :aria-label="t('inventory.orderQty')"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              v-model.number="line.unitCostMinor"
-              type="number"
-              min="0"
-              step="1"
-              :placeholder="t('inventory.unitCostMinor')"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
-            @click="addPoLine"
-          >
-            {{ t('inventory.addLine') }}
-          </button>
-          <button
-            type="submit"
-            :disabled="poSaving || !poSupplierId || !poLines.some((line) => line.itemId)"
-            class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green disabled:opacity-50"
-          >
-            {{ poSaving ? t('inventory.saving') : t('inventory.saveDraftPo') }}
-          </button>
-        </div>
-      </form>
-
-      <div class="border-t border-slate-800 pt-5">
-        <h4 class="text-sm font-semibold text-white mb-3">{{ t('inventory.purchaseOrders') }}</h4>
-        <p v-if="!purchaseOrders.length" class="text-xs text-slate-500">
-          {{ t('inventory.noPurchaseOrders') }}
-        </p>
-        <div v-else class="grid lg:grid-cols-2 gap-3">
-          <button
-            v-for="order in purchaseOrders"
-            :key="order.id"
-            type="button"
-            class="text-left rounded-lg border border-slate-800 bg-slate-950/60 p-3 hover:border-slate-700"
-            @click="openPurchaseOrder(order.id)"
-          >
-            <div class="flex justify-between gap-3">
-              <span class="text-sm font-semibold text-white">{{ order.supplierName }}</span>
-              <span class="text-[11px] uppercase text-farm-green">{{ order.status.replace('_', ' ') }}</span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">{{ new Date(order.createdAt).toLocaleDateString() }}</p>
-          </button>
-        </div>
-      </div>
-
-      <div
-        v-if="selectedPurchaseOrder"
-        class="border-t border-slate-800 pt-5 space-y-3"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h4 class="text-sm font-semibold text-white">{{ selectedPurchaseOrder.supplierName }}</h4>
-            <p class="text-xs text-slate-500 uppercase">{{ selectedPurchaseOrder.status.replace('_', ' ') }}</p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-if="auth.isOwner && selectedPurchaseOrder.status === 'draft'"
-              type="button"
-              :disabled="poActionId === selectedPurchaseOrder.id"
-              class="text-xs px-3 py-1.5 rounded bg-farm-green/20 text-farm-green"
-              @click="purchaseOrderAction(selectedPurchaseOrder.id, 'approve')"
-            >
-              {{ t('inventory.approvePo') }}
-            </button>
-            <button
-              v-if="selectedPurchaseOrder.status === 'approved'"
-              type="button"
-              :disabled="poActionId === selectedPurchaseOrder.id"
-              class="text-xs px-3 py-1.5 rounded bg-slate-800 text-slate-300"
-              @click="purchaseOrderAction(selectedPurchaseOrder.id, 'send')"
-            >
-              {{ t('inventory.markSent') }}
-            </button>
-            <button
-              v-if="auth.isOwner && ['draft', 'approved', 'sent'].includes(selectedPurchaseOrder.status)"
-              type="button"
-              :disabled="poActionId === selectedPurchaseOrder.id"
-              class="text-xs px-3 py-1.5 rounded bg-red-900/40 text-red-300"
-              @click="purchaseOrderAction(selectedPurchaseOrder.id, 'cancel')"
-            >
-              {{ t('inventory.cancelPo') }}
-            </button>
-          </div>
-        </div>
-        <div
-          v-for="line in selectedPurchaseOrder.lines"
-          :key="line.id"
-          class="grid grid-cols-[1fr_auto] gap-3 items-center rounded-lg bg-slate-950 border border-slate-800 p-3"
-        >
-          <div>
-            <p class="text-sm text-white">{{ line.itemName }}</p>
-            <p class="text-xs text-slate-500">
-              {{ line.quantityReceived }} / {{ line.quantityOrdered }} {{ line.unit }}
-            </p>
-          </div>
-          <input
-            v-if="['approved', 'sent', 'partially_received'].includes(selectedPurchaseOrder.status) && line.quantityReceived < line.quantityOrdered"
-            v-model.number="receiveQuantities[line.id]"
-            type="number"
-            min="1"
-            :max="line.quantityOrdered - line.quantityReceived"
-            step="1"
-            :placeholder="t('inventory.receiveQty')"
-            class="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          />
-        </div>
-        <button
-          v-if="['approved', 'sent', 'partially_received'].includes(selectedPurchaseOrder.status)"
-          type="button"
-          :disabled="poActionId === selectedPurchaseOrder.id || !Object.values(receiveQuantities).some((value) => Number(value) > 0)"
-          class="text-xs font-bold px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green disabled:opacity-50"
-          @click="receivePurchaseOrder"
-        >
-          {{ t('inventory.postReceipt') }}
-        </button>
-      </div>
-      <p v-if="poMessage" class="text-xs text-slate-400">{{ poMessage }}</p>
-    </section>
+      v-model:new-supplier-name="newSupplierName"
+      v-model:po-supplier-id="poSupplierId"
+      v-model:po-expected-at="poExpectedAt"
+      v-model:po-notes="poNotes"
+      v-model:po-lines="poLines"
+      v-model:receive-quantities="receiveQuantities"
+      :is-owner="auth.isOwner"
+      :items="items"
+      :suppliers="suppliers"
+      :purchase-orders="purchaseOrders"
+      :selected-purchase-order="selectedPurchaseOrder"
+      :supplier-saving="supplierSaving"
+      :po-saving="poSaving"
+      :po-action-id="poActionId"
+      :po-message="poMessage"
+      @create-supplier="createSupplier"
+      @add-po-line="addPoLine"
+      @create-purchase-order="createPurchaseOrder"
+      @open-purchase-order="openPurchaseOrder"
+      @purchase-order-action="purchaseOrderAction"
+      @receive-purchase-order="receivePurchaseOrder"
+    />
 
     <form
       v-if="auth.canApprove && !loading"

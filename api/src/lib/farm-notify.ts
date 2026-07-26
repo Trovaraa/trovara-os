@@ -4,6 +4,8 @@ import { farmEvents, users } from '../db/schema.js'
 import type { UserRole } from '../db/schema.js'
 import { ORDER_ALERT_ALWAYS_ROLES, WORKER_ALERT_ALWAYS_ROLES } from './rbac.js'
 import { recordFarmEvent } from './farm-events.js'
+import { toViewerLocale } from './content-locale.js'
+import { resolveStaffReplyLocale, type ReplyLocale } from './reply-locale.js'
 import { isWhatsAppConfigured, sendWhatsAppText } from './whatsapp-meta.js'
 import { sendTelegramMessage } from './telegram.js'
 
@@ -20,16 +22,106 @@ type NotifyOpts = {
   replyMarkup?: Record<string, unknown>
 }
 
-type MessageInput = string | ((recipient: NotifyRecipient) => string)
+/**
+ * What a per-recipient renderer receives. `locale` is the normalized language to
+ * render in; `preferredLocale` carries the same value unnormalized because
+ * renderers written before this type existed read that field.
+ *
+ * It deliberately carries no recipient identity. A renderer must be a pure
+ * function of the language, which is what lets one fan-out call render once per
+ * distinct locale rather than once per recipient.
+ */
+export type NotifyLocaleContext = {
+  preferredLocale: string
+  locale: ReplyLocale
+}
 
-function resolveMessage(message: MessageInput, recipient: NotifyRecipient): string {
-  return typeof message === 'function' ? message(recipient) : message
+export type NotifyRenderer = (ctx: NotifyLocaleContext) => string | Promise<string>
+
+/** Plain string (rendered as-is for everyone) or a per-locale renderer. */
+export type MessageInput = string | NotifyRenderer
+
+/**
+ * Renderer for text with no fixed template - a worker-authored report being
+ * relayed, generated advice. `toViewerLocale` caches by content hash, so the
+ * same English relayed to three French workers costs one translation, and this
+ * resolver calls it once per language regardless.
+ *
+ * Only for canonical English. Text that is already localized (weather alerts
+ * leave that layer translated) must be passed as a plain string instead.
+ */
+export function relayFreeFormEnglish(english: string, farmId: string): NotifyRenderer {
+  return ({ locale }) => proseForLocale(english, farmId, locale)
+}
+
+/**
+ * One piece of canonical English prose rendered for one viewer.
+ *
+ * Falls back to the English on a translator failure: a supervisor reading the
+ * worker's note in English beats an alert that never arrives.
+ */
+async function proseForLocale(
+  english: string,
+  farmId: string,
+  locale: ReplyLocale,
+): Promise<string> {
+  if (locale === 'en') return english
+  try {
+    return await toViewerLocale({ english, targetLocale: locale, farmId })
+  } catch {
+    return english
+  }
+}
+
+/**
+ * Build the per-recipient message resolver for one fan-out call.
+ *
+ * Renderers run at most once per language even when they hit the network, and a
+ * renderer that throws or returns nothing falls back to English: an urgent
+ * mortality alert in English beats no alert at all. Resolves to null only when
+ * there is genuinely nothing sendable.
+ */
+function createMessageResolver(
+  message: MessageInput,
+): (preferredLocale: string) => Promise<string | null> {
+  if (typeof message === 'string') return async () => message
+
+  const rendered = new Map<ReplyLocale, Promise<string | null>>()
+
+  const render = (locale: ReplyLocale): Promise<string | null> => {
+    const inFlight = rendered.get(locale)
+    if (inFlight) return inFlight
+    const pending = (async () => {
+      try {
+        const text = await message({ preferredLocale: locale, locale })
+        return text.trim() ? text : null
+      } catch {
+        return null
+      }
+    })()
+    rendered.set(locale, pending)
+    return pending
+  }
+
+  return async (preferredLocale) => {
+    const locale = resolveStaffReplyLocale(preferredLocale)
+    const text = await render(locale)
+    if (text !== null) return text
+    return locale === 'en' ? null : render('en')
+  }
+}
+
+type MsgTable = Record<ReplyLocale, string>
+
+function pick(locale: ReplyLocale, table: MsgTable): string {
+  return table[locale] ?? table.en
 }
 
 /**
  * Push a WhatsApp message to every user on the farm holding one of `roles`.
  * No-op (returns notified: 0) when WhatsApp isn't configured or nobody has a phone.
- * Pass a function as `message` to localize per recipient preferred_locale.
+ * Pass a renderer as `message` to send each recipient their preferred_locale;
+ * it runs once per distinct language, not once per recipient.
  */
 export async function notifyRoles(
   farmId: string,
@@ -48,10 +140,12 @@ export async function notifyRoles(
     .from(users)
     .where(and(eq(users.farmId, farmId), inArray(users.role, roles), isNotNull(users.phone)))
 
+  const resolve = createMessageResolver(message)
   let notified = 0
   for (const recipient of recipients) {
     if (!recipient.phone) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       const res = await sendWhatsAppText(recipient.phone, text)
       notified++
@@ -80,7 +174,8 @@ export async function notifyRoles(
 /**
  * Send a Telegram alert to every user on the farm holding one of `roles`.
  * Uses Telegram chat links stored in farm_events (entityType: telegram_link).
- * Pass a function as `message` to localize per recipient preferred_locale.
+ * Pass a renderer as `message` to send each recipient their preferred_locale;
+ * it runs once per distinct language, not once per recipient.
  */
 export async function notifyRolesTelegram(
   farmId: string,
@@ -100,6 +195,7 @@ export async function notifyRolesTelegram(
     .where(and(eq(users.farmId, farmId), inArray(users.role, roles)))
   if (!recipients.length) return { notified: 0 }
 
+  const resolve = createMessageResolver(message)
   const byId = new Map(recipients.map((r) => [r.id, r]))
 
   const links = await db
@@ -118,7 +214,8 @@ export async function notifyRolesTelegram(
     seen.add(v.userId)
     const recipient = byId.get(v.userId)
     if (!recipient) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       await sendTelegramMessage(v.chatId, text, {
         replyMarkup: opts?.replyMarkup,
@@ -180,10 +277,12 @@ export async function notifyOrderAlertStaff(
 ): Promise<{ notified: number }> {
   if (!isWhatsAppConfigured()) return { notified: 0 }
   const recipients = (await listOrderAlertRecipients(farmId)).filter((r) => r.phone)
+  const resolve = createMessageResolver(message)
   let notified = 0
   for (const recipient of recipients) {
     if (!recipient.phone) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       const res = await sendWhatsAppText(recipient.phone, text)
       notified++
@@ -217,6 +316,7 @@ export async function notifyOrderAlertStaffTelegram(
   const recipients = await listOrderAlertRecipients(farmId)
   if (!recipients.length) return { notified: 0 }
 
+  const resolve = createMessageResolver(message)
   const byId = new Map(recipients.map((r) => [r.id, r]))
   const links = await db
     .select()
@@ -234,7 +334,8 @@ export async function notifyOrderAlertStaffTelegram(
     seen.add(v.userId)
     const recipient = byId.get(v.userId)
     if (!recipient) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       await sendTelegramMessage(v.chatId, text, {
         replyMarkup: opts?.replyMarkup,
@@ -294,10 +395,12 @@ export async function notifyWorkerAlertStaff(
 ): Promise<{ notified: number }> {
   if (!isWhatsAppConfigured()) return { notified: 0 }
   const recipients = (await listWorkerAlertRecipients(farmId)).filter((r) => r.phone)
+  const resolve = createMessageResolver(message)
   let notified = 0
   for (const recipient of recipients) {
     if (!recipient.phone) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       const res = await sendWhatsAppText(recipient.phone, text)
       notified++
@@ -330,6 +433,7 @@ export async function notifyWorkerAlertStaffTelegram(
   const recipients = await listWorkerAlertRecipients(farmId)
   if (!recipients.length) return { notified: 0 }
 
+  const resolve = createMessageResolver(message)
   const byId = new Map(recipients.map((r) => [r.id, r]))
   const links = await db
     .select()
@@ -347,7 +451,8 @@ export async function notifyWorkerAlertStaffTelegram(
     seen.add(v.userId)
     const recipient = byId.get(v.userId)
     if (!recipient) continue
-    const text = resolveMessage(message, recipient)
+    const text = await resolve(recipient.preferredLocale)
+    if (text === null) continue
     try {
       await sendTelegramMessage(v.chatId, text, {
         replyMarkup: opts?.replyMarkup,
@@ -387,6 +492,76 @@ export async function notifyWorkerAlertChannels(
   ])
 }
 
+/**
+ * Labels for the alerts composed here. The task ref, the worker name, the task
+ * title, the timestamp and the /approve and /reject commands are data, so they
+ * stay verbatim in every language.
+ */
+const NOTE_LABEL: MsgTable = {
+  en: 'Note',
+  fr: 'Remarque',
+  yo: 'Àkíyèsí',
+  pcm: 'Note',
+}
+
+/**
+ * The note is worker prose held in canonical English, so it is translated for
+ * the reader rather than pasted in. Truncation happens before translation to
+ * cap what reaches the model, which also keeps the cut at the same point in the
+ * text it is today.
+ */
+async function noteLine(
+  locale: ReplyLocale,
+  farmId: string,
+  note?: string | null,
+): Promise<string> {
+  const trimmed = note?.trim()
+  if (!trimmed) return ''
+  const shown = await proseForLocale(trimmed.slice(0, 200), farmId, locale)
+  return `\n${pick(locale, NOTE_LABEL)}: ${shown}`
+}
+
+async function taskApprovalMessage(
+  locale: ReplyLocale,
+  farmId: string,
+  params: { ref: string; taskTitle: string; workerName: string; note?: string | null },
+): Promise<string> {
+  const header = pick(locale, {
+    en: '✅ Task submitted for approval',
+    fr: '✅ Tâche soumise pour approbation',
+    yo: '✅ Iṣẹ́ tí a fi sílẹ̀ fún ìfọwọ́sí',
+    pcm: '✅ Work don submit for approval',
+  })
+  const byLabel = pick(locale, { en: 'By', fr: 'Par', yo: 'Láti ọwọ́', pcm: 'Na' })
+  const replyLine = pick(locale, {
+    en: `Reply in Telegram: /approve ${params.ref} · /reject ${params.ref}`,
+    fr: `Répondez dans Telegram : /approve ${params.ref} · /reject ${params.ref}`,
+    yo: `Dáhùn ní Telegram: /approve ${params.ref} · /reject ${params.ref}`,
+    pcm: `Reply for Telegram: /approve ${params.ref} · /reject ${params.ref}`,
+  })
+  const reviewLine = pick(locale, {
+    en: 'Or review in Trovara OS → Tasks.',
+    fr: 'Ou examinez dans Trovara OS → Tâches.',
+    yo: 'Tàbí wo ó ní Trovara OS → Tasks.',
+    pcm: 'Or check am for Trovara OS → Tasks.',
+  })
+
+  // The task title is stored in English too, so an approver reading in French
+  // would otherwise get a French frame around an English task.
+  const [title, note] = await Promise.all([
+    proseForLocale(params.taskTitle, farmId, locale),
+    noteLine(locale, farmId, params.note),
+  ])
+
+  return (
+    `${header}\n` +
+    `${params.ref} · ${title}\n` +
+    `${byLabel}: ${params.workerName}${note}\n\n` +
+    `${replyLine}\n` +
+    reviewLine
+  )
+}
+
 export async function notifyTaskSubmittedForApproval(params: {
   farmId: string
   taskId: string
@@ -396,19 +571,22 @@ export async function notifyTaskSubmittedForApproval(params: {
   actorUserId?: string
 }): Promise<void> {
   const ref = `TSK-${params.taskId.replace(/-/g, '').slice(0, 6).toUpperCase()}`
-  const noteLine = params.note?.trim() ? `\nNote: ${params.note.trim().slice(0, 200)}` : ''
-  const text =
-    `✅ Task submitted for approval\n` +
-    `${ref} · ${params.taskTitle}\n` +
-    `By: ${params.workerName}${noteLine}\n\n` +
-    `Reply in Telegram: /approve ${ref} · /reject ${ref}\n` +
-    `Or review in Trovara OS → Tasks.`
 
-  await notifyWorkerAlertChannels(params.farmId, text, {
-    actorUserId: params.actorUserId,
-    reason: 'task_awaiting_approval',
-    kind: 'worker_alert',
-  })
+  await notifyWorkerAlertChannels(
+    params.farmId,
+    ({ locale }) =>
+      taskApprovalMessage(locale, params.farmId, {
+        ref,
+        taskTitle: params.taskTitle,
+        workerName: params.workerName,
+        note: params.note,
+      }),
+    {
+      actorUserId: params.actorUserId,
+      reason: 'task_awaiting_approval',
+      kind: 'worker_alert',
+    },
+  )
 }
 
 /** Alert supervisors (and opted-in owners) when a field worker clocks in. */
@@ -419,6 +597,8 @@ export async function notifyWorkerClockIn(params: {
   actorUserId?: string
   notes?: string | null
 }): Promise<void> {
+  // One clock format for every locale: Node may ship without full ICU data, so
+  // a localized pattern would silently degrade to English anyway.
   const when = new Intl.DateTimeFormat('en-GB', {
     weekday: 'short',
     day: 'numeric',
@@ -427,13 +607,25 @@ export async function notifyWorkerClockIn(params: {
     minute: '2-digit',
     hour12: true,
   }).format(params.clockInAt)
-  const noteLine = params.notes?.trim() ? `\nNote: ${params.notes.trim().slice(0, 200)}` : ''
-  const text =
-    `🟢 Worker clocked in\n` +
-    `${params.workerName} · ${when}${noteLine}\n\n` +
-    `See Trovara OS → Today → Attendance.`
 
-  await notifyWorkerAlertChannels(params.farmId, text, {
+  const render = async ({ locale }: NotifyLocaleContext) => {
+    const header = pick(locale, {
+      en: '🟢 Worker clocked in',
+      fr: '🟢 Ouvrier pointé à l’arrivée',
+      yo: '🟢 Òṣìṣẹ́ ti wọlé sí iṣẹ́',
+      pcm: '🟢 Worker don clock in',
+    })
+    const footer = pick(locale, {
+      en: 'See Trovara OS → Today → Attendance.',
+      fr: 'Voir Trovara OS → Aujourd’hui → Présence.',
+      yo: 'Wo Trovara OS → Today → Attendance.',
+      pcm: 'Check Trovara OS → Today → Attendance.',
+    })
+    const note = await noteLine(locale, params.farmId, params.notes)
+    return `${header}\n${params.workerName} · ${when}${note}\n\n${footer}`
+  }
+
+  await notifyWorkerAlertChannels(params.farmId, render, {
     actorUserId: params.actorUserId,
     reason: 'attendance_clock_in',
     kind: 'worker_alert',
@@ -443,7 +635,7 @@ export async function notifyWorkerClockIn(params: {
 /** WhatsApp alert to the farm owner(s). */
 export function notifyOwner(
   farmId: string,
-  message: string,
+  message: MessageInput,
   opts?: { actorUserId?: string; reason?: string },
 ): Promise<{ notified: number }> {
   return notifyRoles(farmId, ['owner'], message, { ...opts, kind: 'owner_alert' })
@@ -452,7 +644,7 @@ export function notifyOwner(
 /** Telegram alert to the farm owner(s). */
 export function notifyOwnerTelegram(
   farmId: string,
-  message: string,
+  message: MessageInput,
   opts?: { actorUserId?: string; reason?: string },
 ): Promise<{ notified: number }> {
   return notifyRolesTelegram(farmId, ['owner'], message, { ...opts, kind: 'owner_alert' })
@@ -461,7 +653,7 @@ export function notifyOwnerTelegram(
 /** Telegram alert to the farm supervisor(s) - used for field-ops reminders. */
 export function notifySupervisorsTelegram(
   farmId: string,
-  message: string,
+  message: MessageInput,
   opts?: { actorUserId?: string; reason?: string },
 ): Promise<{ notified: number }> {
   return notifyRolesTelegram(farmId, ['supervisor'], message, { ...opts, kind: 'supervisor_alert' })
@@ -470,7 +662,7 @@ export function notifySupervisorsTelegram(
 /** WhatsApp alert to the farm supervisor(s). */
 export function notifySupervisors(
   farmId: string,
-  message: string,
+  message: MessageInput,
   opts?: { actorUserId?: string; reason?: string },
 ): Promise<{ notified: number }> {
   return notifyRoles(farmId, ['supervisor'], message, { ...opts, kind: 'supervisor_alert' })

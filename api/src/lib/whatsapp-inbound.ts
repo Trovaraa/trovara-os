@@ -18,7 +18,7 @@ import { checkButlerRateLimit } from './butler-rate-limit.js'
 import { deliverButlerReply } from './butler-reply.js'
 import { looksUrgent, notifyWorkerAlertChannels } from './farm-notify.js'
 import { voiceNotUnderstoodMessage } from './reply-locale.js'
-import { canAssignTasks, canManageOrders } from './rbac.js'
+import { canManageOrders } from './rbac.js'
 import {
   setUserPreferredLocale,
   tryHandleStaffOrderCommand,
@@ -28,69 +28,65 @@ import {
   languageSavedMessage,
   orderCommandHelp,
   staffLocale,
+  type StaffLocale,
 } from './order-messages.js'
+import { markLanguagePrompted, shouldPromptLanguage } from './language-prompt.js'
 import { tryHandleStaffOpsCommand } from './staff-ops.js'
+import type { ContentLocaleMeta } from './task-drafts.js'
 import { roleCommandHelp } from './role-menus.js'
 import {
-  cancelActionDraft,
-  confirmActionDraft,
-  getLatestPendingDraftAny,
-  storeActionDraft,
-} from './task-drafts.js'
-import {
-  executeConfirmedCropCycle,
-  executeConfirmedLivestockBatch,
   parseCropCycleIntent,
   parseLivestockBatchIntent,
-  resolvePlotByName,
 } from './action-draft-farm.js'
 import {
-  applyConfirmedOpsDraft,
   parseAssetCountIntent,
   parseCensusIntent,
   parseCreateTaskIntent,
-  prepareAssetCountDraft,
-  prepareCensusDraft,
-  prepareCreateTaskDraft,
 } from './action-draft-ops.js'
 import {
-  applyConfirmedInventoryDraft,
   parseLowStockAckIntent,
   parseOpeningCountIntent,
   parseStockMoveIntent,
-  prepareLowStockAckDraft,
-  prepareOpeningCountDraft,
-  prepareStockMoveDraft,
 } from './action-draft-inventory.js'
 import {
-  applyConfirmedZoneDraft,
   parseCreatePlotIntent,
   parseCreateZoneIntent,
-  prepareCreatePlotDraft,
-  prepareCreateZoneDraft,
 } from './action-draft-zones.js'
+import { parseLivestockLogIntent } from './action-draft-livestock-log.js'
 import {
-  applyConfirmedLivestockLogDraft,
-  parseLivestockLogIntent,
-  prepareLivestockLogDraft,
-} from './action-draft-livestock-log.js'
-import {
-  applyConfirmedLotDraft,
-  applyLotEnrichText,
   attachPhotoToLotEnrichDraft,
   formatLotsToPackMessage,
   parseVerifyLotIntent,
-  prepareVerifyLotDraft,
-  startLotEnrichDraft,
 } from './lot-enrich.js'
 import { formatHandoverProgressText, getHandoverProgress } from './handover-templates.js'
 import { processEvidenceValue } from './evidence-store.js'
 import type { PreferredLocale } from '../db/schema.js'
+import {
+  authorLocaleHint,
+  toCanonicalEnglish,
+  type CanonicalResult,
+} from './content-locale.js'
+import { draftConfirmHint, tryHandleWhatsAppDraftConfirm } from './whatsapp-draft-confirm.js'
+import {
+  offerAssetCountDraft,
+  offerCensusDraft,
+  offerCreatePlotDraft,
+  offerCreateZoneDraft,
+  offerCropCycleDraft,
+  offerLivestockBatchDraft,
+  offerLivestockLogDraft,
+  offerLotEnrichDraft,
+  offerLowStockAckDraft,
+  offerOpeningCountDraft,
+  offerStockMoveDraft,
+  offerTaskDraft,
+  offerVerifyLotDraft,
+  tryApplyLotEnrichText,
+  tryApplyPoultryTypeAnswer,
+} from './whatsapp-offer-drafts.js'
 
 const ENTITY = 'whatsapp_message'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
-const WA_CONFIRM_HINT = 'Reply CONFIRM to save, or CANCEL.'
-const CREATE_PLOT_HINT = 'Create plot: Name zone=ZoneName'
 
 function flattenPickerReply(reply: string, replyMarkup?: Record<string, unknown>): string {
   if (!replyMarkup || typeof replyMarkup !== 'object') return reply
@@ -102,8 +98,17 @@ function flattenPickerReply(reply: string, replyMarkup?: Record<string, unknown>
   return `${reply}\n\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}\n\nReply with the command + id, e.g. /done TSK-ABCDEF`
 }
 
-function withCreatePlotHint(error: string): string {
-  return /not found/i.test(error) ? `${error}\n\n${CREATE_PLOT_HINT}` : error
+/**
+ * Chat-log metadata for worker text stored as canonical English. A 'pending'
+ * status means the LLM was unavailable and `text` is still the author's own
+ * words, so the retry job can replace it later.
+ */
+function translationMeta(canonical: CanonicalResult, original: string) {
+  return {
+    sourceLocale: canonical.sourceLocale,
+    translationStatus: canonical.status,
+    ...(canonical.english === original ? {} : { originalText: original }),
+  }
 }
 
 function voicePrefix(
@@ -112,6 +117,44 @@ function voicePrefix(
   reply: string,
 ): string {
   return opts?.inboundWasVoice ? `🗣️ "${originalText}"\n\n${reply}` : reply
+}
+
+const OPS_NOTE =
+  /^\/?(?:start|begin|taskstart|done|complete|finish|approve|reject)\s+\S+\s+(.+)$/i
+
+type OpsNotePrep = {
+  text: string
+  restoreReply: (reply: string) => string
+  noteLocale?: ContentLocaleMeta
+}
+
+/**
+ * Task transition commands persist the trailing note on the task row, so it is
+ * swapped for English first. Keywords and the task reference stay as typed; the
+ * WhatsApp reply swaps the English back for the worker's own words.
+ */
+async function withEnglishOpsNote(
+  text: string,
+  farmId: string,
+  sourceLocale?: string | null,
+): Promise<OpsNotePrep> {
+  const identity: OpsNotePrep = { text, restoreReply: (reply: string) => reply }
+  const trimmed = text.trim()
+  const note = trimmed.match(OPS_NOTE)?.[1]
+  if (!note) return identity
+
+  const canonical = await toCanonicalEnglish({ text: note, farmId, sourceLocale })
+  const noteLocale: ContentLocaleMeta = {
+    sourceLocale: canonical.sourceLocale,
+    translationStatus: canonical.status,
+  }
+  if (canonical.english === note) return { ...identity, noteLocale }
+
+  return {
+    text: `${trimmed.slice(0, trimmed.length - note.length)}${canonical.english}`,
+    restoreReply: (reply) => reply.split(canonical.english).join(note),
+    noteLocale,
+  }
 }
 
 type InboundMessage = {
@@ -161,31 +204,73 @@ function toActor(u: DbUser) {
   }
 }
 
+/** WhatsApp has no buttons, so the choices are spelled out in the text. */
+function languagePromptText(locale: StaffLocale): string {
+  return `${languagePromptMessage(locale)}\n\nReply: lang en | lang yo | lang pcm | lang fr`
+}
+
+const LANG_SET_PATTERN = /^lang(?:uage)?\s+(en|yo|pcm|fr)$/i
+
+function isLanguageCommand(text: string): boolean {
+  const trimmed = text.trim()
+  const lower = trimmed.toLowerCase()
+  return lower === 'language' || lower === '/language' || LANG_SET_PATTERN.test(trimmed)
+}
+
 async function handleText(
   dbUser: DbUser,
   msg: InboundMessage,
   text: string,
-  opts?: { inboundWasVoice?: boolean; alreadyLogged?: boolean },
+  opts?: {
+    inboundWasVoice?: boolean
+    alreadyLogged?: boolean
+    /** Reuse of an already-computed normalization (voice notes) — never translate twice. */
+    canonical?: CanonicalResult
+  },
 ): Promise<void> {
-  const user = toSessionUser(dbUser)
   const phone = normalizePhone(msg.from)
-  const locale = staffLocale(dbUser.preferredLocale)
 
-  if (!checkButlerRateLimit(user.id)) {
+  if (!checkButlerRateLimit(dbUser.id)) {
     await sendWhatsAppText(phone, BUTLER_RATE_LIMIT_MSG).catch(() => undefined)
     return
   }
 
+  await handleTextInner(dbUser, msg, text, opts)
+
+  // After their message is dealt with, not before: someone reporting a dead bird
+  // gets an answer first, and the nudge is the second message rather than a
+  // gate. Skipped when they are already in the language flow.
+  if (!isLanguageCommand(text) && shouldPromptLanguage(dbUser)) {
+    await sendWhatsAppText(phone, languagePromptText(staffLocale(dbUser.preferredLocale))).catch(
+      () => undefined,
+    )
+    await markLanguagePrompted(dbUser.id)
+  }
+}
+
+async function handleTextInner(
+  dbUser: DbUser,
+  msg: InboundMessage,
+  text: string,
+  opts?: {
+    inboundWasVoice?: boolean
+    alreadyLogged?: boolean
+    canonical?: CanonicalResult
+  },
+): Promise<void> {
+  const user = toSessionUser(dbUser)
+  const phone = normalizePhone(msg.from)
+  const locale = staffLocale(dbUser.preferredLocale)
+  const authorLocale = authorLocaleHint(dbUser.preferredLocale)
+
   const lower = text.trim().toLowerCase()
   if (lower === 'language' || lower === '/language') {
-    await sendWhatsAppText(
-      phone,
-      `${languagePromptMessage(locale)}\n\nReply: lang en | lang yo | lang pcm | lang fr`,
-    ).catch(() => undefined)
+    await sendWhatsAppText(phone, languagePromptText(locale)).catch(() => undefined)
+    await markLanguagePrompted(dbUser.id)
     return
   }
 
-  const langMatch = text.trim().match(/^lang(?:uage)?\s+(en|yo|pcm|fr)$/i)
+  const langMatch = text.trim().match(LANG_SET_PATTERN)
   if (langMatch) {
     const next = langMatch[1]!.toLowerCase() as PreferredLocale
     await setUserPreferredLocale(dbUser.id, next)
@@ -211,333 +296,71 @@ async function handleText(
     return
   }
 
-  // WhatsApp draft confirm/cancel (no inline buttons). Bare confirm/cancel only
-  // when a pending draft exists — otherwise fall through to order/ops handlers.
-  if (/^(?:confirm|cancel)$/i.test(text.trim())) {
-    const draft = await getLatestPendingDraftAny(user.id)
-    if (draft) {
-      if (/^cancel$/i.test(text.trim())) {
-        const ok = await cancelActionDraft(draft.id, user.id)
-        await sendWhatsAppText(phone, ok ? 'Cancelled. Nothing was written.' : 'Draft already resolved.').catch(
-          () => undefined,
-        )
-        return
-      }
-      const confirmed = await confirmActionDraft(draft.id, user.id)
-      if (!confirmed) {
-        await sendWhatsAppText(phone, 'Draft expired. Please create it again.').catch(() => undefined)
-        return
-      }
-      let result = 'Confirmed.'
-      try {
-        const opsResult = await applyConfirmedOpsDraft(
-          user,
-          confirmed.actionType,
-          confirmed.payload,
-          'whatsapp_confirm',
-        )
-        if (opsResult != null) {
-          result = opsResult
-        } else {
-          const invResult = await applyConfirmedInventoryDraft(
-            user,
-            confirmed.actionType,
-            confirmed.payload,
-            'whatsapp_confirm',
-          )
-          if (invResult != null) {
-            result = invResult
-          } else {
-            const zoneResult = await applyConfirmedZoneDraft(
-              user,
-              confirmed.actionType,
-              confirmed.payload,
-              'whatsapp_confirm',
-            )
-            if (zoneResult != null) {
-              result = zoneResult
-            } else {
-              const logResult = await applyConfirmedLivestockLogDraft(
-                user,
-                confirmed.actionType,
-                confirmed.payload,
-                'whatsapp_confirm',
-              )
-              if (logResult != null) {
-                result = logResult
-              } else {
-                const lotResult = await applyConfirmedLotDraft(
-                  user,
-                  confirmed.actionType,
-                  confirmed.payload,
-                )
-                if (lotResult != null) {
-                  result = lotResult
-                } else if (confirmed.actionType === 'create_crop_cycle') {
-                  result = await executeConfirmedCropCycle(user, confirmed.payload)
-                } else if (confirmed.actionType === 'create_livestock_batch') {
-                  result = await executeConfirmedLivestockBatch(user, confirmed.payload)
-                } else {
-                  result = `Draft type "${confirmed.actionType}" — finish in Telegram (Confirm button) or the web app.`
-                }
-              }
-            }
-          }
-        }
-      } catch (err) {
-        result = err instanceof Error ? err.message : 'Could not apply draft'
-      }
-      await sendWhatsAppText(phone, result).catch(() => undefined)
-      return
-    }
-  }
+  if (await tryHandleWhatsAppDraftConfirm(user, phone, text, dbUser.preferredLocale)) return
 
   const taskIntent = parseCreateTaskIntent(text)
   if (taskIntent) {
-    const prepared = await prepareCreateTaskDraft({
-      user,
-      title: taskIntent.title,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(
-      phone,
-      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
-    ).catch(() => undefined)
+    await offerTaskDraft(user, phone, taskIntent.title, authorLocale)
     return
   }
 
   const censusIntent = parseCensusIntent(text)
   if (censusIntent) {
-    const prepared = await prepareCensusDraft({
-      user,
-      ...censusIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, withCreatePlotHint(prepared.error)).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(
-      phone,
-      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
-    ).catch(() => undefined)
+    await offerCensusDraft(user, phone, censusIntent, authorLocale)
     return
   }
 
   const assetCountIntent = parseAssetCountIntent(text)
   if (assetCountIntent) {
-    const prepared = await prepareAssetCountDraft({
-      user,
-      ...assetCountIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(
-      phone,
-      `${prepared.preview}\n\n${WA_CONFIRM_HINT}`,
-    ).catch(() => undefined)
+    await offerAssetCountDraft(user, phone, assetCountIntent)
     return
   }
 
   const cropIntent = parseCropCycleIntent(text)
   if (cropIntent) {
-    if (!canAssignTasks(user)) {
-      await sendWhatsAppText(phone, 'Only Admin or Supervisor can create crop cycles.').catch(() => undefined)
-      return
-    }
-    const plot = await resolvePlotByName(user.farmId, cropIntent.plotName)
-    if (!plot) {
-      await sendWhatsAppText(
-        phone,
-        withCreatePlotHint(
-          `Block "${cropIntent.plotName}" not found. Use the exact plot name from Zones.`,
-        ),
-      ).catch(() => undefined)
-      return
-    }
-    await storeActionDraft({
-      userId: user.id,
-      farmId: user.farmId,
-      actionType: 'create_crop_cycle',
-      payload: {
-        plotId: plot.id,
-        plotName: plot.name,
-        cropType: cropIntent.cropType,
-        plantedAt: new Date(cropIntent.plantedAt).toISOString(),
-        expectedHarvestAt: cropIntent.expectedHarvestAt
-          ? new Date(cropIntent.expectedHarvestAt).toISOString()
-          : null,
-        expectedYieldKg: cropIntent.expectedYieldKg ?? null,
-      },
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    await sendWhatsAppText(
-      phone,
-      [
-        'Draft crop cycle ready:',
-        `${cropIntent.cropType} on ${plot.name}, planted ${cropIntent.plantedAt}`,
-        '',
-        WA_CONFIRM_HINT,
-      ].join('\n'),
-    ).catch(() => undefined)
+    await offerCropCycleDraft(user, phone, cropIntent, authorLocale)
     return
   }
 
   const livestockIntent = parseLivestockBatchIntent(text)
   if (livestockIntent) {
-    if (!canAssignTasks(user)) {
-      await sendWhatsAppText(phone, 'Only Admin or Supervisor can create livestock batches.').catch(
-        () => undefined,
-      )
-      return
-    }
-    let plotId: string | null = null
-    let plotName: string | null = null
-    if (livestockIntent.plotName) {
-      const plot = await resolvePlotByName(user.farmId, livestockIntent.plotName)
-      if (!plot) {
-        await sendWhatsAppText(
-          phone,
-          withCreatePlotHint(
-            `Plot "${livestockIntent.plotName}" not found. Omit plot= or use exact name.`,
-          ),
-        ).catch(() => undefined)
-        return
-      }
-      plotId = plot.id
-      plotName = plot.name
-    }
-    await storeActionDraft({
-      userId: user.id,
-      farmId: user.farmId,
-      actionType: 'create_livestock_batch',
-      payload: {
-        name: livestockIntent.name,
-        species: livestockIntent.species,
-        headCount: livestockIntent.headCount,
-        plotId,
-        plotName,
-        acquiredAt: new Date(livestockIntent.acquiredAt).toISOString(),
-      },
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    await sendWhatsAppText(
-      phone,
-      [
-        'Draft livestock batch ready:',
-        `${livestockIntent.name} · ${livestockIntent.species} · ${livestockIntent.headCount} head`,
-        '',
-        WA_CONFIRM_HINT,
-      ].join('\n'),
-    ).catch(() => undefined)
+    await offerLivestockBatchDraft(user, phone, livestockIntent, dbUser.preferredLocale)
     return
   }
 
   const stockMoveIntent = parseStockMoveIntent(text)
   if (stockMoveIntent) {
-    const prepared = await prepareStockMoveDraft({
-      user,
-      ...stockMoveIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerStockMoveDraft(user, phone, stockMoveIntent, authorLocale)
     return
   }
 
   const openingCountIntent = parseOpeningCountIntent(text)
   if (openingCountIntent) {
-    const prepared = await prepareOpeningCountDraft({
-      user,
-      ...openingCountIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerOpeningCountDraft(user, phone, openingCountIntent)
     return
   }
 
   const lowStockAckIntent = parseLowStockAckIntent(text)
   if (lowStockAckIntent) {
-    const prepared = await prepareLowStockAckDraft({
-      user,
-      itemQuery: lowStockAckIntent.itemQuery,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerLowStockAckDraft(user, phone, lowStockAckIntent)
     return
   }
 
   const createZoneIntent = parseCreateZoneIntent(text)
   if (createZoneIntent) {
-    const prepared = await prepareCreateZoneDraft({
-      user,
-      ...createZoneIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerCreateZoneDraft(user, phone, createZoneIntent, authorLocale)
     return
   }
 
   const createPlotIntent = parseCreatePlotIntent(text)
   if (createPlotIntent) {
-    const prepared = await prepareCreatePlotDraft({
-      user,
-      ...createPlotIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerCreatePlotDraft(user, phone, createPlotIntent, authorLocale)
     return
   }
 
   const livestockLogIntent = parseLivestockLogIntent(text)
   if (livestockLogIntent) {
-    const prepared = await prepareLivestockLogDraft({
-      user,
-      ...livestockLogIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerLivestockLogDraft(user, phone, livestockLogIntent, authorLocale)
     return
   }
 
@@ -548,37 +371,17 @@ async function handleText(
 
   const packMatch = text.match(/^(?:pack|lot)\s+(\S+)/i)
   if (packMatch) {
-    const prepared = await startLotEnrichDraft(user, packMatch[1], {
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerLotEnrichDraft(user, phone, packMatch[1])
     return
   }
 
-  const enrichApply = await applyLotEnrichText(user, text)
-  if (enrichApply.handled) {
-    await sendWhatsAppText(phone, `${enrichApply.reply}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
-    return
-  }
+  if (await tryApplyLotEnrichText(user, phone, text, authorLocale)) return
+
+  if (await tryApplyPoultryTypeAnswer(user, phone, text, dbUser.preferredLocale)) return
 
   const verifyLotIntent = parseVerifyLotIntent(text)
   if (verifyLotIntent) {
-    const prepared = await prepareVerifyLotDraft({
-      user,
-      ...verifyLotIntent,
-      channel: 'whatsapp',
-      externalChatId: phone,
-    })
-    if (!prepared.ok) {
-      await sendWhatsAppText(phone, prepared.error).catch(() => undefined)
-      return
-    }
-    await sendWhatsAppText(phone, `${prepared.preview}\n\n${WA_CONFIRM_HINT}`).catch(() => undefined)
+    await offerVerifyLotDraft(user, phone, verifyLotIntent, authorLocale)
     return
   }
 
@@ -639,9 +442,11 @@ async function handleText(
     return
   }
 
+  const opsText = await withEnglishOpsNote(text, user.farmId, authorLocale)
   const opsCmd = await tryHandleStaffOpsCommand({
     actor: toActor(dbUser),
-    text,
+    text: opsText.text,
+    noteLocale: opsText.noteLocale,
   })
   if (opsCmd.handled) {
     await sendWhatsAppText(
@@ -649,7 +454,10 @@ async function handleText(
       voicePrefix(
         opts,
         text,
-        flattenPickerReply(opsCmd.reply ?? 'Done.', opsCmd.replyMarkup),
+        flattenPickerReply(
+          opsText.restoreReply(opsCmd.reply ?? 'Done.'),
+          opsCmd.replyMarkup,
+        ),
       ),
     ).catch(() => undefined)
     return
@@ -673,13 +481,16 @@ async function handleText(
     }
   }
 
-  // First-time language nudge if still default and they haven't set it (soft).
-  if (dbUser.preferredLocale === 'en' && /^(hi|hello)$/i.test(text.trim())) {
-    await sendWhatsAppText(
-      phone,
-      `${languagePromptMessage('en')}\n\nReply: lang en | lang yo | lang pcm | lang fr`,
-    ).catch(() => undefined)
-  }
+  // The language nudge used to live here, firing only on "hi"/"hello" and only
+  // while preferred_locale still read 'en' — so a worker who opened with a report
+  // was never asked, and one who had chosen English was asked forever. It is now
+  // handled once for every message by the caller, keyed off whether they answered.
+
+  // The chat log and the supervisor alert are read in English; the butler reply
+  // below stays in the worker's language.
+  const canonical =
+    opts?.canonical ??
+    (await toCanonicalEnglish({ text, farmId: user.farmId, sourceLocale: authorLocale }))
 
   if (!opts?.alreadyLogged) {
     await recordChatMessage({
@@ -687,9 +498,10 @@ async function handleText(
       userId: user.id,
       entityType: ENTITY,
       messageId: msg.id,
-      text,
+      text: canonical.english,
       role: 'user',
       direction: 'inbound',
+      extra: translationMeta(canonical, text),
     })
   }
 
@@ -702,10 +514,11 @@ async function handleText(
     entityType: ENTITY,
   })
 
-  if (dbUser.role === 'field_worker' && looksUrgent(text)) {
+  // Urgency keywords are English-only, so match on the normalized text.
+  if (dbUser.role === 'field_worker' && looksUrgent(canonical.english)) {
     await notifyWorkerAlertChannels(
       user.farmId,
-      `⚠️ Urgent report from ${user.name} (WhatsApp):\n\n"${text.slice(0, 300)}"\n\nButler replied with guidance. Please review in Trovara OS.`,
+      `⚠️ Urgent report from ${user.name} (WhatsApp):\n\n"${canonical.english.slice(0, 300)}"\n\nButler replied with guidance. Please review in Trovara OS.`,
       { actorUserId: user.id, reason: 'urgent_keyword' },
     )
   }
@@ -721,15 +534,29 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     return
   }
 
+  // Caption handlers below still match the worker's own words; only the stored
+  // caption is normalized.
+  const canonicalCaption = caption
+    ? await toCanonicalEnglish({
+        text: caption,
+        farmId: user.farmId,
+        sourceLocale: authorLocaleHint(dbUser.preferredLocale),
+      })
+    : null
+
   await recordChatMessage({
     farmId: user.farmId,
     userId: user.id,
     entityType: ENTITY,
     messageId: msg.id,
-    text: caption ? `[photo] ${caption}` : '[photo]',
+    text: canonicalCaption ? `[photo] ${canonicalCaption.english}` : '[photo]',
     role: 'user',
     direction: 'inbound',
-    extra: { kind: 'image', mediaId: msg.image?.id },
+    extra: {
+      kind: 'image',
+      mediaId: msg.image?.id,
+      ...(canonicalCaption ? translationMeta(canonicalCaption, caption) : {}),
+    },
   })
 
   // Attach to pending enrich_lot draft before diagnostic photo path.
@@ -739,7 +566,7 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     if (attached.ok) {
       await sendWhatsAppText(
         phone,
-        `Photo attached to lot draft. ${WA_CONFIRM_HINT}`,
+        `Photo attached to lot draft. ${draftConfirmHint(dbUser.preferredLocale)}`,
       ).catch(() => undefined)
       return
     }
@@ -770,15 +597,24 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     try {
       const dataUrl = await downloadWhatsAppMedia(msg.image!.id)
       const photoUrl = await processEvidenceValue(user.farmId, dataUrl)
+      const opsText = await withEnglishOpsNote(
+        caption,
+        user.farmId,
+        authorLocaleHint(dbUser.preferredLocale),
+      )
       const opsCmd = await tryHandleStaffOpsCommand({
         actor: toActor(dbUser),
-        text: caption,
+        text: opsText.text,
         photoUrl,
+        noteLocale: opsText.noteLocale,
       })
       if (opsCmd.handled) {
         await sendWhatsAppText(
           phone,
-          flattenPickerReply(opsCmd.reply ?? 'Done.', opsCmd.replyMarkup),
+          flattenPickerReply(
+            opsText.restoreReply(opsCmd.reply ?? 'Done.'),
+            opsCmd.replyMarkup,
+          ),
         ).catch(() => undefined)
         return
       }
@@ -803,10 +639,10 @@ async function handleImage(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     entityType: ENTITY,
   })
 
-  if (dbUser.role === 'field_worker' && caption && looksUrgent(caption)) {
+  if (canonicalCaption && dbUser.role === 'field_worker' && looksUrgent(canonicalCaption.english)) {
     await notifyWorkerAlertChannels(
       user.farmId,
-      `⚠️ ${user.name} sent a photo on WhatsApp with note: "${caption.slice(0, 200)}". Butler sent a diagnosis. Please review.`,
+      `⚠️ ${user.name} sent a photo on WhatsApp with note: "${canonicalCaption.english.slice(0, 200)}". Butler sent a diagnosis. Please review.`,
       { actorUserId: user.id, reason: 'urgent_photo' },
     )
   }
@@ -840,21 +676,31 @@ async function handleAudio(dbUser: DbUser, msg: InboundMessage): Promise<void> {
     return
   }
 
+  // Transcription returns the spoken language, so a voice note is normalized
+  // exactly like typed text — once, here, and reused by handleText.
+  const canonical = await toCanonicalEnglish({
+    text: transcript,
+    farmId: user.farmId,
+    sourceLocale: authorLocaleHint(dbUser.preferredLocale),
+  })
+
   await recordChatMessage({
     farmId: user.farmId,
     userId: user.id,
     entityType: ENTITY,
     messageId: msg.id,
-    text: transcript,
+    text: canonical.english,
     role: 'user',
     direction: 'inbound',
-    extra: { kind: 'voice' },
+    extra: { kind: 'voice', ...translationMeta(canonical, transcript) },
   })
 
-  // Route voice through the same structured command path as text.
+  // Route voice through the same structured command path as text: commands and
+  // plot names are matched on what was actually said.
   await handleText(dbUser, msg, transcript, {
     inboundWasVoice: true,
     alreadyLogged: true,
+    canonical,
   })
 }
 

@@ -2,9 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import { useAgronomySkipText, type AgronomySkipReason } from '@/composables/useAgronomySkipText'
 import { api } from '@/lib/api'
 
 const { t } = useI18n()
+const { agronomySkipText } = useAgronomySkipText()
 
 type TaskTemplate = {
   id: string
@@ -28,15 +30,32 @@ type Schedule = {
   nextRunAt?: string | null
 }
 
+/**
+ * One entry per crop cycle, not per crop: these are the stage lengths the farm
+ * is actually working to, so two plantain blocks planted a month apart are two
+ * rows that can legitimately disagree.
+ */
 type Lifecycle = {
+  cropCycleId: string
   cropType: string
+  plantedAt: string
+  plotName: string | null
   totalDays: number
-  stages: { stage: string; durationDays: number }[]
+  stages: { stage: string; durationDays: number; source: string }[]
+}
+
+type CropCycle = {
+  id: string
+  cropType: string
+  plotName?: string | null
+  agronomySkipReason: AgronomySkipReason | null
 }
 
 const templates = ref<TaskTemplate[]>([])
 const schedules = ref<Schedule[]>([])
 const lifecycles = ref<Lifecycle[]>([])
+/** Cycles missing from the list above, each carrying why it has no lifecycle. */
+const skippedCycles = ref<CropCycle[]>([])
 const loading = ref(true)
 
 const newName = ref('')
@@ -51,14 +70,21 @@ const generateMessage = ref<string | null>(null)
 async function load() {
   loading.value = true
   try {
-    const [tplData, schedData, lifeData] = await Promise.all([
+    const [tplData, schedData, lifeData, cropData] = await Promise.all([
       api<{ templates: TaskTemplate[] }>('/api/templates/templates'),
       api<{ schedules: Schedule[] }>('/api/templates/schedules'),
       api<{ lifecycles: Lifecycle[] }>('/api/templates/lifecycles'),
+      api<{ cropCycles: CropCycle[] }>('/api/crops'),
     ])
     templates.value = tplData.templates
     schedules.value = schedData.schedules
     lifecycles.value = lifeData.lifecycles
+    // A cycle listed above has a lifecycle and nothing to explain, whatever the
+    // last generation attempt on it recorded.
+    const listed = new Set(lifeData.lifecycles.map((lc) => lc.cropCycleId))
+    skippedCycles.value = cropData.cropCycles.filter(
+      (cycle) => cycle.agronomySkipReason && !listed.has(cycle.id),
+    )
   } finally {
     loading.value = false
   }
@@ -253,10 +279,14 @@ async function generateTasks() {
         <div v-if="lifecycles.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div
             v-for="lc in lifecycles"
-            :key="lc.cropType"
+            :key="lc.cropCycleId"
             class="bg-slate-900 border border-slate-800 rounded-xl p-4"
           >
             <h4 class="font-bold text-white capitalize">{{ lc.cropType }}</h4>
+            <p class="text-xs text-slate-400 mt-1">
+              {{ lc.plotName ?? t('crops.unassignedPlot') }} ·
+              {{ t('crops.planted') }} {{ new Date(lc.plantedAt).toLocaleDateString() }}
+            </p>
             <p class="text-xs text-slate-500 mt-1">{{ t('templates.daysTotal', { days: lc.totalDays }) }}</p>
             <ul class="mt-3 space-y-1">
               <li
@@ -270,7 +300,16 @@ async function generateTasks() {
             </ul>
           </div>
         </div>
-        <p v-else class="text-slate-500 text-sm">{{ t('templates.noLifecycles') }}</p>
+        <p v-else-if="skippedCycles.length === 0" class="text-slate-500 text-sm">
+          {{ t('templates.noLifecycles') }}
+        </p>
+        <ul v-if="skippedCycles.length" class="mt-3 space-y-1">
+          <li v-for="cycle in skippedCycles" :key="cycle.id" class="text-slate-500 text-sm">
+            <span class="capitalize text-slate-400">{{ cycle.cropType }}</span>
+            <span v-if="cycle.plotName" class="text-slate-500"> · {{ cycle.plotName }}</span>
+            - {{ agronomySkipText(cycle.agronomySkipReason) }}
+          </li>
+        </ul>
       </div>
     </template>
   </AppLayout>

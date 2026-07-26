@@ -47,8 +47,11 @@ export function getLastBackupInfo(rootDir: string): BackupStatus {
       })
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
 
-    const reportDir = process.env.BACKUP_REPORT_DIR?.trim()
-      ? resolve(rootDir, process.env.BACKUP_REPORT_DIR.trim())
+    const reportConfigured = process.env.BACKUP_REPORT_DIR?.trim()
+    const reportDir = reportConfigured
+      ? isAbsolute(reportConfigured)
+        ? reportConfigured
+        : resolve(rootDir, reportConfigured)
       : resolve(backupDir, 'reports')
     const reportPath = resolve(reportDir, 'latest-backup.json')
     if (existsSync(reportPath)) {

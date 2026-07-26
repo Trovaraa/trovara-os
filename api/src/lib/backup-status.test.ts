@@ -14,6 +14,13 @@ function temporaryRoot(): string {
   return root
 }
 
+/** Isolate from host/prod BACKUP_* so deploy VMs with real backup dirs cannot leak in. */
+function useIsolatedBackupEnv(backupDir: string, reportDir?: string) {
+  process.env.BACKUP_DIR = backupDir
+  if (reportDir) process.env.BACKUP_REPORT_DIR = reportDir
+  else delete process.env.BACKUP_REPORT_DIR
+}
+
 afterEach(() => {
   if (originalBackupDir === undefined) delete process.env.BACKUP_DIR
   else process.env.BACKUP_DIR = originalBackupDir
@@ -30,7 +37,7 @@ describe('backup status evidence', () => {
     const backupDir = join(root, 'external-backups')
     mkdirSync(backupDir)
     writeFileSync(join(backupDir, 'trovara.sql.gpg'), 'encrypted')
-    process.env.BACKUP_DIR = backupDir
+    useIsolatedBackupEnv(backupDir)
 
     const status = getLastBackupInfo(root)
 
@@ -44,7 +51,7 @@ describe('backup status evidence', () => {
     const backupDir = join(root, 'backups')
     const reportDir = join(backupDir, 'reports')
     mkdirSync(reportDir, { recursive: true })
-    process.env.BACKUP_DIR = backupDir
+    useIsolatedBackupEnv(backupDir)
     writeFileSync(join(backupDir, 'trovara.sql.gpg'), 'database')
     writeFileSync(join(backupDir, 'trovara.evidence.tar.gpg'), 'evidence')
     writeFileSync(join(backupDir, 'trovara.manifest.sha256'), 'checksums')
@@ -74,7 +81,7 @@ describe('backup status evidence', () => {
     const backupDir = join(root, 'backups')
     const reportDir = join(backupDir, 'reports')
     mkdirSync(reportDir, { recursive: true })
-    process.env.BACKUP_DIR = backupDir
+    useIsolatedBackupEnv(backupDir)
     writeFileSync(join(backupDir, 'trovara.sql.gpg'), 'database')
     writeFileSync(join(backupDir, 'trovara.manifest.sha256'), 'checksums')
     writeFileSync(

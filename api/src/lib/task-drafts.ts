@@ -7,6 +7,19 @@ export type ActionDraftPayload = Record<string, unknown>
 
 const DRAFT_TTL_MS = 10 * 60 * 1000
 
+export type ContentTranslationStatus = 'done' | 'pending' | 'failed'
+
+/**
+ * How a piece of free text was normalized: the language it was authored in and
+ * whether it is English yet. Draft rows carry it; every content row written from
+ * a draft has to inherit it, or text the LLM could not translate lands in the
+ * database claiming to be English and the retry job never sees it again.
+ */
+export type ContentLocaleMeta = {
+  sourceLocale?: string | null
+  translationStatus?: ContentTranslationStatus
+}
+
 export type StoredActionDraft = {
   id: string
   farmId: string
@@ -16,6 +29,66 @@ export type StoredActionDraft = {
   actionType: string
   payload: ActionDraftPayload
   expiresAt: Date
+  sourceLocale: string | null
+  translationStatus: ContentTranslationStatus
+}
+
+function toStoredDraft(row: typeof actionDrafts.$inferSelect): StoredActionDraft {
+  return {
+    id: row.id,
+    farmId: row.farmId,
+    userId: row.userId,
+    channel: row.channel,
+    externalChatId: row.externalChatId,
+    actionType: row.actionType,
+    payload: (row.payload ?? {}) as ActionDraftPayload,
+    expiresAt: row.expiresAt,
+    sourceLocale: row.sourceLocale,
+    translationStatus: row.translationStatus,
+  }
+}
+
+/** The locale metadata of a draft, in the shape executors take. */
+export function draftContentLocale(draft: StoredActionDraft): ContentLocaleMeta {
+  return { sourceLocale: draft.sourceLocale, translationStatus: draft.translationStatus }
+}
+
+/**
+ * Locale columns for a row being inserted from a draft. English text that
+ * translated cleanly writes nothing so the schema defaults apply.
+ *
+ * Anything unresolved is written as 'pending' rather than copied verbatim: the
+ * retry job only sweeps 'pending', so a draft abandoned as 'failed' would make
+ * the new row unreachable. A fresh row gets a fresh attempt — one wasted retry
+ * is cheap, a row that wrongly claims 'done' is unrecoverable.
+ */
+export function contentLocaleValues(meta?: ContentLocaleMeta | null): {
+  sourceLocale?: string | null
+  translationStatus?: ContentTranslationStatus
+} {
+  const sourceLocale = meta?.sourceLocale ?? null
+  const resolved = (meta?.translationStatus ?? 'done') === 'done'
+  if (resolved && sourceLocale == null) return {}
+  return { sourceLocale, translationStatus: resolved ? 'done' : 'pending' }
+}
+
+/**
+ * Locale columns for an update that adds free text to a row that already has
+ * some. One pair of columns describes the whole row, so the row is 'done' only
+ * while all of its text is: this escalates to 'pending' but never back. A row
+ * that already carries debt is left alone — overwriting it would throw away the
+ * retry job's own bookkeeping, including a 'failed' it decided on.
+ */
+export function mergeContentLocale(
+  existing: { sourceLocale: string | null; translationStatus: ContentTranslationStatus },
+  incoming?: ContentLocaleMeta | null,
+): { sourceLocale?: string | null; translationStatus?: ContentTranslationStatus } {
+  const values = contentLocaleValues(incoming)
+  if (values.translationStatus == null) return {}
+  if (existing.translationStatus !== 'done') return {}
+  return values.sourceLocale == null
+    ? { translationStatus: values.translationStatus }
+    : values
 }
 
 export async function storeActionDraft(input: {
@@ -27,6 +100,8 @@ export async function storeActionDraft(input: {
   externalChatId?: string | null
   telegramMessageId?: string | null
   ttlMs?: number
+  sourceLocale?: string | null
+  translationStatus?: ContentTranslationStatus
 }): Promise<StoredActionDraft> {
   const expiresAt = new Date(Date.now() + (input.ttlMs ?? DRAFT_TTL_MS))
   const id = randomBytes(16).toString('hex')
@@ -44,19 +119,11 @@ export async function storeActionDraft(input: {
       status: 'pending',
       expiresAt,
       telegramMessageId: input.telegramMessageId ?? null,
+      ...contentLocaleValues(input),
     })
     .returning()
 
-  return {
-    id: row.id,
-    farmId: row.farmId,
-    userId: row.userId,
-    channel: row.channel,
-    externalChatId: row.externalChatId,
-    actionType: row.actionType,
-    payload: (row.payload ?? {}) as ActionDraftPayload,
-    expiresAt: row.expiresAt,
-  }
+  return toStoredDraft(row)
 }
 
 export async function getPendingActionDraft(
@@ -79,16 +146,7 @@ export async function getPendingActionDraft(
     return null
   }
 
-  return {
-    id: row.id,
-    farmId: row.farmId,
-    userId: row.userId,
-    channel: row.channel,
-    externalChatId: row.externalChatId,
-    actionType: row.actionType,
-    payload: (row.payload ?? {}) as ActionDraftPayload,
-    expiresAt: row.expiresAt,
-  }
+  return toStoredDraft(row)
 }
 
 export async function confirmActionDraft(
@@ -112,16 +170,7 @@ export async function confirmActionDraft(
 
   if (!updated) return null
 
-  return {
-    id: updated.id,
-    farmId: updated.farmId,
-    userId: updated.userId,
-    channel: updated.channel,
-    externalChatId: updated.externalChatId,
-    actionType: updated.actionType,
-    payload: (updated.payload ?? {}) as ActionDraftPayload,
-    expiresAt: updated.expiresAt,
-  }
+  return toStoredDraft(updated)
 }
 
 export async function cancelActionDraft(draftId: string, userId: string): Promise<boolean> {
@@ -172,16 +221,7 @@ export async function getLatestPendingDraft(
     return null
   }
 
-  return {
-    id: row.id,
-    farmId: row.farmId,
-    userId: row.userId,
-    channel: row.channel,
-    externalChatId: row.externalChatId,
-    actionType: row.actionType,
-    payload: (row.payload ?? {}) as ActionDraftPayload,
-    expiresAt: row.expiresAt,
-  }
+  return toStoredDraft(row)
 }
 
 /** Latest pending draft of any type (WhatsApp CONFIRM / CANCEL without buttons). */
@@ -199,16 +239,7 @@ export async function getLatestPendingDraftAny(userId: string): Promise<StoredAc
     return null
   }
 
-  return {
-    id: row.id,
-    farmId: row.farmId,
-    userId: row.userId,
-    channel: row.channel,
-    externalChatId: row.externalChatId,
-    actionType: row.actionType,
-    payload: (row.payload ?? {}) as ActionDraftPayload,
-    expiresAt: row.expiresAt,
-  }
+  return toStoredDraft(row)
 }
 
 export async function mergeActionDraftPayload(
@@ -225,16 +256,7 @@ export async function mergeActionDraftPayload(
     .where(and(eq(actionDrafts.id, draftId), eq(actionDrafts.userId, userId)))
     .returning()
   if (!updated) return null
-  return {
-    id: updated.id,
-    farmId: updated.farmId,
-    userId: updated.userId,
-    channel: updated.channel,
-    externalChatId: updated.externalChatId,
-    actionType: updated.actionType,
-    payload: (updated.payload ?? {}) as ActionDraftPayload,
-    expiresAt: updated.expiresAt,
-  }
+  return toStoredDraft(updated)
 }
 
 /** Compatibility helpers matching the old in-memory task-drafts API. */
@@ -269,7 +291,16 @@ export async function storeTaskDraft(
 export async function takeTaskDraft(
   draftId: string,
   userId: string,
-): Promise<(TaskDraftFields & { userId: string; farmId: string; expiresAt: number }) | null> {
+): Promise<
+  | (TaskDraftFields & {
+      userId: string
+      farmId: string
+      expiresAt: number
+      sourceLocale: string | null
+      translationStatus: ContentTranslationStatus
+    })
+  | null
+> {
   const confirmed = await confirmActionDraft(draftId, userId)
   if (!confirmed || confirmed.actionType !== 'create_task') return null
   const payload = confirmed.payload as TaskDraftFields
@@ -281,6 +312,8 @@ export async function takeTaskDraft(
     userId: confirmed.userId,
     farmId: confirmed.farmId,
     expiresAt: confirmed.expiresAt.getTime(),
+    sourceLocale: confirmed.sourceLocale,
+    translationStatus: confirmed.translationStatus,
   }
 }
 

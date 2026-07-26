@@ -17,7 +17,7 @@ import {
   renderTemplate,
   sendWhatsAppText,
 } from '../lib/whatsapp-meta.js'
-import { notifyOwner } from '../lib/farm-notify.js'
+import { notifyOwner, relayFreeFormEnglish } from '../lib/farm-notify.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
@@ -273,6 +273,13 @@ whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
 const notifyOwnerSchema = z.object({
   message: z.string().min(3).max(1000),
   reason: z.string().max(80).optional(),
+  /**
+   * Opt in to relaying `message` into each owner's preferred_locale. Only set it
+   * when the body really is English - the relay treats its input as canonical
+   * English, so a French body declared English gets run through the translator
+   * on its way to a French reader.
+   */
+  localizeFromEnglish: z.boolean().default(false),
 })
 
 whatsappRoutes.use('/notify-owner', authMiddleware)
@@ -289,7 +296,19 @@ whatsappRoutes.post('/notify-owner', zValidator('json', notifyOwnerSchema), asyn
   }
 
   const body = c.req.valid('json')
-  const result = await notifyOwner(user.farmId, body.message, {
+
+  // Verbatim by default. Unlike the proactive alerts, this body is free text a
+  // colleague typed for a person they know: they already chose the language,
+  // nothing here declares which language that was, and a message whose exact
+  // wording is the point ("tell him ₦40k, not ₦45k") is worse off machine-
+  // translated. Senders who know they wrote English can opt in and get the
+  // relay's per-locale rendering, which falls back to the English source when a
+  // translation fails.
+  const message = body.localizeFromEnglish
+    ? relayFreeFormEnglish(body.message, user.farmId)
+    : body.message
+
+  const result = await notifyOwner(user.farmId, message, {
     actorUserId: user.id,
     reason: body.reason ?? 'manual',
   })

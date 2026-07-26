@@ -18,6 +18,7 @@ import { PROMPT_INJECTION_RULES } from './ai-advisor.js'
 import { completeChat, isLlmConfigured } from './llm.js'
 import { checkLlmBudget, consumeLlmBudget } from './llm-budget.js'
 import { formatCatalog, type CatalogItem } from './customer-cart.js'
+import { foldForMatch } from './crop-normalize.js'
 import { farmKnowledgeText } from './farm-knowledge.js'
 import {
   CUSTOMER_FAQ_MATCHERS,
@@ -205,13 +206,20 @@ function deterministicAnswer(params: {
   catalog: CatalogItem[]
   question: string
 }): { reply: string; answeredVia: AnsweredVia } {
-  const q = params.question.toLowerCase()
   const { catalog, farmName, farmLocation } = params
   const locale = detectReplyLocale(params.question)
 
+  // Folded on both sides so a buyer asking about "noix de coco?" reaches
+  // "Noix de Coco": accents, case and punctuation stop mattering. This stays a
+  // substring search, not the exact-name resolution `entity-name-match` does —
+  // a question is prose that happens to contain a product name.
+  const q = foldForMatch(params.question)
   const matched = catalog.filter((p) => {
-    const name = p.name.toLowerCase()
-    return q.includes(name) || name.split(/\s+/).some((w) => w.length > 3 && q.includes(w))
+    const name = foldForMatch(p.name)
+    // An empty fold (a name that is only punctuation or a script the fold drops)
+    // would otherwise match every question, since every string contains ''.
+    if (!name) return false
+    return q.includes(name) || name.split(' ').some((w) => w.length > 3 && q.includes(w))
   })
   if (matched.length) {
     const lines = matched.map(

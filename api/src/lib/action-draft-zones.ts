@@ -5,12 +5,17 @@ import type { SessionUser } from './session.js'
 import { canAssignTasks } from './rbac.js'
 import { logAudit } from './audit.js'
 import { storeActionDraft } from './task-drafts.js'
+import { findByName } from './entity-name-match.js'
 
 export {
   parseCreatePlotIntent,
   parseCreateZoneIntent,
 } from './action-draft-zones-parse.js'
 
+/**
+ * The zone a worker's words name. Accents, hyphens, case and spacing are folded
+ * at comparison time only — the row keeps the farm's own spelling.
+ */
 export async function resolveZoneByName(
   farmId: string,
   name: string,
@@ -19,7 +24,7 @@ export async function resolveZoneByName(
     .select({ id: zones.id, name: zones.name })
     .from(zones)
     .where(eq(zones.farmId, farmId))
-  return farmZones.find((z) => z.name.toLowerCase() === name.toLowerCase()) ?? null
+  return findByName(farmZones, name)
 }
 
 export async function executeConfirmedCreateZone(

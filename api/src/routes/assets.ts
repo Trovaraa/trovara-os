@@ -9,8 +9,39 @@ import { canAssignTasks } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { processEvidenceValue, validateEvidenceRef } from '../lib/evidence-store.js'
+import {
+  authorLocaleForUserId,
+  authorLocaleHint,
+  toCanonicalEnglish,
+  toViewerLocaleMany,
+} from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import { contentLocaleValues, mergeContentLocale, type ContentLocaleMeta } from '../lib/task-drafts.js'
 
 const ASSET_CATEGORIES = ['ppe', 'tool', 'vehicle', 'irrigation', 'other'] as const
+
+/**
+ * Prose on an asset: what the supervisor typed about it and the free-form "where
+ * it lives" line.
+ *
+ * Nothing else on the row is prose. `name` and `assetTag` are matched lowercased
+ * by `resolveAssetByQuery`, so translating either would make the asset
+ * unreachable from chat; `category` and `operationalStatus` are i18n message
+ * keys in the app; `manufacturer`, `model` and `serialNumber` are the
+ * manufacturer's own strings; `unit`, `currency`, the costs, the dates and the
+ * staff name are units, money, timestamps and a proper noun.
+ */
+const ASSET_TEXT_FIELDS = ['notes', 'locationText'] as const
+
+/**
+ * The only prose on a daily log. `condition` is rendered through the i18n key
+ * `assets.cond.<condition>`, so translating it breaks the label lookup, and the
+ * counts and verification enum carry no prose.
+ */
+const ASSET_LOG_TEXT_FIELDS = ['note'] as const
+
+/** The only prose on an asset event; `eventType` is an enum and `costMinor` money. */
+const ASSET_EVENT_TEXT_FIELDS = ['notes'] as const
 
 const createAssetSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -65,6 +96,118 @@ function sameDay(a: Date, b: Date): boolean {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   )
+}
+
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return row?.preferredLocale ?? null
+}
+
+type CanonicalProse<F extends string> = {
+  text: Partial<Record<F, string>>
+  locale: ContentLocaleMeta
+}
+
+/**
+ * Normalize a write's free text to English for storage.
+ *
+ * Each field is its own column, so they translate as concurrent calls rather
+ * than one merged prompt: an asset with notes and a location costs one round
+ * trip of latency and neither field can bleed into the other's column. One
+ * `source_locale`/`translation_status` pair describes the whole row, so a single
+ * field the LLM could not turn into English leaves the row 'pending'.
+ *
+ * A failure stores the author's own words and keeps the locale hint as it was —
+ * widening it to 'en' would label the row English, and the retry job filters
+ * those out, making the wrong language permanent.
+ */
+async function toCanonicalProse<F extends string>(
+  prose: Partial<Record<F, string | null | undefined>>,
+  farmId: string,
+  sourceLocale: string | null,
+): Promise<CanonicalProse<F>> {
+  const entries = (Object.entries(prose) as [F, string | null | undefined][]).filter(
+    (entry): entry is [F, string] => typeof entry[1] === 'string' && entry[1].trim() !== '',
+  )
+  if (entries.length === 0) {
+    return { text: {}, locale: { sourceLocale: null, translationStatus: 'done' } }
+  }
+
+  const results = await Promise.all(
+    entries.map(async ([, text]) => {
+      try {
+        return await toCanonicalEnglish({ text, farmId, sourceLocale })
+      } catch {
+        // A translation failure must never fail the write it serves.
+        return { english: text, sourceLocale, status: 'pending' as const }
+      }
+    }),
+  )
+
+  const text: Partial<Record<F, string>> = {}
+  let pending = false
+  let resolved: string | null = null
+  entries.forEach(([field], index) => {
+    const result = results[index]
+    text[field] = result.english
+    if (result.status === 'pending') pending = true
+    // One pair for the whole row: a non-English locale is the informative one.
+    if (!resolved || resolved === 'en') resolved = result.sourceLocale
+  })
+
+  return { text, locale: { sourceLocale: resolved, translationStatus: pending ? 'pending' : 'done' } }
+}
+
+/** One prose value in a response payload, addressed by the object holding it. */
+type ProseSlot = { row: Record<string, unknown>; field: string }
+
+/** The prose actually present on these rows, as slots a localizer can fill. */
+function proseSlots(
+  rows: readonly (object | null | undefined)[],
+  fields: readonly string[],
+): ProseSlot[] {
+  const slots: ProseSlot[] = []
+  for (const row of rows) {
+    if (!row) continue
+    const record = row as Record<string, unknown>
+    for (const field of fields) {
+      const value = record[field]
+      if (typeof value === 'string' && value !== '') slots.push({ row: record, field })
+    }
+  }
+  return slots
+}
+
+/**
+ * Render prose in the viewer's language with ONE batched translation call per
+ * response. Callers hand over every slot in the payload at once — the register
+ * carries each asset's own notes next to its latest log's note — so a nested
+ * response still costs a single round trip: the service deduplicates and reads
+ * its cache in one query. An English viewer short-circuits before any of it.
+ *
+ * Slots are written in place, so callers must pass objects built for the
+ * response rather than rows still shared with anything else.
+ */
+async function localizeProse(
+  slots: ProseSlot[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<void> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return
+  if (slots.length === 0) return
+
+  const translated = await toViewerLocaleMany({
+    texts: slots.map((slot) => slot.row[slot.field] as string),
+    targetLocale,
+    farmId,
+  })
+  slots.forEach((slot, index) => {
+    slot.row[slot.field] = translated[index]
+  })
 }
 
 export const assetRoutes = new Hono<{ Variables: AppVariables }>()
@@ -145,12 +288,27 @@ assetRoutes.get('/', async (c) => {
     const loggedToday = activity ? sameDay(new Date(activity.logDate), now) : false
     return {
       ...asset,
-      latestLog: latestVerified,
+      // Copied because the localizer writes into the response payload and a log
+      // row can be reachable as more than one asset's summary.
+      latestLog: latestVerified ? { ...latestVerified } : null,
       loggedToday,
       verifiedToday: loggedToday && activity?.verificationStatus === 'verified',
       todayVerificationStatus: loggedToday ? (activity?.verificationStatus ?? null) : null,
     }
   })
+
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  await localizeProse(
+    [
+      ...proseSlots(enriched, ASSET_TEXT_FIELDS),
+      ...proseSlots(
+        enriched.map((asset) => asset.latestLog),
+        ASSET_LOG_TEXT_FIELDS,
+      ),
+    ],
+    user.farmId,
+    viewerLocale,
+  )
 
   return c.json({ assets: enriched })
 })
@@ -170,6 +328,12 @@ assetRoutes.post('/', zValidator('json', createAssetSchema), async (c) => {
     if (!member) return c.json({ error: 'Invalid assignee' }, 400)
   }
 
+  const canonical = await toCanonicalProse(
+    { notes: body.notes, locationText: body.locationText },
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [asset] = await db
     .insert(assets)
     .values({
@@ -188,12 +352,13 @@ assetRoutes.post('/', zValidator('json', createAssetSchema), async (c) => {
       currency: body.currency ?? 'NGN',
       zoneId: body.zoneId ?? null,
       plotId: body.plotId ?? null,
-      locationText: body.locationText ?? null,
+      locationText: canonical.text.locationText ?? body.locationText ?? null,
       operationalStatus: body.operationalStatus,
       maintenanceIntervalDays: body.maintenanceIntervalDays ?? null,
       nextServiceAt: body.nextServiceAt ? new Date(body.nextServiceAt) : null,
       assignedToId: body.assignedToId ?? null,
-      notes: body.notes ?? null,
+      notes: canonical.text.notes ?? body.notes ?? null,
+      ...contentLocaleValues(canonical.locale),
       active: body.active,
       createdById: user.id,
     })
@@ -208,7 +373,17 @@ assetRoutes.post('/', zValidator('json', createAssetSchema), async (c) => {
     metadata: { name: asset.name },
   })
 
-  return c.json({ asset }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json(
+    {
+      asset: {
+        ...asset,
+        notes: body.notes ?? asset.notes,
+        locationText: body.locationText ?? asset.locationText,
+      },
+    },
+    201,
+  )
 })
 
 assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
@@ -234,6 +409,14 @@ assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
     if (!member) return c.json({ error: 'Invalid assignee' }, 400)
   }
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const canonical = await toCanonicalProse(
+    { notes: body.notes, locationText: body.locationText },
+    user.farmId,
+    authorLocale,
+  )
+
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
   if (body.name !== undefined) updates.name = body.name
   if (body.category !== undefined) updates.category = body.category
@@ -253,7 +436,9 @@ assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
   if (body.currency !== undefined) updates.currency = body.currency
   if (body.zoneId !== undefined) updates.zoneId = body.zoneId
   if (body.plotId !== undefined) updates.plotId = body.plotId
-  if (body.locationText !== undefined) updates.locationText = body.locationText
+  if (body.locationText !== undefined) {
+    updates.locationText = canonical.text.locationText ?? body.locationText
+  }
   if (body.operationalStatus !== undefined) updates.operationalStatus = body.operationalStatus
   if (body.maintenanceIntervalDays !== undefined) {
     updates.maintenanceIntervalDays = body.maintenanceIntervalDays
@@ -262,8 +447,14 @@ assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
     updates.nextServiceAt = body.nextServiceAt ? new Date(body.nextServiceAt) : null
   }
   if (body.assignedToId !== undefined) updates.assignedToId = body.assignedToId
-  if (body.notes !== undefined) updates.notes = body.notes
+  if (body.notes !== undefined) updates.notes = canonical.text.notes ?? body.notes
   if (body.active !== undefined) updates.active = body.active
+
+  // A patch that only moves a count or a date must not relabel the row, and a
+  // row the retry job still owes work on is never downgraded to 'done'.
+  if (Object.keys(canonical.text).length > 0) {
+    Object.assign(updates, mergeContentLocale(existing, canonical.locale))
+  }
 
   const [asset] = await db
     .update(assets)
@@ -280,7 +471,20 @@ assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
     metadata: { name: asset.name },
   })
 
-  return c.json({ asset })
+  // Text this author just submitted is echoed in their own words; only text they
+  // did not write is rendered from the stored English.
+  const echo: Record<string, string | null> = {}
+  if (body.notes !== undefined) echo.notes = body.notes
+  if (body.locationText !== undefined) echo.locationText = body.locationText
+
+  const payload = { ...asset }
+  await localizeProse(
+    proseSlots([payload], ASSET_TEXT_FIELDS.filter((field) => !(field in echo))),
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({ asset: { ...payload, ...echo } })
 })
 
 assetRoutes.get('/:id/logs', async (c) => {
@@ -315,7 +519,15 @@ assetRoutes.get('/:id/logs', async (c) => {
     .where(and(eq(assetLogs.assetId, assetId), eq(assetLogs.farmId, user.farmId)))
     .orderBy(desc(assetLogs.createdAt))
 
-  return c.json({ logs: rows })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = rows.map((row) => ({ ...row }))
+  await localizeProse(
+    proseSlots(localized, ASSET_LOG_TEXT_FIELDS),
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({ logs: localized })
 })
 
 // Any staff (incl. field workers) can record a daily log for an asset.
@@ -356,6 +568,12 @@ assetRoutes.post('/:id/logs', zValidator('json', createLogSchema), async (c) => 
   // Supervisor/owner logs are trusted (verified); worker logs need verification.
   const trusted = canAssignTasks(user)
 
+  const canonical = await toCanonicalProse(
+    { note: body.note },
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [log] = await db
     .insert(assetLogs)
     .values({
@@ -364,7 +582,8 @@ assetRoutes.post('/:id/logs', zValidator('json', createLogSchema), async (c) => 
       countAvailable: body.countAvailable,
       countDamaged: body.countDamaged,
       condition: body.condition,
-      note: body.note ?? null,
+      note: canonical.text.note ?? body.note ?? null,
+      ...contentLocaleValues(canonical.locale),
       photoUrl,
       recordedById: user.id,
       verificationStatus: trusted ? 'verified' : 'reported',
@@ -387,7 +606,8 @@ assetRoutes.post('/:id/logs', zValidator('json', createLogSchema), async (c) => 
     metadata: { assetName: asset.name, kind: 'asset_log' },
   })
 
-  return c.json({ log }, 201)
+  // The worker reads back their own words; the row holds the English.
+  return c.json({ log: { ...log, note: body.note ?? log.note } }, 201)
 })
 
 // Supervisor/owner verify (or reject) a reported daily log.
@@ -405,13 +625,23 @@ assetRoutes.post('/logs/:logId/verify', zValidator('json', verifyLogSchema), asy
     .limit(1)
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const canonical = await toCanonicalProse({ note: body.note }, user.farmId, authorLocale)
+
   const [log] = await db
     .update(assetLogs)
     .set({
       verificationStatus: body.status,
       verifiedById: user.id,
       verifiedAt: new Date(),
-      note: body.note ?? existing.note,
+      note: canonical.text.note ?? body.note ?? existing.note,
+      // The verifier's note replaces the worker's, so a note that is not English
+      // yet escalates the row to 'pending'; a row the retry job still owes work
+      // on is left exactly as it is, and a verify with no note relabels nothing.
+      ...(Object.keys(canonical.text).length > 0
+        ? mergeContentLocale(existing, canonical.locale)
+        : {}),
     })
     .where(eq(assetLogs.id, logId))
     .returning()
@@ -425,7 +655,17 @@ assetRoutes.post('/logs/:logId/verify', zValidator('json', verifyLogSchema), asy
     metadata: { status: body.status },
   })
 
-  return c.json({ log })
+  // A note this verifier just wrote comes back in their own words; the worker's
+  // note, which they did not write, is rendered from the stored English.
+  if (body.note) return c.json({ log: { ...log, note: body.note } })
+
+  const payload = { ...log }
+  await localizeProse(
+    proseSlots([payload], ASSET_LOG_TEXT_FIELDS),
+    user.farmId,
+    viewerLocale,
+  )
+  return c.json({ log: payload })
 })
 
 assetRoutes.get('/:id/events', async (c) => {
@@ -444,7 +684,15 @@ assetRoutes.get('/:id/events', async (c) => {
     .where(and(eq(assetEvents.assetId, assetId), eq(assetEvents.farmId, user.farmId)))
     .orderBy(desc(assetEvents.eventDate))
 
-  return c.json({ events })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = events.map((event) => ({ ...event }))
+  await localizeProse(
+    proseSlots(localized, ASSET_EVENT_TEXT_FIELDS),
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({ events: localized })
 })
 
 assetRoutes.post('/:id/events', zValidator('json', assetEventSchema), async (c) => {
@@ -470,6 +718,12 @@ assetRoutes.post('/:id/events', zValidator('json', assetEventSchema), async (c) 
 
   const eventDate = body.eventDate ? new Date(body.eventDate) : new Date()
 
+  const canonical = await toCanonicalProse(
+    { notes: body.notes },
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [event] = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(assetEvents)
@@ -479,7 +733,8 @@ assetRoutes.post('/:id/events', zValidator('json', assetEventSchema), async (c) 
         eventType: body.eventType,
         eventDate,
         costMinor: body.costMinor ?? null,
-        notes: body.notes ?? null,
+        notes: canonical.text.notes ?? body.notes ?? null,
+        ...contentLocaleValues(canonical.locale),
         evidenceUrl,
         recordedById: user.id,
       })
@@ -509,5 +764,6 @@ assetRoutes.post('/:id/events', zValidator('json', assetEventSchema), async (c) 
     metadata: { eventType: body.eventType },
   })
 
-  return c.json({ event }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json({ event: { ...event, notes: body.notes ?? event.notes } }, 201)
 })

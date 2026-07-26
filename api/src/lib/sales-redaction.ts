@@ -7,14 +7,11 @@ export function shouldRedactSalesPii(user: SessionUser): boolean {
   return user.role === 'field_worker'
 }
 
-export function redactCustomerName(name: string | null | undefined): string {
-  return REDACTED
-}
-
 export function redactOrderForRole<T extends {
   customerName?: string | null
   customerPhone?: string | null
   notes?: string | null
+  customerFeedback?: string | null
   customerContactId?: string | null
 }>(
   order: T,
@@ -26,6 +23,10 @@ export function redactOrderForRole<T extends {
     customerName: REDACTED,
     customerPhone: null,
     notes: null,
+    // The buyer's own review, in their own words. It routinely names them or
+    // repeats the delivery address, so stripping the name and phone beside it
+    // while leaving this readable would not actually withhold anything.
+    customerFeedback: null,
     customerContactId: null,
   }
 }

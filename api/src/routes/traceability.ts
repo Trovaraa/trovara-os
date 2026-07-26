@@ -30,13 +30,145 @@ import {
   harvestPeriodAt,
   normalizeLotUnit,
 } from '../lib/lot-codes.js'
-import { enrichHarvestLot, verifyHarvestLot } from '../lib/harvest-lots.js'
+import { authorLocaleForUser, enrichHarvestLot, verifyHarvestLot } from '../lib/harvest-lots.js'
 import {
   escapeHtml,
   renderTraceabilityCertificateHtml,
 } from '../lib/traceability-certificate.js'
+import { toCanonicalEnglish, toViewerLocaleMany } from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import { contentLocaleValues, type ContentLocaleMeta } from '../lib/task-drafts.js'
 
 const LOT_UNITS = ['kg', 'crates'] as const
+
+/**
+ * The only prose on a lot. `lotCode`, `publicToken`, `productName`, `unit`, the
+ * quantities and the verification enum are identifiers, proper nouns and enum
+ * values printed on labels and shown verbatim on the public traceability page,
+ * so they never reach a translator. Plot, zone and staff names are proper nouns
+ * for the same reason.
+ */
+const LOT_TEXT_FIELDS = ['publicNotes', 'internalNotes'] as const
+type LotTextField = (typeof LOT_TEXT_FIELDS)[number]
+
+type LotRow = typeof harvestLots.$inferSelect
+
+type CanonicalLotNotes = {
+  text: Partial<Record<LotTextField, string>>
+  locale: ContentLocaleMeta
+}
+
+/**
+ * Normalize lot notes to English for storage.
+ *
+ * PATCH and verify normalize inside `enrichHarvestLot` / `verifyHarvestLot`; a
+ * create inserts straight into `harvest_lots`, so it normalizes here. Each note
+ * is its own column, so they translate concurrently and neither can bleed into
+ * the other's. A failure yields the author's own words with status 'pending' so
+ * the retry job repairs the row: a row holding French while claiming 'done' is
+ * never swept again, and `public_notes` is served on an unauthenticated URL.
+ */
+async function canonicalLotNotes(
+  notes: Partial<Record<LotTextField, string | null | undefined>>,
+  farmId: string,
+  userId: string,
+): Promise<CanonicalLotNotes> {
+  const entries = LOT_TEXT_FIELDS.flatMap((field) => {
+    const value = notes[field]
+    return typeof value === 'string' && value.trim() !== ''
+      ? ([[field, value]] as [LotTextField, string][])
+      : []
+  })
+  if (entries.length === 0) {
+    return { text: {}, locale: { sourceLocale: null, translationStatus: 'done' } }
+  }
+
+  const hint = await authorLocaleForUser(userId)
+  const results = await Promise.all(
+    entries.map(async ([, value]) => {
+      try {
+        return await toCanonicalEnglish({ text: value, farmId, sourceLocale: hint })
+      } catch {
+        // A translation failure must never fail the write it serves.
+        return { english: value, sourceLocale: hint, status: 'pending' as const }
+      }
+    }),
+  )
+
+  const text: Partial<Record<LotTextField, string>> = {}
+  let pending = false
+  let sourceLocale: string | null = null
+  entries.forEach(([field], index) => {
+    const result = results[index]
+    text[field] = result.english
+    if (result.status === 'pending') pending = true
+    // One column pair describes the whole row, so a non-English locale is the
+    // informative one for the retry job.
+    if (!sourceLocale || sourceLocale === 'en') sourceLocale = result.sourceLocale
+  })
+
+  return { text, locale: { sourceLocale, translationStatus: pending ? 'pending' : 'done' } }
+}
+
+/**
+ * Render lot prose in the viewer's language with ONE batched translation call
+ * per response: every string across every row is collected first, translated
+ * together (the service deduplicates and reads its cache in a single query),
+ * then mapped back by position. An English viewer short-circuits before any of
+ * this work.
+ */
+async function localizeRows<T extends object>(
+  rows: T[],
+  fields: readonly (keyof T & string)[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<T[]> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return rows
+  if (rows.length === 0 || fields.length === 0) return rows
+
+  const texts: string[] = []
+  for (const row of rows) {
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') texts.push(value)
+    }
+  }
+  if (texts.length === 0) return rows
+
+  const translated = await toViewerLocaleMany({ texts, targetLocale, farmId })
+
+  let cursor = 0
+  return rows.map((row) => {
+    const out = { ...row }
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') {
+        ;(out as Record<string, unknown>)[field] = translated[cursor++]
+      }
+    }
+    return out
+  })
+}
+
+/**
+ * One lot rendered for the staff member reading it. Text this author just wrote
+ * is echoed in their own words with no round trip; the rest of the row is
+ * canonical English rendered for the viewer.
+ */
+async function lotForViewer<T extends LotRow>(
+  lot: T,
+  farmId: string,
+  targetLocale: string | null,
+  echo: Partial<Record<LotTextField, string | null>> = {},
+): Promise<T> {
+  const [localized] = await localizeRows(
+    [lot],
+    LOT_TEXT_FIELDS.filter((field) => !(field in echo)),
+    farmId,
+    targetLocale,
+  )
+  return { ...localized, ...echo }
+}
 
 const createLotSchema = z.object({
   productName: z.string().min(1).max(200),
@@ -127,8 +259,13 @@ traceabilityRoutes.get('/', async (c) => {
     .where(eq(harvestLots.farmId, user.farmId))
     .orderBy(desc(harvestLots.harvestedAt))
 
+  // `authorLocaleForUser` is null for the default 'en' preference, which is exactly
+  // what a read wants: the localizer short-circuits on it.
+  const viewerLocale = await authorLocaleForUser(user.id)
+  const localized = await localizeRows(rows, LOT_TEXT_FIELDS, user.farmId, viewerLocale)
+
   return c.json({
-    lots: rows.map((row) => ({
+    lots: localized.map((row) => ({
       ...row,
       orderReference: row.orderId ? orderReference(row.orderId) : null,
     })),
@@ -184,6 +321,12 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
   const trusted = canAssignTasks(user)
   const unit = normalizeLotUnit(body.unit)
 
+  const canonical = await canonicalLotNotes(
+    { publicNotes: body.publicNotes, internalNotes: body.internalNotes },
+    user.farmId,
+    user.id,
+  )
+
   const [lot] = await db
     .insert(harvestLots)
     .values({
@@ -194,8 +337,9 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
       productName: body.productName,
       quantityKg: body.quantityKg,
       unit,
-      publicNotes: body.publicNotes ?? null,
-      internalNotes: body.internalNotes ?? null,
+      publicNotes: canonical.text.publicNotes ?? body.publicNotes ?? null,
+      internalNotes: canonical.text.internalNotes ?? body.internalNotes ?? null,
+      ...contentLocaleValues(canonical.locale),
       photoUrl: body.photoUrl ?? null,
       harvestedAt,
       reportedById: user.id,
@@ -224,7 +368,17 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
     metadata: { lotCode: lot.lotCode, plotId: lot.plotId ?? undefined },
   })
 
-  return c.json({ lot }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json(
+    {
+      lot: {
+        ...lot,
+        publicNotes: body.publicNotes ?? lot.publicNotes,
+        internalNotes: body.internalNotes ?? lot.internalNotes,
+      },
+    },
+    201,
+  )
 })
 
 traceabilityRoutes.patch('/:id', zValidator('json', updateLotSchema), async (c) => {
@@ -250,6 +404,15 @@ traceabilityRoutes.patch('/:id', zValidator('json', updateLotSchema), async (c) 
 
   if ('error' in result) return c.json({ error: result.error }, result.status)
 
+  // Notes this author just submitted are echoed back in their own words; only
+  // text they did not write is rendered from the stored English.
+  const echo: Partial<Record<LotTextField, string | null>> = {}
+  if (body.publicNotes !== undefined) echo.publicNotes = body.publicNotes
+  if (body.internalNotes !== undefined && canAssignTasks(user)) {
+    echo.internalNotes = body.internalNotes
+  }
+  const viewerLocale = await authorLocaleForUser(user.id)
+
   if (body.cropCycleId !== undefined && canAssignTasks(user)) {
     if (body.cropCycleId) {
       const [cycle] = await db
@@ -264,10 +427,10 @@ traceabilityRoutes.patch('/:id', zValidator('json', updateLotSchema), async (c) 
       .set({ cropCycleId: body.cropCycleId })
       .where(eq(harvestLots.id, lotId))
       .returning()
-    return c.json({ lot })
+    return c.json({ lot: await lotForViewer(lot, user.farmId, viewerLocale, echo) })
   }
 
-  return c.json({ lot: result.lot })
+  return c.json({ lot: await lotForViewer(result.lot, user.farmId, viewerLocale, echo) })
 })
 
 // Supervisor/owner verify (or reject) a reported harvest. Only verified lots
@@ -290,7 +453,12 @@ traceabilityRoutes.post('/:id/verify', zValidator('json', verifyLotSchema), asyn
     return c.json({ error: result.error }, result.status)
   }
 
-  return c.json({ lot: result.lot })
+  // The verification note lands in `internal_notes`; the verifier reads their own
+  // note back, and any `public_notes` written by someone else is localized.
+  const viewerLocale = await authorLocaleForUser(user.id)
+  const echo = body.note ? { internalNotes: body.note } : {}
+
+  return c.json({ lot: await lotForViewer(result.lot, user.farmId, viewerLocale, echo) })
 })
 
 traceabilityRoutes.get('/:id/qr', async (c) => {
@@ -370,6 +538,9 @@ traceabilityRoutes.get('/:id/timeline', async (c) => {
   return c.json({ events: rows })
 })
 
+// The certificate is the staff rendering of the same audit artifact the public
+// QR serves, so its `publicNotes` stay canonical English: two copies of one
+// certificate must not read differently depending on who printed it.
 traceabilityRoutes.get('/:id/certificate.html', async (c) => {
   const user = requireOwner(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)

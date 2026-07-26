@@ -24,6 +24,7 @@ describe('sales-redaction', () => {
         customerName: 'Ada Customer',
         customerPhone: '08012345678',
         notes: 'Call before delivery',
+        customerFeedback: 'Ada here — the crates came late to 14 Bode Thomas',
         customerContactId: 'contact-1',
       },
       user('field_worker'),
@@ -34,11 +35,23 @@ describe('sales-redaction', () => {
     expect(redacted.customerContactId).toBeNull()
   })
 
+  // The review is written by the buyer and regularly names them or repeats the
+  // delivery address, so it has to go with the name and phone rather than sit
+  // beside them in the clear.
+  it('redacts the customer review for field_worker', () => {
+    const redacted = redactOrderForRole(
+      { customerFeedback: 'Ada here — the crates came late to 14 Bode Thomas' },
+      user('field_worker'),
+    )
+    expect(redacted.customerFeedback).toBeNull()
+  })
+
   it('preserves full data for supervisor', () => {
     const order = {
       customerName: 'Ada Customer',
       customerPhone: '08012345678',
       notes: 'Gate B',
+      customerFeedback: 'Great plantain, will reorder',
       customerContactId: 'contact-1',
     }
     expect(redactOrderForRole(order, user('supervisor'))).toEqual(order)

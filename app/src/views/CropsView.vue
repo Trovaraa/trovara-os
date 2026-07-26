@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import { useAgronomySkipText, type AgronomySkipReason } from '@/composables/useAgronomySkipText'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
 const { t, te } = useI18n()
+const { agronomySkipText } = useAgronomySkipText()
 const auth = useAuthStore()
 const canManage = computed(() => auth.canApprove)
 
@@ -30,6 +32,40 @@ type PlotOption = {
   active?: boolean
 }
 
+type LifecycleStage = {
+  id: string
+  stage: string
+  durationDays: number
+  source: string
+  startsOn: string
+  endsOn: string
+}
+
+type LifecycleTask = {
+  id: string
+  stage: string
+  offsetDays: number
+  templateName: string
+  description: string | null
+  defaultDurationHours: number | null
+  source: string
+  dueDate: string | null
+}
+
+/**
+ * This cycle's own stage lengths and the work inside them, dated from the day it
+ * was planted. `expectedHarvestAt` is derived from these durations and is not
+ * the date the farmer set on the cycle; the two can legitimately disagree.
+ */
+type Lifecycle = {
+  generated: boolean
+  agronomySkipReason: AgronomySkipReason | null
+  expectedHarvestAt: string | null
+  totalDays: number | null
+  stages: LifecycleStage[]
+  tasks: LifecycleTask[]
+}
+
 const STAGE_ORDER = [
   'planted',
   'germination',
@@ -44,6 +80,11 @@ const crops = ref<CropCycle[]>([])
 const plots = ref<PlotOption[]>([])
 const loading = ref(true)
 const updating = ref<string | null>(null)
+
+const expanded = ref<Set<string>>(new Set())
+const lifecycles = ref<Record<string, Lifecycle>>({})
+const lifecycleLoading = ref<Record<string, boolean>>({})
+const lifecycleErrors = ref<Record<string, string>>({})
 
 const showAdd = ref(false)
 const newCropType = ref('')
@@ -127,6 +168,30 @@ async function createCycle() {
   } finally {
     creating.value = false
   }
+}
+
+async function toggleLifecycle(cycleId: string) {
+  if (expanded.value.has(cycleId)) {
+    expanded.value.delete(cycleId)
+    return
+  }
+  expanded.value.add(cycleId)
+
+  if (lifecycles.value[cycleId]) return
+
+  lifecycleLoading.value[cycleId] = true
+  lifecycleErrors.value[cycleId] = ''
+  try {
+    lifecycles.value[cycleId] = await api<Lifecycle>(`/api/crops/${cycleId}/lifecycle`)
+  } catch {
+    lifecycleErrors.value[cycleId] = t('crops.lifecycleFailed')
+  } finally {
+    lifecycleLoading.value[cycleId] = false
+  }
+}
+
+function isExpanded(cycleId: string): boolean {
+  return expanded.value.has(cycleId)
 }
 
 async function advanceStage(id: string, currentStage: string) {
@@ -285,14 +350,80 @@ const stageColor: Record<string, string> = {
           </span>
         </div>
 
-        <div v-if="canManage && nextStage(cycle.stage)" class="mt-4">
+        <div class="mt-4 flex flex-wrap items-center gap-2">
           <button
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+            @click="toggleLifecycle(cycle.id)"
+          >
+            {{ isExpanded(cycle.id) ? t('crops.hideLifecycle') : t('crops.lifecycle') }}
+          </button>
+          <button
+            v-if="canManage && nextStage(cycle.stage)"
             class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
             :disabled="updating === cycle.id"
             @click="advanceStage(cycle.id, cycle.stage)"
           >
             {{ updating === cycle.id ? t('crops.updating') : t('crops.advanceTo', { stage: formatStage(nextStage(cycle.stage)!) }) }}
           </button>
+        </div>
+
+        <div v-if="isExpanded(cycle.id)" class="mt-4 pt-4 border-t border-slate-800">
+          <div v-if="lifecycleLoading[cycle.id]" class="text-sm text-slate-400">
+            {{ t('crops.loadingLifecycle') }}
+          </div>
+          <p v-else-if="lifecycleErrors[cycle.id]" class="text-xs text-red-400">
+            {{ lifecycleErrors[cycle.id] }}
+          </p>
+          <template v-else-if="lifecycles[cycle.id]">
+            <p v-if="!lifecycles[cycle.id]!.generated" class="text-xs text-slate-500">
+              {{ t('crops.noLifecycle') }}
+              {{ agronomySkipText(lifecycles[cycle.id]!.agronomySkipReason) }}
+            </p>
+            <div v-else class="grid gap-4 lg:grid-cols-2">
+              <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <h4 class="text-sm font-bold text-white mb-1">
+                  {{ t('crops.lifecycleStages') }}
+                  <span class="text-xs font-normal text-slate-500">
+                    {{ t('templates.daysTotal', { days: lifecycles[cycle.id]!.totalDays }) }}
+                  </span>
+                </h4>
+                <p v-if="lifecycles[cycle.id]!.expectedHarvestAt" class="text-xs text-slate-500">
+                  {{ t('crops.harvestOpens') }}
+                  {{ new Date(lifecycles[cycle.id]!.expectedHarvestAt!).toLocaleDateString() }}
+                </p>
+                <ul class="mt-3 space-y-2 max-h-48 overflow-auto">
+                  <li
+                    v-for="stage in lifecycles[cycle.id]!.stages"
+                    :key="stage.id"
+                    class="flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span class="text-slate-300 capitalize">{{ formatStage(stage.stage) }}</span>
+                    <span class="text-slate-500 shrink-0">
+                      {{ new Date(stage.startsOn).toLocaleDateString() }} · {{ stage.durationDays }}d
+                    </span>
+                  </li>
+                </ul>
+              </div>
+              <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <h4 class="text-sm font-bold text-white mb-1">{{ t('crops.lifecycleWork') }}</h4>
+                <p v-if="lifecycles[cycle.id]!.tasks.length === 0" class="mt-3 text-xs text-slate-500">
+                  {{ t('crops.noLifecycleWork') }}
+                </p>
+                <ul v-else class="mt-3 space-y-2 max-h-48 overflow-auto">
+                  <li v-for="task in lifecycles[cycle.id]!.tasks" :key="task.id" class="text-xs">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-slate-300">{{ task.templateName }}</span>
+                      <span v-if="task.dueDate" class="text-slate-500 shrink-0">
+                        {{ new Date(task.dueDate).toLocaleDateString() }}
+                      </span>
+                    </div>
+                    <p class="text-slate-500 capitalize">{{ formatStage(task.stage) }}</p>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>

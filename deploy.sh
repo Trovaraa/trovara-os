@@ -4,7 +4,7 @@
 #
 # What it does (safe + idempotent):
 #   1. rsync the source tree to the VM  (NEVER overwrites prod .env, node_modules, or builds)
-#   2. on the VM: Node 22 → npm ci → tests/audit/build → encrypted backup → migrate
+#   2. on the VM: Node 22 → npm ci → api+app tests/audit/build → encrypted backup → migrate
 #   3. rsync the built frontend into the nginx web root
 #   4. restart the systemd API service
 #   5. health-check the API
@@ -132,6 +132,11 @@ rsync -az --delete \
   --exclude 'logs/' \
   --exclude '*.log' \
   --exclude '.DS_Store' \
+  --exclude '.cursor/' \
+  --exclude 'docs/' \
+  --exclude '**/docs/' \
+  --exclude 'CONTEXT.md' \
+  --exclude 'context.md' \
   "$SCRIPT_DIR/" "$VM_HOST:$REMOTE_DIR/"
 
 # --- 2-4. Remote build + release --------------------------------------------
@@ -205,8 +210,8 @@ else
   echo "==> [vm] skipping npm ci"
 fi
 
-echo "==> [vm] API tests"
-NODE_ENV=test npm test -w api
+echo "==> [vm] API + app tests"
+NODE_ENV=test npm test
 
 echo "==> [vm] dependency audit (high+ blocks deploy)"
 npm audit --workspaces --audit-level=high

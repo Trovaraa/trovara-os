@@ -5,6 +5,8 @@ import type { SessionUser } from './session.js'
 import { recordFarmEvent } from './farm-events.js'
 import { verifyAndConsumeLinkCode, resolveActiveTelegramLink, extractButlerLinkCode } from './butler-link-codes.js'
 import { answerPhoto, answerText, recordChatMessage, transcribeVoice } from './butler-core.js'
+import { authorLocaleHint, toCanonicalEnglish, type CanonicalResult } from './content-locale.js'
+import { markLanguagePrompted, shouldPromptLanguage } from './language-prompt.js'
 import { voiceNotUnderstoodMessage } from './reply-locale.js'
 import { checkButlerChatRateLimit, checkButlerRateLimit } from './butler-rate-limit.js'
 import { deliverButlerReply, handleTelegramVoiceCommand } from './butler-reply.js'
@@ -12,37 +14,25 @@ import { looksUrgent, notifyWorkerAlertChannels } from './farm-notify.js'
 import { canAssignTasks, canManageOrders } from './rbac.js'
 import {
   languageKeyboard,
-  setUserPreferredLocale,
-  transitionOrderFromCallback,
   tryHandleStaffOrderCommand,
 } from './order-fulfillment.js'
 import {
   languagePromptMessage,
-  languageSavedMessage,
   orderCommandHelp,
   staffLocale,
 } from './order-messages.js'
-import {
-  tryHandleStaffOpsCommand,
-  transitionTaskFromCallback,
-} from './staff-ops.js'
+import { tryHandleStaffOpsCommand } from './staff-ops.js'
+import type { ContentLocaleMeta } from './task-drafts.js'
 import { processEvidenceValue } from './evidence-store.js'
-import type { PreferredLocale } from '../db/schema.js'
 import { formatHandoverProgressText, getHandoverProgress } from './handover-templates.js'
 import {
-  cancelActionDraft,
-  confirmActionDraft,
   markTelegramUpdateProcessed,
-  storeActionDraft,
   wasTelegramUpdateProcessed,
 } from './task-drafts.js'
 import {
-  buildLotQrPng,
   findPrintableLotByCode,
-  findPrintableLotById,
   listRecentPrintableLots,
   printQrPickerKeyboard,
-  type PrintableLot,
 } from './lot-print.js'
 import {
   answerTelegramCallbackQuery,
@@ -50,68 +40,58 @@ import {
   downloadTelegramFile,
   downloadTelegramFileBuffer,
   sendTelegramMessage,
-  sendTelegramPhoto,
   setTelegramCommandsForChat,
   startTelegramPollLoop,
   type TelegramUpdate,
 } from './telegram.js'
 import {
-  executeConfirmedCropCycle,
-  executeConfirmedLivestockBatch,
   parseCropCycleIntent,
   parseLivestockBatchIntent,
-  resolvePlotByName,
 } from './action-draft-farm.js'
 import {
-  applyConfirmedOpsDraft,
   parseAssetCountIntent,
   parseCensusIntent,
   parseCreateTaskIntent,
-  prepareAssetCountDraft,
-  prepareCensusDraft,
-  prepareCreateTaskDraft,
 } from './action-draft-ops.js'
 import {
-  applyConfirmedInventoryDraft,
   parseLowStockAckIntent,
   parseOpeningCountIntent,
   parseStockMoveIntent,
-  prepareLowStockAckDraft,
-  prepareOpeningCountDraft,
-  prepareStockMoveDraft,
 } from './action-draft-inventory.js'
 import {
-  applyConfirmedZoneDraft,
   parseCreatePlotIntent,
   parseCreateZoneIntent,
-  prepareCreatePlotDraft,
-  prepareCreateZoneDraft,
 } from './action-draft-zones.js'
+import { parseLivestockLogIntent } from './action-draft-livestock-log.js'
 import {
-  applyConfirmedLivestockLogDraft,
-  parseLivestockLogIntent,
-  prepareLivestockLogDraft,
-} from './action-draft-livestock-log.js'
-import {
-  applyConfirmedLotDraft,
-  applyLotEnrichText,
   attachPhotoToLotEnrichDraft,
   formatLotsToPackMessage,
   parseVerifyLotIntent,
-  prepareVerifyLotDraft,
-  startLotEnrichDraft,
 } from './lot-enrich.js'
+import {
+  offerAssetCountDraft,
+  offerCensusDraft,
+  offerCreatePlotDraft,
+  offerCreateZoneDraft,
+  offerCropCycleDraft,
+  offerLivestockBatchDraft,
+  offerLivestockLogDraft,
+  offerLotEnrichDraft,
+  offerLowStockAckDraft,
+  offerOpeningCountDraft,
+  offerStockMoveDraft,
+  offerTaskDraft,
+  offerVerifyLotDraft,
+  tryApplyLotEnrichText,
+  tryApplyPoultryTypeAnswer,
+} from './telegram-offer-drafts.js'
+import { deliverPrintQr, handleCallbackQuery } from './telegram-callbacks.js'
 import { roleCommandHelp } from './role-menus.js'
 
 const ENTITY = 'telegram_message'
 const LINK_ENTITY = 'telegram_link'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
 const BOT_KEY = 'staff'
-const CREATE_PLOT_HINT = 'Create plot: Name zone=ZoneName'
-
-function withCreatePlotHint(error: string): string {
-  return /not found/i.test(error) ? `${error}\n\n${CREATE_PLOT_HINT}` : error
-}
 
 type DbUser = typeof users.$inferSelect
 
@@ -137,6 +117,59 @@ function toActor(u: DbUser) {
     role: u.role,
     name: u.name,
     preferredLocale: u.preferredLocale,
+  }
+}
+
+/**
+ * Canonical English for anything this message persists. The preference goes
+ * through `authorLocaleHint` so the default `'en'` becomes "detect it from the
+ * text" rather than a claim that the text is already English. Never throws or
+ * blocks the worker's write.
+ */
+function canonicalForStorage(text: string, dbUser: DbUser): Promise<CanonicalResult> {
+  return toCanonicalEnglish({
+    text,
+    farmId: dbUser.farmId,
+    sourceLocale: authorLocaleHint(dbUser.preferredLocale),
+  })
+}
+
+const OPS_NOTE =
+  /^\/?(?:start|begin|taskstart|done|complete|finish|approve|reject)\s+\S+\s+(.+)$/i
+
+type OpsNotePrep = {
+  text: string
+  restoreReply: (reply: string) => string
+  /** Present when the command carried a free-text note — executors inherit it. */
+  noteLocale?: ContentLocaleMeta
+}
+
+/**
+ * Task transition commands write their trailing note straight onto the task
+ * (completion note / rejection reason), so the note is swapped for English
+ * before the command runs. Keywords and the task reference are left untouched,
+ * and the reply that echoes the note back to the worker keeps their own words.
+ *
+ * `noteLocale` is the outcome of that normalization so the task row records
+ * whether the English is final or still pending a retry.
+ */
+async function withEnglishOpsNote(text: string, dbUser: DbUser): Promise<OpsNotePrep> {
+  const identity: OpsNotePrep = { text, restoreReply: (reply: string) => reply }
+  const trimmed = text.trim()
+  const note = trimmed.match(OPS_NOTE)?.[1]
+  if (!note) return identity
+
+  const canonical = await canonicalForStorage(note, dbUser)
+  const noteLocale: ContentLocaleMeta = {
+    sourceLocale: canonical.sourceLocale,
+    translationStatus: canonical.status,
+  }
+  if (canonical.english === note) return { ...identity, noteLocale }
+
+  return {
+    text: `${trimmed.slice(0, trimmed.length - note.length)}${canonical.english}`,
+    restoreReply: (reply) => reply.split(canonical.english).join(note),
+    noteLocale,
   }
 }
 
@@ -188,6 +221,7 @@ async function completeTelegramLink(chatId: number, u: DbUser): Promise<void> {
   await sendTelegramMessage(chatId, '✅ Connected successfully.')
   await sendTelegramMessage(chatId, roleCommandHelp(staffLocale(u.preferredLocale), u.role))
   await promptLanguage(chatId, u.preferredLocale)
+  await markLanguagePrompted(u.id)
 }
 
 async function tryLinkWithCode(chatId: number, code: string): Promise<boolean> {
@@ -247,386 +281,6 @@ async function handleHandoverCommand(user: SessionUser, chatId: number) {
   )
 }
 
-async function offerCensusDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseCensusIntent>>,
-) {
-  const prepared = await prepareCensusDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, withCreatePlotHint(prepared.error))
-    return
-  }
-  await sendTelegramMessage(
-    chatId,
-    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
-    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
-  )
-}
-
-async function offerAssetCountDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseAssetCountIntent>>,
-) {
-  const prepared = await prepareAssetCountDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(
-    chatId,
-    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
-    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
-  )
-}
-
-async function offerCropCycleDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseCropCycleIntent>>,
-) {
-  if (!canAssignTasks(user)) {
-    await sendTelegramMessage(chatId, 'Only Admin or Supervisor can create crop cycles.')
-    return
-  }
-  const plot = await resolvePlotByName(user.farmId, intent.plotName)
-  if (!plot) {
-    await sendTelegramMessage(
-      chatId,
-      withCreatePlotHint(`Block "${intent.plotName}" not found. Use the exact plot name from Zones.`),
-    )
-    return
-  }
-
-  const stored = await storeActionDraft({
-    userId: user.id,
-    farmId: user.farmId,
-    actionType: 'create_crop_cycle',
-    payload: {
-      plotId: plot.id,
-      plotName: plot.name,
-      cropType: intent.cropType,
-      plantedAt: new Date(intent.plantedAt).toISOString(),
-      expectedHarvestAt: intent.expectedHarvestAt
-        ? new Date(intent.expectedHarvestAt).toISOString()
-        : null,
-      expectedYieldKg: intent.expectedYieldKg ?? null,
-    },
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      'Draft crop cycle — confirm to save:',
-      '',
-      `Plot: ${plot.name}`,
-      `Type: ${intent.cropType}`,
-      `Planted: ${intent.plantedAt}`,
-      intent.expectedHarvestAt ? `Harvest: ${intent.expectedHarvestAt}` : null,
-      intent.expectedYieldKg != null ? `Yield: ${intent.expectedYieldKg} kg` : null,
-      '',
-      'Tap Confirm or Cancel below.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    { replyMarkup: confirmCancelKeyboard(stored.id) },
-  )
-}
-
-async function offerLivestockBatchDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseLivestockBatchIntent>>,
-) {
-  if (!canAssignTasks(user)) {
-    await sendTelegramMessage(chatId, 'Only Admin or Supervisor can create livestock batches.')
-    return
-  }
-
-  let plotId: string | null = null
-  let plotName: string | null = null
-  if (intent.plotName) {
-    const plot = await resolvePlotByName(user.farmId, intent.plotName)
-    if (!plot) {
-      await sendTelegramMessage(
-        chatId,
-        withCreatePlotHint(
-          `Plot "${intent.plotName}" not found. Use the exact plot name from Zones, or omit plot=.`,
-        ),
-      )
-      return
-    }
-    plotId = plot.id
-    plotName = plot.name
-  }
-
-  const stored = await storeActionDraft({
-    userId: user.id,
-    farmId: user.farmId,
-    actionType: 'create_livestock_batch',
-    payload: {
-      name: intent.name,
-      species: intent.species,
-      headCount: intent.headCount,
-      plotId,
-      plotName,
-      acquiredAt: new Date(intent.acquiredAt).toISOString(),
-    },
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      'Draft livestock batch — confirm to save:',
-      '',
-      `Name: ${intent.name}`,
-      `Species: ${intent.species}`,
-      `Heads: ${intent.headCount}`,
-      plotName ? `Plot: ${plotName}` : 'Plot: (none)',
-      `Acquired: ${intent.acquiredAt}`,
-      '',
-      'Tap Confirm or Cancel below.',
-    ].join('\n'),
-    { replyMarkup: confirmCancelKeyboard(stored.id) },
-  )
-}
-
-async function offerTaskDraft(
-  user: SessionUser,
-  chatId: number,
-  title: string,
-  description?: string,
-) {
-  const prepared = await prepareCreateTaskDraft({
-    user,
-    title,
-    description,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(
-    chatId,
-    `${prepared.preview}\n\nTap Confirm or Cancel below.`,
-    { replyMarkup: confirmCancelKeyboard(prepared.draftId) },
-  )
-}
-
-async function handleCallbackQuery(
-  dbUser: DbUser,
-  callback: NonNullable<TelegramUpdate['callback_query']>,
-) {
-  const chatId = callback.message?.chat.id
-  if (!chatId || !callback.data) return
-
-  await answerTelegramCallbackQuery(callback.id)
-
-  const user = toSessionUser(dbUser)
-  const parts = callback.data.split(':')
-
-  if (parts[0] === 'lang' && parts[1]) {
-    const locale = parts[1] as PreferredLocale
-    if (!['en', 'yo', 'pcm', 'fr'].includes(locale)) {
-      await sendTelegramMessage(chatId, 'Unknown language.')
-      return
-    }
-    await setUserPreferredLocale(dbUser.id, locale)
-    await sendTelegramMessage(chatId, languageSavedMessage(locale))
-    await sendTelegramMessage(chatId, orderCommandHelp(locale))
-    return
-  }
-
-  if (parts[0] === 'task' && parts[1] && parts[2]) {
-    const action = parts[1]
-    const taskId = parts[2]
-    if (!['start', 'done', 'approve', 'reject'].includes(action)) {
-      await sendTelegramMessage(chatId, 'Unknown task action.')
-      return
-    }
-    const result = await transitionTaskFromCallback({
-      actor: toActor(dbUser),
-      taskId,
-      action: action as 'start' | 'done' | 'approve' | 'reject',
-    })
-    await sendTelegramMessage(chatId, result.reply ?? 'Done.')
-    return
-  }
-
-  if (parts[0] === 'label' && parts[1]) {
-    if (!canManageOrders(user)) {
-      await sendTelegramMessage(chatId, 'Only Admin, Supervisor, or Sales can print box QR labels.')
-      return
-    }
-    const lot = await findPrintableLotById(user.farmId, parts[1])
-    if (!lot) {
-      await sendTelegramMessage(chatId, 'Lot not found.')
-      return
-    }
-    try {
-      await deliverPrintQr(chatId, lot)
-    } catch (err) {
-      await sendTelegramMessage(
-        chatId,
-        err instanceof Error ? err.message : 'Could not send QR label.',
-      )
-    }
-    return
-  }
-
-  if (parts[0] === 'order' && parts[1] && parts[2]) {
-    const action = parts[1]
-    const orderId = parts[2]
-    if (!['confirm', 'cancel', 'dispatch', 'deliver'].includes(action)) {
-      await sendTelegramMessage(chatId, 'Unknown order action.')
-      return
-    }
-    if (!canManageOrders(user)) {
-      await sendTelegramMessage(chatId, 'You are not allowed to update orders.')
-      return
-    }
-    const result = await transitionOrderFromCallback({
-      actor: toActor(dbUser),
-      orderId,
-      action: action as 'confirm' | 'cancel' | 'dispatch' | 'deliver',
-    })
-    await sendTelegramMessage(chatId, result.reply)
-    return
-  }
-
-  const [action, draftId] = parts
-  if (!draftId || (action !== 'confirm' && action !== 'cancel')) {
-    await sendTelegramMessage(chatId, 'Unknown button action.')
-    return
-  }
-
-  if (action === 'cancel') {
-    const ok = await cancelActionDraft(draftId, user.id)
-    await sendTelegramMessage(chatId, ok ? 'Cancelled. Nothing was written.' : 'Draft already resolved or expired.')
-    return
-  }
-
-  const confirmed = await confirmActionDraft(draftId, user.id)
-  if (!confirmed) {
-    await sendTelegramMessage(chatId, 'Draft expired or already used. Please create it again.')
-    return
-  }
-
-  if (confirmed.farmId !== user.farmId) {
-    await sendTelegramMessage(chatId, 'Draft is not valid for this farm.')
-    return
-  }
-
-  try {
-    const opsResult = await applyConfirmedOpsDraft(
-      user,
-      confirmed.actionType,
-      confirmed.payload,
-      'telegram_confirm',
-    )
-    if (opsResult != null) {
-      await sendTelegramMessage(chatId, opsResult)
-      return
-    }
-
-    const invResult = await applyConfirmedInventoryDraft(
-      user,
-      confirmed.actionType,
-      confirmed.payload,
-      'telegram_confirm',
-    )
-    if (invResult != null) {
-      await sendTelegramMessage(chatId, invResult)
-      return
-    }
-
-    const zoneResult = await applyConfirmedZoneDraft(
-      user,
-      confirmed.actionType,
-      confirmed.payload,
-      'telegram_confirm',
-    )
-    if (zoneResult != null) {
-      await sendTelegramMessage(chatId, zoneResult)
-      return
-    }
-
-    const logResult = await applyConfirmedLivestockLogDraft(
-      user,
-      confirmed.actionType,
-      confirmed.payload,
-      'telegram_confirm',
-    )
-    if (logResult != null) {
-      await sendTelegramMessage(chatId, logResult)
-      return
-    }
-
-    const lotResult = await applyConfirmedLotDraft(
-      user,
-      confirmed.actionType,
-      confirmed.payload,
-    )
-    if (lotResult != null) {
-      await sendTelegramMessage(chatId, lotResult)
-      return
-    }
-
-    if (confirmed.actionType === 'create_crop_cycle') {
-      const result = await executeConfirmedCropCycle(user, confirmed.payload)
-      await sendTelegramMessage(chatId, result)
-      return
-    }
-
-    if (confirmed.actionType === 'create_livestock_batch') {
-      const result = await executeConfirmedLivestockBatch(user, confirmed.payload)
-      await sendTelegramMessage(chatId, result)
-      return
-    }
-
-    await sendTelegramMessage(
-      chatId,
-      `Confirmed ${confirmed.actionType}. Complete structured forms in the web app if needed.`,
-    )
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to apply draft'
-    await sendTelegramMessage(chatId, `Could not apply draft: ${message}`)
-  }
-}
-
-async function deliverPrintQr(chatId: number, lot: PrintableLot): Promise<void> {
-  const { png, publicUrl, labelUrl } = await buildLotQrPng(lot)
-  const caption = [
-    `📦 Box label · ${lot.lotCode}`,
-    `${lot.productName} · ${lot.quantityKg} ${lot.unit === 'crates' ? 'crates' : 'kg'}`,
-    'Print this QR on the delivery box.',
-    `Printable label: ${labelUrl}`,
-    `(Scan opens: ${publicUrl})`,
-  ].join('\n')
-
-  await sendTelegramPhoto(chatId, png, {
-    caption,
-    filename: `${lot.lotCode}-qr.png`,
-  })
-}
-
 async function handlePrintQrCommand(user: SessionUser, chatId: number, text: string) {
   if (!canManageOrders(user)) {
     await sendTelegramMessage(chatId, 'Only Admin, Supervisor, or Sales can print box QR labels.')
@@ -659,181 +313,48 @@ async function handleLotsCommand(user: SessionUser, chatId: number) {
   await sendTelegramMessage(chatId, await formatLotsToPackMessage(user.farmId))
 }
 
-async function offerLotEnrichDraft(user: SessionUser, chatId: number, lotCode: string) {
-  const prepared = await startLotEnrichDraft(user, lotCode, {
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, prepared.preview, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function tryApplyLotEnrichText(user: SessionUser, chatId: number, text: string): Promise<boolean> {
-  const result = await applyLotEnrichText(user, text)
-  if (!result.handled) return false
-  await sendTelegramMessage(chatId, result.reply, {
-    replyMarkup: confirmCancelKeyboard(result.draftId),
-  })
-  return true
-}
-
-async function offerStockMoveDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseStockMoveIntent>>,
-) {
-  const prepared = await prepareStockMoveDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerOpeningCountDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseOpeningCountIntent>>,
-) {
-  const prepared = await prepareOpeningCountDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerLowStockAckDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseLowStockAckIntent>>,
-) {
-  const prepared = await prepareLowStockAckDraft({
-    user,
-    itemQuery: intent.itemQuery,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerCreateZoneDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseCreateZoneIntent>>,
-) {
-  const prepared = await prepareCreateZoneDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerCreatePlotDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseCreatePlotIntent>>,
-) {
-  const prepared = await prepareCreatePlotDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerLivestockLogDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseLivestockLogIntent>>,
-) {
-  const prepared = await prepareLivestockLogDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
-
-async function offerVerifyLotDraft(
-  user: SessionUser,
-  chatId: number,
-  intent: NonNullable<ReturnType<typeof parseVerifyLotIntent>>,
-) {
-  const prepared = await prepareVerifyLotDraft({
-    user,
-    ...intent,
-    channel: 'telegram',
-    externalChatId: String(chatId),
-  })
-  if (!prepared.ok) {
-    await sendTelegramMessage(chatId, prepared.error)
-    return
-  }
-  await sendTelegramMessage(chatId, `${prepared.preview}\n\nTap Confirm or Cancel below.`, {
-    replyMarkup: confirmCancelKeyboard(prepared.draftId),
-  })
-}
+const isLanguageCommand = (text: string) =>
+  text === '/language' || text.toLowerCase() === 'language'
 
 async function handleLinkedText(
   dbUser: DbUser,
   chatId: number,
   messageId: number,
   text: string,
-  opts?: { skipUserLog?: boolean; inboundWasVoice?: boolean },
+  opts?: {
+    skipUserLog?: boolean
+    inboundWasVoice?: boolean
+    /** Already-normalized form of `text`, so voice notes translate only once. */
+    canonical?: CanonicalResult
+  },
 ) {
   if (!checkButlerRateLimit(dbUser.id)) {
     await sendTelegramMessage(chatId, BUTLER_RATE_LIMIT_MSG)
     return
   }
 
+  await handleLinkedTextInner(dbUser, chatId, messageId, text, opts)
+
+  // After their message is dealt with, not before: someone reporting a dead bird
+  // gets an answer first, and the nudge is the second message rather than a
+  // gate. Skipped when they are already in the language flow.
+  if (!isLanguageCommand(text) && shouldPromptLanguage(dbUser)) {
+    await promptLanguage(chatId, dbUser.preferredLocale)
+    await markLanguagePrompted(dbUser.id)
+  }
+}
+
+async function handleLinkedTextInner(
+  dbUser: DbUser,
+  chatId: number,
+  messageId: number,
+  text: string,
+  opts?: {
+    skipUserLog?: boolean
+    inboundWasVoice?: boolean
+    canonical?: CanonicalResult
+  },
+) {
   const user = toSessionUser(dbUser)
   const locale = staffLocale(dbUser.preferredLocale)
 
@@ -851,8 +372,9 @@ async function handleLinkedText(
     return
   }
 
-  if (text === '/language' || text.toLowerCase() === 'language') {
+  if (isLanguageCommand(text)) {
     await promptLanguage(chatId, dbUser.preferredLocale)
+    await markLanguagePrompted(dbUser.id)
     return
   }
 
@@ -905,20 +427,24 @@ async function handleLinkedText(
     return
   }
 
-  if (await tryApplyLotEnrichText(user, chatId, text)) return
+  if (await tryApplyLotEnrichText(user, chatId, text, dbUser.preferredLocale)) return
+
+  if (await tryApplyPoultryTypeAnswer(user, chatId, text, dbUser.preferredLocale)) return
 
   const verifyLotIntent = parseVerifyLotIntent(text)
   if (verifyLotIntent) {
-    await offerVerifyLotDraft(user, chatId, verifyLotIntent)
+    await offerVerifyLotDraft(user, chatId, verifyLotIntent, dbUser.preferredLocale)
     return
   }
 
+  const opsText = await withEnglishOpsNote(text, dbUser)
   const opsCmd = await tryHandleStaffOpsCommand({
     actor: toActor(dbUser),
-    text,
+    text: opsText.text,
+    noteLocale: opsText.noteLocale,
   })
   if (opsCmd.handled) {
-    await sendTelegramMessage(chatId, opsCmd.reply ?? 'Done.', {
+    await sendTelegramMessage(chatId, opsText.restoreReply(opsCmd.reply ?? 'Done.'), {
       replyMarkup: opsCmd.replyMarkup,
     })
     return
@@ -939,13 +465,13 @@ async function handleLinkedText(
 
   const taskIntent = parseCreateTaskIntent(text)
   if (taskIntent) {
-    await offerTaskDraft(user, chatId, taskIntent.title)
+    await offerTaskDraft(user, chatId, taskIntent.title, undefined, dbUser.preferredLocale)
     return
   }
 
   const censusIntent = parseCensusIntent(text)
   if (censusIntent) {
-    await offerCensusDraft(user, chatId, censusIntent)
+    await offerCensusDraft(user, chatId, censusIntent, dbUser.preferredLocale)
     return
   }
 
@@ -963,13 +489,13 @@ async function handleLinkedText(
 
   const livestockIntent = parseLivestockBatchIntent(text)
   if (livestockIntent) {
-    await offerLivestockBatchDraft(user, chatId, livestockIntent)
+    await offerLivestockBatchDraft(user, chatId, livestockIntent, dbUser.preferredLocale)
     return
   }
 
   const stockMoveIntent = parseStockMoveIntent(text)
   if (stockMoveIntent) {
-    await offerStockMoveDraft(user, chatId, stockMoveIntent)
+    await offerStockMoveDraft(user, chatId, stockMoveIntent, dbUser.preferredLocale)
     return
   }
 
@@ -987,7 +513,7 @@ async function handleLinkedText(
 
   const createZoneIntent = parseCreateZoneIntent(text)
   if (createZoneIntent) {
-    await offerCreateZoneDraft(user, chatId, createZoneIntent)
+    await offerCreateZoneDraft(user, chatId, createZoneIntent, dbUser.preferredLocale)
     return
   }
 
@@ -999,9 +525,13 @@ async function handleLinkedText(
 
   const livestockLogIntent = parseLivestockLogIntent(text)
   if (livestockLogIntent) {
-    await offerLivestockLogDraft(user, chatId, livestockLogIntent)
+    await offerLivestockLogDraft(user, chatId, livestockLogIntent, dbUser.preferredLocale)
     return
   }
+
+  // One normalization for everything this message stores: the chat log and the
+  // supervisor alert read the English, the Butler reply keeps the worker's words.
+  const canonical = opts?.canonical ?? (await canonicalForStorage(text, dbUser))
 
   if (!opts?.skipUserLog) {
     await recordChatMessage({
@@ -1009,9 +539,13 @@ async function handleLinkedText(
       userId: user.id,
       entityType: ENTITY,
       messageId: `tg-${messageId}`,
-      text,
+      text: canonical.english,
       role: 'user',
       direction: 'inbound',
+      extra: {
+        sourceLocale: canonical.sourceLocale,
+        translationStatus: canonical.status,
+      },
     })
   }
 
@@ -1026,10 +560,12 @@ async function handleLinkedText(
     entityType: ENTITY,
   })
 
-  if (dbUser.role === 'field_worker' && looksUrgent(text)) {
+  // Urgency keywords are English, so detection reads the canonical text: a
+  // French "trois poulets sont morts" now reaches the supervisor too.
+  if (dbUser.role === 'field_worker' && looksUrgent(canonical.english)) {
     await notifyWorkerAlertChannels(
       user.farmId,
-      `⚠️ Urgent report from ${user.name} (Telegram):\n\n"${text.slice(0, 300)}"\n\nButler replied with guidance. Please review in Trovara OS.`,
+      `⚠️ Urgent report from ${user.name} (Telegram):\n\n"${canonical.english.slice(0, 300)}"\n\nButler replied with guidance. Please review in Trovara OS.`,
       { actorUserId: user.id, reason: 'urgent_keyword' },
     )
   }
@@ -1046,15 +582,25 @@ async function handlePhoto(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
   const fileId = msg.photo?.[msg.photo.length - 1]?.file_id
   if (!fileId) return
 
+  const canonicalCaption = caption ? await canonicalForStorage(caption, dbUser) : null
+
   await recordChatMessage({
     farmId: user.farmId,
     userId: user.id,
     entityType: ENTITY,
     messageId: `tg-${msg.message_id}`,
-    text: caption ? `[photo] ${caption}` : '[photo]',
+    text: canonicalCaption ? `[photo] ${canonicalCaption.english}` : '[photo]',
     role: 'user',
     direction: 'inbound',
-    extra: { kind: 'image' },
+    extra: {
+      kind: 'image',
+      ...(canonicalCaption
+        ? {
+            sourceLocale: canonicalCaption.sourceLocale,
+            translationStatus: canonicalCaption.status,
+          }
+        : {}),
+    },
   })
 
   try {
@@ -1093,13 +639,15 @@ async function handlePhoto(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
     try {
       const dataUrl = await downloadTelegramFile(fileId)
       const photoUrl = await processEvidenceValue(user.farmId, dataUrl)
+      const opsText = await withEnglishOpsNote(caption, dbUser)
       const opsCmd = await tryHandleStaffOpsCommand({
         actor: toActor(dbUser),
-        text: caption,
+        text: opsText.text,
         photoUrl,
+        noteLocale: opsText.noteLocale,
       })
       if (opsCmd.handled) {
-        await sendTelegramMessage(chatId, opsCmd.reply ?? 'Done.', {
+        await sendTelegramMessage(chatId, opsText.restoreReply(opsCmd.reply ?? 'Done.'), {
           replyMarkup: opsCmd.replyMarkup,
         })
         return
@@ -1125,10 +673,14 @@ async function handlePhoto(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
     entityType: ENTITY,
   })
 
-  if (dbUser.role === 'field_worker' && caption && looksUrgent(caption)) {
+  if (
+    dbUser.role === 'field_worker' &&
+    canonicalCaption &&
+    looksUrgent(canonicalCaption.english)
+  ) {
     await notifyWorkerAlertChannels(
       user.farmId,
-      `⚠️ ${user.name} sent a photo on Telegram with note: "${caption.slice(0, 200)}". Butler sent a diagnosis. Please review.`,
+      `⚠️ ${user.name} sent a photo on Telegram with note: "${(canonicalCaption?.english ?? caption).slice(0, 200)}". Butler sent a diagnosis. Please review.`,
       { actorUserId: user.id, reason: 'urgent_photo' },
     )
   }
@@ -1157,21 +709,31 @@ async function handleVoice(dbUser: DbUser, chatId: number, msg: NonNullable<Tele
     return
   }
 
+  // Transcription keeps the spoken language (Yoruba / Pidgin / French), so the
+  // transcript is normalized before it is stored.
+  const canonical = await canonicalForStorage(transcript, dbUser)
+
   await recordChatMessage({
     farmId: user.farmId,
     userId: user.id,
     entityType: ENTITY,
     messageId: `tg-${msg.message_id}`,
-    text: transcript,
+    text: canonical.english,
     role: 'user',
     direction: 'inbound',
-    extra: { kind: 'voice' },
+    extra: {
+      kind: 'voice',
+      sourceLocale: canonical.sourceLocale,
+      translationStatus: canonical.status,
+    },
   })
 
   // Route voice through the same structured command path as text (tasks, orders, lots…).
+  // The original transcript drives intent parsing and the reply; the English is reused.
   await handleLinkedText(dbUser, chatId, msg.message_id, transcript, {
     skipUserLog: true,
     inboundWasVoice: true,
+    canonical,
   })
 }
 

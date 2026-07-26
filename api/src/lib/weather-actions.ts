@@ -87,6 +87,15 @@ const THEME_BY_ALERT: Record<WeatherAlertType, ActionSeed[]> = {
   ],
 }
 
+/**
+ * Every theme id this module can emit. The fallback table in
+ * `advisory-fallback-messages.ts` is keyed by these, so a theme added here
+ * without a translation is caught by test rather than by a French worker.
+ */
+export const WEATHER_ACTION_THEME_IDS: string[] = [
+  ...new Set(Object.values(THEME_BY_ALERT).flatMap((seeds) => seeds.map((seed) => seed.id))),
+]
+
 function priorityForAlert(severity: WeatherAlert['severity']): WeatherActionPriority {
   return severity === 'high' ? 'high' : 'medium'
 }

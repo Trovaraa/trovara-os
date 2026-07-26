@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { api } from '@/lib/api'
 import { clearSensitiveClientData } from '@/lib/client-cleanup'
+import i18n, { persistLocale, type AppLocale } from '@/i18n'
 import router from '@/router'
 
 export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
@@ -14,7 +15,19 @@ export type User = {
   farmId: string
   totpEnabled?: boolean
   butlerTtsMode?: 'off' | 'voice_replies' | 'always'
+  preferredLocale?: AppLocale
   mustChangePassword?: boolean
+}
+
+function isAppLocale(value: unknown): value is AppLocale {
+  return value === 'en' || value === 'yo' || value === 'pcm' || value === 'fr'
+}
+
+/** Apply a locale to the running UI (vue-i18n + localStorage + <html lang>). */
+export function applyLocale(locale: AppLocale) {
+  i18n.global.locale.value = locale
+  persistLocale(locale)
+  document.documentElement.lang = locale === 'pcm' ? 'en' : locale
 }
 
 type LoginSuccessResponse = {
@@ -50,6 +63,33 @@ export const useAuthStore = defineStore('auth', () => {
   const canAccessFinance = computed(
     () => user.value?.role === 'owner' || user.value?.role === 'sales',
   )
+
+  // The profile is the cross-device source of truth for language: it also drives
+  // AI content and Telegram/WhatsApp messages, so the chrome follows it on login
+  // and on session restore rather than whatever this device last cached.
+  watch(
+    () => user.value?.preferredLocale,
+    (locale) => {
+      if (isAppLocale(locale)) applyLocale(locale)
+    },
+  )
+
+  /**
+   * Mirror a UI language switch onto the profile. Best-effort: signed-out users
+   * and failed writes are silently ignored so the switcher never blocks or throws.
+   */
+  async function savePreferredLocale(locale: AppLocale) {
+    if (!user.value || user.value.preferredLocale === locale) return
+    user.value = { ...user.value, preferredLocale: locale }
+    try {
+      await api('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ preferredLocale: locale }),
+      })
+    } catch {
+      // Keep the optimistic UI change; the next explicit switch retries the write.
+    }
+  }
 
   async function fetchMe() {
     try {
@@ -115,5 +155,6 @@ export const useAuthStore = defineStore('auth', () => {
     fetchMe,
     login,
     logout,
+    savePreferredLocale,
   }
 })

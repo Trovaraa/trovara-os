@@ -1,6 +1,6 @@
-/** Feed: Broiler A [notes=...] OR Feeding: Broiler A */
-/** Vaccinate: Broiler A [notes=...] OR Vaccination: ... */
-/** Mortality: Broiler A heads=3 [notes=...] */
+/** Feed: Noiler A [notes=...] OR Feeding: Noiler A */
+/** Vaccinate: Noiler A [notes=...] OR Vaccination: ... */
+/** Mortality: Noiler A heads=3 [notes=...] */
 export function parseLivestockLogIntent(text: string): {
   logType: 'feeding' | 'vaccination' | 'mortality'
   batchQuery: string

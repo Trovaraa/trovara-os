@@ -1,238 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
-import { api } from '@/lib/api'
+import ReportsDigestPanel from '@/components/reports/ReportsDigestPanel.vue'
+import ReportsPlotProfitabilityPanel from '@/components/reports/ReportsPlotProfitabilityPanel.vue'
+import { useReportsData } from '@/composables/useReportsData'
+import { useExceptionText } from '@/composables/useExceptionText'
 
 const { t } = useI18n()
+const { actionLabel } = useExceptionText()
 
-type OwnerReports = {
-  generatedAt: string
-  reports: {
-    dailyOps: {
-      totalTasks: number
-      byStatus: Record<string, number>
-      overdue: number
-      completedToday: number
-      awaitingApproval: number
-      inProgress: number
-    }
-    tasksOverdue: {
-      count: number
-      tasks: {
-        id: string
-        title: string
-        status: string
-        dueDate?: string
-        plotName?: string
-        assignedToName?: string
-      }[]
-    }
-    inventory: {
-      totalItems: number
-      lowStockCount: number
-      items: {
-        name: string
-        category: string
-        quantity: number
-        unit: string
-        reorderLevel: number
-        lowStock: boolean
-      }[]
-      recentMovements: {
-        itemName: string
-        unit: string
-        delta: number
-        reason: string
-        createdAt: string
-      }[]
-    }
-    cropStatus: {
-      phase: string
-      plots: { name: string; cropType: string; areaAcres?: string }[]
-      cycles: {
-        id: string
-        plotName: string
-        cropType: string
-        stage: string
-        plantedAt: string
-        expectedHarvestAt?: string
-      }[]
-    }
-    livestock: {
-      phase: string
-      batchCount: number
-      totalHeadCount: number
-      batches: {
-        id: string
-        name: string
-        species: string
-        headCount: number
-        active: boolean
-        acquiredAt: string
-      }[]
-      recentLogs: {
-        id: string
-        batchName: string
-        logType: string
-        headCount?: number
-        notes?: string
-        createdAt: string
-      }[]
-    }
-    sales: {
-      phase: string
-      totalOrders: number
-      byStatus: Record<string, number>
-      totalRevenue: number
-      currency: string
-      recentOrders: {
-        id: string
-        customerName: string
-        status: string
-        totalAmount: number
-        currency: string
-        createdAt: string
-      }[]
-    }
-    pnl: {
-      phase: string
-      currency: string
-      revenue: number
-      expenses: number
-      net: number
-      expensesByCategory: Record<string, number>
-    }
-    incidents: {
-      phase: string
-      count: number
-      items: {
-        id: string
-        batchName: string
-        headCount?: number
-        notes?: string
-        createdAt: string
-      }[]
-    }
-    auditTrail: {
-      action: string
-      entityType: string
-      entityId?: string
-      userName?: string
-      metadata?: unknown
-      createdAt: string
-    }[]
-  }
-}
-
-const data = ref<OwnerReports | null>(null)
-const digest = ref<DigestReport | null>(null)
-const burnRate = ref<BurnRateReport | null>(null)
-const actionList = ref<ActionListReport | null>(null)
-const plotProfitability = ref<PlotProfitabilityReport | null>(null)
-const loading = ref(true)
-const error = ref<string | null>(null)
-
-type DigestReport = {
-  generatedAt: string
-  report: string
-  summary: {
-    overdueTasks: number
-    lowStock: number
-    pendingApprovals: number
-    mortalityToday: number
-    ordersPending: number
-    rejectedTasks: number
-    assetLogsMissing: number
-    assetVerificationPending: number
-    total: number
-  }
-  sections: Record<string, { count: number; items: unknown[] }>
-}
-
-type BurnRateReport = {
-  generatedAt: string
-  report: string
-  periodDays: number
-  items: {
-    itemId: string
-    name: string
-    unit: string
-    quantity: number
-    reorderLevel: number
-    avgDailyConsumption: number
-    daysRemaining: number | null
-    lowStock: boolean
-    needsReorder: boolean
-  }[]
-}
-
-type ActionListReport = {
-  generatedAt: string
-  report: string
-  summary: DigestReport['summary']
-  actions: {
-    priority: number
-    action: string
-    label: string
-    entityType: string
-    entityId: string
-    link: string
-  }[]
-}
-
-type PlotProfitabilityReport = {
-  generatedAt: string
-  report: string
-  currency: string
-  labourRatePerTask: number
-  plots: {
-    plotId: string
-    plotName: string
-    cropType: string
-    areaAcres: number | null
-    tasksCompleted: number
-    labourCost: number
-    inputCost: number
-    revenue: number
-    netProfit: number
-  }[]
-  totals: {
-    revenue: number
-    labourCost: number
-    inputCost: number
-    netProfit: number
-  }
-}
-
-onMounted(async () => {
-  try {
-    const [owner, digestRes, burnRateRes, actionListRes, plotPnlRes] = await Promise.all([
-      api<OwnerReports>('/api/reports/owner'),
-      api<DigestReport>('/api/reports/digest'),
-      api<BurnRateReport>('/api/reports/burn-rate'),
-      api<ActionListReport>('/api/reports/action-list'),
-      api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
-    ])
-    data.value = owner
-    digest.value = digestRes
-    burnRate.value = burnRateRes
-    actionList.value = actionListRes
-    plotProfitability.value = plotPnlRes
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('reports.loadFailed')
-  } finally {
-    loading.value = false
-  }
-})
-
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString()
-}
+const {
+  data,
+  digest,
+  burnRate,
+  actionList,
+  plotProfitability,
+  loading,
+  error,
+  formatMoney,
+  formatDate,
+} = useReportsData()
 </script>
 
 <template>
@@ -251,46 +38,7 @@ function formatDate(iso: string) {
       </p>
 
       <!-- Exception Digest -->
-      <section v-if="digest" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">{{ t('reports.digestTitle') }}</h3>
-          <span class="text-xs text-slate-500">{{ t('reports.exceptionsCount', { count: digest.summary.total }) }}</span>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.overdue') }}</p>
-            <p class="text-xl font-black text-red-400">{{ digest.summary.overdueTasks }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.lowStock') }}</p>
-            <p class="text-xl font-black text-amber-400">{{ digest.summary.lowStock }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.approvals') }}</p>
-            <p class="text-xl font-black text-purple-400">{{ digest.summary.pendingApprovals }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.mortalityToday') }}</p>
-            <p class="text-xl font-black text-red-300">{{ digest.summary.mortalityToday }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.ordersPending') }}</p>
-            <p class="text-xl font-black text-blue-400">{{ digest.summary.ordersPending }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.rejected') }}</p>
-            <p class="text-xl font-black text-slate-300">{{ digest.summary.rejectedTasks }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.notLoggedToday') }}</p>
-            <p class="text-xl font-black text-amber-400">{{ digest.summary.assetLogsMissing }}</p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.assetsToVerify') }}</p>
-            <p class="text-xl font-black text-cyan-400">{{ digest.summary.assetVerificationPending }}</p>
-          </div>
-        </div>
-      </section>
+      <ReportsDigestPanel v-if="digest" :digest="digest" />
 
       <!-- Manager Action List -->
       <section v-if="actionList" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -301,7 +49,7 @@ function formatDate(iso: string) {
             :key="`${item.action}-${item.entityId}`"
             class="text-sm flex items-center justify-between gap-4 border-b border-slate-800/50 pb-2 last:border-0"
           >
-            <span class="text-slate-300">{{ item.label }}</span>
+            <span class="text-slate-300">{{ actionLabel(item) }}</span>
             <span class="text-xs text-slate-500 capitalize">{{ item.action.replace('_', ' ') }}</span>
           </li>
         </ul>
@@ -335,82 +83,11 @@ function formatDate(iso: string) {
       </section>
 
       <!-- Plot Profitability -->
-      <section v-if="plotProfitability" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">{{ t('reports.plotProfitTitle') }}</h3>
-          <span class="text-xs text-slate-500">
-            {{ t('reports.labourProxy', { rate: formatMoney(plotProfitability.labourRatePerTask, plotProfitability.currency) }) }}
-          </span>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.revenue') }}</p>
-            <p class="text-lg font-black text-farm-green">
-              {{ formatMoney(plotProfitability.totals.revenue, plotProfitability.currency) }}
-            </p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.labour') }}</p>
-            <p class="text-lg font-black text-amber-400">
-              {{ formatMoney(plotProfitability.totals.labourCost, plotProfitability.currency) }}
-            </p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.inputs') }}</p>
-            <p class="text-lg font-black text-slate-300">
-              {{ formatMoney(plotProfitability.totals.inputCost, plotProfitability.currency) }}
-            </p>
-          </div>
-          <div class="bg-slate-800/50 rounded-xl p-3">
-            <p class="text-xs text-slate-500">{{ t('reports.netProfit') }}</p>
-            <p
-              class="text-lg font-black"
-              :class="plotProfitability.totals.netProfit >= 0 ? 'text-farm-green' : 'text-red-400'"
-            >
-              {{ formatMoney(plotProfitability.totals.netProfit, plotProfitability.currency) }}
-            </p>
-          </div>
-        </div>
-        <div v-if="plotProfitability.plots.length" class="overflow-x-auto -mx-1 px-1">
-          <table class="w-full min-w-[20rem] text-sm">
-            <thead>
-              <tr class="text-left text-xs text-slate-500 border-b border-slate-800">
-                <th class="pb-2 pr-4">{{ t('reports.plot') }}</th>
-                <th class="pb-2 pr-4">{{ t('reports.tasks') }}</th>
-                <th class="pb-2 pr-4">{{ t('reports.revenue') }}</th>
-                <th class="pb-2 pr-4">{{ t('reports.costs') }}</th>
-                <th class="pb-2">{{ t('reports.net') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="plot in plotProfitability.plots"
-                :key="plot.plotId"
-                class="border-b border-slate-800/50 last:border-0"
-              >
-                <td class="py-2 pr-4">
-                  <span class="text-white font-medium">{{ plot.plotName }}</span>
-                  <span class="text-slate-500 text-xs block capitalize">{{ plot.cropType }}</span>
-                </td>
-                <td class="py-2 pr-4 text-slate-400">{{ plot.tasksCompleted }}</td>
-                <td class="py-2 pr-4 text-farm-green">
-                  {{ formatMoney(plot.revenue, plotProfitability.currency) }}
-                </td>
-                <td class="py-2 pr-4 text-slate-400">
-                  {{ formatMoney(plot.labourCost + plot.inputCost, plotProfitability.currency) }}
-                </td>
-                <td
-                  class="py-2 font-mono"
-                  :class="plot.netProfit >= 0 ? 'text-farm-green' : 'text-red-400'"
-                >
-                  {{ formatMoney(plot.netProfit, plotProfitability.currency) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-else class="text-slate-500 text-sm">{{ t('reports.noPlots') }}</p>
-      </section>
+      <ReportsPlotProfitabilityPanel
+        v-if="plotProfitability"
+        :plot-profitability="plotProfitability"
+        :format-money="formatMoney"
+      />
 
       <!-- 1. Daily Operations -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">

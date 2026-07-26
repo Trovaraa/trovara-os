@@ -25,6 +25,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - TOTP 2FA for owner accounts (setup/enable/disable in Settings)
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)
 - Data retention: `DATA_RETENTION_DAYS` + `npm run run-data-retention`
+- Pending-translation retry: `npm run retry-translations` (DB-direct like `backup`, no HTTP endpoint; needs `DATABASE_URL`, not `CRON_SECRET`)
 - Secrets in `.env` only - `.env.example` has placeholders
 - All queries scoped by `farm_id`
 - WhatsApp webhook: `X-Hub-Signature-256` HMAC verification (`META_APP_SECRET`)
@@ -75,6 +76,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Configure off-server encrypted backups + logrotate for `logs/*.log`
 - Set `META_APP_SECRET` when WhatsApp goes live
 - **Set `CRON_SECRET` in production** — cron scripts (`run-data-retention`, proactive alerts, evening digest) must authenticate with `X-CRON-SECRET`; do not rely on owner password fallbacks in production
+- `retry-translations` is the exception: it talks to the DB directly (like `backup`) rather than through the API, so it needs `DATABASE_URL` on the cron host and no `CRON_SECRET`
 
 ---
 

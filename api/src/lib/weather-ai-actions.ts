@@ -1,7 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { cropCycles, livestockBatches } from '../db/schema.js'
+import { renderWeatherTheme } from './advisory-fallback-messages.js'
 import { buildWeatherActionsPrompt } from './ai-advisor.js'
+import { toViewerLocaleMany } from './content-locale.js'
 import { completeChat, isLlmConfigured, parseJsonFromLlm } from './llm.js'
 import { checkLlmBudget, consumeLlmBudget } from './llm-budget.js'
 import { resolveStaffReplyLocale, type ReplyLocale } from './reply-locale.js'
@@ -135,20 +137,38 @@ function buildUserPayload(
   )
 }
 
+export type GeneratedWeatherActions = {
+  /** Canonical English actions. This is what gets cached and stored. */
+  actions: WeatherAction[]
+  source: 'ai' | 'rules'
+}
+
+export type ResolvedWeatherActions = GeneratedWeatherActions & {
+  /**
+   * The same advice rendered into the viewer's language. Identical to
+   * `actions` for an English viewer.
+   */
+  localizedActions: WeatherAction[]
+  /**
+   * The language the actions were RENDERED into for this viewer — not the
+   * language they were generated in. Generation is always English.
+   */
+  renderedLocale: ReplyLocale
+}
+
 /**
- * Prefer LLM farm-grounded weather actions; fall back to rule-based themes.
+ * Generate weather actions once, in English, so every viewer of the same
+ * forecast and farm state gets the same underlying advice. Prefers LLM
+ * farm-grounded actions and falls back to rule-based English themes.
  */
-export async function resolveWeatherActions(
+export async function generateWeatherActions(
   farmId: string,
   forecast: ForecastInput,
   alerts: WeatherAlert[],
-  preferredLocale?: string | null,
-): Promise<{ actions: WeatherAction[]; source: 'ai' | 'rules'; locale: ReplyLocale }> {
-  const locale = resolveStaffReplyLocale(preferredLocale)
-  const rules = () => ({
+): Promise<GeneratedWeatherActions> {
+  const rules = (): GeneratedWeatherActions => ({
     actions: buildWeatherActions(forecast.daily, forecast.current.windKmh, alerts),
-    source: 'rules' as const,
-    locale,
+    source: 'rules',
   })
 
   if (!isLlmConfigured()) return rules()
@@ -158,15 +178,100 @@ export async function resolveWeatherActions(
   try {
     const farmSnippet = await loadFarmWeatherSnippet(farmId)
     const { text } = await completeChat(
-      buildWeatherActionsPrompt(locale),
+      buildWeatherActionsPrompt(),
       buildUserPayload(forecast, alerts, farmSnippet),
     )
     consumeLlmBudget(farmId)
     const parsed = parseJsonFromLlm<unknown>(text)
     const validated = validateWeatherActionsFromLlm(parsed, alerts)
     if (!validated) return rules()
-    return { actions: validated, source: 'ai', locale }
+    return { actions: validated, source: 'ai' }
   } catch {
     return rules()
   }
+}
+
+/**
+ * Render stored English actions into the viewer's language.
+ *
+ * Generated actions are real English prose about this farm and go to the content
+ * translator, one batched call for every title and detail. Rules-fallback
+ * actions do not: they are the fixed `THEME_BY_ALERT` seeds, keyed by theme id,
+ * and the translator needs the same LLM the fallback exists to survive. Sending
+ * them there is what showed a French worker English at exactly the wrong moment,
+ * so they render from the pre-translated table instead — instantly, and with no
+ * model. A theme the table has never heard of still goes to the translator,
+ * which is no worse than before.
+ *
+ * An English viewer does no work at all. Translation failures leave the English
+ * text in place rather than blanking the card.
+ */
+export async function localizeWeatherActions(
+  farmId: string,
+  actions: WeatherAction[],
+  preferredLocale?: string | null,
+  source: GeneratedWeatherActions['source'] = 'ai',
+): Promise<WeatherAction[]> {
+  const locale = resolveStaffReplyLocale(preferredLocale)
+  if (locale === 'en' || actions.length === 0) return actions
+
+  const themed = actions.map((action) =>
+    source === 'rules' ? renderWeatherTheme(action.id, locale) : null,
+  )
+  const withThemes = (): WeatherAction[] =>
+    actions.map((action, i) => {
+      const theme = themed[i]
+      return theme ? { ...action, title: theme.title, detail: theme.detail } : action
+    })
+
+  const pending = actions.filter((_, i) => themed[i] === null)
+  if (pending.length === 0) return withThemes()
+
+  try {
+    const rendered = await toViewerLocaleMany({
+      texts: pending.flatMap((a) => [a.title, a.detail]),
+      targetLocale: locale,
+      farmId,
+    })
+    let next = 0
+    return actions.map((action, i) => {
+      const theme = themed[i]
+      if (theme) return { ...action, title: theme.title, detail: theme.detail }
+      const slot = next++
+      return {
+        ...action,
+        title: rendered[slot * 2] || action.title,
+        detail: rendered[slot * 2 + 1] || action.detail,
+      }
+    })
+  } catch {
+    return withThemes()
+  }
+}
+
+/**
+ * Generate English weather actions and render them for one viewer.
+ * Callers persist `actions` (English) and serve `localizedActions`.
+ *
+ * The two paths meet here: `generated.source` says whether the English behind
+ * this viewer's copy was written by the model or came off the rules seeds, and
+ * that is what decides between the translator and the pre-translated table.
+ * Only `localizedActions` differs by reader — `actions` stays canonical English
+ * for the cache, whichever path produced it.
+ */
+export async function resolveWeatherActions(
+  farmId: string,
+  forecast: ForecastInput,
+  alerts: WeatherAlert[],
+  preferredLocale?: string | null,
+): Promise<ResolvedWeatherActions> {
+  const renderedLocale = resolveStaffReplyLocale(preferredLocale)
+  const generated = await generateWeatherActions(farmId, forecast, alerts)
+  const localizedActions = await localizeWeatherActions(
+    farmId,
+    generated.actions,
+    renderedLocale,
+    generated.source,
+  )
+  return { ...generated, localizedActions, renderedLocale }
 }

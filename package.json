@@ -21,6 +21,7 @@
     "send-proactive-alerts": "bash scripts/send-proactive-alerts.sh",
     "send-evening-digest": "bash scripts/send-evening-digest.sh",
     "run-data-retention": "bash scripts/run-data-retention.sh",
+    "retry-translations": "bash scripts/retry-translations.sh",
     "backup": "bash scripts/backup-db.sh",
     "backup:encrypted": "bash scripts/backup-db-encrypted.sh",
     "backup:production": "bash scripts/backup-production.sh",
@@ -28,14 +29,16 @@
     "backup:restore-test": "bash scripts/restore-test-isolated.sh",
     "restore:db": "bash scripts/restore-db.sh",
     "audit": "npm audit --workspaces --audit-level=high",
-    "test": "npm test -w api",
-    "typecheck": "npx tsc --noEmit -p api"
+    "test": "npm test -w api && npm test -w app",
+    "typecheck": "npx tsc --noEmit -p api && npx vue-tsc --noEmit -p app"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "happy-dom": "^20.11.1"
   },
   "overrides": {
     "fast-uri": "3.1.4",
-    "brace-expansion": "5.0.8"
+    "brace-expansion": "5.0.8",
+    "happy-dom": "^20.11.1"
   }
 }

@@ -3,11 +3,18 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { expenses, invoices, orders, paymentAttempts, paymentRefunds } from '../db/schema.js'
+import { expenses, invoices, orders, paymentAttempts, paymentRefunds, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAccessFinance } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import type { SessionUser } from '../lib/session.js'
+import {
+  authorLocaleForUserId,
+  authorLocaleHint,
+  toCanonicalEnglish,
+  toViewerLocaleMany,
+} from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 
 const createExpenseSchema = z.object({
   category: z.enum(['inputs', 'labour', 'equipment', 'transport', 'utilities', 'feed', 'medicine', 'other']),
@@ -20,6 +27,110 @@ const createExpenseSchema = z.object({
 })
 
 const updateExpenseSchema = createExpenseSchema.partial()
+
+/**
+ * The only prose on an expense, and the one column its `translation_status`
+ * covers. `vendor` is a supplier's name, `receiptRef` is the identifier printed
+ * on the paper receipt an auditor matches the row against, `category` is an
+ * enum the client renders, and `amount` / `currency` are money — none of them
+ * ever reach a translator.
+ */
+const EXPENSE_TEXT_FIELDS = ['description'] as const
+
+/**
+ * The viewer's language. A failed lookup degrades to English rather than
+ * failing the request it only decorates.
+ */
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  try {
+    const [row] = await db
+      .select({ preferredLocale: users.preferredLocale })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+    return row?.preferredLocale ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Render expense prose in the viewer's language with ONE batched translation
+ * call per response: every string across every row is collected first,
+ * translated together (the service deduplicates and reads its cache in a single
+ * query), then mapped back by position. An English viewer short-circuits before
+ * any of this work.
+ */
+async function localizeRows<T extends object>(
+  rows: T[],
+  fields: readonly (keyof T & string)[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<T[]> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return rows
+  if (rows.length === 0 || fields.length === 0) return rows
+
+  const texts: string[] = []
+  for (const row of rows) {
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') texts.push(value)
+    }
+  }
+  if (texts.length === 0) return rows
+
+  const translated = await toViewerLocaleMany({ texts, targetLocale, farmId })
+
+  let cursor = 0
+  return rows.map((row) => {
+    const out = { ...row }
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') {
+        ;(out as Record<string, unknown>)[field] = translated[cursor++]
+      }
+    }
+    return out
+  })
+}
+
+type CanonicalDescription = {
+  /** English text to store; absent when there was nothing to normalize. */
+  english?: string
+  sourceLocale: string | null
+  translationStatus: 'done' | 'pending'
+}
+
+/**
+ * Normalize an expense description to English for storage.
+ *
+ * A translation failure stores the author's own words at 'pending' so recording
+ * a cost never fails on a translator, and `lib/translation-retry.ts` repairs the
+ * row later.
+ *
+ * `source_locale` stays null on that path rather than falling back to 'en': it is
+ * the hint the retry job feeds back into `toCanonicalEnglish`, and an 'en' hint
+ * short-circuits there, which would mark the row 'done' still holding French.
+ */
+async function canonicalDescription(
+  text: string | null | undefined,
+  farmId: string,
+  authorLocale: string | null,
+): Promise<CanonicalDescription> {
+  if (typeof text !== 'string' || text.trim() === '') {
+    return { sourceLocale: null, translationStatus: 'done' }
+  }
+  try {
+    const result = await toCanonicalEnglish({ text, farmId, sourceLocale: authorLocale })
+    return {
+      english: result.english,
+      sourceLocale: result.sourceLocale,
+      translationStatus: result.status,
+    }
+  } catch {
+    return { english: text, sourceLocale: authorLocale, translationStatus: 'pending' }
+  }
+}
 
 export const financeRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -39,9 +150,14 @@ financeRoutes.get('/', async (c) => {
     .where(eq(expenses.farmId, user.farmId))
     .orderBy(desc(expenses.expenseDate))
 
-  return c.json({ expenses: rows })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(rows, EXPENSE_TEXT_FIELDS, user.farmId, viewerLocale)
+
+  return c.json({ expenses: localized })
 })
 
+// Money, counts and category enums only — no prose leaves this endpoint, so
+// nothing on it is localized.
 financeRoutes.get('/summary', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
@@ -137,12 +253,20 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
 
   const body = c.req.valid('json')
 
+  const canonical = await canonicalDescription(
+    body.description,
+    user.farmId,
+    await authorLocaleForUserId(user.id),
+  )
+
   const [expense] = await db
     .insert(expenses)
     .values({
       farmId: user.farmId,
       category: body.category,
-      description: body.description,
+      description: canonical.english ?? body.description,
+      sourceLocale: canonical.sourceLocale,
+      translationStatus: canonical.translationStatus,
       amount: body.amount,
       currency: body.currency,
       vendor: body.vendor,
@@ -161,7 +285,8 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
     metadata: { category: expense.category, amount: expense.amount },
   })
 
-  return c.json({ expense }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json({ expense: { ...expense, description: body.description } }, 201)
 })
 
 financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) => {
@@ -179,14 +304,30 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+
   const updates: Partial<typeof existing> = {}
   if (body.category !== undefined) updates.category = body.category
-  if (body.description !== undefined) updates.description = body.description
   if (body.amount !== undefined) updates.amount = body.amount
   if (body.currency !== undefined) updates.currency = body.currency
   if (body.vendor !== undefined) updates.vendor = body.vendor
   if (body.receiptRef !== undefined) updates.receiptRef = body.receiptRef
   if (body.expenseDate !== undefined) updates.expenseDate = new Date(body.expenseDate)
+
+  if (body.description !== undefined) {
+    const canonical = await canonicalDescription(body.description, user.farmId, authorLocale)
+    updates.description = canonical.english ?? body.description
+    if (canonical.english !== undefined) {
+      // Never downgrade a row the retry job still owes work on, and keep it
+      // labelled with the locale of the text that failed: `source_locale` is the
+      // hint that retry uses.
+      if (existing.translationStatus === 'done' || canonical.translationStatus === 'pending') {
+        updates.sourceLocale = canonical.sourceLocale ?? existing.sourceLocale
+      }
+      if (canonical.translationStatus === 'pending') updates.translationStatus = 'pending'
+    }
+  }
 
   const [expense] = await db
     .update(expenses)
@@ -202,7 +343,18 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
     entityId: expenseId,
   })
 
-  return c.json({ expense })
+  // A description this author just wrote is echoed in their own words; one they
+  // did not touch is the stored English, rendered for the viewer.
+  if (body.description !== undefined) {
+    return c.json({ expense: { ...expense, description: body.description } })
+  }
+  const [localized] = await localizeRows(
+    [expense],
+    EXPENSE_TEXT_FIELDS,
+    user.farmId,
+    viewerLocale,
+  )
+  return c.json({ expense: localized })
 })
 
 financeRoutes.delete('/:id', async (c) => {

@@ -306,7 +306,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     .insert(zones)
     .values([
       { farmId: farmId, name: 'North Orchard', description: 'Coconut and plantain blocks' },
-      { farmId: farmId, name: 'South Poultry', description: 'Broiler production zone' },
+      { farmId: farmId, name: 'South Poultry', description: 'Noiler production zone' },
     ])
     .returning()
 
@@ -383,7 +383,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       },
       {
         farmId: farmId,
-        name: 'Broiler feeding',
+        name: 'Noiler feeding',
         description: 'Morning and evening feed rounds',
         cropType: 'poultry',
         checklist: ['Check feeder levels', 'Distribute feed evenly', 'Record feed bags used'],
@@ -554,14 +554,14 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     farmId: farmId,
     plotId: poultryPlot.id,
     name: 'Poultry Batch 2026-A',
-    species: 'broiler',
-    batchType: 'broiler',
+    species: 'noiler',
+    batchType: 'noiler',
     headCount: 500,
     startCount: 500,
     feedUsedKg: 850,
     acquiredAt: new Date(now - 14 * 86400000),
     targetCloseoutAt: new Date(now + 28 * 86400000),
-    notes: 'Active broiler batch - shed stocked',
+    notes: 'Active noiler batch - shed stocked',
     active: true,
   })
 

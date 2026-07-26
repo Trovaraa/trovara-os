@@ -267,8 +267,17 @@ The application may use local browser storage for necessary PWA and offline
 task functionality. Essential storage supports security and requested service
 features.
 
+Trovara OS does not load any third-party analytics, advertising, or tracking
+script. This applies to the whole application, including the public
+traceability lot pages, which are served from the same application and carry no
+analytics tag.
+
 Non-essential analytics or advertising cookies must not be introduced without
 a separate cookie notice and, where required, a consent preference mechanism.
+
+The separate Trovara Farm marketing website at `trovara.farm` is not covered by
+this notice and does use website analytics. Its own privacy policy describes
+that processing, including the identifiers set and how to opt out.
 
 ## 15. Public ledgers and future tokenization
 
@@ -306,7 +315,14 @@ Do not publish this draft until:
 - [ ] staff and customer data-rights procedures are tested;
 - [ ] AI, WhatsApp, Telegram, backup, and security statements are verified
       against production configuration;
-- [ ] a cookie/local-storage inventory is completed;
+- [ ] a cookie/local-storage inventory is completed, including the identifiers
+      set by the analytics SDK on each property;
+- [ ] the WebMetrix data processing agreement, processing locations, retention
+      period, and deletion process are obtained and recorded;
+- [ ] the lawful basis for analytics is decided and, where it is consent or a
+      legitimate-interests assessment, recorded;
+- [ ] a decision is recorded on whether analytics remains enabled on the
+      authenticated staff application, and staff are informed either way;
 - [ ] a breach-response process and regulatory contacts are approved; and
 - [ ] the consent version is bumped when the final notice is published.
 

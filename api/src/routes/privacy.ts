@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, ne } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   auditEvents,
@@ -9,7 +9,6 @@ import {
   expenses,
   inventoryItems,
   orders,
-  sessions,
   tasks,
   users,
 } from '../db/schema.js'
@@ -21,8 +20,8 @@ import {
   assertTenantScope,
   sanitizeAnonymizedContactName,
   sanitizeAnonymizedEmail,
-  sanitizeAnonymizedName,
 } from '../lib/tenant-scope.js'
+import { removeStaffUser } from '../lib/user-remove.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 
@@ -155,7 +154,7 @@ privacyRoutes.get('/privacy/anonymize-targets', async (c) => {
         active: users.active,
       })
       .from(users)
-      .where(and(eq(users.farmId, user.farmId), eq(users.role, 'field_worker'))),
+      .where(and(eq(users.farmId, user.farmId), ne(users.role, 'owner'))),
     db
       .select({
         id: customerContacts.id,
@@ -191,39 +190,11 @@ privacyRoutes.post('/privacy/anonymize-user/:id', async (c) => {
   if (!target) return c.json({ error: 'Not found' }, 404)
   assertTenantScope(user.farmId, target.farmId)
 
-  if (target.role !== 'field_worker') {
-    return c.json({ error: 'Only worker profiles can be anonymized' }, 400)
+  if (target.role === 'owner') {
+    return c.json({ error: 'Cannot anonymize Admin account' }, 400)
   }
 
-  const anonymizedEmail = sanitizeAnonymizedEmail(target.id)
-  await db.transaction(async (tx) => {
-    await tx
-      .update(users)
-      .set({
-        name: sanitizeAnonymizedName(),
-        email: anonymizedEmail,
-        phone: null,
-        monthlyWageNgn: null,
-        monthlyWageEffectiveFrom: null,
-        monthlyWageConfirmedAt: null,
-        monthlyWageConfirmedById: null,
-        nextOfKinName: null,
-        nextOfKinPhone: null,
-        nextOfKinRelationship: null,
-        employeeNumber: null,
-        jobTitle: null,
-        employmentType: null,
-        employmentStartDate: null,
-        employmentEndDate: null,
-        employmentStatus: 'ended',
-        active: false,
-        totpSecret: null,
-        totpEnabled: false,
-      })
-      .where(eq(users.id, target.id))
-
-    await tx.delete(sessions).where(eq(sessions.userId, target.id))
-  })
+  await removeStaffUser(target.id)
 
   await logAudit({
     farmId: user.farmId,
@@ -233,7 +204,7 @@ privacyRoutes.post('/privacy/anonymize-user/:id', async (c) => {
     entityId: target.id,
   })
 
-  return c.json({ ok: true, userId: target.id, anonymizedEmail })
+  return c.json({ ok: true, userId: target.id, anonymizedEmail: sanitizeAnonymizedEmail(target.id) })
 })
 
 privacyRoutes.post(

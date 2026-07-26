@@ -10,6 +10,7 @@ import { canTransitionTask } from './state-machines.js'
 import { processEvidenceValue } from './evidence-store.js'
 import { notifyTaskSubmittedForApproval } from './farm-notify.js'
 import { staffLocale, type StaffLocale } from './order-messages.js'
+import { mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 import { roleCommandHelp } from './role-menus.js'
 
 export type StaffOpsActor = {
@@ -177,6 +178,12 @@ async function updateTaskStatus(params: {
   toStatus: TaskStatus
   note?: string | null
   photoUrl?: string | null
+  /**
+   * How `note` was normalized. The channel translates it before delegating here
+   * and only the channel knows whether that succeeded; without it the note is
+   * assumed to already be English, which is the behaviour callers had before.
+   */
+  noteLocale?: ContentLocaleMeta
 }): Promise<{ ok: true; task: typeof tasks.$inferSelect } | { ok: false; error: string }> {
   const user = toSession(params.actor)
   const locale = staffLocale(params.actor.preferredLocale)
@@ -240,7 +247,10 @@ async function updateTaskStatus(params: {
     status: params.toStatus,
     updatedAt: new Date(),
   }
-  if (params.note) updates.completionNote = params.note.slice(0, 2000)
+  if (params.note) {
+    updates.completionNote = params.note.slice(0, 2000)
+    Object.assign(updates, mergeContentLocale(existing, params.noteLocale))
+  }
   if (params.photoUrl) {
     try {
       updates.photoUrl = await processEvidenceValue(params.actor.farmId, params.photoUrl)
@@ -291,6 +301,8 @@ export async function tryHandleStaffOpsCommand(params: {
   actor: StaffOpsActor
   text: string
   photoUrl?: string | null
+  /** How the note in `text` was normalized, when the caller translated it. */
+  noteLocale?: ContentLocaleMeta
 }): Promise<StaffOpsResult> {
   const locale = staffLocale(params.actor.preferredLocale)
   const parsed = parseStaffOpsCommand(params.text)
@@ -521,6 +533,7 @@ export async function tryHandleStaffOpsCommand(params: {
     toStatus,
     note: parsed.note,
     photoUrl: params.photoUrl,
+    noteLocale: params.noteLocale,
   })
 
   if (!result.ok) {
@@ -543,6 +556,8 @@ export async function transitionTaskFromCallback(params: {
   taskId: string
   action: 'start' | 'done' | 'approve' | 'reject'
   note?: string
+  /** How `note` was normalized, when the caller translated it. */
+  noteLocale?: ContentLocaleMeta
 }): Promise<StaffOpsResult> {
   const toStatus: TaskStatus =
     params.action === 'start'
@@ -557,6 +572,7 @@ export async function transitionTaskFromCallback(params: {
     taskId: params.taskId,
     toStatus,
     note: params.note,
+    noteLocale: params.noteLocale,
   })
   if (!result.ok) return { handled: true, reply: result.error }
   return {

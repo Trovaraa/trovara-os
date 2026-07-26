@@ -1,6 +1,9 @@
 import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { eq } from 'drizzle-orm'
+import { db } from '../db/index.js'
+import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import {
   clockIn,
@@ -8,7 +11,9 @@ import {
   listToday,
   supervisorCorrect,
 } from '../lib/attendance-service.js'
+import { authorLocaleHint, toViewerLocaleMany } from '../lib/content-locale.js'
 import { canApproveTasks } from '../lib/rbac.js'
+import type { SessionUser } from '../lib/session.js'
 
 const allocationSchema = z.object({
   plotId: z.string().uuid().nullable().optional(),
@@ -28,10 +33,46 @@ export const attendanceRoutes = new Hono<{ Variables: AppVariables }>()
 
 attendanceRoutes.use('*', authMiddleware)
 
+/**
+ * Render attendance notes in the viewer's language with ONE batched translation
+ * call per response: every note in the list is collected first, translated
+ * together (the service deduplicates them and reads its cache in a single
+ * query), then mapped back by position.
+ *
+ * `notes` is the only prose here. Worker names are proper nouns, the block and
+ * task names are lookup labels, and the wage snapshot is money, so none of them
+ * reach a translator. A viewer on the default 'en' preference costs one profile
+ * read and nothing else: `authorLocaleHint` turns that default into null.
+ */
+async function localizeNotes<T extends { notes: string | null }>(
+  rows: T[],
+  user: SessionUser,
+): Promise<T[]> {
+  const texts = rows.map((row) => row.notes).filter((note): note is string => Boolean(note))
+  if (texts.length === 0) return rows
+
+  const [profile] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
+  const viewerLocale = authorLocaleHint(profile?.preferredLocale)
+  if (!viewerLocale) return rows
+
+  const translated = await toViewerLocaleMany({
+    texts,
+    targetLocale: viewerLocale,
+    farmId: user.farmId,
+  })
+
+  let cursor = 0
+  return rows.map((row) => (row.notes ? { ...row, notes: translated[cursor++]! } : row))
+}
+
 attendanceRoutes.get('/today', async (c) => {
   const user = c.get('user')
   const sessions = await listToday(user)
-  return c.json({ sessions })
+  return c.json({ sessions: await localizeNotes(sessions, user) })
 })
 
 attendanceRoutes.post('/clock-in', zValidator('json', allocationSchema), async (c) => {

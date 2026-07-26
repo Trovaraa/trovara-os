@@ -21,7 +21,7 @@ export function parseCensusIntent(text: string): {
 } | null {
   const trimmed = text.trim()
   const match = trimmed.match(
-    /^census\s*[:\-–]?\s*(.+?)\s+crop\s*=\s*(\S+)\s+count\s*=\s*(\d+)(?:\s+min\s*=\s*([\d.]+))?(?:\s+max\s*=\s*([\d.]+))?$/i,
+    /^census\s*[:\-–]?\s*(.+?)\s+crop\s*=\s*(\S+(?:\s+(?!\w+\s*=)\S+)*)\s+count\s*=\s*(\d+)(?:\s+min\s*=\s*([\d.]+))?(?:\s+max\s*=\s*([\d.]+))?$/i,
   )
   if (!match) return null
   return {

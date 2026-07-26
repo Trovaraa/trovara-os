@@ -15,6 +15,7 @@ import {
   revokeTelegramLink,
 } from '../lib/butler-link-codes.js'
 import { revokeAllUserAccess } from '../lib/access-revoke.js'
+import { isAnonymizedUserEmail, removeStaffUser } from '../lib/user-remove.js'
 
 const employmentTypeEnum = z.enum(['permanent', 'temporary', 'casual', 'contract'])
 const employmentStatusEnum = z.enum(['employed', 'leave', 'ended'])
@@ -182,10 +183,13 @@ userRoutes.get('/', async (c) => {
     .where(eq(users.farmId, user.farmId))
     .orderBy(users.name)
 
+  // Soft-removed (anonymized) staff stay in DB for FKs but leave the admin roster.
+  const visible = rows.filter((row) => !isAnonymizedUserEmail(row.email))
+
   // Supervisors can assign tasks but should not see full employment/wage profile.
   if (user.role === 'supervisor') {
     return c.json({
-      users: rows.map((row) => ({
+      users: visible.map((row) => ({
         id: row.id,
         name: row.name,
         email: row.email,
@@ -196,7 +200,7 @@ userRoutes.get('/', async (c) => {
     })
   }
 
-  return c.json({ users: rows })
+  return c.json({ users: visible })
 })
 
 userRoutes.post('/', zValidator('json', createUserSchema), async (c) => {
@@ -381,4 +385,52 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
   })
 
   return c.json({ user: updated })
+})
+
+userRoutes.delete('/:id', async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const targetId = c.req.param('id')
+  if (targetId === user.id) {
+    return c.json({ error: 'Cannot delete your own account' }, 400)
+  }
+
+  const [existing] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, targetId), eq(users.farmId, user.farmId)))
+    .limit(1)
+
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  if (existing.role === 'owner') {
+    return c.json({ error: 'Cannot delete Admin account' }, 400)
+  }
+  if (isBreakGlassEmail(existing.email)) {
+    return c.json({ error: 'Cannot delete the break-glass Admin account' }, 400)
+  }
+  if (isAnonymizedUserEmail(existing.email)) {
+    return c.json({ error: 'User already removed' }, 400)
+  }
+
+  await removeStaffUser(targetId)
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'delete',
+    entityType: 'user',
+    entityId: targetId,
+    metadata: {
+      previousEmail: existing.email,
+      previousName: existing.name,
+      previousRole: existing.role,
+    },
+  })
+
+  return c.json({ ok: true })
 })

@@ -1,60 +1,44 @@
+<script lang="ts">
+/**
+ * Resolve an insight category name the API addressed by `key`.
+ *
+ * These four names are fixed UI chrome, so they live in the vue-i18n catalogs
+ * (`advisory.insightCategories.*`) rather than going through the server's
+ * content translator. The API keeps sending an English `label`, which is used
+ * for any key this build does not know — an unrecognized category then reads in
+ * English instead of rendering blank.
+ */
+export function resolveInsightLabel(
+  key: string,
+  fallback: string,
+  i18n: { t: (key: string) => string; te: (key: string, locale?: string) => boolean },
+): string {
+  const catalogKey = `advisory.insightCategories.${key}`
+  if (!i18n.te(catalogKey) && !i18n.te(catalogKey, 'en')) return fallback
+  return i18n.t(catalogKey) || fallback
+}
+</script>
+
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import AdvisoryAnalysisPanel from '@/components/advisory/AdvisoryAnalysisPanel.vue'
+import AdvisoryCalendarPanel from '@/components/advisory/AdvisoryCalendarPanel.vue'
+import {
+  useAdvisoryAnalysis,
+  type InsightKey,
+  type ProductHit,
+  type Recommendation,
+  type Subject,
+} from '@/composables/useAdvisoryAnalysis'
+import { useAdvisoryCalendar } from '@/composables/useAdvisoryCalendar'
 import { api } from '@/lib/api'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
-
-type ProductHit = {
-  title: string
-  url: string | null
-  source: 'search' | 'llm'
-  priceText?: string
-  reason?: string
-}
-
-type Recommendation = {
-  id: string
-  ruleKey: string
-  status: string
-  sourceType?: string
-  sourceId?: string
-  notifyRoles: string[]
-  payload: {
-    happeningNow: string
-    whatNext: string
-    products?: ProductHit[]
-    reasonCode?: string
-  }
-  aiSummary: string | null
-  firedAt: string
-}
-
-type Subject =
-  | {
-      kind: 'crop'
-      id: string
-      label: string
-      cropType: string
-      plotName?: string
-      stage: string
-      dayInStage: number
-      daysUntilNextHint: number | null
-      nextHint: string | null
-    }
-  | {
-      kind: 'livestock'
-      id: string
-      label: string
-      species: string
-      dayInCycle: number
-      daysUntilNextHint: number | null
-      nextHint: string | null
-    }
 
 type Tile = { key: string; label: string }
 
@@ -76,32 +60,50 @@ const trackNote = ref('')
 const trackSaving = ref(false)
 const trackResult = ref<{ products: ProductHit[]; closeLine: string | null } | null>(null)
 const aboutOpen = ref(false)
-const insightKey = ref<'weather' | 'inputs' | 'vaccination' | 'harvest' | null>(null)
-const insightLoading = ref(false)
-const insightTips = ref<
-  Array<{
-    id: string
-    happeningNow: string
-    whatNext: string
-    products: ProductHit[]
-    reasonCode: string
-  }>
->([])
-const tipBucket = ref<'open' | 'completed' | null>(null)
-const tipBucketLoading = ref(false)
-const tipBucketRows = ref<Recommendation[]>([])
-const calendarMonth = ref('')
-const calendarData = ref<{
-  month: string
-  observations: Array<{ id: string; loggedAt: string; tiles: string[] }>
-  recommendations: Recommendation[]
-} | null>(null)
 const analysis = ref<{
   stats: Record<string, number>
   subjects: Subject[]
   insights: Array<{ key: string; label: string }>
   recentObservations: Array<{ id: string; loggedAt: string; tiles: string[] }>
 } | null>(null)
+
+const {
+  insightKey,
+  insightLoading,
+  tipBucket,
+  tipBucketLoading,
+  tipBucketRows,
+  insightList,
+  activeInsight,
+  insightRecommendations,
+  openInsight,
+  closeInsight,
+  openTipBucket,
+  closeTipBucket,
+  clearOverlays,
+} = useAdvisoryAnalysis({
+  onError: (message) => {
+    error.value = message
+  },
+})
+
+const { calendarData, loadCalendar, shiftMonth } = useAdvisoryCalendar()
+
+/**
+ * Insight categories for the analysis tab, named by the `key` the server sends.
+ * Until that payload has loaded, the composable's own list stands in.
+ */
+const insightCategories = computed(() => {
+  const rows = analysis.value?.insights ?? []
+  if (rows.length === 0) return insightList.value
+  return rows.map((insight) => ({
+    key: insight.key as InsightKey,
+    label: resolveInsightLabel(insight.key, insight.label, {
+      t: (key: string) => t(key),
+      te: (key: string, locale?: string) => (locale ? te(key, locale) : te(key)),
+    }),
+  }))
+})
 
 const selectedSubject = computed(() => {
   const subjects = home.value?.subjects ?? []
@@ -174,76 +176,10 @@ watch(selectedSubjectId, () => {
   aboutOpen.value = false
 })
 
-function capitalizeWord(value: string) {
-  if (!value) return value
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()
-}
-
-function formatSubjectTitle(s: Subject) {
-  if (s.kind === 'crop') {
-    const plot = s.plotName || s.label.split('·').slice(1).join('·').trim()
-    return plot ? `${capitalizeWord(s.cropType)} · ${plot}` : capitalizeWord(s.cropType)
-  }
-  return s.label
-}
-
 function openSubject(id: string) {
   selectedSubjectId.value = id
   insightKey.value = null
   tab.value = 'home'
-}
-
-const insightList = computed(() => [
-  { key: 'weather' as const, label: t('advisory.insightWeather') },
-  { key: 'inputs' as const, label: t('advisory.insightInputs') },
-  { key: 'vaccination' as const, label: t('advisory.insightVax') },
-  { key: 'harvest' as const, label: t('advisory.insightHarvest') },
-])
-
-const activeInsight = computed(() => insightList.value.find((i) => i.key === insightKey.value) ?? null)
-
-const insightRecommendations = computed(() => insightTips.value)
-
-async function openInsight(key: 'weather' | 'inputs' | 'vaccination' | 'harvest') {
-  tipBucket.value = null
-  insightKey.value = key
-  insightLoading.value = true
-  insightTips.value = []
-  try {
-    const res = await api<{ tips: typeof insightTips.value }>(`/api/advisory/insights/${key}`)
-    insightTips.value = res.tips ?? []
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('advisory.loadError')
-  } finally {
-    insightLoading.value = false
-  }
-}
-
-function closeInsight() {
-  insightKey.value = null
-  insightTips.value = []
-}
-
-async function openTipBucket(bucket: 'open' | 'completed') {
-  tipBucket.value = bucket
-  insightKey.value = null
-  tipBucketLoading.value = true
-  tipBucketRows.value = []
-  try {
-    const res = await api<{ recommendations: Recommendation[] }>(
-      `/api/advisory/recommendations?bucket=${bucket}`,
-    )
-    tipBucketRows.value = res.recommendations ?? []
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('advisory.loadError')
-  } finally {
-    tipBucketLoading.value = false
-  }
-}
-
-function closeTipBucket() {
-  tipBucket.value = null
-  tipBucketRows.value = []
 }
 
 async function loadHome() {
@@ -259,17 +195,6 @@ async function loadHome() {
   } finally {
     loading.value = false
   }
-}
-
-async function loadCalendar() {
-  const q = calendarMonth.value ? `?month=${calendarMonth.value}` : ''
-  const data = await api<{
-    month: string
-    observations: Array<{ id: string; loggedAt: string; tiles: string[] }>
-    recommendations: Recommendation[]
-  }>(`/api/advisory/calendar${q}`)
-  calendarData.value = data
-  calendarMonth.value = data.month
 }
 
 async function loadAnalysis() {
@@ -322,17 +247,9 @@ async function saveTrack() {
   }
 }
 
-function shiftMonth(delta: number) {
-  const [y, m] = (calendarMonth.value || new Date().toISOString().slice(0, 7)).split('-').map(Number)
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
-  calendarMonth.value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
-  void loadCalendar()
-}
-
 watch(tab, async (v) => {
   if (v !== 'analysis') {
-    insightKey.value = null
-    tipBucket.value = null
+    clearOverlays()
   }
   if (v === 'calendar' && !calendarData.value) await loadCalendar()
   if (v === 'analysis' && !analysis.value) await loadAnalysis()
@@ -496,36 +413,12 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-else-if="tab === 'calendar'" class="mt-8 space-y-4">
-          <div class="flex items-center justify-between gap-3">
-            <button type="button" class="rounded-lg bg-slate-800 px-3 py-2 text-white" @click="shiftMonth(-1)">‹</button>
-            <p class="font-bold text-white">{{ calendarData?.month || '—' }}</p>
-            <button type="button" class="rounded-lg bg-slate-800 px-3 py-2 text-white" @click="shiftMonth(1)">›</button>
-          </div>
-          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-            <p class="text-sm text-slate-400 mb-3">{{ t('advisory.calendarHint') }}</p>
-            <ul class="space-y-2">
-              <li v-for="s in home.subjects" :key="s.id" class="text-sm text-slate-200 flex items-center gap-2">
-                <span
-                  class="inline-block h-2 flex-1 max-w-[40%] rounded-full"
-                  :class="s.kind === 'livestock' ? 'bg-farm-gold/80' : 'bg-farm-green/80'"
-                />
-                {{ s.label }}
-              </li>
-            </ul>
-            <h4 class="text-white font-semibold mt-6 mb-2">{{ t('advisory.monthLogs') }}</h4>
-            <ul v-if="calendarData?.observations?.length" class="space-y-2">
-              <li
-                v-for="o in calendarData.observations"
-                :key="o.id"
-                class="text-sm text-slate-300 border-b border-slate-800 pb-2"
-              >
-                {{ new Date(o.loggedAt).toLocaleDateString() }} — {{ o.tiles.join(', ') }}
-              </li>
-            </ul>
-            <p v-else class="text-slate-500 text-sm">{{ t('advisory.noLogs') }}</p>
-          </div>
-        </section>
+        <AdvisoryCalendarPanel
+          v-else-if="tab === 'calendar'"
+          :subjects="home.subjects"
+          :calendar-data="calendarData"
+          @shift-month="shiftMonth"
+        />
 
         <section v-else-if="tab === 'track'" class="mt-8">
           <div class="flex items-start justify-between gap-3">
@@ -579,148 +472,25 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-else class="mt-8 space-y-4">
-          <template v-if="tipBucket">
-            <button
-              type="button"
-              class="text-sm text-farm-green font-semibold hover:underline"
-              @click="closeTipBucket"
-            >
-              ← {{ t('advisory.tabs.analysis') }}
-            </button>
-            <h3 class="text-xl font-black text-white">
-              {{ tipBucket === 'open' ? t('advisory.statOpen') : t('advisory.statDone') }}
-            </h3>
-            <p v-if="tipBucketLoading" class="text-slate-400 text-sm">{{ t('advisory.loading') }}</p>
-            <p v-else-if="tipBucketRows.length === 0" class="text-slate-400 text-sm">
-              {{ tipBucket === 'open' ? t('advisory.openTipsEmpty') : t('advisory.completedTipsEmpty') }}
-            </p>
-            <ul v-else class="space-y-3">
-              <li
-                v-for="rec in tipBucketRows"
-                :key="rec.id"
-                class="rounded-2xl border border-slate-800 bg-slate-900 p-4"
-              >
-                <p class="text-white font-semibold">{{ rec.payload.happeningNow }}</p>
-                <p class="text-slate-300 text-sm mt-1">{{ rec.payload.whatNext }}</p>
-                <p v-if="rec.aiSummary" class="text-slate-400 text-sm mt-2">{{ rec.aiSummary }}</p>
-                <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
-                  <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
-                    <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
-                    <span v-else>{{ p.title }}</span>
-                  </li>
-                </ul>
-                <div v-if="tipBucket === 'open'" class="mt-3 flex flex-wrap gap-2">
-                  <button type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="setStatus(rec.id, 'accepted')">
-                    {{ t('advisory.accept') }}
-                  </button>
-                  <button type="button" class="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold text-white" @click="setStatus(rec.id, 'completed')">
-                    {{ t('advisory.complete') }}
-                  </button>
-                  <button type="button" class="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300" @click="setStatus(rec.id, 'ignored')">
-                    {{ t('advisory.ignore') }}
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </template>
-
-          <template v-else-if="insightKey && activeInsight">
-            <button
-              type="button"
-              class="text-sm text-farm-green font-semibold hover:underline"
-              @click="closeInsight"
-            >
-              ← {{ t('advisory.insights') }}
-            </button>
-            <h3 class="text-xl font-black text-white">{{ activeInsight.label }}</h3>
-            <p v-if="insightLoading" class="text-slate-400 text-sm">{{ t('advisory.loading') }}</p>
-            <p v-else-if="insightRecommendations.length === 0" class="text-slate-400 text-sm">
-              {{ t('advisory.insightEmpty') }}
-            </p>
-            <ul v-else class="space-y-3">
-              <li
-                v-for="rec in insightRecommendations"
-                :key="rec.id"
-                class="rounded-2xl border border-slate-800 bg-slate-900 p-4"
-              >
-                <p class="text-white font-semibold">{{ rec.happeningNow }}</p>
-                <p class="text-slate-300 text-sm mt-1">{{ rec.whatNext }}</p>
-                <ul v-if="rec.products?.length" class="mt-3 space-y-1">
-                  <li v-for="(p, i) in rec.products" :key="i" class="text-sm text-slate-200">
-                    <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
-                    <span v-else>{{ p.title }} <span class="text-slate-500">({{ t('advisory.suggestedArea') }})</span></span>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </template>
-
-          <template v-else>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                class="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:bg-slate-800/60 min-h-[44px] transition-colors"
-                @click="openTipBucket('open')"
-              >
-                <p class="text-xs text-slate-400">{{ t('advisory.statOpen') }}</p>
-                <p class="text-2xl font-black text-white mt-1">
-                  {{ (home.stats.pending || 0) + (home.stats.notified || 0) + (home.stats.accepted || 0) }}
-                </p>
-                <p class="text-slate-500 text-xs mt-2">{{ t('advisory.tapToView') }}</p>
-              </button>
-              <button
-                type="button"
-                class="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:bg-slate-800/60 min-h-[44px] transition-colors"
-                @click="openTipBucket('completed')"
-              >
-                <p class="text-xs text-slate-400">{{ t('advisory.statDone') }}</p>
-                <p class="text-2xl font-black text-white mt-1">{{ home.stats.completed || 0 }}</p>
-                <p class="text-slate-500 text-xs mt-2">{{ t('advisory.tapToView') }}</p>
-              </button>
-            </div>
-            <div>
-              <h3 class="text-white font-bold mb-2">{{ t('advisory.insights') }}</h3>
-              <ul class="divide-y divide-slate-800 rounded-2xl border border-slate-800 bg-slate-900">
-                <li v-for="insight in insightList" :key="insight.key">
-                  <button
-                    type="button"
-                    class="w-full px-4 py-3 text-slate-200 flex justify-between items-center text-left hover:bg-slate-800/60 min-h-[44px]"
-                    @click="openInsight(insight.key)"
-                  >
-                    <span>{{ insight.label }}</span>
-                    <span class="text-slate-500" aria-hidden="true">›</span>
-                  </button>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 class="text-white font-bold mb-2">{{ t('advisory.activeCycles') }}</h3>
-              <p class="text-slate-500 text-xs mb-2">{{ t('advisory.activeCyclesHint') }}</p>
-              <ul class="divide-y divide-slate-800 rounded-2xl border border-slate-800 bg-slate-900">
-                <li v-for="s in home.subjects" :key="s.id">
-                  <button
-                    type="button"
-                    class="w-full px-4 py-3 text-left flex justify-between items-center gap-3 hover:bg-slate-800/60 min-h-[44px]"
-                    @click="openSubject(s.id)"
-                  >
-                    <span class="min-w-0">
-                      <span class="text-slate-100 font-medium">{{ formatSubjectTitle(s) }}</span>
-                      <span class="text-slate-500 text-sm block sm:inline sm:ml-2">
-                        {{
-                          s.kind === 'crop'
-                            ? t('advisory.stageDay', { n: s.dayInStage })
-                            : t('advisory.day', { n: s.dayInCycle })
-                        }}
-                      </span>
-                    </span>
-                    <span class="text-slate-500 shrink-0" aria-hidden="true">›</span>
-                  </button>
-                </li>
-              </ul>
-            </div>
-          </template>
-        </section>
+        <AdvisoryAnalysisPanel
+          v-else
+          :stats="home.stats"
+          :subjects="home.subjects"
+          :tip-bucket="tipBucket"
+          :tip-bucket-loading="tipBucketLoading"
+          :tip-bucket-rows="tipBucketRows"
+          :insight-key="insightKey"
+          :insight-loading="insightLoading"
+          :insight-recommendations="insightRecommendations"
+          :insight-list="insightCategories"
+          :active-insight="activeInsight"
+          @open-tip-bucket="openTipBucket"
+          @close-tip-bucket="closeTipBucket"
+          @open-insight="openInsight"
+          @close-insight="closeInsight"
+          @open-subject="openSubject"
+          @set-status="setStatus"
+        />
       </template>
     </div>
   </AppLayout>

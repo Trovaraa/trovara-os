@@ -7,6 +7,8 @@ import { orderReference } from './customer-cart.js'
 import { recordFarmEvent } from './farm-events.js'
 import { notifyOrderAlertStaff, notifyOrderAlertStaffTelegram } from './farm-notify.js'
 import { canTransitionOrder, type OrderStatus } from './state-machines.js'
+import { toCanonicalEnglish } from './content-locale.js'
+import { mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 import { sendTelegramMessage } from './telegram.js'
 import { isWhatsAppConfigured, isWhatsAppCustomerConfigured, sendWhatsAppText } from './whatsapp-meta.js'
 import {
@@ -77,7 +79,7 @@ export async function setUserPreferredLocale(
 ): Promise<void> {
   await db
     .update(users)
-    .set({ preferredLocale: locale })
+    .set({ preferredLocale: locale, preferredLocaleSetAt: new Date() })
     .where(eq(users.id, userId))
 }
 
@@ -270,6 +272,34 @@ export async function transitionOrder(params: {
   return { ok: true, order }
 }
 
+/**
+ * Normalize a customer's feedback to English for storage.
+ *
+ * The author is a customer, not a staff member: `customer_contacts` carries no
+ * language preference and neither chat bot passes one in, so there is no hint to
+ * give and the language is detected from the text itself. A literal 'en' would
+ * short-circuit `toCanonicalEnglish` and store French, Yoruba or Pidgin labelled
+ * 'done', and the retry job only ever revisits rows left 'pending'.
+ */
+async function canonicalFeedback(
+  text: string,
+  farmId: string,
+): Promise<{ english: string; locale: ContentLocaleMeta }> {
+  try {
+    const result = await toCanonicalEnglish({ text, farmId, sourceLocale: null })
+    return {
+      english: result.english,
+      locale: { sourceLocale: result.sourceLocale, translationStatus: result.status },
+    }
+  } catch {
+    // A degraded translator must never lose a customer's feedback: their own
+    // words are stored at 'pending' for the retry job. The locale stays null
+    // because the translator threw before it could establish one, and a pending
+    // row claiming 'en' is one the retry job short-circuits back to 'done'.
+    return { english: text, locale: { sourceLocale: null, translationStatus: 'pending' } }
+  }
+}
+
 export async function recordCustomerFeedback(params: {
   farmId: string
   contactId: string
@@ -295,12 +325,18 @@ export async function recordCustomerFeedback(params: {
 
   if (!order) return { handled: false }
 
+  const canonical = await canonicalFeedback(feedback, params.farmId)
+
   await db
     .update(orders)
     .set({
-      customerFeedback: feedback.slice(0, 2000),
+      customerFeedback: canonical.english,
       customerFeedbackAt: new Date(),
       updatedAt: new Date(),
+      // One locale pair covers both `notes` and `customer_feedback`, so feedback
+      // that is not English yet escalates the row to 'pending'; a row the retry
+      // job still owes work on is left exactly as it is.
+      ...mergeContentLocale(order, canonical.locale),
     })
     .where(eq(orders.id, order.id))
 
@@ -310,7 +346,9 @@ export async function recordCustomerFeedback(params: {
     entityId: order.id,
     eventType: 'other',
     source: 'customer',
-    afterValue: { feedback: feedback.slice(0, 500) },
+    // Snapshot of the column as it was written, so the event log stays in step
+    // with the row rather than keeping a second copy in another language.
+    afterValue: { feedback: canonical.english.slice(0, 500) },
     metadata: { kind: 'customer_feedback' },
   })
 
@@ -320,6 +358,8 @@ export async function recordCustomerFeedback(params: {
       locale: staffLocale(recipient.preferredLocale),
       reference,
       customerName: order.customerName,
+      // The alert quotes the customer verbatim, in the words they actually
+      // sent; the stored row is the English record of it.
       feedback: feedback.slice(0, 400),
     })
 

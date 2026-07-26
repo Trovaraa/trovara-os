@@ -2,41 +2,16 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import TraceabilityEditModal from '@/components/traceability/TraceabilityEditModal.vue'
+import TraceabilityLotsTable from '@/components/traceability/TraceabilityLotsTable.vue'
+import type { TraceabilityLot, TraceabilityPlotOption } from '@/components/traceability/types'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 
-type HarvestLot = {
-  id: string
-  farmSlug: string
-  lotCode: string
-  publicToken?: string
-  plotId?: string | null
-  plotName?: string | null
-  zoneName?: string | null
-  productName: string
-  quantityKg: number
-  unit?: string
-  harvestedAt: string
-  createdAt: string
-  publicNotes?: string | null
-  internalNotes?: string | null
-  photoUrl?: string | null
-  verificationStatus: string
-  reportedByName?: string | null
-  verifiedByName?: string | null
-  verifiedAt?: string | null
-  orderId?: string | null
-  orderReference?: string | null
-  orderSource?: string | null
-}
-
-type PlotOption = {
-  id: string
-  name: string
-  zoneName?: string | null
-}
+type HarvestLot = TraceabilityLot
+type PlotOption = TraceabilityPlotOption
 
 const auth = useAuthStore()
 const isOwner = computed(() => auth.isOwner)
@@ -431,260 +406,43 @@ async function exportAudit() {
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('trace.loading') }}</div>
 
-    <div v-else class="mt-8 overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">{{ t('trace.lotCode') }}</th>
-            <th class="pb-3 font-semibold">Order</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thProduct') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thPlot') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thQuantity') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thHarvested') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thStatus') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thPublicLink') }}</th>
-            <th v-if="canPrintQr" class="pb-3 font-semibold">{{ t('trace.thQr') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thNotes') }}</th>
-            <th class="pb-3 font-semibold">{{ t('trace.thActions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="lot in lots"
-            :key="lot.id"
-            class="border-b border-slate-800/50"
-            :class="needsPack(lot) ? 'bg-amber-500/5' : ''"
-          >
-            <td class="py-4 font-mono font-bold text-farm-gold">{{ lot.lotCode }}</td>
-            <td class="py-4 text-xs text-slate-400">
-              <span v-if="lot.orderReference" class="font-mono text-slate-300">{{ lot.orderReference }}</span>
-              <span v-else>-</span>
-              <span v-if="lot.orderSource" class="block text-[10px] text-slate-500">{{ lot.orderSource }}</span>
-            </td>
-            <td class="py-4 text-white">{{ lot.productName }}</td>
-            <td class="py-4 text-slate-400">
-              <span v-if="lot.zoneName">{{ lot.zoneName }} / </span>{{ lot.plotName ?? '-' }}
-            </td>
-            <td class="py-4 font-mono text-slate-300">{{ qtyLabel(lot) }}</td>
-            <td class="py-4 text-slate-400">
-              {{ new Date(lot.harvestedAt).toLocaleDateString() }}
-            </td>
-            <td class="py-4">
-              <span
-                class="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
-                :class="statusMeta(lot.verificationStatus).cls"
-              >
-                {{ statusMeta(lot.verificationStatus).label }}
-              </span>
-              <p v-if="needsPack(lot)" class="text-[10px] text-amber-300 mt-1">Needs pack details</p>
-              <p v-if="lot.reportedByName" class="text-[10px] text-slate-500 mt-1">
-                {{ t('trace.by') }} {{ lot.reportedByName }}
-              </p>
-            </td>
-            <td class="py-4">
-              <a
-                v-if="lot.verificationStatus === 'verified'"
-                :href="publicLotUrl(lot)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-xs font-mono text-farm-green hover:underline break-all"
-              >
-                {{ publicLotUrl(lot) }}
-              </a>
-              <span v-else class="text-xs text-slate-600">{{ t('trace.notPublicYet') }}</span>
-            </td>
-            <td v-if="canPrintQr" class="py-4">
-              <div class="flex flex-col gap-2 items-start">
-                <a
-                  :href="`/api/traceability/${lot.id}/label.html?autoprint=1`"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
-                >
-                  {{ t('trace.printQr') }}
-                </a>
-                <button
-                  type="button"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  :disabled="loadingQrFor === lot.id"
-                  @click="fetchQr(lot.id)"
-                >
-                  {{ loadingQrFor === lot.id ? t('trace.loadingShort') : qrByLotId[lot.id] ? t('trace.refreshQr') : t('trace.showQr') }}
-                </button>
-              </div>
-              <div v-if="qrByLotId[lot.id]" class="mt-2 space-y-1">
-                <img
-                  :src="qrByLotId[lot.id].imgUrl"
-                  :alt="t('trace.lotQrAlt')"
-                  class="rounded border border-slate-800 bg-white p-2 h-32 w-32"
-                />
-                <a
-                  :href="qrByLotId[lot.id].url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="block text-[10px] text-farm-green hover:underline break-all"
-                >
-                  {{ qrByLotId[lot.id].url }}
-                </a>
-              </div>
-            </td>
-            <td class="py-4 text-xs text-slate-400">
-              <p><span class="text-slate-500">{{ t('trace.publicLabel') }}</span> {{ lot.publicNotes || '-' }}</p>
-              <p class="mt-1"><span class="text-slate-500">{{ t('trace.internalLabel') }}</span> {{ lot.internalNotes || '-' }}</p>
-            </td>
-            <td class="py-4">
-              <div class="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
-                  @click="openEdit(lot)"
-                >
-                  {{ needsPack(lot) ? 'Complete pack' : 'Update lot' }}
-                </button>
-                <template v-if="canManage && lot.verificationStatus === 'reported'">
-                  <button
-                    type="button"
-                    :disabled="verifyingId === lot.id"
-                    class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30 disabled:opacity-50"
-                    @click="verifyLot(lot, 'verified')"
-                  >
-                    {{ t('trace.verify') }}
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="verifyingId === lot.id"
-                    class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 disabled:opacity-50"
-                    @click="verifyLot(lot, 'rejected')"
-                  >
-                    {{ t('trace.reject') }}
-                  </button>
-                </template>
-                <button
-                  v-if="canManage"
-                  type="button"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  @click="openTimeline(lot)"
-                >
-                  {{ t('trace.timeline') }}
-                </button>
-                <a
-                  v-if="canPrintQr"
-                  :href="`/api/traceability/${lot.id}/label.html?autoprint=1`"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
-                >
-                  {{ t('trace.printQr') }}
-                </a>
-                <a
-                  v-if="isOwner"
-                  :href="`/api/traceability/${lot.id}/certificate.html`"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
-                >
-                  {{ t('trace.downloadCert') }}
-                </a>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!lots.length" class="text-slate-500 text-sm mt-4">{{ t('trace.noLots') }}</p>
-    </div>
+    <TraceabilityLotsTable
+      v-else
+      :lots="lots"
+      :can-print-qr="canPrintQr"
+      :can-manage="canManage"
+      :is-owner="isOwner"
+      :verifying-id="verifyingId"
+      :loading-qr-for="loadingQrFor"
+      :qr-by-lot-id="qrByLotId"
+      :needs-pack="needsPack"
+      :qty-label="qtyLabel"
+      :status-meta="statusMeta"
+      :public-lot-url="publicLotUrl"
+      @edit="openEdit"
+      @verify="verifyLot"
+      @timeline="openTimeline"
+      @fetch-qr="fetchQr"
+    />
 
-    <div
+    <TraceabilityEditModal
       v-if="editing"
-      class="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-4"
-      @click.self="closeEdit"
-    >
-      <div class="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-3">
-        <h3 class="text-white font-bold">Update lot · {{ editing.lotCode }}</h3>
-        <p v-if="editing.orderReference" class="text-xs text-slate-400 font-mono">
-          Order {{ editing.orderReference }}
-          <span v-if="editing.orderSource">({{ editing.orderSource }})</span>
-        </p>
-        <input
-          v-model="editProductName"
-          type="text"
-          required
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          placeholder="Product"
-        />
-        <div class="grid grid-cols-2 gap-3">
-          <input
-            v-model.number="editQuantityKg"
-            type="number"
-            min="1"
-            step="1"
-            required
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            placeholder="Quantity"
-          />
-          <select
-            v-model="editUnit"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          >
-            <option value="kg">kg</option>
-            <option value="crates">crates</option>
-          </select>
-        </div>
-        <select
-          v-model="editPlotId"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-        >
-          <option value="">Plot / block (optional)</option>
-          <option v-for="p in plots" :key="p.id" :value="p.id">
-            {{ p.zoneName ? `${p.zoneName} / ` : '' }}{{ p.name }}
-          </option>
-        </select>
-        <textarea
-          v-model="editPublicNotes"
-          rows="2"
-          maxlength="1000"
-          :placeholder="t('trace.publicNotesPlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
-        />
-        <textarea
-          v-if="canManage"
-          v-model="editInternalNotes"
-          rows="2"
-          maxlength="1000"
-          :placeholder="t('trace.internalNotesPlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
-        />
-        <label class="block">
-          <span class="text-xs text-slate-400">{{ t('trace.photoEvidence') }}</span>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            class="mt-1 w-full text-xs text-slate-400"
-            @change="onEditPhotoChange"
-          />
-          <p v-if="editing.photoUrl && !editPhoto" class="text-[10px] text-slate-500 mt-1">Photo already attached</p>
-        </label>
-        <p v-if="editError" class="text-xs text-red-400">{{ editError }}</p>
-        <div class="flex gap-2 justify-end">
-          <button
-            type="button"
-            class="text-sm px-4 py-2 rounded-lg bg-slate-800 text-slate-300"
-            :disabled="savingEdit"
-            @click="closeEdit"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="text-sm px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green font-semibold disabled:opacity-50"
-            :disabled="savingEdit"
-            @click="saveEdit"
-          >
-            {{ savingEdit ? 'Saving…' : 'Save' }}
-          </button>
-        </div>
-      </div>
-    </div>
+      v-model:edit-product-name="editProductName"
+      v-model:edit-quantity-kg="editQuantityKg"
+      v-model:edit-unit="editUnit"
+      v-model:edit-plot-id="editPlotId"
+      v-model:edit-public-notes="editPublicNotes"
+      v-model:edit-internal-notes="editInternalNotes"
+      :editing="editing"
+      :plots="plots"
+      :can-manage="canManage"
+      :edit-photo="editPhoto"
+      :saving-edit="savingEdit"
+      :edit-error="editError"
+      @close="closeEdit"
+      @save="saveEdit"
+      @photo-change="onEditPhotoChange"
+    />
 
     <div
       v-if="timelineFor"

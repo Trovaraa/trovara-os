@@ -22,6 +22,128 @@ import type { TaskStatus } from '../db/schema.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { processEvidenceValue, validateEvidenceRef } from '../lib/evidence-store.js'
 import { notifyTaskSubmittedForApproval } from '../lib/farm-notify.js'
+import {
+  authorLocaleForUserId,
+  authorLocaleHint,
+  toCanonicalEnglish,
+  toViewerLocaleMany,
+} from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+
+/**
+ * Task prose. Everything else on a task row is an id, enum, name, URL,
+ * coordinate or timestamp and is never translated. `actionPayload` is
+ * structured action data (crop enums, `systemTemplateKey`, plot ids), not
+ * prose, so it is stored and returned verbatim.
+ */
+const TASK_TEXT_FIELDS = ['title', 'description', 'completionNote', 'rejectionReason'] as const
+type TaskTextField = (typeof TASK_TEXT_FIELDS)[number]
+
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return row?.preferredLocale ?? null
+}
+
+type CanonicalFields = {
+  text: Partial<Record<TaskTextField, string>>
+  sourceLocale: string | null
+  translationStatus: 'done' | 'pending'
+}
+
+/**
+ * Normalize a task's free text to English for storage.
+ *
+ * Each field is its own column, so they are translated as concurrent calls
+ * rather than one merged prompt: a create with a title and a description costs
+ * one round trip of latency instead of two, and neither field can bleed into
+ * the other's column. `translation_status` is per row, so a single pending
+ * field leaves the whole row pending for the retry job.
+ */
+async function toCanonicalFields(
+  fields: Partial<Record<TaskTextField, string | null | undefined>>,
+  farmId: string,
+  sourceLocale: string | null,
+): Promise<CanonicalFields> {
+  const entries = Object.entries(fields).filter(
+    (entry): entry is [TaskTextField, string] =>
+      typeof entry[1] === 'string' && entry[1].trim() !== '',
+  )
+  if (entries.length === 0) return { text: {}, sourceLocale, translationStatus: 'done' }
+
+  let results
+  try {
+    results = await Promise.all(
+      entries.map(([, text]) => toCanonicalEnglish({ text, farmId, sourceLocale })),
+    )
+  } catch {
+    // A translation failure must never fail the write. The service swallows LLM
+    // errors itself, so reaching here means something around it threw and the
+    // task still has to be saved. `sourceLocale` is already `authorLocaleHint`
+    // output — null or a real non-English locale, never a bare 'en'.
+    return {
+      text: Object.fromEntries(entries) as Partial<Record<TaskTextField, string>>,
+      sourceLocale,
+      translationStatus: 'pending',
+    }
+  }
+
+  const text: Partial<Record<TaskTextField, string>> = {}
+  let pending = false
+  let resolvedLocale: string | null = null
+  entries.forEach(([field], index) => {
+    const result = results[index]
+    text[field] = result.english
+    if (result.status === 'pending') pending = true
+    // One column for the whole row: a non-English locale is the informative one.
+    if (!resolvedLocale || resolvedLocale === 'en') resolvedLocale = result.sourceLocale
+  })
+
+  return { text, sourceLocale: resolvedLocale, translationStatus: pending ? 'pending' : 'done' }
+}
+
+/**
+ * Render task prose in the viewer's language with ONE batched translation call
+ * per response: every string across every row is collected first, translated
+ * together (the service deduplicates and reads its cache in a single query),
+ * then mapped back by position. An English viewer short-circuits before any of
+ * this work.
+ */
+async function localizeRows<T extends object>(
+  rows: T[],
+  fields: readonly (keyof T & string)[],
+  farmId: string,
+  targetLocale: string | null,
+): Promise<T[]> {
+  if (resolveStaffReplyLocale(targetLocale) === 'en') return rows
+  if (rows.length === 0 || fields.length === 0) return rows
+
+  const texts: string[] = []
+  for (const row of rows) {
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') texts.push(value)
+    }
+  }
+  if (texts.length === 0) return rows
+
+  const translated = await toViewerLocaleMany({ texts, targetLocale, farmId })
+
+  let cursor = 0
+  return rows.map((row) => {
+    const out = { ...row }
+    for (const field of fields) {
+      const value = row[field]
+      if (typeof value === 'string' && value !== '') {
+        ;(out as Record<string, unknown>)[field] = translated[cursor++]
+      }
+    }
+    return out
+  })
+}
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -132,19 +254,27 @@ taskRoutes.get('/', async (c) => {
     usageByTask.set(usage.taskId, list)
   }
 
-  return c.json({
-    tasks: filtered.map((task) => {
-      const row = {
-        ...task,
-        consumptions: usageByTask.get(task.id) ?? [],
-      }
-      // Defense in depth: field workers must never see other workers' evidence.
-      if (user.role === 'field_worker' && task.assignedToId !== user.id) {
-        return { ...row, photoUrl: null, voiceUrl: null, completionNote: null }
-      }
-      return row
-    }),
+  type TaskListRow = (typeof filtered)[number] & {
+    consumptions: { itemId: string; quantity: number }[]
+  }
+
+  // Masking runs before localization so hidden text is never sent for translation.
+  const shaped: TaskListRow[] = filtered.map((task) => {
+    const row = {
+      ...task,
+      consumptions: usageByTask.get(task.id) ?? [],
+    }
+    // Defense in depth: field workers must never see other workers' evidence.
+    if (user.role === 'field_worker' && task.assignedToId !== user.id) {
+      return { ...row, photoUrl: null, voiceUrl: null, completionNote: null }
+    }
+    return row
   })
+
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(shaped, TASK_TEXT_FIELDS, user.farmId, viewerLocale)
+
+  return c.json({ tasks: localized })
 })
 
 taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
@@ -187,12 +317,21 @@ taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
     }
   }
 
+  const authorLocale = await authorLocaleForUserId(user.id)
+  const canonical = await toCanonicalFields(
+    { title: body.title, description: body.description },
+    user.farmId,
+    authorLocale,
+  )
+
   const [task] = await db
     .insert(tasks)
     .values({
       farmId: user.farmId,
-      title: body.title,
-      description: body.description,
+      title: canonical.text.title ?? body.title,
+      description: canonical.text.description ?? body.description,
+      sourceLocale: canonical.sourceLocale,
+      translationStatus: canonical.translationStatus,
       plotId: body.plotId,
       assignedToId: body.assignedToId,
       templateId: body.templateId,
@@ -212,7 +351,17 @@ taskRoutes.post('/', zValidator('json', createTaskSchema), async (c) => {
     entityId: task.id,
   })
 
-  return c.json({ task }, 201)
+  // The author reads back their own words; the row holds the English.
+  return c.json(
+    {
+      task: {
+        ...task,
+        title: body.title,
+        description: body.description ?? task.description,
+      },
+    },
+    201,
+  )
 })
 
 taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
@@ -251,11 +400,33 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
     }
   }
 
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const authorLocale = authorLocaleHint(viewerLocale)
+  const canonical = await toCanonicalFields(
+    { completionNote: body.completionNote, rejectionReason: body.rejectionReason },
+    user.farmId,
+    authorLocale,
+  )
+  // Length and presence checks above validate the author's own words; every
+  // write below stores the canonical English.
+  const completionNote = canonical.text.completionNote ?? body.completionNote
+  const rejectionReason = canonical.text.rejectionReason ?? body.rejectionReason
+
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
+
+  if (Object.keys(canonical.text).length > 0) {
+    // Never downgrade a row the retry job still owes work on, and keep it
+    // labelled with the locale of the text that failed: `source_locale` is the
+    // hint that retry uses.
+    if (existing.translationStatus === 'done' || canonical.translationStatus === 'pending') {
+      updates.sourceLocale = canonical.sourceLocale ?? existing.sourceLocale
+    }
+    if (canonical.translationStatus === 'pending') updates.translationStatus = 'pending'
+  }
 
   if (body.completionNote !== undefined) {
     if (user.role === 'field_worker' || canAssignTasks(user)) {
-      updates.completionNote = body.completionNote
+      updates.completionNote = completionNote
     }
   }
 
@@ -331,13 +502,13 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
       updates.approvedById = user.id
       if (body.status === 'completed') updates.completedAt = new Date()
       if (body.status === 'completed') updates.rejectionReason = null
-      if (body.status === 'rejected') updates.rejectionReason = body.rejectionReason
+      if (body.status === 'rejected') updates.rejectionReason = rejectionReason
     }
 
     if (reopeningCompletedTask) {
       updates.completedAt = null
       updates.approvedById = null
-      updates.rejectionReason = body.rejectionReason
+      updates.rejectionReason = rejectionReason
     }
   }
 
@@ -470,7 +641,7 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
       taskId: task.id,
       taskTitle: task.title,
       workerName: user.name,
-      note: body.completionNote ?? task.completionNote,
+      note: completionNote ?? task.completionNote,
       actorUserId: user.id,
     }).catch(() => undefined)
   }
@@ -485,12 +656,28 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
       metadata: {
         fromStatus: existing.status,
         toStatus: task.status,
-        reason: body.rejectionReason,
+        reason: rejectionReason,
       },
     })
   }
 
-  return c.json({ task })
+  // Text this author just wrote is echoed in their own words (no round trip);
+  // the rest of the row is canonical English rendered for the viewer.
+  const echo: Partial<Record<TaskTextField, string>> = {}
+  if (typeof updates.completionNote === 'string' && body.completionNote) {
+    echo.completionNote = body.completionNote
+  }
+  if (typeof updates.rejectionReason === 'string' && body.rejectionReason) {
+    echo.rejectionReason = body.rejectionReason
+  }
+  const [localized] = await localizeRows(
+    [task],
+    TASK_TEXT_FIELDS.filter((field) => !(field in echo)),
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({ task: { ...localized, ...echo } })
 })
 
 taskRoutes.get('/pending-approvals', async (c) => {
@@ -508,7 +695,10 @@ taskRoutes.get('/pending-approvals', async (c) => {
     )
     .orderBy(desc(tasks.updatedAt))
 
-  return c.json({ tasks: rows })
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const localized = await localizeRows(rows, TASK_TEXT_FIELDS, user.farmId, viewerLocale)
+
+  return c.json({ tasks: localized })
 })
 
 taskRoutes.get('/post-approval-changes', async (c) => {
@@ -554,5 +744,24 @@ taskRoutes.get('/post-approval-changes', async (c) => {
     }
   })
 
-  return c.json({ changes })
+  // The task title and the reopen reason are the only prose here; statuses,
+  // ids, timestamps and staff names stay as they are.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  const prose = await localizeRows(
+    changes.map((change) => ({
+      taskTitle: change.taskTitle,
+      reason: typeof change.after.reason === 'string' ? change.after.reason : '',
+    })),
+    ['taskTitle', 'reason'],
+    user.farmId,
+    viewerLocale,
+  )
+
+  return c.json({
+    changes: changes.map((change, index) => ({
+      ...change,
+      taskTitle: prose[index].taskTitle,
+      after: { ...change.after, reason: prose[index].reason || change.after.reason },
+    })),
+  })
 })

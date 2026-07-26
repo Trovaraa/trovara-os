@@ -8,9 +8,11 @@ import {
 } from '../db/schema.js'
 import { logAudit } from './audit.js'
 import { payableMinutes } from './attendance-calculations.js'
+import { authorLocaleHint, toCanonicalEnglish } from './content-locale.js'
 import { notifyWorkerClockIn } from './farm-notify.js'
 import { canApproveTasks } from './rbac.js'
 import type { SessionUser } from './session.js'
+import { contentLocaleValues, mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 
 export type AttendanceAllocationInput = {
   plotId?: string | null
@@ -26,6 +28,62 @@ export type AttendanceCorrectionInput = AttendanceAllocationInput & {
 
 function cleanNotes(notes: string | null | undefined): string | null {
   return notes?.trim() || null
+}
+
+/**
+ * `notes` is the only prose on an attendance row — what the worker typed on
+ * their way into the field, or what the supervisor typed when correcting them.
+ * Everything else is an id, a timestamp or the wage snapshot in naira.
+ */
+type CanonicalNotes = {
+  text: string | null
+  locale: ContentLocaleMeta
+}
+
+const NOTHING_TO_NORMALIZE: CanonicalNotes = {
+  text: null,
+  locale: { sourceLocale: null, translationStatus: 'done' },
+}
+
+/**
+ * Normalize an attendance note to English for storage.
+ *
+ * A degraded translator yields the author's own words at status 'pending' so the
+ * retry job repairs the row later: `attendance_sessions` sits at the 'done'
+ * default, and a row that claims 'done' while holding Yoruba is never swept
+ * again. The recorded locale is whatever the hint established and never 'en' —
+ * `authorLocaleHint` has already dropped that — because a pending row claiming
+ * English is one the retry job short-circuits straight back to 'done'.
+ */
+async function canonicalNotes(
+  notes: string | null,
+  farmId: string,
+  hint: string | null,
+): Promise<CanonicalNotes> {
+  if (!notes) return NOTHING_TO_NORMALIZE
+  try {
+    const result = await toCanonicalEnglish({ text: notes, farmId, sourceLocale: hint })
+    return {
+      text: result.english,
+      locale: { sourceLocale: result.sourceLocale, translationStatus: result.status },
+    }
+  } catch {
+    // A translation failure must never fail a clock-in or a correction.
+    return { text: notes, locale: { sourceLocale: hint, translationStatus: 'pending' } }
+  }
+}
+
+/**
+ * Locale hint for the author of a note. Everyone starts on the default 'en'
+ * preference, so `authorLocaleHint` turns that into "detect it from the text".
+ */
+async function authorHint(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return authorLocaleHint(row?.preferredLocale)
 }
 
 async function validateAllocation(
@@ -77,14 +135,22 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     .limit(1)
   if (existing) return { session: existing, idempotent: true }
 
-  const [{ monthlyWageNgn }] = await db
-    .select({ monthlyWageNgn: users.monthlyWageNgn })
+  // The worker's language preference rides along with the wage read, so a
+  // clock-in still costs one profile query.
+  const [{ monthlyWageNgn, preferredLocale }] = await db
+    .select({ monthlyWageNgn: users.monthlyWageNgn, preferredLocale: users.preferredLocale })
     .from(users)
     .where(and(eq(users.id, user.id), eq(users.farmId, user.farmId)))
     .limit(1)
   if (monthlyWageNgn == null) throw new Error('WAGE_NOT_SET')
 
   const allocation = await validateAllocation(user, input)
+  const typedNotes = cleanNotes(input.notes)
+  const canonical = await canonicalNotes(
+    typedNotes,
+    user.farmId,
+    authorLocaleHint(preferredLocale),
+  )
   let session
   try {
     ;[session] = await db
@@ -94,7 +160,8 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
         userId: user.id,
         monthlyWageSnapshotNgn: monthlyWageNgn,
         ...allocation,
-        notes: cleanNotes(input.notes),
+        notes: canonical.text,
+        ...contentLocaleValues(canonical.locale),
       })
       .returning()
   } catch (error) {
@@ -130,7 +197,9 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     notes: session.notes,
   }).catch(() => undefined)
 
-  return { session, idempotent: false }
+  // The worker reads their own note back in their own words; the row holds the
+  // English.
+  return { session: { ...session, notes: typedNotes ?? session.notes }, idempotent: false }
 }
 
 export async function clockOut(user: SessionUser) {
@@ -264,6 +333,13 @@ export async function supervisorCorrect(
         : new Date(input.clockOutAt)
   if (clockOutAt && clockOutAt < clockInAt) throw new Error('INVALID_TIME_RANGE')
 
+  const typedNotes = input.notes === undefined ? undefined : cleanNotes(input.notes)
+  // Only a correction that actually carries text needs a locale lookup or a
+  // translator: fixing the times, or clearing the note, needs neither.
+  const canonical = typedNotes
+    ? await canonicalNotes(typedNotes, user.farmId, await authorHint(user.id))
+    : null
+
   const [session] = await db
     .update(attendanceSessions)
     .set({
@@ -272,7 +348,11 @@ export async function supervisorCorrect(
       monthlyWageSnapshotNgn:
         input.monthlyWageSnapshotNgn ?? existing.monthlyWageSnapshotNgn,
       ...allocation,
-      notes: input.notes === undefined ? existing.notes : cleanNotes(input.notes),
+      notes: typedNotes === undefined ? existing.notes : (canonical?.text ?? null),
+      // The supervisor's note replaces the worker's, so a note that is not
+      // English yet escalates the row to 'pending'; a row the retry job still
+      // owes work on is left exactly as it is.
+      ...(canonical ? mergeContentLocale(existing, canonical.locale) : {}),
       correctedById: user.id,
       correctedAt: new Date(),
     })
@@ -304,5 +384,8 @@ export async function supervisorCorrect(
       },
     },
   })
-  return session
+
+  // The supervisor reads their own note back in their own words; the row and the
+  // audit trail hold the English.
+  return typedNotes === undefined ? session : { ...session, notes: typedNotes }
 }

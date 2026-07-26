@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
   integer,
+  numeric,
   pgEnum,
   jsonb,
   boolean,
@@ -80,7 +81,7 @@ export const farmEventTypeEnum = pgEnum('farm_event_type', [
   'incident',
   'other',
 ])
-export const poultryBatchTypeEnum = pgEnum('poultry_batch_type', ['broiler', 'layer', 'pullet', 'other'])
+export const poultryBatchTypeEnum = pgEnum('poultry_batch_type', ['noiler', 'layer', 'pullet', 'other'])
 export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
   'draft',
   'approved',
@@ -89,6 +90,21 @@ export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
   'received',
   'cancelled',
 ])
+
+/**
+ * Free-text columns are stored in canonical English. `translation_status`
+ * tracks rows whose write happened while the LLM was unavailable: they hold
+ * the author's original text until the retry job replaces it with English.
+ * `translation_attempts` counts retry-job LLM tries so give-up does not depend
+ * on a fragile updatedAt / createdAt heuristic.
+ */
+export const translationStatusEnum = pgEnum('translation_status', ['done', 'pending', 'failed'])
+/**
+ * Who authored a piece of agronomy: a model working from the species the farmer
+ * entered, or a person on the farm. Anything 'manual' is never regenerated over
+ * — the farmer knows their birds better than the generator does.
+ */
+export const agronomySourceEnum = pgEnum('agronomy_source', ['generated', 'manual'])
 
 export const farms = pgTable('farms', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -145,6 +161,19 @@ export const users = pgTable(
     butlerTtsMode: butlerTtsModeEnum('butler_tts_mode').default('voice_replies').notNull(),
     /** Staff butler reply language: en | yo | pcm | fr */
     preferredLocale: text('preferred_locale').default('en').notNull(),
+    /**
+     * When the worker picked `preferred_locale` themselves. Null means they never
+     * answered and the column is still holding its 'en' default.
+     *
+     * Note this does NOT make an 'en' preference trustworthy as a source-language
+     * hint — see `authorLocaleHint`. It exists to find the workers who never
+     * answered, because those are the ones whose writes fall back to guessing.
+     */
+    preferredLocaleSetAt: timestamp('preferred_locale_set_at', { withTimezone: true }),
+    /** Last time Butler asked them to pick a language, to re-ask at most daily. */
+    preferredLocalePromptedAt: timestamp('preferred_locale_prompted_at', {
+      withTimezone: true,
+    }),
     /**
      * Owner-only opt-in for customer order alerts (new order, feedback, etc.).
      * Supervisor and sales always receive those alerts; field workers never do.
@@ -204,6 +233,9 @@ export const taskTemplates = pgTable(
     actionType: text('action_type'),
     systemTemplateKey: text('system_template_key'),
     defaultPayload: jsonb('default_payload').$type<Record<string, unknown>>(),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
@@ -243,6 +275,9 @@ export const zones = pgTable('zones', {
   farmId: uuid('farm_id').references(() => farms.id).notNull(),
   name: text('name').notNull(),
   description: text('description'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -255,6 +290,11 @@ export const plots = pgTable(
     name: text('name').notNull(),
     code: text('code'),
     notes: text('notes'),
+    // Covers `notes` only. `name`, `code` and `cropType` are lookup keys
+    // (`lower(name)` match in lot-enrich, playbook keys) and stay verbatim.
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     cropType: text('crop_type').notNull(),
     cropVariety: text('crop_variety'),
     areaAcres: text('area_acres'),
@@ -302,6 +342,9 @@ export const tasks = pgTable('tasks', {
   dueDate: timestamp('due_date', { withTimezone: true }),
   completionNote: text('completion_note'),
   rejectionReason: text('rejection_reason'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   approvedById: uuid('approved_by_id').references(() => users.id),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -320,6 +363,9 @@ export const attendanceSessions = pgTable(
     plotId: uuid('plot_id').references(() => plots.id, { onDelete: 'set null' }),
     taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     notes: text('notes'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     correctedById: uuid('corrected_by_id').references(() => users.id, { onDelete: 'set null' }),
     correctedAt: timestamp('corrected_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -349,8 +395,13 @@ export const inventoryItems = pgTable('inventory_items', {
   costPerUnit: integer('cost_per_unit'),
   supplier: text('supplier'),
   expiryDate: timestamp('expiry_date', { withTimezone: true }),
+  // Worker prose ("back of the feed shed"), the same kind of text as
+  // `assets.locationText`, so it carries a locale pair and is swept.
   storageLocation: text('storage_location'),
   batchNumber: text('batch_number'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -363,6 +414,12 @@ export const inventoryMovements = pgTable(
     itemId: uuid('item_id').references(() => inventoryItems.id).notNull(),
     delta: integer('delta').notNull(),
     reason: text('reason').notNull(),
+    // `reason` is either worker prose or a machine sentinel ('opening_stock_count',
+    // 'task_consumption', 'goods_receipt', 'verified_count_session'); only the
+    // former is ever translated, so sentinel writes must stay 'done'.
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     sourceType: text('source_type'),
     sourceId: uuid('source_id'),
     recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
@@ -380,6 +437,9 @@ export const suppliers = pgTable('suppliers', {
   phone: text('phone'),
   email: text('email'),
   notes: text('notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   active: boolean('active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -394,6 +454,9 @@ export const purchaseOrders = pgTable('purchase_orders', {
   approvedById: uuid('approved_by_id').references(() => users.id),
   approvedAt: timestamp('approved_at', { withTimezone: true }),
   notes: text('notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   expectedAt: timestamp('expected_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -422,6 +485,9 @@ export const goodsReceipts = pgTable(
     idempotencyKey: text('idempotency_key').notNull(),
     receivedById: uuid('received_by_id').references(() => users.id).notNull(),
     notes: text('notes'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
@@ -488,10 +554,91 @@ export const cropCycles = pgTable('crop_cycles', {
   actualHarvestAt: timestamp('actual_harvest_at', { withTimezone: true }),
   expectedYieldKg: integer('expected_yield_kg'),
   actualYieldKg: integer('actual_yield_kg'),
+  /** Why the last lifecycle generation produced nothing. See livestockBatches. */
+  agronomySkipReason: text('agronomy_skip_reason'),
   notes: text('notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+/**
+ * How long each stage of one crop cycle is expected to last.
+ *
+ * This used to be `PLANTAIN_LIFECYCLE` and `COCONUT_LIFECYCLE` in
+ * two hardcoded constants: two crops' worth of stage durations, and
+ * applied to every farm growing them. A farm on different soil or a different
+ * variety had no way to say so, and any other crop got no lifecycle at all.
+ *
+ * Rows are generated once per cycle from the crop the farmer entered and then
+ * belong to the farm. `sequence` orders the stages; `durationDays` is what the
+ * expected harvest date and the stage-advance prompts are computed from.
+ */
+export const cropCycleStages = pgTable(
+  'crop_cycle_stages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id)
+      .notNull(),
+    cropCycleId: uuid('crop_cycle_id')
+      .references(() => cropCycles.id, { onDelete: 'cascade' })
+      .notNull(),
+    stage: cropStageEnum('stage').notNull(),
+    sequence: integer('sequence').notNull(),
+    durationDays: integer('duration_days').notNull(),
+    source: agronomySourceEnum('source').default('generated').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One row per stage per cycle: a cycle cannot be in 'flowering' twice, and a
+    // duplicate would double-count toward the expected harvest date.
+    uniqueIndex('crop_cycle_stages_cycle_stage_key').on(t.cropCycleId, t.stage),
+    index('crop_cycle_stages_cycle_seq_idx').on(t.cropCycleId, t.sequence),
+  ],
+)
+
+/**
+ * The work a crop cycle's stage is expected to need, replacing the
+ * `taskSuggestions` literals those constants carried.
+ *
+ * `templateName` and `description` are prose and carry the locale trio like
+ * every other free-text column, so a generated English plan reads back in the
+ * worker's language. `offsetDays` counts from the day the stage is entered, not
+ * from planting, so a stage that runs long does not drag its tasks out of order.
+ */
+export const cropCycleTasks = pgTable(
+  'crop_cycle_tasks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id)
+      .notNull(),
+    cropCycleId: uuid('crop_cycle_id')
+      .references(() => cropCycles.id, { onDelete: 'cascade' })
+      .notNull(),
+    stage: cropStageEnum('stage').notNull(),
+    offsetDays: integer('offset_days').notNull(),
+    templateName: text('template_name').notNull(),
+    description: text('description'),
+    defaultDurationHours: integer('default_duration_hours'),
+    source: agronomySourceEnum('source').default('generated').notNull(),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('crop_cycle_tasks_cycle_stage_idx').on(t.cropCycleId, t.stage, t.offsetDays),
+    index('crop_cycle_tasks_pending_idx')
+      .on(t.farmId)
+      .where(sql`translation_status <> 'done'`),
+  ],
+)
 
 export const advisoryRecommendations = pgTable(
   'advisory_recommendations',
@@ -535,6 +682,9 @@ export const advisoryObservations = pgTable(
     sourceId: text('source_id'),
     tiles: text('tiles').array().default([]).notNull(),
     note: text('note'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     createdBy: uuid('created_by')
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
@@ -556,9 +706,77 @@ export const livestockBatches = pgTable('livestock_batches', {
   targetCloseoutAt: timestamp('target_closeout_at', { withTimezone: true }),
   acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull(),
   notes: text('notes'),
+  // Covers `notes` only. `species` keeps the farmer's own wording; it is canonicalized
+  // by `species-normalize` on write (which also derives `batchType`) and read through
+  // `isNoilerBatch`, so it is never translated.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
+  /**
+   * Growth expectation for THIS batch, in place of the constants the livestock
+   * route used to apply to every bird. Null means nobody has established one:
+   * the weight estimate is then withheld rather than guessed, because a number
+   * on a batch page is read as a measurement.
+   */
+  startWeightKg: numeric('start_weight_kg', { precision: 6, scale: 3 }),
+  targetWeightKg: numeric('target_weight_kg', { precision: 6, scale: 3 }),
+  dailyGainKg: numeric('daily_gain_kg', { precision: 6, scale: 4 }),
+  /** Expected length of the production cycle, which drives the closeout window. */
+  cycleDays: integer('cycle_days'),
+  /** Where the growth figures came from, so a farmer's own numbers are never regenerated over. */
+  agronomySource: agronomySourceEnum('agronomy_source'),
+  /**
+   * Why the last generation attempt produced nothing, so a farm looking at an
+   * empty calendar is told which it is: the assistant is switched off, the
+   * day's budget is spent, or the attempt failed and is worth retrying.
+   * Cleared once a plan exists, generated or hand-entered.
+   */
+  agronomySkipReason: text('agronomy_skip_reason'),
   active: boolean('active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+/**
+ * The vaccination and husbandry calendar for one batch.
+ *
+ * This used to be `BROILER_VACCINATION_SCHEDULE`, a literal in the livestock
+ * route applied to every flock on every farm. That is wrong twice over: it is
+ * breed-specific veterinary advice presented as if it were the farm's own plan,
+ * and it cannot be corrected by the person who actually knows the birds. Rows
+ * here are generated once per batch from the species the farmer entered, then
+ * belong to the farm: editable, deletable, and never regenerated over.
+ *
+ * `name` and `vaccine` are prose and carry the locale pair like every other
+ * free-text column, so a generated English calendar reads back in the worker's
+ * language. `day_offset` counts from the batch's `acquired_at`.
+ */
+export const livestockScheduleEntries = pgTable(
+  'livestock_schedule_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id)
+      .notNull(),
+    batchId: uuid('batch_id')
+      .references(() => livestockBatches.id, { onDelete: 'cascade' })
+      .notNull(),
+    dayOffset: integer('day_offset').notNull(),
+    name: text('name').notNull(),
+    vaccine: text('vaccine'),
+    source: agronomySourceEnum('source').default('generated').notNull(),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('livestock_schedule_batch_day_idx').on(t.batchId, t.dayOffset),
+    index('livestock_schedule_pending_idx')
+      .on(t.farmId)
+      .where(sql`translation_status <> 'done'`),
+  ],
+)
 
 export const livestockLogs = pgTable('livestock_logs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -567,6 +785,9 @@ export const livestockLogs = pgTable('livestock_logs', {
   logType: livestockLogTypeEnum('log_type').notNull(),
   headCount: integer('head_count'),
   notes: text('notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -589,6 +810,11 @@ export const harvestLots = pgTable('harvest_lots', {
   unit: text('unit').default('kg').notNull(),
   publicNotes: text('public_notes'),
   internalNotes: text('internal_notes'),
+  // Covers both note columns. `lotCode`, `publicToken` and `productName` are
+  // identifiers shown verbatim on public traceability pages.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   // Optional field evidence (allowlisted data URL) attached when a worker or
   // supervisor reports the harvest from the field.
   photoUrl: text('photo_url'),
@@ -625,6 +851,11 @@ export const orders = pgTable('orders', {
   deliveryPhotoUrl: text('delivery_photo_url'),
   customerFeedback: text('customer_feedback'),
   customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
+  // Covers `notes` and `customerFeedback`. `customerName` is a proper noun and
+  // `cancelledBy` holds the sentinel 'customer'.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   feedbackRequestedAt: timestamp('feedback_requested_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   cancelledBy: text('cancelled_by'),
@@ -742,6 +973,9 @@ export const paymentRefunds = pgTable(
     // pending | success | failed
     status: text('status').default('pending').notNull(),
     reason: text('reason'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
     createdById: uuid('created_by_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -795,6 +1029,11 @@ export const assets = pgTable('assets', {
   disposedAt: timestamp('disposed_at', { withTimezone: true }),
   assignedToId: uuid('assigned_to_id').references(() => users.id),
   notes: text('notes'),
+  // Covers `notes` only. `name` and `assetTag` are matched lowercase by
+  // `resolveAssetByQuery`, and `category` is an i18n message key in the app.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   active: boolean('active').default(true).notNull(),
   createdById: uuid('created_by_id').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -809,6 +1048,9 @@ export const assetEvents = pgTable('asset_events', {
   eventDate: timestamp('event_date', { withTimezone: true }).defaultNow().notNull(),
   costMinor: integer('cost_minor'),
   notes: text('notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   evidenceUrl: text('evidence_url'),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -827,6 +1069,11 @@ export const assetLogs = pgTable('asset_logs', {
   // 'good' | 'fair' | 'damaged' | free text
   condition: text('condition').default('good').notNull(),
   note: text('note'),
+  // Covers `note` only: the app renders `condition` through the i18n key
+  // `assets.cond.<condition>`, so translating it would break the label lookup.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   photoUrl: text('photo_url'),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   // 'reported' | 'verified' | 'rejected'
@@ -847,6 +1094,11 @@ export const customerInquiries = pgTable('customer_inquiries', {
   question: text('question').notNull(),
   // Lowercased/normalized form used to group "same" questions for counts.
   normalized: text('normalized').notNull(),
+  // Covers `question`. `normalized` is a GROUP BY key: it must be derived from
+  // whatever `question` ends up holding, or the counts split per language.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   // How we answered: 'catalog' | 'llm' | 'faq' | 'suggested'
   answeredVia: text('answered_via').default('faq').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -861,6 +1113,9 @@ export const expenses = pgTable('expenses', {
   currency: text('currency').default('NGN').notNull(),
   vendor: text('vendor'),
   receiptRef: text('receipt_ref'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   approvalStatus: text('approval_status').default('approved').notNull(),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   expenseDate: timestamp('expense_date', { withTimezone: true }).notNull(),
@@ -883,6 +1138,9 @@ export const cropCensusSurveys = pgTable('crop_census_surveys', {
   countingMethod: text('counting_method'),
   conditionNotes: text('condition_notes'),
   mortalityNotes: text('mortality_notes'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   surveyedAt: timestamp('surveyed_at', { withTimezone: true }).defaultNow().notNull(),
   latitude: text('latitude'),
   longitude: text('longitude'),
@@ -915,6 +1173,9 @@ export const inventoryCountSessions = pgTable('inventory_count_sessions', {
   verifiedById: uuid('verified_by_id').references(() => users.id),
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   rejectionReason: text('rejection_reason'),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -929,6 +1190,11 @@ export const inventoryCountLines = pgTable('inventory_count_lines', {
   unit: text('unit').default('units').notNull(),
   countedQuantity: integer('counted_quantity').notNull(),
   notes: text('notes'),
+  // Covers `notes`. This table has no `farm_id`: the retry job must reach the
+  // farm through `session_id -> inventory_count_sessions.farm_id`.
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -941,6 +1207,9 @@ export const actionDrafts = pgTable('action_drafts', {
   actionType: text('action_type').notNull(),
   payload: jsonb('payload').$type<Record<string, unknown>>().default({}).notNull(),
   status: text('status').default('pending').notNull(),
+  sourceLocale: text('source_locale'),
+  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+  translationAttempts: integer('translation_attempts').default(0).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   telegramMessageId: text('telegram_message_id'),
@@ -958,8 +1227,48 @@ export const telegramProcessedUpdates = pgTable(
   (t) => [uniqueIndex('telegram_processed_updates_bot_update_uq').on(t.botKey, t.updateId)],
 )
 
+/**
+ * Display cache for canonical English text rendered into another locale.
+ * Keyed by a hash of the English source, so one translation of a task title
+ * serves every viewer reading that language.
+ */
+export const contentTranslations = pgTable(
+  'content_translations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    contentHash: text('content_hash').notNull(),
+    targetLocale: text('target_locale').notNull(),
+    translatedText: text('translated_text').notNull(),
+    model: text('model'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('content_translations_hash_locale_uq').on(t.contentHash, t.targetLocale)],
+)
+
+/**
+ * Cache for LLM-generated advisory prose, keyed by a fingerprint of the farm
+ * state that produced it (rule, crop, stage, bucketed day-in-stage, bucketed
+ * weather). Unchanged state reuses one generation across viewers and days.
+ */
+export const generatedAdvice = pgTable(
+  'generated_advice',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    ruleKey: text('rule_key').notNull(),
+    happeningNow: text('happening_now').notNull(),
+    whatNext: text('what_next').notNull(),
+    model: text('model'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex('generated_advice_farm_fingerprint_uq').on(t.farmId, t.fingerprint)],
+)
+
 export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
 export type PreferredLocale = 'en' | 'yo' | 'pcm' | 'fr'
+export type TranslationStatus = 'done' | 'pending' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'completed' | 'rejected'
 export type PaymentStatus =
   | 'unpaid'

@@ -4,8 +4,12 @@ import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { gatherExceptions, gatherWorkerTodayTasks } from '../lib/exceptions.js'
+import { renderException } from '../lib/exception-messages.js'
 import { getFarmWeather, regenerateWeatherActions } from '../lib/weather.js'
 import { listAdvisorySubjects, listRecommendationsForRole } from '../lib/advisory-engine.js'
+import { toViewerLocaleMany } from '../lib/content-locale.js'
+import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import type { SessionUser } from '../lib/session.js'
 
 export const todayRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -18,6 +22,78 @@ async function preferredLocaleForUser(userId: string): Promise<string | null> {
     .where(eq(users.id, userId))
     .limit(1)
   return row?.preferredLocale ?? null
+}
+
+/**
+ * Advisory prose is stored in canonical English and rendered on read.
+ *
+ * Nothing else on this endpoint is translated here: exception and action strings
+ * carry i18n keys the client resolves (see docs/API.md), and weather actions
+ * arrive from the weather layer already in the viewer's language. Weather alert
+ * wording is owned by `weather-alerts.ts` and passes through untouched.
+ *
+ * `subject.label` names a crop, plot or batch, and `payload.products` are
+ * product names and prices, so both stay as stored.
+ */
+async function advisoryTeaserFor(user: SessionUser, preferredLocale: string | null) {
+  const [subjects, recommendations] = await Promise.all([
+    listAdvisorySubjects(user.farmId),
+    listRecommendationsForRole(user.farmId, user.role, 3),
+  ])
+  const subject = subjects[0] ?? null
+  const recommendation = recommendations[0] ?? null
+  const teaser = { subject, recommendation, openCount: recommendations.length }
+
+  const locale = resolveStaffReplyLocale(preferredLocale)
+  if (locale === 'en') return teaser
+
+  const english: string[] = []
+  const stage = (text: string) => {
+    english.push(text)
+    return english.length - 1
+  }
+  const prose = payloadProse(recommendation?.payload)
+  const slots = {
+    happeningNow: prose ? stage(prose.happeningNow) : null,
+    whatNext: prose ? stage(prose.whatNext) : null,
+    aiSummary: recommendation?.aiSummary ? stage(recommendation.aiSummary) : null,
+    nextHint: subject?.nextHint ? stage(subject.nextHint) : null,
+  }
+  if (english.length === 0) return teaser
+
+  // One batched call for the whole teaser; English survives a failed translation.
+  const rendered = await toViewerLocaleMany({
+    texts: english,
+    targetLocale: locale,
+    farmId: user.farmId,
+  }).catch(() => english)
+  const read = (slot: number) => rendered[slot] || english[slot]
+
+  return {
+    ...teaser,
+    subject:
+      subject && slots.nextHint != null ? { ...subject, nextHint: read(slots.nextHint) } : subject,
+    recommendation: recommendation && {
+      ...recommendation,
+      payload:
+        slots.happeningNow != null && slots.whatNext != null
+          ? {
+              ...(recommendation.payload as Record<string, unknown>),
+              happeningNow: read(slots.happeningNow),
+              whatNext: read(slots.whatNext),
+            }
+          : recommendation.payload,
+      aiSummary: slots.aiSummary == null ? recommendation.aiSummary : read(slots.aiSummary),
+    },
+  }
+}
+
+/** `payload` is jsonb, and rows from older engine versions may lack prose. */
+function payloadProse(payload: unknown): { happeningNow: string; whatNext: string } | null {
+  if (!payload || typeof payload !== 'object') return null
+  const { happeningNow, whatNext } = payload as Record<string, unknown>
+  if (typeof happeningNow !== 'string' || typeof whatNext !== 'string') return null
+  return { happeningNow, whatNext }
 }
 
 todayRoutes.get('/', async (c) => {
@@ -52,10 +128,16 @@ todayRoutes.get('/', async (c) => {
       timestamp: weather.fetchedAt ?? new Date().toISOString(),
       metadata: { weatherType: alert.type },
     })
+    // The weather layer owns the wording of an alert, so the title is passed
+    // through as a plain param with no title key; only the "Weather:" prefix is
+    // keyed for the client.
+    const labelParams = { title: alert.title }
     actionList.push({
       priority: nextPriority++,
       action: 'review_weather',
-      label: `Weather: ${alert.title}`,
+      label: renderException('exceptions.action.weather', 'en', labelParams),
+      labelKey: 'exceptions.action.weather',
+      labelParams,
       entityType: 'weather',
       entityId,
       link: '/today',
@@ -81,16 +163,7 @@ todayRoutes.get('/', async (c) => {
   summary.total = exceptions.length
 
   const advisoryTeaser =
-    user.role === 'sales'
-      ? null
-      : await Promise.all([
-          listAdvisorySubjects(user.farmId),
-          listRecommendationsForRole(user.farmId, user.role, 3),
-        ]).then(([subjects, recommendations]) => ({
-          subject: subjects[0] ?? null,
-          recommendation: recommendations[0] ?? null,
-          openCount: recommendations.length,
-        }))
+    user.role === 'sales' ? null : await advisoryTeaserFor(user, preferredLocale)
 
   if (user.role === 'field_worker') {
     const myTasksToday = await gatherWorkerTodayTasks(user)

@@ -11,8 +11,40 @@ import type { SessionUser } from './session.js'
 import { canApproveTasks } from './rbac.js'
 import { processEvidenceValue, validateEvidenceRef } from './evidence-store.js'
 import { logAudit } from './audit.js'
+import { normalizeCropType } from './crop-normalize.js'
+import {
+  contentLocaleValues,
+  mergeContentLocale,
+  type ContentLocaleMeta,
+} from './task-drafts.js'
 
-export type CensusSurveyInput = {
+/**
+ * The prose on a survey, and the only columns the row's locale pair describes.
+ *
+ * These are exactly the three the translation retry job repairs on
+ * `crop_census_surveys`. `countingMethod` is deliberately not one of them: the
+ * sweep never reads that column, so a row marked 'pending' because of it would
+ * be set back to 'done' with the method still in the author's language. It is a
+ * short descriptor ("full count", "sample"), not prose, and stays verbatim.
+ *
+ * Everything else is a key or a measurement: `cropType` is an exact lookup key,
+ * `cropVariety` and staff names are proper nouns, and heights, counts, units,
+ * coordinates, timestamps and the verification status are never translated.
+ */
+export const CENSUS_TEXT_FIELDS = [
+  'conditionNotes',
+  'mortalityNotes',
+  'rejectionReason',
+] as const
+
+/**
+ * Locale metadata is optional and defaults to today's behavior: a caller that
+ * passes none writes no locale columns at all, so the schema defaults ('done',
+ * no source locale) apply. A caller writing text the LLM could not turn into
+ * English passes `translationStatus: 'pending'` so the retry job can find the
+ * row; without it the row claims to be English forever.
+ */
+export type CensusSurveyInput = ContentLocaleMeta & {
   plotId: string
   cropType: string
   cropVariety?: string | null
@@ -67,6 +99,26 @@ function coordToText(value: string | number | null | undefined): string | null {
   return String(value)
 }
 
+/**
+ * Grouping key for crop types read back from the database.
+ *
+ * Rows written before crop names were normalized on write hold whatever the
+ * worker typed, so the stored string cannot be trusted as the group identity:
+ * "Noix de coco" and "coconut" are one crop and would otherwise show up as two
+ * in the same summary. The key resolves through the lexicon first, then folds
+ * case and accents so spelling variants of a crop we have no playbook for still
+ * collapse together. It is only ever a key — the row keeps its stored text for
+ * display, and nothing is rewritten.
+ */
+function cropGroupKey(cropType: string): string {
+  return normalizeCropType(cropType)
+    .canonical.normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[\s_/-]+/g, ' ')
+    .trim()
+}
+
 export async function listCensusByPlot(farmId: string, plotId: string) {
   const rows = await db
     .select({
@@ -119,7 +171,8 @@ export async function currentVerifiedCensus(farmId: string, plotId: string) {
 
   const byCrop = new Map<string, (typeof rows)[number]>()
   for (const row of rows) {
-    if (!byCrop.has(row.cropType)) byCrop.set(row.cropType, row)
+    const key = cropGroupKey(row.cropType)
+    if (!byCrop.has(key)) byCrop.set(key, row)
   }
   return [...byCrop.values()]
 }
@@ -164,6 +217,13 @@ export async function createCensusSurvey(
   const autoVerify = opts?.autoVerify === true && canApproveTasks(user)
   const now = new Date()
 
+  // The lifecycle and advisory lookups exact-match this string against their
+  // English keys, so it is resolved here rather than in each caller: every
+  // survey write goes through this function, including the butler executor,
+  // which hands over whatever the worker said. Crops we have no playbook for
+  // are stored as typed.
+  const cropType = normalizeCropType(input.cropType.trim()).canonical
+
   const survey = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(cropCensusSurveys)
@@ -171,7 +231,7 @@ export async function createCensusSurvey(
         farmId: user.farmId,
         plotId: input.plotId,
         taskId: input.taskId ?? null,
-        cropType: input.cropType.trim(),
+        cropType,
         cropVariety: input.cropVariety?.trim() || null,
         plantCount: input.plantCount,
         minHeight: heightToText(input.minHeight),
@@ -182,6 +242,9 @@ export async function createCensusSurvey(
         countingMethod: input.countingMethod?.trim() || null,
         conditionNotes: input.conditionNotes?.trim() || null,
         mortalityNotes: input.mortalityNotes?.trim() || null,
+        // The notes above carry the author's locale debt: a draft the LLM could
+        // not translate lands here as 'pending' so the retry job still owns it.
+        ...contentLocaleValues(input),
         surveyedAt: input.surveyedAt ? new Date(input.surveyedAt) : now,
         latitude: coordToText(input.latitude),
         longitude: coordToText(input.longitude),
@@ -218,7 +281,7 @@ export async function createCensusSurvey(
     action: 'census_create',
     entityType: 'crop_census_survey',
     entityId: survey.id,
-    metadata: { plotId: input.plotId, cropType: input.cropType, autoVerify },
+    metadata: { plotId: input.plotId, cropType, autoVerify },
   })
 
   return survey
@@ -229,6 +292,7 @@ export async function verifyCensusSurvey(
   surveyId: string,
   status: 'verified' | 'rejected',
   rejectionReason?: string | null,
+  locale?: ContentLocaleMeta,
 ) {
   if (!canApproveTasks(user)) throw new Error('FORBIDDEN')
 
@@ -246,13 +310,20 @@ export async function verifyCensusSurvey(
   }
 
   const now = new Date()
+  const rejecting = status === 'rejected'
   const [updated] = await db
     .update(cropCensusSurveys)
     .set({
       verificationStatus: status,
       verifiedById: user.id,
       verifiedAt: now,
-      rejectionReason: status === 'rejected' ? rejectionReason!.trim() : null,
+      rejectionReason: rejecting ? rejectionReason!.trim() : null,
+      // A rejection adds a second author's text to a row that already holds the
+      // worker's notes, and one locale pair describes the whole row: a French
+      // reason escalates it to 'pending', and a row the retry job still owes
+      // work on is left exactly as it is. Approving writes no text, so it never
+      // touches the pair.
+      ...(rejecting ? mergeContentLocale(survey, locale) : {}),
     })
     .where(eq(cropCensusSurveys.id, surveyId))
     .returning()
@@ -304,11 +375,17 @@ export async function submitCensusForTask(
   const voiceUrl =
     evidence.find((e) => e.kind === 'voice')?.evidenceUrl ?? task.voiceUrl
 
+  const completionNote = input.completionNote?.trim() || null
+
   await db
     .update(tasks)
     .set({
       status: 'awaiting_approval',
-      completionNote: input.completionNote?.trim() || task.completionNote,
+      completionNote: completionNote ?? task.completionNote,
+      // Same rule as the survey row: the note is free text on a translation
+      // tracked table, so a note that is not English yet escalates the task to
+      // 'pending' and an already-pending task is never downgraded.
+      ...(completionNote ? mergeContentLocale(task, input) : {}),
       photoUrl,
       voiceUrl,
       latitude: coordToText(input.latitude) ?? task.latitude,

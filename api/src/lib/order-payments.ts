@@ -17,7 +17,12 @@ import {
   findOrderByReference,
   transitionOrder,
 } from './order-fulfillment.js'
-import { notifyOrderAlertStaff, notifyOrderAlertStaffTelegram } from './farm-notify.js'
+import {
+  notifyOrderAlertStaff,
+  notifyOrderAlertStaffTelegram,
+  type NotifyRenderer,
+} from './farm-notify.js'
+import type { ReplyLocale } from './reply-locale.js'
 import { initializeTransaction, isPaystackConfigured, refundTransaction } from './paystack.js'
 
 const CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -78,19 +83,96 @@ async function nextReceiptNumber(farmId: string, year: number): Promise<string> 
   return `${prefix}${String(seq).padStart(5, '0')}`
 }
 
+type MsgTable = Record<ReplyLocale, string>
+
+function pick(locale: ReplyLocale, table: MsgTable): string {
+  return table[locale] ?? table.en
+}
+
+/**
+ * Locale tables for the staff payment alerts, in the style of
+ * digest-messages.ts: fixed sentences we wrote ourselves, so a table beats a
+ * translation call - instant, and it still works with the LLM off.
+ *
+ * Everything a staff member might quote back at us stays verbatim in every
+ * language: the order reference and the Paystack reference are typed into chat
+ * to look an order up, and the amount arrives pre-formatted by `formatNaira`,
+ * which renders one en-NG figure for all four locales (matching what the
+ * customer's own receipt shows, and what the digest does with its counters -
+ * no per-locale number formatting, which Node without full ICU data would
+ * silently degrade anyway).
+ */
+export function renderPaymentReceived(
+  locale: ReplyLocale,
+  params: { orderRef: string; amount: string; paymentRef: string },
+): string {
+  const header = pick(locale, {
+    en: `💰 Payment received for ${params.orderRef}`,
+    fr: `💰 Paiement reçu pour ${params.orderRef}`,
+    yo: `💰 A gba owó fún ${params.orderRef}`,
+    pcm: `💰 Payment don land for ${params.orderRef}`,
+  })
+  const amountLabel = pick(locale, {
+    en: 'Amount',
+    fr: 'Montant',
+    yo: 'Owó',
+    pcm: 'Amount',
+  })
+  const refLabel = pick(locale, { en: 'Ref', fr: 'Réf', yo: 'Ref', pcm: 'Ref' })
+  const confirmLine = pick(locale, {
+    en: 'Order auto-confirmed if it was pending.',
+    fr: 'Commande confirmée automatiquement si elle était en attente.',
+    yo: 'Òrder náà ti fọwọ́sí fúnra rẹ̀ bí ó ti wà ní ìdúró.',
+    pcm: 'Order don auto-confirm if e still dey pending.',
+  })
+
+  return (
+    `${header}\n` +
+    `${amountLabel}: ${params.amount}\n` +
+    `${refLabel}: ${params.paymentRef}\n` +
+    confirmLine
+  )
+}
+
+/** "Sales" is the app's own nav label, so it stays untranslated like Trovara OS → Tasks. */
+export function renderCustomerCancelRefund(
+  locale: ReplyLocale,
+  params: { orderRef: string },
+): string {
+  const header = pick(locale, {
+    en: `⚠️ Customer cancelled ${params.orderRef} — initiate refund in Sales.`,
+    fr: `⚠️ Le client a annulé ${params.orderRef} — lancez le remboursement dans Sales.`,
+    yo: `⚠️ Oníbàárà fagilé ${params.orderRef} — bẹ̀rẹ̀ ìdápadà owó ní Sales.`,
+    pcm: `⚠️ Customer don cancel ${params.orderRef} — start refund for Sales.`,
+  })
+  const note = pick(locale, {
+    en: 'Payment was received; refund is not automatic.',
+    fr: 'Le paiement a été reçu ; le remboursement n’est pas automatique.',
+    yo: 'A ti gba owó; ìdápadà owó kò ṣẹlẹ̀ fúnra rẹ̀.',
+    pcm: 'We don collect payment; refund no dey happen by itself.',
+  })
+
+  return `${header}\n${note}`
+}
+
+/**
+ * Fan a payment alert out to order-alert staff on both channels. `render` runs
+ * once per distinct language per channel, so a mixed-language sales team costs
+ * no more than a single-language one.
+ */
 async function notifyStaffPaymentMessage(params: {
   farmId: string
-  message: string
+  render: (locale: ReplyLocale) => string
   reason: string
   actorUserId?: string
 }): Promise<void> {
-  const build = () => params.message
-  await notifyOrderAlertStaffTelegram(params.farmId, build, {
+  const message: NotifyRenderer = ({ locale }) => params.render(locale)
+  await notifyOrderAlertStaffTelegram(params.farmId, message, {
     actorUserId: params.actorUserId,
     reason: params.reason,
     kind: 'order_alert',
   })
-  await notifyOrderAlertStaff(params.farmId, build, {
+  await notifyOrderAlertStaff(params.farmId, message, {
     actorUserId: params.actorUserId,
     reason: params.reason,
     kind: 'order_alert',
@@ -339,10 +421,16 @@ export async function applySuccessfulPayment(params: {
   if (!alreadyApplied) {
     const ref = orderReference(attempt.orderId)
     try {
+      const amount = formatNaira(attempt.amountKobo)
       await notifyStaffPaymentMessage({
         farmId: attempt.farmId,
         reason: 'payment_received',
-        message: `💰 Payment received for ${ref}\nAmount: ${formatNaira(attempt.amountKobo)}\nRef: ${attempt.providerReference}\nOrder auto-confirmed if it was pending.`,
+        render: (locale) =>
+          renderPaymentReceived(locale, {
+            orderRef: ref,
+            amount,
+            paymentRef: attempt.providerReference,
+          }),
       })
     } catch (err) {
       console.error('Payment staff-notify failed:', err instanceof Error ? err.message : err)
@@ -445,7 +533,7 @@ export async function requestCustomerCancel(params: {
       await notifyStaffPaymentMessage({
         farmId: params.farmId,
         reason: 'customer_cancel_refund',
-        message: `⚠️ Customer cancelled ${ref} — initiate refund in Sales.\nPayment was received; refund is not automatic.`,
+        render: (locale) => renderCustomerCancelRefund(locale, { orderRef: ref }),
       })
     } catch (err) {
       console.error('Cancel refund staff-notify failed:', err instanceof Error ? err.message : err)

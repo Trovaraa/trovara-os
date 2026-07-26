@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import { useAgronomySkipText, type AgronomySkipReason } from '@/composables/useAgronomySkipText'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const { agronomySkipText } = useAgronomySkipText()
 const auth = useAuthStore()
 const canManage = computed(() => auth.canApprove)
 
@@ -31,8 +33,8 @@ type Economics = {
   startCount: number
   currentHeadCount: number
   daysSinceStart: number
-  estimatedWeightPerBirdKg: number
-  weightGainKg: number
+  estimatedWeightPerBirdKg: number | null
+  weightGainKg: number | null
   fcr: number | null
   targetCloseoutAt?: string | null
 }
@@ -40,7 +42,7 @@ type Economics = {
 type VaccinationEntry = {
   day: number
   name: string
-  vaccine: string
+  vaccine: string | null
   dueDate: string
   status: 'completed' | 'due' | 'upcoming' | 'overdue'
 }
@@ -48,6 +50,7 @@ type VaccinationEntry = {
 type VaccinationSchedule = {
   schedule: VaccinationEntry[]
   completedCount: number
+  agronomySkipReason: AgronomySkipReason | null
 }
 
 type LogType = 'feeding' | 'vaccination' | 'mortality'
@@ -203,6 +206,15 @@ const logButtonClass: Record<LogType, string> = {
   mortality: 'bg-red-900/40 text-red-300 hover:bg-red-900/60',
 }
 
+/**
+ * A batch whose growth curve nobody has established has no weight to show. The
+ * API sends null rather than a default so the farmer is not given a projection
+ * that was never made for their birds, and '-' is how that reads.
+ */
+function weightLabel(value: number | null): string {
+  return value == null ? '-' : `${value} kg`
+}
+
 const vaccStatusColor: Record<string, string> = {
   completed: 'bg-farm-green/20 text-farm-green',
   due: 'bg-amber-900/40 text-amber-300',
@@ -355,9 +367,9 @@ const vaccStatusColor: Record<string, string> = {
                 <dt class="text-slate-500">{{ t('livestock.daysSinceStart') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.daysSinceStart }}</dd>
                 <dt class="text-slate-500">{{ t('livestock.estWeight') }}</dt>
-                <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.estimatedWeightPerBirdKg }} kg</dd>
+                <dd class="text-slate-300 font-mono text-right">{{ weightLabel(economics[batch.id]!.estimatedWeightPerBirdKg) }}</dd>
                 <dt class="text-slate-500">{{ t('livestock.weightGain') }}</dt>
-                <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.weightGainKg }} kg</dd>
+                <dd class="text-slate-300 font-mono text-right">{{ weightLabel(economics[batch.id]!.weightGainKg) }}</dd>
                 <dt class="text-slate-500">{{ t('livestock.fcr') }}</dt>
                 <dd class="text-slate-300 font-mono text-right">{{ economics[batch.id]!.fcr ?? '-' }}</dd>
               </dl>
@@ -369,7 +381,14 @@ const vaccStatusColor: Record<string, string> = {
                   {{ t('livestock.vaccDone', { done: vaccination[batch.id]!.completedCount, total: vaccination[batch.id]!.schedule.length }) }}
                 </span>
               </h4>
-              <ul class="mt-3 space-y-2 max-h-48 overflow-auto">
+              <p
+                v-if="vaccination[batch.id]!.schedule.length === 0"
+                class="mt-3 text-xs text-slate-500"
+              >
+                {{ t('livestock.vaccNone') }}
+                {{ agronomySkipText(vaccination[batch.id]!.agronomySkipReason) }}
+              </p>
+              <ul v-else class="mt-3 space-y-2 max-h-48 overflow-auto">
                 <li
                   v-for="entry in vaccination[batch.id]!.schedule"
                   :key="entry.day"

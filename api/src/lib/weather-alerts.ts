@@ -1,3 +1,11 @@
+import {
+  forecastDayLabel,
+  localizeWeatherAlerts,
+  parseClockLabel,
+  renderWeatherAlert,
+  type WeatherAlertLocaleParams,
+} from './weather-alert-messages.js'
+
 export type WeatherAlertType = 'rain' | 'heat' | 'wind' | 'cold'
 
 export type WeatherAlert = {
@@ -9,6 +17,13 @@ export type WeatherAlert = {
   whenLabel?: string
   /** ISO date (YYYY-MM-DD) the alert is tied to. */
   date?: string
+  /**
+   * When window plus amounts, in the same language as `message`. Lets
+   * withWeatherTiming append timing without parsing English prose.
+   */
+  timingDetail?: string
+  /** Numbers behind title/message, so any viewer language can be rendered. */
+  params?: WeatherAlertLocaleParams
 }
 
 export type WeatherDay = {
@@ -50,42 +65,21 @@ export function weatherThresholds(): Thresholds {
   }
 }
 
-function middayUtc(dateStr: string): Date {
-  return new Date(`${dateStr}T12:00:00Z`)
-}
-
-/** Relative day label in the farm timezone. */
+/** Relative day label in the farm timezone, in canonical English. */
 export function formatForecastDayLabel(dateStr: string, timeZone: string, now = new Date()): string {
-  const tz = timeZone || 'Africa/Lagos'
-  const todayStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now)
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-  const tomorrowStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(tomorrow)
-
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).format(middayUtc(dateStr))
-
-  if (dateStr === todayStr) return `Today (${weekday})`
-  if (dateStr === tomorrowStr) return `Tomorrow (${weekday})`
-  return weekday
+  return forecastDayLabel('en', dateStr, timeZone, now)
 }
 
+/**
+ * Peak-precip clock label written into the forecast cache, so it stays
+ * language-neutral English; viewers see it re-rendered by renderWeatherAlert.
+ */
 export function formatLocalClockLabel(iso: string, timeZone: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
+  // 'en-US' deliberately: the viewer-side table in weather-alert-messages must
+  // reproduce this exact string for an English reader, and locale tags disagree
+  // on whether it is 'PM' or 'pm'.
   const clock = new Intl.DateTimeFormat('en-US', {
     timeZone: timeZone || 'Africa/Lagos',
     hour: 'numeric',
@@ -95,96 +89,108 @@ export function formatLocalClockLabel(iso: string, timeZone: string): string {
   return `around ${clock}`
 }
 
-function rainWhenLabel(day: WeatherDay, timeZone: string): string {
-  const dayLabel = formatForecastDayLabel(day.date, timeZone)
-  const peak = day.peakPrecipLocal?.trim()
-  if (peak) return `${dayLabel} ${peak}`
-  // Daily-only forecast: give a sensible daytime window rather than a fake clock.
-  return `${dayLabel}, mainly afternoon / evening`
-}
-
 /** Append forecast timing onto the existing playbook headline. */
 export function withWeatherTiming(headline: string, alert: WeatherAlert): string {
   const when = alert.whenLabel?.trim()
   if (!when) return headline
-  // Keep the familiar playbook line; add when rain/heat/etc. peaks.
+  // Keep the familiar playbook line; add when rain/heat/etc. peaks. Localized
+  // alerts carry timingDetail; the English fallback reads it off the prose.
   const detail =
-    alert.type === 'rain' && alert.message.includes('(')
+    alert.timingDetail?.trim() ||
+    (alert.type === 'rain' && alert.message.includes('(')
       ? alert.message.replace(/^Expected\s+/i, '').replace(/\.$/, '')
-      : when
+      : when)
   return `${headline.replace(/\.$/, '')} — ${detail}.`
 }
 
+/**
+ * Threshold alerts for the next three forecast days, in canonical English.
+ *
+ * Rendered through the same locale table the viewer's language uses, so English
+ * is one locale rather than a second copy of the templates. Serve-time callers
+ * pass the result through localizeWeatherAlerts; cache writers must not.
+ */
 export function buildWeatherAlerts(
   daily: WeatherDay[],
   currentWindKmh: number,
   timeZone = 'Africa/Lagos',
+  now = new Date(),
 ): WeatherAlert[] {
   const t = weatherThresholds()
   const alerts: WeatherAlert[] = []
   const today = daily[0]
   const horizon = daily.slice(0, 3)
 
+  const english = (
+    type: WeatherAlertType,
+    severity: WeatherAlert['severity'],
+    params: WeatherAlertLocaleParams,
+    date?: string,
+  ) => renderWeatherAlert('en', { type, severity, title: '', message: '', date, params }, now)
+
   const rainy = horizon.find(
     (d) => d.precipMm >= t.rainMm || (d.precipProb != null && d.precipProb >= t.rainProb),
   )
   if (rainy) {
-    const when = rainWhenLabel(rainy, timeZone)
-    const amount = `${rainy.precipMm.toFixed(1)} mm`
-    const chance = rainy.precipProb != null ? ` · ${rainy.precipProb}% chance` : ''
-    alerts.push({
-      type: 'rain',
-      severity: rainy.precipMm >= t.rainMm * 2 ? 'high' : 'medium',
-      title: 'Heavy rain risk',
-      message: `Expected ${when} (${amount}${chance}).`,
-      whenLabel: when,
-      date: rainy.date,
-    })
+    const peakLabel = rainy.peakPrecipLocal?.trim() || null
+    alerts.push(
+      english(
+        'rain',
+        rainy.precipMm >= t.rainMm * 2 ? 'high' : 'medium',
+        {
+          type: 'rain',
+          timeZone,
+          date: rainy.date,
+          precipMm: rainy.precipMm,
+          precipProb: rainy.precipProb,
+          peakClock: parseClockLabel(peakLabel),
+          peakLabel,
+        },
+        rainy.date,
+      ),
+    )
   }
 
   const hot = horizon.find((d) => d.tempMaxC >= t.heatC)
   if (hot) {
-    const when = formatForecastDayLabel(hot.date, timeZone)
-    alerts.push({
-      type: 'heat',
-      severity: hot.tempMaxC >= t.heatC + 3 ? 'high' : 'medium',
-      title: 'Heat stress risk',
-      message: `${when}: high around ${hot.tempMaxC.toFixed(0)}°C — shade, water, and livestock cooling.`,
-      whenLabel: `${when}, peak afternoon heat`,
-      date: hot.date,
-    })
+    alerts.push(
+      english(
+        'heat',
+        hot.tempMaxC >= t.heatC + 3 ? 'high' : 'medium',
+        { type: 'heat', timeZone, date: hot.date, tempMaxC: hot.tempMaxC },
+        hot.date,
+      ),
+    )
   }
 
   const windyDay = horizon.find((d) => d.windKmh >= t.windKmh)
   const windPeak = Math.max(currentWindKmh, windyDay?.windKmh ?? 0)
   if (windPeak >= t.windKmh) {
-    const when = windyDay
-      ? formatForecastDayLabel(windyDay.date, timeZone)
-      : 'in the current period'
-    alerts.push({
-      type: 'wind',
-      severity: windPeak >= t.windKmh + 15 ? 'high' : 'medium',
-      title: 'Strong wind',
-      message: `Up to ${windPeak.toFixed(0)} km/h ${when} — secure covers, irrigation lines, and light structures.`,
-      whenLabel: when,
-      date: windyDay?.date,
-    })
+    alerts.push(
+      english(
+        'wind',
+        windPeak >= t.windKmh + 15 ? 'high' : 'medium',
+        { type: 'wind', timeZone, date: windyDay?.date ?? null, windKmh: windPeak },
+        windyDay?.date,
+      ),
+    )
   }
 
   const cold =
     horizon.find((d) => d.tempMinC <= t.coldC) ??
     (today && today.tempMinC <= t.coldC ? today : null)
   if (cold) {
-    const when = formatForecastDayLabel(cold.date, timeZone)
-    alerts.push({
-      type: 'cold',
-      severity: cold.tempMinC <= t.coldC - 3 ? 'high' : 'medium',
-      title: 'Low temperature',
-      message: `${when}: low around ${cold.tempMinC.toFixed(0)}°C (early morning) — protect tender crops and young stock.`,
-      whenLabel: `${when}, early morning`,
-      date: cold.date,
-    })
+    alerts.push(
+      english(
+        'cold',
+        cold.tempMinC <= t.coldC - 3 ? 'high' : 'medium',
+        { type: 'cold', timeZone, date: cold.date, tempMinC: cold.tempMinC },
+        cold.date,
+      ),
+    )
   }
 
   return alerts
 }
+
+export { localizeWeatherAlerts, renderWeatherAlert }

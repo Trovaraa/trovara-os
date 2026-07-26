@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { persistLocale, type AppLocale } from '@/i18n'
+import { type AppLocale } from '@/i18n'
+import { applyLocale, useAuthStore } from '@/stores/auth'
 
 defineProps<{ compact?: boolean }>()
 
 const { locale } = useI18n()
+const auth = useAuthStore()
 
 const options: { code: AppLocale; label: string }[] = [
   { code: 'en', label: 'EN' },
@@ -14,9 +16,11 @@ const options: { code: AppLocale; label: string }[] = [
 ]
 
 function setLocale(code: AppLocale) {
-  locale.value = code
-  persistLocale(code)
-  document.documentElement.lang = code === 'pcm' ? 'en' : code
+  if (locale.value === code) return
+  applyLocale(code)
+  // Mirror onto the profile so AI content and TG/WhatsApp messages follow the UI.
+  // Best-effort: signed-out, offline, or a rejected write must not revert the switch.
+  auth.savePreferredLocale(code).catch(() => undefined)
 }
 </script>
 

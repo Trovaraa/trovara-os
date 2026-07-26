@@ -4,6 +4,9 @@ import { plots, taskTemplates, tasks, users, zones } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { canAssignTasks } from './rbac.js'
 import { logAudit } from './audit.js'
+import { isTranslatable, toViewerLocaleMany } from './content-locale.js'
+import { contentLocaleValues, type ContentTranslationStatus } from './task-drafts.js'
+import { detectReplyLocale, resolveStaffReplyLocale } from './reply-locale.js'
 
 export const HANDOVER_TEMPLATES = [
   {
@@ -57,6 +60,52 @@ export const HANDOVER_TEMPLATES = [
   },
 ] as const
 
+async function preferredLocaleForUser(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return row?.preferredLocale ?? null
+}
+
+/** Locale of the first text that is not English, without calling an LLM. */
+function detectNonEnglish(texts: (string | null | undefined)[]): string | null {
+  for (const text of texts) {
+    if (typeof text !== 'string' || !isTranslatable(text)) continue
+    const detected = detectReplyLocale(text)
+    if (detected !== 'en') return detected
+  }
+  return null
+}
+
+/**
+ * Locale columns for a task whose text was COPIED from a template.
+ *
+ * Templates hold canonical English and carry their own labels (see
+ * `routes/templates.ts`), so generation propagates that metadata and never
+ * re-translates: zero LLM calls whatever the outcome.
+ *
+ * The detector is a backstop for a template still holding its author's language
+ * while claiming `'done'` - a row written before migration 0029 added those
+ * columns, so nothing ever checked it. Status only escalates: a false
+ * `'pending'` costs the retry job one wasted call, while a false `'done'` hides
+ * non-English text in `tasks` permanently, because the job filters on status.
+ */
+function copiedTemplateLocale(template: {
+  name: string
+  description: string | null
+  sourceLocale: string | null
+  translationStatus: ContentTranslationStatus
+}): { sourceLocale?: string | null; translationStatus?: ContentTranslationStatus } {
+  const inherited = contentLocaleValues(template)
+  if (inherited.translationStatus === 'pending') return inherited
+
+  const detected = detectNonEnglish([template.name, template.description])
+  if (!detected) return inherited
+  return { sourceLocale: template.sourceLocale ?? detected, translationStatus: 'pending' }
+}
+
 export async function seedHandoverTemplates(farmId: string): Promise<number> {
   let created = 0
   for (const tpl of HANDOVER_TEMPLATES) {
@@ -80,6 +129,9 @@ export async function seedHandoverTemplates(farmId: string): Promise<number> {
       actionType: tpl.actionType,
       systemTemplateKey: tpl.systemTemplateKey,
       defaultPayload: tpl.defaultPayload,
+      // The literals above are English, so say so: task generation propagates
+      // these labels, and a null locale would leave it guessing.
+      sourceLocale: 'en',
     })
     created += 1
   }
@@ -149,6 +201,10 @@ export async function generateHandoverTasks(user: SessionUser, input: GenerateHa
             .where(and(eq(plots.farmId, user.farmId), eq(plots.active, true)))
       : [null]
 
+    // Template prose only: the plot name appended to the title is a proper
+    // noun and never decides the language of the row.
+    const copied = copiedTemplateLocale(tpl)
+
     for (const plot of plotTargets) {
       const title = plot ? `${tpl.name}: ${plot.name}` : tpl.name
       const [task] = await db
@@ -157,6 +213,7 @@ export async function generateHandoverTasks(user: SessionUser, input: GenerateHa
           farmId: user.farmId,
           title,
           description: tpl.description,
+          ...copied,
           templateId: tpl.id,
           plotId: plot?.id ?? null,
           assignedToId: input.assignedToId ?? null,
@@ -182,9 +239,26 @@ export async function generateHandoverTasks(user: SessionUser, input: GenerateHa
     metadata: { count: created.length, keys },
   })
 
-  return created
+  // The rows hold English; the actor reads the titles back in their language.
+  // One batched call for the whole set, and nothing at all for English.
+  const viewerLocale = await preferredLocaleForUser(user.id)
+  if (resolveStaffReplyLocale(viewerLocale) === 'en' || created.length === 0) return created
+
+  const titles = await toViewerLocaleMany({
+    texts: created.map((task) => task.title),
+    targetLocale: viewerLocale,
+    farmId: user.farmId,
+  })
+  return created.map((task, index) => ({ ...task, title: titles[index] }))
 }
 
+/**
+ * Counts plus the open handover task list. `openTasks[].title` comes back in
+ * canonical English: this function is keyed by farm and has no viewer, and its
+ * three callers (`routes/handover.ts`, the Telegram and WhatsApp `/handover`
+ * commands) are the ones that know who is reading. Localizing here would need
+ * that viewer threaded in from them.
+ */
 export async function getHandoverProgress(farmId: string) {
   await seedHandoverTemplates(farmId)
 

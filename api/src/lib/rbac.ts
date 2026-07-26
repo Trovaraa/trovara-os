@@ -45,7 +45,7 @@ export function canManageProducts(user: SessionUser): boolean {
   return canManageOrders(user)
 }
 
-/** Owner, supervisor, and sales may record stock moves and opening counts. */
+/** Owner, supervisor, and sales may edit items and record stock moves and counts. */
 export function canManageInventory(user: SessionUser): boolean {
   return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
 }
