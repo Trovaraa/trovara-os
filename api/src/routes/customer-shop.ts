@@ -28,6 +28,7 @@ import {
 } from '../lib/customer-orders.js'
 import { orderReference } from '../lib/customer-cart.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
+import { publicAppBaseUrl } from '../lib/public-app-url.js'
 import { getDummyPasswordHash, hashPassword, verifyPassword } from '../lib/session.js'
 
 export const customerShopRoutes = new Hono()
@@ -68,9 +69,6 @@ function setCustomerSession(c: any, token: string) {
   setCookie(c, CUSTOMER_SESSION_COOKIE, token, customerSessionCookieOptions(secureCookies()))
 }
 
-function publicAppUrl(): string {
-  return (process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')
-}
 
 customerShopRoutes.get('/session', async (c) => {
   const csrfToken = generateCsrfToken()
@@ -243,7 +241,7 @@ customerShopRoutes.get('/orders', async (c) => {
       items: items.filter((item) => item.orderId === row.id),
       traceabilityUrl:
         row.publicToken && row.farmSlug
-          ? `${publicAppUrl()}/lot/${row.farmSlug}/${row.publicToken}`
+          ? `${publicAppBaseUrl()}/lot/${row.farmSlug}/${row.publicToken}`
           : null,
     })),
   })
@@ -278,11 +276,8 @@ customerShopRoutes.post('/orders', zValidator('json', orderSchema), async (c) =>
     account.id,
     account.name,
     body.phone || account.phone,
+    account.id,
   )
-  await db
-    .update(customerContacts)
-    .set({ customerAccountId: account.id, updatedAt: new Date() })
-    .where(eq(customerContacts.id, contact.id))
 
   const result = await createOrderFromCart({
     farmId: account.farmId,

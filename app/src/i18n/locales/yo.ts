@@ -1349,6 +1349,9 @@ export default {
       title: 'Ìwé ẹ̀rí ìtọ́pasẹ̀ oko Trovara',
       verifying: 'Ó ń jẹ́rìí ìpín…',
       lotNotFound: 'A kò rí ìpín',
+      pendingTitle: 'A ń pèsè ìwé ẹ̀rí',
+      pendingBody:
+        'A ń ṣe ìwé ẹ̀rí ìtọ́pasẹ̀ rẹ. Yóò hàn níbí nígbà tí oko bá ti jẹ́rìí àṣẹ rẹ.',
       lotCodeLabel: 'Kóòdù ìpín',
       verifiedBadge: '✓ Ìpín ìkórè tí a jẹ́rìí',
       why: 'Ojú-ìwé yìí jẹ́rìí ibi tí ọjà ti wá: oko, ọjà, iye, àti ọjọ́ ìkórè — tí a ṣàyẹ̀wò kí ó tó kúrò lóko. Kì í ṣe ìwé ẹ̀rí ìní.',

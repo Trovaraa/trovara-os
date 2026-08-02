@@ -57,8 +57,14 @@ export async function api<T>(
   })
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(messageFromErrorBody(body, res.status))
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: unknown
+      message?: unknown
+      code?: unknown
+    }
+    const err = new Error(messageFromErrorBody(body, res.status)) as Error & { code?: string }
+    if (typeof body.code === 'string' && body.code.trim()) err.code = body.code
+    throw err
   }
 
   // A stale service worker or cache can serve the app shell (HTML) for an API call,

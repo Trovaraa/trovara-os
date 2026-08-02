@@ -1351,6 +1351,9 @@ export default {
       title: 'Trovara Farm Traceability Certificate',
       verifying: 'Dey verify lot…',
       lotNotFound: 'Lot no dey',
+      pendingTitle: 'Certificate dey prepare',
+      pendingBody:
+        'We dey generate your traceability certificate. E go show for dis page when di farm confirm your order.',
       lotCodeLabel: 'Lot code',
       verifiedBadge: '✓ Verified harvest lot',
       why: 'Dis page confirm where di produce come from: farm, product, quantity, and harvest date — dem check am before e leave farm. E no be legal ownership paper.',

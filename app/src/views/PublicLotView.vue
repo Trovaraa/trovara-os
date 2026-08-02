@@ -29,6 +29,7 @@ const lot = ref<PublicLot | null>(null)
 const verified = ref(false)
 const loading = ref(true)
 const error = ref<string | null>(null)
+const pendingVerification = ref(false)
 
 const certificateHref = computed(
   () =>
@@ -38,6 +39,7 @@ const certificateHref = computed(
 onMounted(async () => {
   loading.value = true
   error.value = null
+  pendingVerification.value = false
   try {
     const data = await api<{ lot: PublicLot; verified: boolean }>(
       `/public/lots/${encodeURIComponent(farmSlug.value)}/${encodeURIComponent(publicToken.value)}`,
@@ -45,7 +47,16 @@ onMounted(async () => {
     lot.value = data.lot
     verified.value = data.verified
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('publicLot.lotNotFound')
+    const message = e instanceof Error ? e.message : t('publicLot.lotNotFound')
+    const code = e instanceof Error ? (e as Error & { code?: string }).code : undefined
+    if (
+      code === 'pending_verification' ||
+      /being prepared|pending verification|once the farm confirms/i.test(message)
+    ) {
+      pendingVerification.value = true
+    } else {
+      error.value = message
+    }
   } finally {
     loading.value = false
   }
@@ -59,6 +70,15 @@ onMounted(async () => {
       <h1 class="text-2xl font-black text-center mt-2">{{ t('publicLot.title') }}</h1>
 
       <div v-if="loading" class="mt-10 text-center text-slate-400">{{ t('publicLot.verifying') }}</div>
+
+      <div
+        v-else-if="pendingVerification"
+        class="mt-10 bg-slate-900 border border-farm-gold/40 rounded-2xl p-6 text-center space-y-3"
+      >
+        <p class="text-farm-gold font-bold">{{ t('publicLot.pendingTitle') }}</p>
+        <p class="text-sm text-slate-300 leading-relaxed">{{ t('publicLot.pendingBody') }}</p>
+        <p class="text-xs text-slate-500 font-mono break-all">{{ publicToken }}</p>
+      </div>
 
       <div v-else-if="error" class="mt-10 bg-slate-900 border border-red-900/50 rounded-2xl p-6 text-center">
         <p class="text-red-300">{{ error }}</p>

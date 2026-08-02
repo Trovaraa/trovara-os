@@ -17,6 +17,7 @@ import {
   logInquiry,
   suggestedQuestions,
 } from './customer-inquiry.js'
+import { publicAppBaseUrl } from './public-app-url.js'
 import {
   addToCart,
   cartTotalKobo,
@@ -172,6 +173,7 @@ async function upsertCustomerContact(
   externalId: string,
   name?: string | null,
   phone?: string | null,
+  customerAccountId?: string | null,
 ): Promise<ContactRow> {
   const [existing] = await db
     .select()
@@ -189,6 +191,7 @@ async function upsertCustomerContact(
     const updates: Partial<typeof customerContacts.$inferInsert> = { updatedAt: new Date() }
     if (name) updates.name = name
     if (phone) updates.phone = phone
+    if (customerAccountId) updates.customerAccountId = customerAccountId
     const [row] = await db
       .update(customerContacts)
       .set(updates)
@@ -199,7 +202,14 @@ async function upsertCustomerContact(
 
   const [row] = await db
     .insert(customerContacts)
-    .values({ farmId, channel, externalId, name: name ?? null, phone: phone ?? null })
+    .values({
+      farmId,
+      channel,
+      externalId,
+      name: name ?? null,
+      phone: phone ?? null,
+      customerAccountId: customerAccountId ?? null,
+    })
     .returning()
   return row
 }
@@ -516,7 +526,7 @@ async function createOrderFromCart(params: {
     if (recipient) {
       const accountUrl = `${(process.env.PUBLIC_MARKETING_URL ?? 'https://trovara.farm').replace(/\/+$/, '')}/shop`
       const traceabilityUrl = lotPublicToken
-        ? `${(process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')}/lot/${recipient.farmSlug}/${lotPublicToken}`
+        ? `${publicAppBaseUrl()}/lot/${recipient.farmSlug}/${lotPublicToken}`
         : null
       void sendEmail({
         to: recipient.email,
@@ -567,6 +577,7 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
     .where(eq(customerContacts.id, contactId))
     .limit(1)
 
+  const linkedToShop = Boolean(contact?.customerAccountId)
   let contactIds = [contactId]
   if (contact?.customerAccountId) {
     const linked = await db
@@ -598,13 +609,27 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
     .orderBy(desc(orders.createdAt))
     .limit(5)
 
-  if (!rows.length) return 'You have no orders yet. Reply "1" to place one.'
+  if (!rows.length) {
+    if (!linkedToShop) {
+      return [
+        'No orders on this chat yet.',
+        '',
+        'If you ordered on the website, link your Trovara shop account first:',
+        '1. Open the shop → Connect Chat',
+        '2. Create a secure link code',
+        '3. Send that code here exactly like: link ABCD1234',
+        '',
+        'Then reply "2" again. Or reply "1" to place a new order here.',
+      ].join('\n')
+    }
+    return 'You have no orders yet. Reply "1" to place one.'
+  }
 
   const lines = rows.map((o) => {
     const when = new Date(o.createdAt).toLocaleDateString('en-NG')
     const trace =
       o.publicToken && o.farmSlug
-        ? `\nTrace this order: ${(process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')}/lot/${o.farmSlug}/${o.publicToken}`
+        ? `\nTrace this order: ${publicAppBaseUrl()}/lot/${o.farmSlug}/${o.publicToken}`
         : ''
     return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} · ${paymentStatusLabel(o.paymentStatus)} (${when})${trace}`
   })

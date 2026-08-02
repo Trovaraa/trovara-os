@@ -1355,6 +1355,9 @@ export default {
       title: 'Certificat de traçabilité agricole Trovara',
       verifying: 'Vérification du lot…',
       lotNotFound: 'Lot introuvable',
+      pendingTitle: 'Certificat en préparation',
+      pendingBody:
+        'Votre certificat de traçabilité est en cours de génération. Il apparaîtra ici une fois que la ferme aura confirmé votre commande.',
       lotCodeLabel: 'Code du lot',
       verifiedBadge: '✓ Lot de récolte vérifié',
       why: 'Cette page confirme la provenance : ferme, produit, quantité et date de récolte — contrôlés avant départ. C’est un enregistrement de provenance, pas un titre de propriété.',

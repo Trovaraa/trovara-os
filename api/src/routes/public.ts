@@ -75,6 +75,25 @@ async function lookupPublicLot(farmSlug: string, tokenOrCode: string) {
   return byCode ?? null
 }
 
+/** True when a lot exists for this link but is not yet publicly verifiable. */
+async function isPendingPublicLot(farmSlug: string, tokenOrCode: string): Promise<boolean> {
+  const [byToken] = await db
+    .select({ status: harvestLots.verificationStatus })
+    .from(harvestLots)
+    .innerJoin(farms, eq(harvestLots.farmId, farms.id))
+    .where(and(eq(farms.slug, farmSlug), eq(harvestLots.publicToken, tokenOrCode)))
+    .limit(1)
+  if (byToken) return byToken.status === 'reported'
+
+  const [byCode] = await db
+    .select({ status: harvestLots.verificationStatus })
+    .from(harvestLots)
+    .innerJoin(farms, eq(harvestLots.farmId, farms.id))
+    .where(and(eq(farms.slug, farmSlug), eq(harvestLots.lotCode, tokenOrCode)))
+    .limit(1)
+  return byCode?.status === 'reported'
+}
+
 function rateLimitOrNull(c: { req: { header: (name: string) => string | undefined }; header: (k: string, v: string) => void }) {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
   const rateKey = `public-lot:${ip}`
@@ -92,7 +111,19 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode', async (c) => {
   const tokenOrCode = c.req.param('tokenOrCode')
 
   const lot = await lookupPublicLot(farmSlug, tokenOrCode)
-  if (!lot) return c.json({ error: 'Lot not found' }, 404)
+  if (!lot) {
+    if (await isPendingPublicLot(farmSlug, tokenOrCode)) {
+      return c.json(
+        {
+          error:
+            'Your traceability certificate is being prepared. It will be available here once the farm confirms your order.',
+          code: 'pending_verification',
+        },
+        404,
+      )
+    }
+    return c.json({ error: 'Lot not found', code: 'not_found' }, 404)
+  }
 
   const preparedFor = redactCustomerDisplayName(lot.customerName)
   const orderRef = lot.orderId ? orderReference(lot.orderId) : null
@@ -127,7 +158,19 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode/certificate.html', async (c) => {
   const farmSlug = c.req.param('farmSlug')
   const tokenOrCode = c.req.param('tokenOrCode')
   const lot = await lookupPublicLot(farmSlug, tokenOrCode)
-  if (!lot) return c.json({ error: 'Lot not found' }, 404)
+  if (!lot) {
+    if (await isPendingPublicLot(farmSlug, tokenOrCode)) {
+      return c.json(
+        {
+          error:
+            'Your traceability certificate is being prepared. It will be available here once the farm confirms your order.',
+          code: 'pending_verification',
+        },
+        404,
+      )
+    }
+    return c.json({ error: 'Lot not found', code: 'not_found' }, 404)
+  }
 
   const publicUrl = `${appBaseUrl()}/lot/${lot.farmSlug ?? 'farm'}/${lot.publicToken}`
   const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', margin: 1, width: 180 })
