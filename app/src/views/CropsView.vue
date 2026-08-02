@@ -225,7 +225,7 @@ const stageColor: Record<string, string> = {
   <AppLayout>
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('crops.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('crops.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('crops.subtitle') }}</p>
       </div>
       <button

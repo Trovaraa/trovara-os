@@ -226,7 +226,7 @@ async function rejectTaskWithReason() {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('tasks.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('tasks.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('tasks.subtitle') }}</p>
       <RouterLink
         v-if="auth.isOwner"
@@ -379,10 +379,10 @@ async function rejectTaskWithReason() {
           v-if="task.status === 'awaiting_approval'"
           class="mt-3 grid gap-2 text-xs text-slate-400"
         >
-          <p v-if="task.completionNote" class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+          <p v-if="task.completionNote" class="rounded-lg border border-slate-800 bg-slate-800/50 px-3 py-2">
             <span class="text-slate-500">Completion note:</span> {{ task.completionNote }}
           </p>
-          <div v-if="task.photoUrl" class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+          <div v-if="task.photoUrl" class="rounded-lg border border-slate-800 bg-slate-800/50 px-3 py-2">
             <p class="text-slate-500 mb-1">Photo evidence</p>
             <img
               :src="task.photoUrl"
@@ -390,7 +390,7 @@ async function rejectTaskWithReason() {
               class="h-24 w-24 rounded-lg border border-slate-700 object-cover"
             />
           </div>
-          <p v-if="task.voiceUrl" class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+          <p v-if="task.voiceUrl" class="rounded-lg border border-slate-800 bg-slate-800/50 px-3 py-2">
             <span class="text-slate-500">Voice note:</span>
             <a
               :href="task.voiceUrl"
@@ -401,7 +401,7 @@ async function rejectTaskWithReason() {
               Open recording
             </a>
           </p>
-          <p class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+          <p class="rounded-lg border border-slate-800 bg-slate-800/50 px-3 py-2">
             <span class="text-slate-500">GPS:</span> {{ gpsLabel(task) }}
           </p>
         </div>

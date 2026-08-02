@@ -262,7 +262,7 @@ function closeCustomer() {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('sales.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('sales.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('sales.subtitle') }}</p>
     </div>
 
@@ -465,7 +465,7 @@ function closeCustomer() {
     >
       <div class="w-full max-w-md h-full overflow-y-auto bg-slate-950 border-l border-slate-800 p-6">
         <div class="flex items-start justify-between">
-          <h3 class="text-xl font-black text-white">{{ t('sales.customer') }}</h3>
+          <h3 class="text-xl font-black text-os-fg">{{ t('sales.customer') }}</h3>
           <button
             class="text-slate-500 hover:text-white text-sm"
             @click="closeCustomer"
@@ -503,11 +503,11 @@ function closeCustomer() {
 
           <div class="grid grid-cols-3 gap-3">
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
-              <p class="text-2xl font-black text-white">{{ profile.stats.orderCount }}</p>
+              <p class="text-2xl font-black text-os-fg">{{ profile.stats.orderCount }}</p>
               <p class="text-[11px] text-slate-500 mt-0.5">{{ t('sales.orders') }}</p>
             </div>
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
-              <p class="text-2xl font-black text-white">{{ profile.stats.inquiryCount }}</p>
+              <p class="text-2xl font-black text-os-fg">{{ profile.stats.inquiryCount }}</p>
               <p class="text-[11px] text-slate-500 mt-0.5">{{ t('sales.questions') }}</p>
             </div>
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">

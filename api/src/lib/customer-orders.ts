@@ -45,6 +45,7 @@ import {
 import { validateCustomerOrder } from './order-abuse-controls.js'
 import { logSecurityEvent } from './security-log.js'
 import { createHarvestLotForOrder } from './harvest-lots.js'
+import { createSupportTicket } from './support-tickets.js'
 import {
   createPaymentAttemptForOrder,
   requestCustomerCancel,
@@ -103,6 +104,7 @@ function mainMenu(farmName: string): string {
     '1 - Place an order',
     '2 - Track my order',
     '3 - Ask about our farm & produce',
+    '4 - Report a problem',
     '',
     'Or just type your question. Type "cancel" any time to start over.',
   ].join('\n')
@@ -416,6 +418,7 @@ async function createOrderFromCart(params: {
       farmId: params.farmId,
       orderId: order.id,
       lines: items.map((i) => ({
+        productId: i.productId,
         productName: i.productName,
         unit: i.unit,
         quantity: i.quantity,
@@ -646,6 +649,23 @@ async function advanceOrderConversation(params: {
     })
   }
 
+  const supportMatch = text.match(/^(?:4|complaint|support|problem|issue)(?:\s*[:\-]?\s*(.*))?$/i)
+  if (state.step === 'idle' && supportMatch) {
+    const description = supportMatch[1]?.trim()
+    if (!description) {
+      await saveSession(farmId, channel, externalId, { ...state, step: 'support' })
+      return 'Please tell us what went wrong. Include your order reference if you have one.'
+    }
+    const ticket = await createSupportTicket({
+      farmId,
+      contactId: params.contactId,
+      channel,
+      description,
+      priority: /urgent|unsafe|spoilt|damaged|missing/i.test(description) ? 'urgent' : 'normal',
+    })
+    return `Thanks — we’ve logged this as ${ticket.reference}. Our team will follow up.\n\nType "menu" to continue.`
+  }
+
   switch (state.step) {
     case 'idle': {
       if (isTrackingIntent(text, lower)) {
@@ -677,6 +697,19 @@ async function advanceOrderConversation(params: {
         return handleInquiry(suggestions[choice - 1]!, 'suggested')
       }
       return handleInquiry(text)
+    }
+
+    case 'support': {
+      if (text.length < 3) return 'Please add a little more detail so our team can help.'
+      const ticket = await createSupportTicket({
+        farmId,
+        contactId: params.contactId,
+        channel,
+        description: text,
+        priority: /urgent|unsafe|spoilt|damaged|missing/i.test(text) ? 'urgent' : 'normal',
+      })
+      await reset()
+      return `Thanks — we’ve logged this as ${ticket.reference}. Our team will follow up.\n\nType "menu" to continue.`
     }
 
     case 'ordering': {

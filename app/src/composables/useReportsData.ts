@@ -155,6 +155,28 @@ export type BurnRateReport = {
   }[]
 }
 
+export type InventoryShrinkReport = {
+  generatedAt: string
+  report: string
+  periodDays: number
+  flaggedCount: number
+  items: {
+    itemId: string
+    sku: string
+    name: string
+    unit: string
+    qtyIn: number
+    qtyOutSale: number
+    qtyOutTask: number
+    qtyOutSpoilage: number
+    qtyOutOther: number
+    soldQty: number
+    unexplainedOut: number
+    salesMismatch: number
+    flags: Array<'unexplained_out' | 'sales_stock_mismatch'>
+  }[]
+}
+
 export type ActionListReport = {
   generatedAt: string
   report: string
@@ -204,6 +226,7 @@ export function useReportsData() {
   const data = ref<OwnerReports | null>(null)
   const digest = ref<DigestReport | null>(null)
   const burnRate = ref<BurnRateReport | null>(null)
+  const inventoryShrink = ref<InventoryShrinkReport | null>(null)
   const actionList = ref<ActionListReport | null>(null)
   const plotProfitability = ref<PlotProfitabilityReport | null>(null)
   const loading = ref(true)
@@ -211,16 +234,19 @@ export function useReportsData() {
 
   onMounted(async () => {
     try {
-      const [owner, digestRes, burnRateRes, actionListRes, plotPnlRes] = await Promise.all([
-        api<OwnerReports>('/api/reports/owner'),
-        api<DigestReport>('/api/reports/digest'),
-        api<BurnRateReport>('/api/reports/burn-rate'),
-        api<ActionListReport>('/api/reports/action-list'),
-        api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
-      ])
+      const [owner, digestRes, burnRateRes, shrinkRes, actionListRes, plotPnlRes] =
+        await Promise.all([
+          api<OwnerReports>('/api/reports/owner'),
+          api<DigestReport>('/api/reports/digest'),
+          api<BurnRateReport>('/api/reports/burn-rate'),
+          api<InventoryShrinkReport>('/api/reports/inventory-shrink?days=30'),
+          api<ActionListReport>('/api/reports/action-list'),
+          api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
+        ])
       data.value = owner
       digest.value = digestRes
       burnRate.value = burnRateRes
+      inventoryShrink.value = shrinkRes
       actionList.value = actionListRes
       plotProfitability.value = plotPnlRes
     } catch (e) {
@@ -242,6 +268,7 @@ export function useReportsData() {
     data,
     digest,
     burnRate,
+    inventoryShrink,
     actionList,
     plotProfitability,
     loading,

@@ -11,30 +11,48 @@ const canRemove = computed(() => auth.isOwner)
 
 type Product = {
   id: string
+  sku: string
   name: string
   unit: string
   priceKobo: number
   currency: string
   active: boolean
   sortOrder: number
+  inventoryItemId?: string | null
+  inventorySku?: string | null
+  inventoryQuantity?: number | null
+  inventoryUnit?: string | null
 }
 
-const UNIT_OPTIONS = ['bunch', 'piece', 'pack', 'bird', 'crate', 'kg', 'bag', 'unit']
+type InventoryOption = {
+  id: string
+  sku: string
+  name: string
+  quantity: number
+  unit: string
+  productId?: string | null
+}
+
+const UNIT_OPTIONS = ['kg', 'tonne', 'crate', 'tray', 'bag', 'bunch', 'piece', 'pack', 'bird', 'litre', 'unit']
 
 const products = ref<Product[]>([])
+const inventoryOptions = ref<InventoryOption[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
 const newName = ref('')
+const newSku = ref('')
 const newUnit = ref('unit')
 const newPriceNaira = ref<number | ''>('')
 const creating = ref(false)
 
 const editing = ref<Product | null>(null)
 const editName = ref('')
+const editSku = ref('')
 const editUnit = ref('unit')
 const editPriceNaira = ref<number | ''>('')
 const editActive = ref(true)
+const editInventoryItemId = ref('')
 const savingEdit = ref(false)
 
 function nairaToKobo(naira: number | ''): number {
@@ -53,8 +71,12 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const data = await api<{ products: Product[] }>('/api/products')
-    products.value = data.products
+    const [productData, inventoryData] = await Promise.all([
+      api<{ products: Product[] }>('/api/products'),
+      api<{ items: InventoryOption[] }>('/api/inventory'),
+    ])
+    products.value = productData.products
+    inventoryOptions.value = inventoryData.items ?? []
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('products.loadFailed')
   } finally {
@@ -72,6 +94,7 @@ async function createProduct() {
     await api('/api/products', {
       method: 'POST',
       body: JSON.stringify({
+        sku: newSku.value.trim().toUpperCase(),
         name: newName.value.trim(),
         unit: newUnit.value.trim() || 'unit',
         priceKobo: nairaToKobo(newPriceNaira.value),
@@ -79,6 +102,7 @@ async function createProduct() {
       }),
     })
     newName.value = ''
+    newSku.value = ''
     newUnit.value = 'unit'
     newPriceNaira.value = ''
     await load()
@@ -92,9 +116,17 @@ async function createProduct() {
 function openEdit(p: Product) {
   editing.value = p
   editName.value = p.name
+  editSku.value = p.sku
   editUnit.value = p.unit
   editPriceNaira.value = p.priceKobo > 0 ? p.priceKobo / 100 : ''
   editActive.value = p.active
+  editInventoryItemId.value = p.inventoryItemId ?? ''
+}
+
+function inventoryChoicesFor(product: Product) {
+  return inventoryOptions.value.filter(
+    (item) => !item.productId || item.productId === product.id || item.id === product.inventoryItemId,
+  )
 }
 
 function cancelEdit() {
@@ -109,10 +141,12 @@ async function saveEdit() {
     await api(`/api/products/${editing.value.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
+        sku: editSku.value.trim().toUpperCase(),
         name: editName.value.trim(),
         unit: editUnit.value.trim() || 'unit',
         priceKobo: nairaToKobo(editPriceNaira.value),
         active: editActive.value,
+        inventoryItemId: editInventoryItemId.value || null,
       }),
     })
     editing.value = null
@@ -138,7 +172,7 @@ async function deactivate(p: Product) {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('products.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('products.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
         {{ t('products.subtitle') }}
       </p>
@@ -149,7 +183,13 @@ async function deactivate(p: Product) {
     <!-- Add product -->
     <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
       <h3 class="font-bold text-white text-sm">{{ t('products.addProduct') }}</h3>
-      <div class="mt-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
+      <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_2fr_1fr_1fr_auto]">
+        <input
+          v-model="newSku"
+          placeholder="SKU"
+          maxlength="40"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white uppercase"
+        />
         <input
           v-model="newName"
           :placeholder="t('products.productNamePlaceholder')"
@@ -157,9 +197,11 @@ async function deactivate(p: Product) {
         />
         <input
           v-model="newUnit"
-          list="unit-options"
+          list="product-unit-options"
           :placeholder="t('products.unit')"
+          maxlength="40"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          :title="t('products.unitHint')"
         />
         <input
           v-model.number="newPriceNaira"
@@ -170,16 +212,13 @@ async function deactivate(p: Product) {
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <button
-          :disabled="creating || !newName.trim()"
+          :disabled="creating || !newName.trim() || !newSku.trim()"
           class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
           @click="createProduct"
         >
           {{ creating ? t('products.adding') : t('products.add') }}
         </button>
       </div>
-      <datalist id="unit-options">
-        <option v-for="u in UNIT_OPTIONS" :key="u" :value="u" />
-      </datalist>
     </div>
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('products.loading') }}</div>
@@ -200,8 +239,21 @@ async function deactivate(p: Product) {
             {{ p.name }}
             <span v-if="!p.active" class="text-xs text-slate-500">{{ t('products.inactive') }}</span>
           </p>
+          <p class="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-farm-green">{{ p.sku }}</p>
           <p class="text-xs text-slate-400 mt-0.5">
             {{ priceLabel(p) }} <span class="text-slate-600">/ {{ p.unit }}</span>
+          </p>
+          <p class="text-[11px] mt-1" :class="p.inventoryItemId ? 'text-farm-green' : 'text-slate-600'">
+            <template v-if="p.inventoryItemId">
+              {{
+                t('products.stockLinked', {
+                  sku: p.inventorySku,
+                  qty: p.inventoryQuantity,
+                  unit: p.inventoryUnit,
+                })
+              }}
+            </template>
+            <template v-else>{{ t('products.stockUnlinked') }}</template>
           </p>
         </div>
         <div class="flex gap-2 flex-shrink-0">
@@ -232,6 +284,14 @@ async function deactivate(p: Product) {
         <h3 class="font-bold text-white">{{ t('products.editProduct') }}</h3>
         <div class="mt-4 space-y-3">
           <label class="block">
+            <span class="text-xs text-slate-400">SKU</span>
+            <input
+              v-model="editSku"
+              maxlength="40"
+              class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white uppercase"
+            />
+          </label>
+          <label class="block">
             <span class="text-xs text-slate-400">{{ t('products.name') }}</span>
             <input
               v-model="editName"
@@ -242,9 +302,11 @@ async function deactivate(p: Product) {
             <span class="text-xs text-slate-400">{{ t('products.unit') }}</span>
             <input
               v-model="editUnit"
-              list="unit-options"
+              list="product-unit-options"
+              maxlength="40"
               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
             />
+            <span class="mt-1 block text-[11px] text-slate-500">{{ t('products.unitHint') }}</span>
           </label>
           <label class="block">
             <span class="text-xs text-slate-400">{{ t('products.priceEdit') }}</span>
@@ -260,6 +322,22 @@ async function deactivate(p: Product) {
             <input v-model="editActive" type="checkbox" class="rounded" />
             {{ t('products.activeShown') }}
           </label>
+          <label class="block">
+            <span class="text-xs text-slate-400">{{ t('products.stockLink') }}</span>
+            <select
+              v-model="editInventoryItemId"
+              class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="">{{ t('products.stockLinkNone') }}</option>
+              <option
+                v-for="item in inventoryChoicesFor(editing)"
+                :key="item.id"
+                :value="item.id"
+              >
+                {{ item.sku }} · {{ item.name }} ({{ item.quantity }} {{ item.unit }})
+              </option>
+            </select>
+          </label>
         </div>
         <div class="mt-6 flex justify-end gap-2">
           <button
@@ -269,7 +347,7 @@ async function deactivate(p: Product) {
             {{ t('products.cancel') }}
           </button>
           <button
-            :disabled="savingEdit || !editName.trim()"
+            :disabled="savingEdit || !editName.trim() || !editSku.trim()"
             class="px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
             @click="saveEdit"
           >
@@ -278,5 +356,9 @@ async function deactivate(p: Product) {
         </div>
       </div>
     </div>
+
+    <datalist id="product-unit-options">
+      <option v-for="u in UNIT_OPTIONS" :key="u" :value="u" />
+    </datalist>
   </AppLayout>
 </template>

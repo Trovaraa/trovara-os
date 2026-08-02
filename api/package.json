@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "seed": "tsx src/seed.ts",
     "sync-catalog": "tsx src/scripts/sync-catalog.ts",
+    "reg-token": "tsx src/scripts/create-registration-token.ts",
     "retry-translations": "tsx src/scripts/retry-translations.ts",
     "test": "vitest run",
     "test:watch": "vitest"

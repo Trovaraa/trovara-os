@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -11,10 +11,28 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Trovara OS" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icons/trovara-monogram-icon-v1.svg" />
+    <link rel="apple-touch-icon" href="/icons/trovara-monogram-icon-v1.svg" />
+    <!-- Apply stored theme before paint. Default stays dark (current OS look). -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('trovara_theme')
+          var light = t === 'light'
+          document.documentElement.classList.toggle('dark', !light)
+          document.documentElement.classList.toggle('light', light)
+          document.documentElement.style.colorScheme = light ? 'light' : 'dark'
+          if (light) {
+            var meta = document.querySelector('meta[name="theme-color"]')
+            if (meta) meta.setAttribute('content', '#eef3f0')
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased">
+  <body class="antialiased">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

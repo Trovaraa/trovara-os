@@ -12,6 +12,7 @@ const { t } = useI18n()
 
 type HarvestLot = TraceabilityLot
 type PlotOption = TraceabilityPlotOption
+type ProductOption = { id: string; sku: string; name: string; unit: string; active: boolean }
 
 const auth = useAuthStore()
 const isOwner = computed(() => auth.isOwner)
@@ -21,6 +22,7 @@ const verifyingId = ref<string | null>(null)
 
 const lots = ref<HarvestLot[]>([])
 const plots = ref<PlotOption[]>([])
+const products = ref<ProductOption[]>([])
 const loading = ref(true)
 const exporting = ref(false)
 const exportMessage = ref<string | null>(null)
@@ -30,6 +32,7 @@ const creating = ref(false)
 const createError = ref<string | null>(null)
 const showStandalone = ref(false)
 const newProductName = ref('')
+const newProductId = ref('')
 const newQuantityKg = ref<number | ''>('')
 const newUnit = ref<'kg' | 'crates'>('kg')
 const newPlotId = ref('')
@@ -70,12 +73,14 @@ function needsPack(lot: HarvestLot) {
 async function load() {
   loading.value = true
   try {
-    const [lotData, plotData] = await Promise.all([
+    const [lotData, plotData, productData] = await Promise.all([
       api<{ lots: HarvestLot[] }>('/api/traceability'),
       api<{ plots: PlotOption[] }>('/api/zones/plots'),
+      api<{ products: ProductOption[] }>('/api/products'),
     ])
     lots.value = lotData.lots
     plots.value = plotData.plots
+    products.value = productData.products.filter((product) => product.active)
   } finally {
     loading.value = false
   }
@@ -157,13 +162,14 @@ function onEditPhotoChange(e: Event) {
 }
 
 async function createLot() {
-  if (!newProductName.value.trim() || newQuantityKg.value === '') return
+  if (!newProductId.value || newQuantityKg.value === '') return
   creating.value = true
   createError.value = null
   try {
     await api('/api/traceability', {
       method: 'POST',
       body: JSON.stringify({
+        productId: newProductId.value,
         productName: newProductName.value.trim(),
         quantityKg: Number(newQuantityKg.value),
         unit: newUnit.value,
@@ -174,6 +180,7 @@ async function createLot() {
       }),
     })
     newProductName.value = ''
+    newProductId.value = ''
     newQuantityKg.value = ''
     newUnit.value = 'kg'
     newPlotId.value = ''
@@ -211,7 +218,7 @@ function statusMeta(status: string): { label: string; cls: string } {
     case 'rejected':
       return { label: t('trace.statusRejected'), cls: 'bg-red-900/40 text-red-300' }
     default:
-      return { label: t('trace.statusAwaiting'), cls: 'bg-amber-500/15 text-amber-300' }
+      return { label: t('trace.statusAwaiting'), cls: 'bg-amber-900/40 text-amber-300' }
   }
 }
 
@@ -296,7 +303,7 @@ async function exportAudit() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('trace.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('trace.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
           {{ t('trace.subtitle') }}
         </p>
@@ -332,13 +339,17 @@ async function exportAudit() {
       <h3 class="font-bold text-white text-sm">Standalone harvest</h3>
       <p class="text-xs text-slate-400">Lot code is generated automatically (LOT-YYYYMMDD-001).</p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <input
-          v-model="newProductName"
-          type="text"
+        <select
+          v-model="newProductId"
           required
-          :placeholder="t('trace.productName')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-        />
+          @change="newProductName = products.find((product) => product.id === newProductId)?.name ?? ''"
+        >
+          <option value="">Select product / SKU</option>
+          <option v-for="product in products" :key="product.id" :value="product.id">
+            {{ product.sku }} · {{ product.name }}
+          </option>
+        </select>
         <input
           v-model.number="newQuantityKg"
           type="number"

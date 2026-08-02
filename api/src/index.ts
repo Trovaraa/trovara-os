@@ -42,6 +42,8 @@ import { farmRoutes } from './routes/farm.js'
 import { attendanceRoutes } from './routes/attendance.js'
 import { supplierRoutes } from './routes/suppliers.js'
 import { purchaseOrderRoutes } from './routes/purchase-orders.js'
+import { fieldReportRoutes } from './routes/field-reports.js'
+import { supportRoutes } from './routes/support.js'
 import {
   apiMutationRateLimit,
   authMutationRateLimit,
@@ -74,6 +76,8 @@ app.route('/api/evidence', evidenceRoutes)
 app.route('/api/inventory', inventoryRoutes)
 app.route('/api/suppliers', supplierRoutes)
 app.route('/api/purchase-orders', purchaseOrderRoutes)
+app.route('/api/field-reports', fieldReportRoutes)
+app.route('/api/support', supportRoutes)
 app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)

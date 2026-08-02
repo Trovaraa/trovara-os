@@ -268,7 +268,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('zones.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('zones.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('zones.subtitle') }}</p>
     </div>
 

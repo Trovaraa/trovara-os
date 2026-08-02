@@ -202,13 +202,17 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
   return { session: { ...session, notes: typedNotes ?? session.notes }, idempotent: false }
 }
 
-export async function clockOut(user: SessionUser) {
+export async function clockOut(
+  user: SessionUser,
+  input: { workSummary?: string | null } = {},
+) {
   if (user.role !== 'field_worker') throw new Error('FORBIDDEN')
 
   const now = new Date()
+  const workSummary = cleanNotes(input.workSummary)
   const [session] = await db
     .update(attendanceSessions)
-    .set({ clockOutAt: now })
+    .set({ clockOutAt: now, workSummary })
     .where(
       and(
         eq(attendanceSessions.farmId, user.farmId),
@@ -240,7 +244,10 @@ export async function clockOut(user: SessionUser) {
     action: 'attendance_clock_out',
     entityType: 'attendance_session',
     entityId: session.id,
-    metadata: { payableMinutes: payableMinutes(session.clockInAt, session.clockOutAt!) },
+    metadata: {
+      payableMinutes: payableMinutes(session.clockInAt, session.clockOutAt!),
+      hasWorkSummary: Boolean(session.workSummary),
+    },
   })
   return { session, idempotent: false }
 }
@@ -277,6 +284,7 @@ export async function listToday(user: SessionUser) {
       taskId: attendanceSessions.taskId,
       taskTitle: tasks.title,
       notes: attendanceSessions.notes,
+      workSummary: attendanceSessions.workSummary,
       correctedById: attendanceSessions.correctedById,
       correctedAt: attendanceSessions.correctedAt,
       createdAt: attendanceSessions.createdAt,

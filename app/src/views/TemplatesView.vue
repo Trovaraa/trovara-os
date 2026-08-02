@@ -61,6 +61,8 @@ const loading = ref(true)
 const newName = ref('')
 const newDescription = ref('')
 const newCropType = ref('')
+const newDurationHours = ref<number | ''>('')
+const newChecklistText = ref('')
 const creating = ref(false)
 const createError = ref<string | null>(null)
 
@@ -92,22 +94,37 @@ async function load() {
 
 onMounted(load)
 
+function parseChecklist(text: string): string[] | undefined {
+  const items = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 30)
+  return items.length ? items : undefined
+}
+
 async function createTemplate() {
   if (!newName.value.trim()) return
   creating.value = true
   createError.value = null
   try {
+    const hours =
+      newDurationHours.value === '' ? undefined : Math.max(1, Math.trunc(Number(newDurationHours.value)))
     await api('/api/templates/templates', {
       method: 'POST',
       body: JSON.stringify({
         name: newName.value.trim(),
         description: newDescription.value.trim() || undefined,
         cropType: newCropType.value.trim() || undefined,
+        defaultDurationHours: hours,
+        checklist: parseChecklist(newChecklistText.value),
       }),
     })
     newName.value = ''
     newDescription.value = ''
     newCropType.value = ''
+    newDurationHours.value = ''
+    newChecklistText.value = ''
     await load()
   } catch (e) {
     createError.value = e instanceof Error ? e.message : t('templates.createFailed')
@@ -135,7 +152,7 @@ async function generateTasks() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('templates.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('templates.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('templates.subtitle') }}</p>
       </div>
       <button
@@ -155,7 +172,7 @@ async function generateTasks() {
       @submit.prevent="createTemplate"
     >
       <h3 class="font-bold text-white text-sm">{{ t('templates.newTemplateTitle') }}</h3>
-      <div class="grid sm:grid-cols-3 gap-4">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.nameLabel') }}</label>
           <input
@@ -178,6 +195,17 @@ async function generateTasks() {
           />
         </div>
         <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.durationLabel') }}</label>
+          <input
+            v-model.number="newDurationHours"
+            type="number"
+            min="1"
+            step="1"
+            :placeholder="t('templates.durationPlaceholder')"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.descriptionLabel') }}</label>
           <input
             v-model="newDescription"
@@ -187,6 +215,16 @@ async function generateTasks() {
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.checklistLabel') }}</label>
+        <textarea
+          v-model="newChecklistText"
+          rows="3"
+          maxlength="4000"
+          :placeholder="t('templates.checklistPlaceholder')"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-y"
+        />
       </div>
       <div class="flex items-center gap-3">
         <button
@@ -215,11 +253,14 @@ async function generateTasks() {
               <div>
                 <h4 class="font-bold text-white">{{ tpl.name }}</h4>
                 <p v-if="tpl.description" class="text-slate-400 text-sm mt-1">{{ tpl.description }}</p>
-                <p class="text-xs text-slate-500 mt-2">
-                  <span v-if="tpl.actionType" class="mr-2 font-mono text-farm-green/80">{{ tpl.actionType }}</span>
+                <p
+                  v-if="tpl.cropType || tpl.defaultDurationHours"
+                  class="text-xs text-slate-500 mt-2"
+                >
                   <span v-if="tpl.cropType" class="capitalize">{{ tpl.cropType }}</span>
+                  <span v-if="tpl.cropType && tpl.defaultDurationHours"> · </span>
                   <span v-if="tpl.defaultDurationHours">
-                    · {{ t('templates.defaultDuration', { hours: tpl.defaultDurationHours }) }}
+                    {{ t('templates.defaultDuration', { hours: tpl.defaultDurationHours }) }}
                   </span>
                 </p>
               </div>

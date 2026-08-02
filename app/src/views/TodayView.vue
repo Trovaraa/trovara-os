@@ -143,6 +143,7 @@ const {
   selectedPlotId,
   selectedTaskId,
   attendanceNotes,
+  workSummary,
   correctingId,
   correctionClockIn,
   correctionClockOut,
@@ -289,7 +290,7 @@ function formatTime(iso: string) {
     <div v-else-if="data" class="relative z-0 w-full max-w-full min-w-0">
       <div>
         <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('today.eyebrow') }}</p>
-        <h2 class="text-2xl sm:text-3xl font-black text-white mt-1 leading-tight">
+        <h2 class="text-2xl sm:text-3xl font-black text-os-fg mt-1 leading-tight">
           {{ isWorker ? t('today.myTasks') : isSales ? t('today.salesDashboard') : t('today.exceptionDashboard') }}
         </h2>
         <p class="text-slate-400 text-sm mt-1">
@@ -306,7 +307,7 @@ function formatTime(iso: string) {
       <!-- Trovara OS Advisory teaser -->
       <section
         v-if="!isSales && data.advisory !== undefined"
-        class="mt-6 rounded-2xl border border-teal-800/50 bg-gradient-to-br from-teal-950/80 to-slate-900 p-5"
+        class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5"
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -342,6 +343,7 @@ function formatTime(iso: string) {
         v-model:selected-plot-id="selectedPlotId"
         v-model:selected-task-id="selectedTaskId"
         v-model:attendance-notes="attendanceNotes"
+        v-model:work-summary="workSummary"
         v-model:correcting-id="correctingId"
         v-model:correction-clock-in="correctionClockIn"
         v-model:correction-clock-out="correctionClockOut"
@@ -379,7 +381,7 @@ function formatTime(iso: string) {
           </div>
           <p
             v-if="data.weather.current"
-            class="text-3xl font-black text-white"
+            class="text-3xl font-black text-os-fg"
           >
             {{ data.weather.current.tempC.toFixed(0) }}°C
           </p>

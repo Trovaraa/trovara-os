@@ -13,7 +13,7 @@ legal advice. The customer-facing draft is
 
 Trovara OS processes farm operational data: user accounts, task logs, inventory, livestock records, financial summaries, audit trails, and optional WhatsApp integration metadata.
 
-Personal data includes: names, email addresses, phone numbers (customers/workers), session metadata (hashed IP, user agent), and third-party analytics data collected in the browser (route views, device/browser details, connecting IP, persistent visitor identifier) - see [Third-party analytics](#third-party-analytics).
+Personal data includes: names, email addresses, phone numbers (customers/workers), session metadata (hashed IP, user agent).
 
 ---
 
@@ -24,22 +24,18 @@ Personal data includes: names, email addresses, phone numbers (customers/workers
 | Primary database | Host Postgres in Nigeria (e.g. AWS `af-south-1` Lagos or local provider with NDPC registration) |
 | Backups | Encrypted snapshots stored in same jurisdiction |
 | CDN / static assets | Non-PII only at edge; API and DB remain in-region |
-| Third-party browser tags | Each tag sends data direct from the browser to the vendor, bypassing the in-region API. Inventory every tag, its destination, and its lawful basis |
 | Cross-border transfer | Disclose, assess, minimise, and protect each transfer an enabled integration performs; require NDPC adequacy/contractual safeguards, and consent where that is the basis relied on |
 
 **Current state:** Local development uses Docker; the production deployment is
 internet-facing and must be assessed against the controls in this document.
 
-**Open issue - analytics contradicts this table.** The WebMetrix tag now on both
-the marketing site and the staff app transmits browser data, including the
-connecting IP, to `analytics.webmetrix.ai` on every page load. This is a
-cross-border transfer unless the vendor is shown to process in Nigeria, it is
-running without consent, and no adequacy or contractual safeguard has been
-documented. The "Cross-border transfer" row previously read "Prohibited unless
-explicit consent + NDPC adequacy/contractual safeguards" and was already
-inaccurate for Meta, Telegram, and the AI provider; it has been reworded to
-match the [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md) position that an actual
-transfer must be disclosed and safeguarded rather than described as prohibited.
+**Note on the transfer row.** It previously read "Prohibited unless explicit
+consent + NDPC adequacy/contractual safeguards", which did not match the
+product: Meta, Telegram, and the configured AI provider all transfer data
+outside Nigeria today. It has been reworded to match the
+[`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md) section 9 position that an actual
+transfer must be disclosed, assessed, and safeguarded rather than described as
+prohibited.
 
 ---
 
@@ -49,9 +45,7 @@ transfer must be disclosed and safeguarded rather than described as prohibited.
 |------------|-------|----------------|
 | Farm staff accounts | Contract / legitimate interest | Terms of service + role assignment by farm owner |
 | Customer phone on orders | Legitimate interest / consent | Field-level notice at order entry; retention policy |
-| AI summaries | Consent (where non-essential) | Opt-in per farm; no training on tenant data without agreement |
-| Product analytics (WebMetrix) | **Undecided** - consent or legitimate interest | **Not implemented.** Tag is live on both properties with no opt-in, no opt-out, and no balancing assessment on file |
-| Staff-app analytics (WebMetrix) | **Undecided** - employees as data subjects | Employee consent is rarely freely given; needs a monitoring notice + DPIA, or removal of the tag from the authenticated app |
+| Analytics / AI summaries | Consent (where non-essential) | Opt-in per farm; no training on tenant data without agreement |
 | Marketing | Consent | Separate opt-in; not bundled with product signup |
 
 Consent records: store `{ userId, purpose, version, timestamp, ipHash }` in audit log.
@@ -68,7 +62,7 @@ Support requests within 30 days (NDPA-aligned):
 | Rectification | In-app edit + audit trail |
 | Erasure | Tenant offboarding workflow; **pseudonymize** (not hard-delete) workers, customer contacts, and chat text where legal retention applies; audit log rows are never deleted |
 | Portability | JSON export (orders, tasks, inventory snapshots) |
-| Object / restrict | Feature flags to pause non-essential processing. **Gap:** no flag or preference control exists for the WebMetrix tag; users can only block cookies/site data, browse privately, or block `analytics.webmetrix.ai` in the browser |
+| Object / restrict | Feature flags to pause non-essential processing |
 
 ---
 
@@ -112,47 +106,43 @@ DPO responsibilities: privacy impact assessments, staff training, NDPC liaison, 
 | Customer contact phones | Nulled after `CUSTOMER_CONTACT_RETENTION_DAYS` (defaults to `DATA_RETENTION_DAYS`) |
 | Worker/customer erasure requests | Pseudonymize name/email/phone via owner API; retain orders and audit trail |
 | Backups | 30 days rolling; encrypted |
-| WebMetrix analytics records | **Unknown** - vendor-controlled; confirm the retention period and whether deletion by visitor identifier is supported |
-| WebMetrix browser identifiers | Expire per the lifetimes set by the SDK; **confirm the values that apply on the staff app** |
 
 ---
 
 ## Third-party analytics
 
-A third-party analytics SDK, **WebMetrix**, is loaded from
-`https://analytics.webmetrix.ai/sdk/webmetrix.analytics.min.js` in the `<head>`
-of both properties and initialised with the Trovara tenant identifier:
+**Trovara OS loads no third-party analytics, advertising, or tracking script.**
+This covers the whole application, including the public traceability lot pages
+served from the same origin. Product usage is understood from the internal
+audit trail, not from a vendor SDK.
 
-| Property | Audience | Status |
-|----------|----------|--------|
-| Marketing site (`trovara.farm`) | Anonymous public visitors | Live; disclosed in the site's own privacy policy |
-| Trovara OS app (`os.trovara.farm`) | Authenticated farm staff | Live; **was undisclosed** until this revision |
+This is enforced in depth. The app ships its own Content Security Policy as a
+meta tag injected at build time, setting `script-src 'self'` and
+`connect-src 'self'`, so an external script origin is refused by the browser
+whatever the server in front happens to send. That policy was verified against
+the built app across the login screens and 21 authenticated views with no
+violations.
 
-Because the SDK executes in the page, it is a recipient of personal data in its
-own right and must be registered as a sub-processor. What a general web
-analytics SDK of this kind collects: route/page views and titles, referrer,
-browser and device metadata, the connecting IP address (sent by the browser on
-every request), a persistent visitor identifier plus a session identifier held
-in browser storage, and on-page interaction events.
+The belt-and-braces control is still outstanding: a response from
+`os.trovara.farm` on 26 July 2026 carried no `Content-Security-Policy` header,
+so the deployed server does not match
+[`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example),
+which sets the same policy plus `frame-ancestors`. Bringing the live config up
+to the example is an open item.
 
-Risks specific to the staff app:
+A WebMetrix analytics tag was briefly added to the app and was removed. The
+reasoning is recorded here because it governs any future proposal: staff-app
+analytics measures **identified employees**, the analytics identifier would sit
+in the same browser session used to sign in, and route-level data would reveal
+which staff member used which screen and when. That is employee monitoring, and
+it would require a lawful basis that survives the employer/employee imbalance,
+a monitoring notice, a DPIA, a signed DPA, and a working opt-out before it
+could be enabled.
 
-- Data subjects are **identified employees**, not anonymous visitors. The
-  analytics identifier sits in the same browser session used to sign in, so
-  route-level analytics can reveal which staff member used which screen and
-  when. Treat as employee monitoring unless demonstrated otherwise.
-- No consent, opt-out, or preference control exists in either property.
-- The tag was added without a DPIA, a sub-processor entry, or a DPA.
-- The example production CSP in
-  [`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example)
-  is `script-src 'self'` / `connect-src 'self'`, which would block the SDK and
-  its beacons. Confirm what the live deployment actually sends before relying
-  on either the analytics data or the assumption that no data leaves.
-
-Required before this is compliant: decide the lawful basis, obtain a DPA and
-the vendor's processing locations, complete a DPIA for the staff-app
-deployment, and either implement a control or remove the tag from the
-authenticated app. See [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md) section 14.
+Out of scope for this document: the separate Trovara Farm marketing site
+(`trovara.farm`) does use website analytics for anonymous visitors, under its
+own privacy policy, its own CSP allowlist, and its own sub-processor list.
+Nothing in that arrangement extends to Trovara OS.
 
 ---
 
@@ -165,9 +155,9 @@ Document and verify for the current production configuration:
 - Telegram (staff and customer bots)
 - WhatsApp Business API (Meta) - data processing agreement required
 - Configured AI provider (text, images, transcription, and TTS)
-- WebMetrix analytics (`analytics.webmetrix.ai`) - marketing site and staff app;
-  **data processing agreement, processing location, and retention all unconfirmed**
 - Payment processor (future)
+
+No analytics provider is listed because Trovara OS sends data to none.
 
 Maintain the provider, purpose, data categories, processing location, and
 transfer safeguards in a sub-processor register. Summarise enabled providers in
@@ -185,9 +175,6 @@ the customer-facing privacy notice.
 - [ ] Data processing agreements with sub-processors
 - [ ] Nigeria-only production region verified
 - [ ] DPIA for AI/WhatsApp features
-- [ ] DPIA for WebMetrix analytics on the authenticated staff app (employee monitoring)
-- [ ] WebMetrix DPA signed, processing location and retention confirmed, sub-processor register updated
-- [ ] Lawful basis for analytics decided and a consent or opt-out control implemented, or the tag removed from the staff app
 - [ ] DPIA for any public-ledger/tokenization feature before implementation
 - [ ] Breach notification runbook tested
 - [ ] Customer data export/delete API tested

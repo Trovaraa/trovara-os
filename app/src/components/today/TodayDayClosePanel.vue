@@ -38,7 +38,11 @@ function formatCurrency(amount: number, currency: string) {
       @click="emit('toggle')"
     >
       <div class="flex items-center gap-3">
-        <span class="text-farm-green text-lg">🌙</span>
+        <span class="h-8 w-8 rounded-lg bg-farm-green/10 text-farm-green flex items-center justify-center" aria-hidden="true">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" />
+          </svg>
+        </span>
         <div class="text-left">
           <p class="font-bold text-white text-sm">
             {{ isSales ? t('today.salesDayClose') : t('today.dayClose') }}
@@ -67,7 +71,10 @@ function formatCurrency(amount: number, currency: string) {
             ? 'bg-farm-green/10 border border-farm-green/30'
             : 'bg-amber-950/40 border border-amber-700/40'"
         >
-          <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
+          <span class="h-8 w-8 rounded-full flex items-center justify-center" :class="dayClose.status === 'clear' ? 'bg-farm-green/15 text-farm-green' : 'bg-amber-500/15 text-amber-300'" aria-hidden="true">
+            <svg v-if="dayClose.status === 'clear'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" /></svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.7 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.7a2 2 0 0 0-3.4 0Z" /></svg>
+          </span>
           <div>
             <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
               {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
@@ -144,7 +151,10 @@ function formatCurrency(amount: number, currency: string) {
             ? 'bg-farm-green/10 border border-farm-green/30'
             : 'bg-amber-950/40 border border-amber-700/40'"
         >
-          <span class="text-xl">{{ dayClose.status === 'clear' ? '✅' : '⚠️' }}</span>
+          <span class="h-8 w-8 rounded-full flex items-center justify-center" :class="dayClose.status === 'clear' ? 'bg-farm-green/15 text-farm-green' : 'bg-amber-500/15 text-amber-300'" aria-hidden="true">
+            <svg v-if="dayClose.status === 'clear'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" /></svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.7 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.7a2 2 0 0 0-3.4 0Z" /></svg>
+          </span>
           <div>
             <p class="font-bold text-sm" :class="dayClose.status === 'clear' ? 'text-farm-green' : 'text-amber-300'">
               {{ dayClose.status === 'clear' ? t('today.dayClear') : t('today.needsAttentionClose') }}
@@ -235,7 +245,7 @@ function formatCurrency(amount: number, currency: string) {
 
         <div v-if="dayClose.finance" class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
           <h4 class="font-bold text-white text-sm mb-1">{{ t('today.expensesToday') }}</h4>
-          <p class="text-xl font-black text-white">
+          <p class="text-xl font-black text-os-fg">
             {{ formatCurrency(dayClose.finance.totalExpenses, dayClose.finance.currency) }}
           </p>
           <p class="text-xs text-slate-500 mt-0.5">{{ t('today.expensesLogged', { count: dayClose.finance.expensesToday }) }}</p>

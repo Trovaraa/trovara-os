@@ -14,8 +14,10 @@ import { logAudit } from './audit.js'
 import { recordFarmEvent } from './farm-events.js'
 import { authorLocaleForUserId, toCanonicalEnglish } from './content-locale.js'
 import { mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
+import { applyHarvestStockInForLot } from './inventory-stock.js'
 
 export type OrderLineForLot = {
+  productId?: string | null
   productName: string
   unit: string
   quantity: number
@@ -158,6 +160,7 @@ export async function createHarvestLotForOrder(params: {
     .insert(harvestLots)
     .values({
       farmId: params.farmId,
+      productId: params.lines.length === 1 ? (primary?.productId ?? null) : null,
       lotCode,
       orderId: params.orderId,
       productName,
@@ -316,6 +319,14 @@ export async function verifyHarvestLot(params: {
     })
     .where(eq(harvestLots.id, params.lotId))
     .returning()
+
+  if (params.status === 'verified' && existing.verificationStatus !== 'verified') {
+    await applyHarvestStockInForLot({
+      farmId: params.farmId,
+      lot,
+      recordedById: params.userId,
+    })
+  }
 
   await logAudit({
     farmId: params.farmId,

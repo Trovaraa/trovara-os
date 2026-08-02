@@ -1,14 +1,56 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// The production host serves the app shell from a web server config we do not
+// ship, and a check on 26 July 2026 found it sending no CSP at all, so the
+// policy travels with the document instead of depending on the proxy. Build
+// only: in dev this would refuse Vite's HMR socket. `frame-ancestors` is
+// ignored in a meta tag and stays in the nginx config.
+function contentSecurityPolicy(): Plugin {
+  const policy = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "form-action 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    // Evidence photos and voice notes are read back as object URLs.
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+  ].join('; ')
+
+  return {
+    name: 'trovara-csp-meta',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => ({
+        html,
+        tags: [
+          {
+            tag: 'meta',
+            attrs: { 'http-equiv': 'Content-Security-Policy', content: policy },
+            injectTo: 'head-prepend',
+          },
+        ],
+      }),
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     vue(),
+    contentSecurityPolicy(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/icon-192.svg', 'icons/icon-512.svg', 'icons/icon-maskable.svg'],
+      includeAssets: ['icons/trovara-monogram-icon-v1.svg', 'icons/icon-maskable.svg'],
       manifest: false, // we have our own manifest.webmanifest in /public
       workbox: {
         // Workbox's production terser worker exits early under Node 22 in some

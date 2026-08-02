@@ -13,6 +13,7 @@ const {
   data,
   digest,
   burnRate,
+  inventoryShrink,
   actionList,
   plotProfitability,
   loading,
@@ -25,7 +26,7 @@ const {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('reports.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('reports.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('reports.subtitle') }}</p>
     </div>
 
@@ -54,6 +55,44 @@ const {
           </li>
         </ul>
         <p v-else class="text-slate-500 text-sm">{{ t('reports.noActions') }}</p>
+      </section>
+
+      <!-- Inventory shrink / leakage -->
+      <section v-if="inventoryShrink" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-white">{{ t('reports.shrinkTitle') }}</h3>
+          <span class="text-xs text-slate-500">
+            {{ t('reports.lastDays', { count: inventoryShrink.periodDays }) }} ·
+            <span :class="inventoryShrink.flaggedCount ? 'text-amber-300' : 'text-farm-green'">
+              {{ t('reports.shrinkFlagged', { count: inventoryShrink.flaggedCount }) }}
+            </span>
+          </span>
+        </div>
+        <ul v-if="inventoryShrink.items.length" class="space-y-2">
+          <li
+            v-for="item in inventoryShrink.items.slice(0, 10)"
+            :key="item.itemId"
+            class="text-sm flex justify-between gap-4 border-b border-slate-800/40 pb-2 last:border-0"
+          >
+            <span class="text-slate-300 min-w-0">
+              <span class="font-mono text-[11px] text-farm-green">{{ item.sku }}</span>
+              {{ item.name }}
+              <span
+                v-if="item.flags.length"
+                class="ml-2 text-[10px] uppercase tracking-wide text-amber-300"
+              >
+                {{ item.flags.join(' · ') }}
+              </span>
+            </span>
+            <span class="font-mono text-xs text-slate-500 flex-shrink-0 text-right">
+              {{ t('reports.shrinkIn') }} {{ item.qtyIn }} ·
+              {{ t('reports.shrinkSale') }} {{ item.qtyOutSale }} ·
+              {{ t('reports.shrinkSold') }} {{ item.soldQty }} ·
+              {{ t('reports.shrinkOther') }} {{ item.qtyOutOther }}
+            </span>
+          </li>
+        </ul>
+        <p v-else class="text-slate-500 text-sm">{{ t('reports.shrinkNone') }}</p>
       </section>
 
       <!-- Inventory Burn Rate -->
@@ -95,7 +134,7 @@ const {
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div class="bg-slate-800/50 rounded-xl p-3">
             <p class="text-xs text-slate-500">{{ t('reports.totalTasks') }}</p>
-            <p class="text-2xl font-black text-white">{{ data.reports.dailyOps.totalTasks }}</p>
+            <p class="text-2xl font-black text-os-fg">{{ data.reports.dailyOps.totalTasks }}</p>
           </div>
           <div class="bg-slate-800/50 rounded-xl p-3">
             <p class="text-xs text-slate-500">{{ t('reports.inProgress') }}</p>

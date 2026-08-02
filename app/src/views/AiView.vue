@@ -323,7 +323,7 @@ async function draftTaskFromPrompt() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('ai.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('ai.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
           {{ t('ai.subtitle') }}
         </p>
@@ -348,7 +348,7 @@ async function draftTaskFromPrompt() {
       <div ref="threadEl" class="flex-1 overflow-y-auto p-4 space-y-3">
         <!-- Empty state -->
         <div v-if="!messages.length" class="h-full flex flex-col items-center justify-center text-center px-6">
-          <div class="h-12 w-12 rounded-2xl bg-farm-green/15 text-farm-green flex items-center justify-center text-xl font-black mb-3">T</div>
+          <img src="/brand/trovara-monogram-tile-v1.svg" alt="" class="h-12 w-12 mb-3" width="48" height="48" />
           <p class="text-white font-semibold">{{ t('ai.emptyGreeting') }}</p>
           <p class="text-slate-500 text-sm mt-1 max-w-sm">
             {{ t('ai.emptyHint') }}
@@ -436,7 +436,9 @@ async function draftTaskFromPrompt() {
             :class="{ 'opacity-40 pointer-events-none': !aiStatus?.configured || recording || transcribing }"
             :title="t('ai.attachPhotoTitle')"
           >
-            📎
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m20.5 11.5-8.7 8.7a5.25 5.25 0 0 1-7.4-7.4l9.4-9.4a3.75 3.75 0 0 1 5.3 5.3l-9.4 9.4a2.25 2.25 0 0 1-3.2-3.2l8.7-8.7" />
+            </svg>
             <input type="file" accept="image/*" capture="environment" class="hidden" @change="onImageSelected" />
           </label>
           <button
@@ -450,7 +452,13 @@ async function draftTaskFromPrompt() {
             :aria-label="recording ? t('ai.stopRecording') : t('ai.voiceTitle')"
             @click="toggleVoice"
           >
-            {{ recording ? '⏹' : '🎙' }}
+            <svg v-if="recording" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            <svg v-else class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="8" y="3" width="8" height="12" rx="4" />
+              <path stroke-linecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
+            </svg>
           </button>
           <textarea
             v-model="input"

@@ -27,6 +27,7 @@ export type CatalogItem = {
 export type OrderStep =
   | 'idle'
   | 'asking'
+  | 'support'
   | 'ordering'
   | 'awaiting_qty'
   | 'confirm_details'

@@ -15,6 +15,17 @@ import {
   validateRegistrationSecret,
   verifyBreakGlassPassword,
 } from '../lib/registration.js'
+import {
+  attachRegistrationTokenUser,
+  claimRegistrationToken,
+  createRegistrationToken,
+  hasActiveRegistrationTokens,
+  inspectRegistrationToken,
+  listRegistrationTokens,
+  releaseRegistrationToken,
+  revokeRegistrationToken,
+} from '../lib/registration-tokens.js'
+import { requireRole } from '../lib/rbac.js'
 import { ensureBreakGlassOwner } from '../lib/break-glass.js'
 import {
   SESSION_COOKIE,
@@ -191,22 +202,49 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   })
 })
 
+/**
+ * Resolve the registration secret without mutating anything. Prefers a
+ * single-use DB registration token; falls back to the legacy reusable
+ * OWNER_REGISTRATION_SECRET env value for bootstrap / backward compatibility.
+ */
+type RegistrationSecretMode =
+  | { kind: 'token'; tokenId: string }
+  | { kind: 'env' }
+  | { kind: 'disabled' }
+  | { kind: 'invalid'; reason: string }
+
+async function resolveRegistrationSecret(secret: string): Promise<RegistrationSecretMode> {
+  const inspected = await inspectRegistrationToken(secret)
+  if (inspected.status === 'valid') return { kind: 'token', tokenId: inspected.id }
+  if (inspected.status !== 'not_found') {
+    // A real token that is used / expired / revoked — never fall through to env.
+    return { kind: 'invalid', reason: `token_${inspected.status}` }
+  }
+
+  const envCheck = validateRegistrationSecret(secret, process.env.OWNER_REGISTRATION_SECRET)
+  if (envCheck.ok) return { kind: 'env' }
+  if (envCheck.reason === 'invalid') return { kind: 'invalid', reason: 'invalid_secret' }
+
+  // Env secret unset: registration is only "disabled" when no token could work
+  // either. If active tokens exist, this was just a wrong secret.
+  return (await hasActiveRegistrationTokens())
+    ? { kind: 'invalid', reason: 'invalid_secret' }
+    : { kind: 'disabled' }
+}
+
 authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) => {
   const mutation = checkAuthMutationRateLimit(authMutationKey(c))
   if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
   const ip = clientIpFromHeaders((name) => c.req.header(name))
   const body = c.req.valid('json')
-  const secretCheck = validateRegistrationSecret(
-    body.registrationSecret,
-    process.env.OWNER_REGISTRATION_SECRET,
-  )
-  if (!secretCheck.ok) {
-    if (secretCheck.reason === 'disabled') {
-      return c.json({ error: 'Admin registration is disabled' }, 503)
-    }
+  const secretMode = await resolveRegistrationSecret(body.registrationSecret)
+  if (secretMode.kind === 'disabled') {
+    return c.json({ error: 'Admin registration is disabled' }, 503)
+  }
+  if (secretMode.kind === 'invalid') {
     logSecurityEvent('failed_registration', {
-      reason: 'invalid_secret',
+      reason: secretMode.reason,
       email: normalizeRegisterEmail(body.email),
       ip,
     })
@@ -236,21 +274,57 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
   if (existing) return c.json({ error: 'Email already in use' }, 400)
 
-  const [created] = await db
-    .insert(users)
-    .values({
-      farmId: farm.id,
-      email,
-      name: body.name.trim(),
-      phone,
-      passwordHash: await hashPassword(body.password),
-      role: 'owner',
-      mustChangePassword: false,
-      active: true,
-    })
-    .returning()
+  // Claim the single-use token now (atomic) so a valid request consumes it
+  // exactly once. Only reached after all cheap validations pass, so a bad
+  // request never burns a token. The env-secret path stays reusable.
+  if (secretMode.kind === 'token') {
+    const claimed = await claimRegistrationToken(secretMode.tokenId)
+    if (!claimed) {
+      logSecurityEvent('failed_registration', {
+        reason: 'token_race_lost',
+        email,
+        ip,
+      })
+      return c.json({ error: 'Invalid registration secret' }, 401)
+    }
+  }
 
-  if (!created) return c.json({ error: 'Could not create account' }, 500)
+  let created
+  try {
+    ;[created] = await db
+      .insert(users)
+      .values({
+        farmId: farm.id,
+        email,
+        name: body.name.trim(),
+        phone,
+        passwordHash: await hashPassword(body.password),
+        role: 'owner',
+        mustChangePassword: false,
+        active: true,
+      })
+      .returning()
+  } catch (err) {
+    // Creation failed after the token was claimed — release it so the operator
+    // does not have to mint a new one for a transient error.
+    if (secretMode.kind === 'token') await releaseRegistrationToken(secretMode.tokenId)
+    throw err
+  }
+
+  if (!created) {
+    if (secretMode.kind === 'token') await releaseRegistrationToken(secretMode.tokenId)
+    return c.json({ error: 'Could not create account' }, 500)
+  }
+
+  if (secretMode.kind === 'token') {
+    await attachRegistrationTokenUser(secretMode.tokenId, created.id)
+    logSecurityEvent('registration_token_used', {
+      tokenId: secretMode.tokenId,
+      userId: created.id,
+      email,
+      ip,
+    })
+  }
 
   const acceptedAt = new Date()
   await db.insert(consentRecords).values(
@@ -617,4 +691,99 @@ authRoutes.get('/me', authMiddleware, async (c) => {
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
   const activeSessions = await countActiveSessions(user.id)
   return c.json({ user: existing, activeSessions })
+})
+
+// ── Owner-only single-use registration tokens ──────────────────────────────
+// Mint / list / revoke tokens that let a new Founder self-register once. The
+// raw token is returned exactly once on creation and never stored in the clear.
+
+const createRegistrationTokenSchema = z.object({
+  label: z.string().trim().max(200).optional(),
+  ttlHours: z.number().int().min(1).max(24 * 30).optional(),
+})
+
+authRoutes.post(
+  '/registration-tokens',
+  authMiddleware,
+  zValidator('json', createRegistrationTokenSchema),
+  async (c) => {
+    const user = c.get('user')
+    try {
+      requireRole(user, 'owner')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    const { label, ttlHours } = c.req.valid('json')
+    const generated = await createRegistrationToken({
+      createdByUserId: user.id,
+      label,
+      ttlHours,
+    })
+
+    logSecurityEvent('registration_token_created', {
+      tokenId: generated.id,
+      userId: user.id,
+      farmId: user.farmId,
+    })
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'create',
+      entityType: 'registration_token',
+      entityId: generated.id,
+      metadata: { label: label ?? null, expiresAt: generated.expiresAt.toISOString() },
+    })
+
+    // token is shown once; the client must copy it now.
+    return c.json(
+      {
+        id: generated.id,
+        token: generated.token,
+        expiresAt: generated.expiresAt.toISOString(),
+      },
+      201,
+    )
+  },
+)
+
+authRoutes.get('/registration-tokens', authMiddleware, async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const tokens = await listRegistrationTokens()
+  return c.json({ tokens })
+})
+
+authRoutes.post('/registration-tokens/:id/revoke', authMiddleware, async (c) => {
+  const user = c.get('user')
+  try {
+    requireRole(user, 'owner')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const tokenId = c.req.param('id')
+  if (!tokenId) return c.json({ error: 'Token id required' }, 400)
+  const revoked = await revokeRegistrationToken(tokenId)
+  if (!revoked) {
+    return c.json({ error: 'Token not found or already used' }, 404)
+  }
+
+  logSecurityEvent('registration_token_revoked', {
+    tokenId,
+    userId: user.id,
+    farmId: user.farmId,
+  })
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'delete',
+    entityType: 'registration_token',
+    entityId: tokenId,
+  })
+  return c.json({ ok: true })
 })

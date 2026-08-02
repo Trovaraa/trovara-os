@@ -80,6 +80,41 @@ const salesStatCards = [
 
 const statCards = computed(() => (isSales.value ? salesStatCards : farmStatCards))
 
+const dateLabel = new Intl.DateTimeFormat(undefined, {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+}).format(new Date())
+
+const firstName = computed(() => auth.user?.name?.trim() ?? '')
+
+const completionRate = computed(() => {
+  if (!data.value || isSales.value) return 0
+  const summary = data.value.summary
+  const total = summary.tasksPending + summary.tasksInProgress + summary.tasksAwaitingApproval + summary.tasksCompleted
+  return total ? Math.round((summary.tasksCompleted / total) * 100) : 0
+})
+
+const quickLinks = computed(() => {
+  if (isSales.value) {
+    return [
+      { to: '/sales', label: t('nav.sales'), detail: t('dashboard.ordersPending'), accent: 'text-orange-300' },
+      { to: '/products', label: t('nav.products'), detail: t('dashboard.viewSales'), accent: 'text-sky-300' },
+      { to: '/whatsapp', label: t('nav.whatsapp'), detail: t('dashboard.openTodaySalesSubtitle'), accent: 'text-emerald-300' },
+    ]
+  }
+  return [
+    { to: '/tasks', label: t('nav.tasks'), detail: t('dashboard.viewTasks'), accent: 'text-amber-300' },
+    { to: '/inventory', label: t('nav.inventory'), detail: t('dashboard.lowStock'), accent: 'text-rose-300' },
+    { to: '/advisory', label: t('nav.advisory'), detail: t('advisory.subtitle'), accent: 'text-teal-300' },
+  ]
+})
+
+function stockPercent(item: DashboardData['lowStockItems'][number]) {
+  if (!item.reorderLevel) return 0
+  return Math.max(5, Math.min(100, Math.round((item.quantity / item.reorderLevel) * 100)))
+}
+
 function alertText(alert: DashboardData['alerts'][number]): string {
   if (alert.type === 'low_stock') {
     return t('dashboard.lowStockAlert', { count: data.value?.summary.lowStockCount ?? 0 })
@@ -112,7 +147,7 @@ function summaryValue(key: string): number {
     <div v-else-if="isWorker && workerData" class="relative z-0 w-full max-w-full min-w-0">
       <div>
         <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('dashboard.workerEyebrow') }}</p>
-        <h2 class="text-3xl font-black text-white mt-1">{{ t('dashboard.workerTitle') }}</h2>
+        <h2 class="text-3xl font-black text-os-fg mt-1">{{ t('dashboard.workerTitle') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('dashboard.workerSubtitle') }}</p>
       </div>
 
@@ -130,7 +165,7 @@ function summaryValue(key: string): number {
 
       <div class="mt-8">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-white">{{ t('dashboard.myTasksToday') }}</h3>
+          <h3 class="font-bold text-os-fg">{{ t('dashboard.myTasksToday') }}</h3>
           <RouterLink to="/tasks" class="text-xs text-farm-green hover:underline">{{ t('dashboard.allTasks') }}</RouterLink>
         </div>
         <ul v-if="workerData.myTasksToday.length" class="space-y-3">
@@ -140,7 +175,7 @@ function summaryValue(key: string): number {
             class="w-full max-w-full box-border overflow-hidden bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-0"
           >
             <TaskStatusBadge :status="task.status" class="mb-2" />
-            <p class="font-medium text-white text-base break-words leading-snug">{{ task.title }}</p>
+            <p class="font-medium text-os-fg text-base break-words leading-snug">{{ task.title }}</p>
             <p v-if="task.plotName" class="text-xs text-slate-500 mt-1">{{ task.plotName }}</p>
           </li>
         </ul>
@@ -151,85 +186,134 @@ function summaryValue(key: string): number {
     </div>
 
     <!-- Supervisor / owner / sales hub -->
-    <div v-else-if="data" class="relative z-0">
-      <RouterLink
-        v-if="isManager || isSales"
-        to="/today"
-        class="block mb-8 bg-farm-green/10 border border-farm-green/30 rounded-2xl p-5 transition-all hover:border-farm-green/50 hover:bg-farm-green/15 min-h-[44px]"
-      >
-        <p class="text-farm-green text-xs font-bold tracking-widest uppercase">{{ t('dashboard.startHere') }}</p>
-        <p class="text-lg font-bold text-white mt-1">{{ t('dashboard.openToday') }}</p>
-        <p class="text-sm text-slate-400 mt-1">
-          {{ isSales ? t('dashboard.openTodaySalesSubtitle') : t('dashboard.openTodaySubtitle') }}
-        </p>
-      </RouterLink>
-
-      <div>
-        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">
-          {{ isSales ? t('dashboard.salesHub') : t('dashboard.operationsHub') }}
-        </p>
-        <h2 class="text-3xl font-black text-white mt-1">
-          {{ data.farm?.name ?? t('dashboard.farmFallback') }}
-        </h2>
-        <p class="text-slate-400 text-sm mt-1">{{ data.farm?.location }}</p>
-      </div>
-
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
+    <div v-else-if="data" class="relative z-0 space-y-6 md:space-y-8">
+      <header class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+            <span>{{ dateLabel }}</span>
+            <span class="h-1 w-1 rounded-full bg-slate-700" />
+            <span>{{ data.farm?.location }}</span>
+          </div>
+          <h2 class="text-3xl sm:text-4xl font-black text-os-fg mt-2 tracking-[-0.035em]">
+            {{ firstName ? t('dashboard.welcomeBack', { name: firstName }) : (data.farm?.name ?? t('dashboard.farmFallback')) }}
+          </h2>
+          <p class="text-slate-400 text-sm sm:text-base mt-2 max-w-2xl">
+            {{ isSales ? t('dashboard.openTodaySalesSubtitle') : t('dashboard.openTodaySubtitle') }}
+          </p>
+        </div>
         <RouterLink
-          v-for="card in statCards"
-          :key="card.key"
-          :to="card.to"
-          class="bg-slate-900 border border-slate-800 rounded-2xl p-5 cursor-pointer transition-all hover:border-farm-green/40 hover:bg-slate-800/80 hover:scale-[1.02] active:scale-[0.99]"
+          v-if="isManager || isSales"
+          to="/today"
+          class="group inline-flex min-h-[3rem] items-center justify-between gap-5 rounded-2xl bg-farm-green px-5 py-3 text-sm font-black text-[#06130d] shadow-lg shadow-farm-green/10 hover:bg-emerald-400 transition-colors lg:min-w-[15rem]"
         >
-          <p class="text-xs text-slate-500 font-medium">{{ t(card.labelKey) }}</p>
-          <p class="text-3xl font-black mt-1" :class="card.color">
-            {{ summaryValue(card.key) }}
-          </p>
-          <p class="text-xs text-slate-600 mt-2">
-            {{ isSales ? t('dashboard.viewSales') : t('dashboard.viewTasks') }}
-          </p>
+          <span>{{ t('dashboard.openToday') }}</span>
+          <span class="transition-transform group-hover:translate-x-1" aria-hidden="true">↗</span>
         </RouterLink>
-      </div>
+      </header>
 
-      <div class="grid lg:grid-cols-2 gap-6 mt-8">
+      <section class="rounded-[1.75rem] border border-slate-800 bg-slate-900 overflow-hidden shadow-2xl shadow-black/10">
+        <div class="px-5 py-4 sm:px-6 border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-farm-green">
+              {{ isSales ? t('dashboard.salesHub') : t('dashboard.operationsHub') }}
+            </p>
+            <h3 class="text-base font-bold text-os-fg mt-1">{{ data.farm?.name ?? t('dashboard.farmFallback') }}</h3>
+          </div>
+          <div v-if="!isSales" class="flex items-center gap-3 text-xs text-slate-400">
+            <span>{{ completionRate }}% {{ t('dashboard.completed').toLowerCase() }}</span>
+            <div class="w-28 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div class="h-full rounded-full bg-farm-green" :style="{ width: `${completionRate}%` }" />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-white/10">
+          <RouterLink
+            v-for="card in statCards"
+            :key="card.key"
+            :to="card.to"
+            class="group p-5 sm:p-6 cursor-pointer transition-colors hover:bg-white/[0.045] min-h-[9rem] flex flex-col justify-between"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-xs text-slate-400 font-semibold leading-snug">{{ t(card.labelKey) }}</p>
+              <span class="text-slate-700 group-hover:text-slate-400 transition-colors" aria-hidden="true">↗</span>
+            </div>
+            <p class="text-4xl font-black mt-4 tracking-tight tabular-nums" :class="card.color">{{ summaryValue(card.key) }}</p>
+          </RouterLink>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex items-center justify-between gap-4 mb-3">
+          <h3 class="text-sm font-black text-os-fg">{{ t('dashboard.quickAccess') }}</h3>
+          <p class="hidden sm:block text-xs text-slate-600">{{ t('dashboard.signalToAction') }}</p>
+        </div>
+        <div class="grid sm:grid-cols-3 gap-3">
+          <RouterLink
+            v-for="link in quickLinks"
+            :key="link.to"
+            :to="link.to"
+            class="group rounded-2xl border border-slate-800 bg-slate-900 p-4 hover:border-farm-green/30 hover:bg-slate-800 transition-all min-w-0"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <p class="font-bold text-os-fg">{{ link.label }}</p>
+              <span class="h-8 w-8 rounded-full bg-white/5 grid place-items-center group-hover:bg-farm-green/15 transition-colors" :class="link.accent" aria-hidden="true">→</span>
+            </div>
+            <p class="mt-3 text-xs text-slate-500 leading-relaxed line-clamp-2">{{ link.detail }}</p>
+          </RouterLink>
+        </div>
+      </section>
+
+      <div class="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] gap-5">
         <RouterLink
           to="/today"
-          class="bg-slate-900 border border-slate-800 rounded-2xl p-6 block cursor-pointer transition-all hover:border-amber-500/30 hover:bg-slate-800/80"
+          class="rounded-[1.5rem] border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-amber-500/30"
         >
-          <h3 class="font-bold text-white mb-4">{{ t('dashboard.alerts') }}</h3>
+          <div class="flex items-center justify-between gap-3 mb-5">
+            <div>
+              <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-400">{{ t('dashboard.startHere') }}</p>
+              <h3 class="font-bold text-os-fg mt-1">{{ t('dashboard.alerts') }}</h3>
+            </div>
+            <span class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-bold text-amber-300">{{ data.alerts.length }}</span>
+          </div>
           <ul v-if="data.alerts.length" class="space-y-3">
             <li
               v-for="alert in data.alerts"
               :key="alert.message"
-              class="flex items-start gap-3 text-sm"
+              class="flex items-start gap-3 rounded-xl bg-white/[0.035] px-4 py-3 text-sm"
             >
-              <span class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
-              <span class="text-slate-300">{{ alertText(alert) }}</span>
+              <span class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0 shadow-[0_0_0_4px_rgba(251,191,36,0.08)]" />
+              <span class="text-slate-300 leading-relaxed">{{ alertText(alert) }}</span>
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('dashboard.noActiveAlerts') }}</p>
-          <p class="text-xs text-farm-green mt-4">{{ t('dashboard.viewToday') }}</p>
+          <p class="text-xs font-bold text-farm-green mt-5">{{ t('dashboard.viewToday') }}</p>
         </RouterLink>
 
         <RouterLink
           :to="isSales ? '/sales' : '/inventory'"
-          class="bg-slate-900 border border-slate-800 rounded-2xl p-6 block cursor-pointer transition-all hover:border-red-500/30 hover:bg-slate-800/80"
+          class="rounded-[1.5rem] border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-red-500/30"
         >
-          <h3 class="font-bold text-white mb-4">{{ t('dashboard.lowStock') }}</h3>
-          <ul v-if="data.lowStockItems.length" class="space-y-3">
-            <li
-              v-for="item in data.lowStockItems"
-              :key="item.name"
-              class="flex justify-between text-sm"
-            >
-              <span class="text-slate-300">{{ item.name }}</span>
-              <span class="text-red-400 font-mono">
-                {{ item.quantity }} / {{ item.reorderLevel }} {{ item.unit }}
-              </span>
+          <div class="flex items-center justify-between gap-3 mb-5">
+            <div>
+              <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-400">{{ t('nav.inventory') }}</p>
+              <h3 class="font-bold text-os-fg mt-1">{{ t('dashboard.lowStock') }}</h3>
+            </div>
+            <span class="rounded-full bg-rose-400/10 px-3 py-1 text-xs font-bold text-rose-300">{{ data.lowStockItems.length }}</span>
+          </div>
+          <ul v-if="data.lowStockItems.length" class="space-y-4">
+            <li v-for="item in data.lowStockItems" :key="item.name" class="text-sm">
+              <div class="flex justify-between gap-4">
+                <span class="text-slate-300 font-medium truncate">{{ item.name }}</span>
+                <span class="text-rose-300 font-mono text-xs whitespace-nowrap">{{ item.quantity }} / {{ item.reorderLevel }} {{ item.unit }}</span>
+              </div>
+              <div class="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400" :style="{ width: `${stockPercent(item)}%` }" />
+              </div>
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('dashboard.allStockHealthy') }}</p>
-          <p v-if="data.lowStockItems.length" class="text-xs text-slate-600 mt-4">
+          <p v-if="data.lowStockItems.length" class="text-xs font-bold text-farm-green mt-5">
             {{ isSales ? t('dashboard.viewSales') : t('dashboard.viewInventory') }}
           </p>
         </RouterLink>

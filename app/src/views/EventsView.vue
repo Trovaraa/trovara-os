@@ -115,7 +115,7 @@ function formatTime(iso: string): string {
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('events.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('events.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
         {{ t('events.subtitle') }}
       </p>
@@ -196,7 +196,7 @@ function formatTime(iso: string): string {
       <div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <h3 class="text-lg font-black text-white capitalize">
+            <h3 class="text-lg font-black text-os-fg capitalize">
               {{ selected.eventType.replace(/_/g, ' ') }}
             </h3>
             <p class="text-xs text-slate-500 capitalize">{{ selected.entityType.replace(/_/g, ' ') }}</p>

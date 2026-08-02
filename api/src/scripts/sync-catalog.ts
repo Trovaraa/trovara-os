@@ -28,6 +28,15 @@ const ALIASES: Record<string, string[]> = {
   'Trovara Fresh Dried Plantain': ['Trovara Farm Dried Plantain'],
 }
 
+const PRODUCT_SKUS: Record<string, string> = {
+  'Trovara Fresh Pasture-Raised Eggs': 'TRV-EGG-CRATE',
+  'Trovara Fresh Plantain': 'TRV-PLT-BUNCH',
+  'Trovara Fresh Coconut': 'TRV-COC-PIECE',
+  'Trovara Fresh Chicken': 'TRV-CHK-BIRD',
+  'Trovara Fresh Plantain Flour': 'TRV-PLF-PACK',
+  'Trovara Fresh Dried Plantain': 'TRV-DRP-PACK',
+}
+
 async function resolveFarm(): Promise<{ id: string; name: string } | null> {
   const slug = process.env.TELEGRAM_CUSTOMER_FARM_SLUG?.trim()
   if (slug) {
@@ -69,6 +78,7 @@ async function main() {
       await db
         .update(products)
         .set({
+          sku: PRODUCT_SKUS[p.name] ?? `PRD-${p.sortOrder}`,
           name: p.name,
           unit: p.unit,
           priceKobo: p.priceKobo,
@@ -83,6 +93,7 @@ async function main() {
     } else {
       await db.insert(products).values({
         farmId: farm.id,
+        sku: PRODUCT_SKUS[p.name] ?? `PRD-${p.sortOrder}`,
         name: p.name,
         unit: p.unit,
         priceKobo: p.priceKobo,

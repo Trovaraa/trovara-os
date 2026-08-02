@@ -76,7 +76,7 @@ onMounted(load)
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('insights.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('insights.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
           {{ t('insights.subtitle') }}
         </p>
@@ -98,11 +98,11 @@ onMounted(load)
       <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p class="text-xs text-slate-500">{{ t('insights.totalQuestions') }}</p>
-          <p class="text-2xl font-black text-white">{{ data.summary.total }}</p>
+          <p class="text-2xl font-black text-os-fg">{{ data.summary.total }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p class="text-xs text-slate-500">{{ t('insights.uniqueQuestions') }}</p>
-          <p class="text-2xl font-black text-white">{{ data.summary.unique }}</p>
+          <p class="text-2xl font-black text-os-fg">{{ data.summary.unique }}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p class="text-xs text-slate-500">{{ t('insights.last7Days') }}</p>

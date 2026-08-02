@@ -14,6 +14,7 @@ export type AttendanceSession = {
   taskId: string | null
   taskTitle: string | null
   notes: string | null
+  workSummary: string | null
   correctedById: string | null
   correctedAt: string | null
   payableMinutes: number
@@ -32,6 +33,7 @@ export function useTodayAttendance(getRole: () => string | undefined) {
   const selectedPlotId = ref('')
   const selectedTaskId = ref('')
   const attendanceNotes = ref('')
+  const workSummary = ref('')
   const correctingId = ref<string | null>(null)
   const correctionClockIn = ref('')
   const correctionClockOut = ref('')
@@ -83,7 +85,11 @@ export function useTodayAttendance(getRole: () => string | undefined) {
     attendanceBusy.value = true
     attendanceError.value = null
     try {
-      await api('/api/attendance/clock-out', { method: 'POST', body: '{}' })
+      await api('/api/attendance/clock-out', {
+        method: 'POST',
+        body: JSON.stringify({ workSummary: workSummary.value.trim() || null }),
+      })
+      workSummary.value = ''
       await refresh()
     } catch (e) {
       attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
@@ -142,6 +148,7 @@ export function useTodayAttendance(getRole: () => string | undefined) {
     selectedPlotId,
     selectedTaskId,
     attendanceNotes,
+    workSummary,
     correctingId,
     correctionClockIn,
     correctionClockOut,

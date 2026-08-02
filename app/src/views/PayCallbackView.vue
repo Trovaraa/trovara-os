@@ -23,7 +23,7 @@ const looksFailed = computed(() => {
   <div class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-6 py-16">
     <div class="max-w-md w-full text-center space-y-4">
       <p class="text-farm-green font-black tracking-[0.2em] text-xs uppercase">Trovara Farm</p>
-      <h1 class="text-2xl font-black text-white">
+      <h1 class="text-2xl font-black text-os-fg">
         {{ looksFailed ? 'Payment not completed' : 'Thank you' }}
       </h1>
       <p class="text-slate-400 text-sm leading-relaxed">

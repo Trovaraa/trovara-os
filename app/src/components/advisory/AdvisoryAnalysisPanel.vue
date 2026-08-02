@@ -55,7 +55,7 @@ function formatSubjectTitle(s: Subject) {
       >
         ← {{ t('advisory.tabs.analysis') }}
       </button>
-      <h3 class="text-xl font-black text-white">
+      <h3 class="text-xl font-black text-os-fg">
         {{ tipBucket === 'open' ? t('advisory.statOpen') : t('advisory.statDone') }}
       </h3>
       <p v-if="tipBucketLoading" class="text-slate-400 text-sm">{{ t('advisory.loading') }}</p>
@@ -100,7 +100,7 @@ function formatSubjectTitle(s: Subject) {
       >
         ← {{ t('advisory.insights') }}
       </button>
-      <h3 class="text-xl font-black text-white">{{ activeInsight.label }}</h3>
+      <h3 class="text-xl font-black text-os-fg">{{ activeInsight.label }}</h3>
       <p v-if="insightLoading" class="text-slate-400 text-sm">{{ t('advisory.loading') }}</p>
       <p v-else-if="insightRecommendations.length === 0" class="text-slate-400 text-sm">
         {{ t('advisory.insightEmpty') }}
@@ -131,7 +131,7 @@ function formatSubjectTitle(s: Subject) {
           @click="emit('open-tip-bucket', 'open')"
         >
           <p class="text-xs text-slate-400">{{ t('advisory.statOpen') }}</p>
-          <p class="text-2xl font-black text-white mt-1">
+          <p class="text-2xl font-black text-os-fg mt-1">
             {{ (stats.pending || 0) + (stats.notified || 0) + (stats.accepted || 0) }}
           </p>
           <p class="text-slate-500 text-xs mt-2">{{ t('advisory.tapToView') }}</p>
@@ -142,7 +142,7 @@ function formatSubjectTitle(s: Subject) {
           @click="emit('open-tip-bucket', 'completed')"
         >
           <p class="text-xs text-slate-400">{{ t('advisory.statDone') }}</p>
-          <p class="text-2xl font-black text-white mt-1">{{ stats.completed || 0 }}</p>
+          <p class="text-2xl font-black text-os-fg mt-1">{{ stats.completed || 0 }}</p>
           <p class="text-slate-500 text-xs mt-2">{{ t('advisory.tapToView') }}</p>
         </button>
       </div>

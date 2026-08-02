@@ -498,6 +498,36 @@ describe('POST /inventory/items - canonical English on write', () => {
   })
 })
 
+describe('Sales inventory write lock', () => {
+  beforeEach(() => { sessionUser.role = 'sales' })
+
+  it('blocks stock movements', async () => {
+    const res = await post('/inventory/movements', {
+      itemId: ITEM_ID,
+      delta: -1,
+      reason: 'customer order',
+    })
+    expect(res.status).toBe(403)
+    expect(inserted).toHaveLength(0)
+  })
+
+  it('blocks opening counts', async () => {
+    const res = await post('/inventory/opening-count', {
+      items: [{ itemId: ITEM_ID, countedQuantity: 40 }],
+    })
+    expect(res.status).toBe(403)
+    expect(inserted).toHaveLength(0)
+  })
+
+  it('blocks count-session submissions', async () => {
+    const res = await post('/inventory/count-sessions', {
+      lines: [{ itemName: 'Layer Mash 25kg', unit: 'bags', countedQuantity: 40 }],
+    })
+    expect(res.status).toBe(403)
+    expect(inserted).toHaveLength(0)
+  })
+})
+
 describe('PATCH /inventory/items/:id - correcting a mistyped item', () => {
   async function patchItem(body: Row) {
     return send(`/inventory/items/${ITEM_ID}`, 'PATCH', body)
@@ -599,6 +629,67 @@ describe('PATCH /inventory/items/:id - correcting a mistyped item', () => {
     expect(insertedAll('inventory_movements')).toHaveLength(0)
   })
 
+  it('corrects the unit while nothing has ever moved against it', async () => {
+    queueSelect('inventory_items', [itemRow()])
+    queueSelect('inventory_movements', [])
+    queueSelect('users', [{ preferredLocale: 'en' }])
+
+    const res = await patchItem({ unit: 'kg' })
+
+    expect(res.status).toBe(200)
+    expect(patchOf('inventory_items')).toMatchObject({ unit: 'kg' })
+  })
+
+  // The ledger records unitless deltas, so a unit the history was written under
+  // is not a mistype the farm can still correct.
+  it('refuses a unit change once the ledger holds a move for the item', async () => {
+    queueSelect('inventory_items', [itemRow()])
+    queueSelect('inventory_movements', [{ id: 'movement-1' }])
+
+    const res = await patchItem({ unit: 'kg' })
+    const body = (await res.json()) as { error: string }
+
+    expect(res.status).toBe(400)
+    expect(body.error).toBe(
+      'Unit cannot change once stock has moved; create a new item with the correct unit',
+    )
+    expect(updates).toHaveLength(0)
+  })
+
+  it('leaves a patch that carries no unit alone without reading the ledger', async () => {
+    queueSelect('inventory_items', [itemRow()])
+    queueSelect('inventory_movements', [{ id: 'movement-1' }])
+    queueSelect('users', [{ preferredLocale: 'en' }])
+
+    const res = await patchItem({ reorderLevel: 25 })
+
+    expect(res.status).toBe(200)
+    expect(patchOf('inventory_items')).toMatchObject({ reorderLevel: 25 })
+    expect(selectLog).not.toContain('inventory_movements')
+  })
+
+  it('accepts the unit the item already has without reading the ledger', async () => {
+    queueSelect('inventory_items', [itemRow()])
+    queueSelect('inventory_movements', [{ id: 'movement-1' }])
+    queueSelect('users', [{ preferredLocale: 'en' }])
+
+    const res = await patchItem({ unit: 'bags', reorderLevel: 25 })
+
+    expect(res.status).toBe(200)
+    expect(patchOf('inventory_items')).toMatchObject({ unit: 'bags' })
+    expect(selectLog).not.toContain('inventory_movements')
+  })
+
+  it('scopes the movement history it checks to the caller farm', async () => {
+    queueSelect('inventory_items', [itemRow()])
+    queueSelect('inventory_movements', [])
+    queueSelect('users', [{ preferredLocale: 'en' }])
+
+    await patchItem({ unit: 'kg' })
+
+    expect(whereParams('inventory_movements')).toEqual([[ITEM_ID, 'farm-1']])
+  })
+
   it('scopes the item it reads and the item it writes to the caller farm', async () => {
     queueSelect('inventory_items', [itemRow()])
     queueSelect('users', [{ preferredLocale: 'en' }])
@@ -629,17 +720,13 @@ describe('PATCH /inventory/items/:id - correcting a mistyped item', () => {
     expect(updates).toHaveLength(0)
   })
 
-  // Correcting an item is the authority that moves its stock, not the tighter
-  // one that creates it: sales may fix a name they are already selling against.
-  it('allows sales, the role that already moves stock', async () => {
+  it('refuses sales so order access never grants stock write authority', async () => {
     sessionUser.role = 'sales'
-    queueSelect('inventory_items', [itemRow()])
-    queueSelect('users', [{ preferredLocale: 'en' }])
 
     const res = await patchItem({ name: 'Layer Mash 50kg' })
 
-    expect(res.status).toBe(200)
-    expect(patchOf('inventory_items')).toMatchObject({ name: 'Layer Mash 50kg' })
+    expect(res.status).toBe(403)
+    expect(updates).toHaveLength(0)
   })
 })
 
@@ -664,8 +751,13 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
     ],
   }
 
+  function queueCountReads(locale: 'en' | 'fr') {
+    queueSelect('inventory_items', [itemRow({ sku: 'INV-LAYER-MASH', varianceTolerance: 2 })])
+    queueSelect('users', [{ preferredLocale: locale }])
+  }
+
   it('stores the location and each line note in English with the author locale', async () => {
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueCountReads('fr')
 
     const res = await post('/inventory/count-sessions', FRENCH_COUNT)
 
@@ -683,7 +775,7 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
   })
 
   it('leaves counted item names, categories, units and quantities verbatim', async () => {
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueCountReads('fr')
 
     await post('/inventory/count-sessions', FRENCH_COUNT)
 
@@ -698,7 +790,7 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
   })
 
   it('leaves a line with no note on the schema defaults', async () => {
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueCountReads('fr')
 
     await post('/inventory/count-sessions', FRENCH_COUNT)
 
@@ -709,7 +801,7 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
   })
 
   it('leaves one failed line pending without touching the others', async () => {
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueCountReads('fr')
     completeChat.mockImplementation(async (_system: string, text: string) => {
       if (text === 'Deux sacs percés par les rats') throw new Error('upstream 503')
       return { text: FRENCH_TO_ENGLISH[text], model: 'test' }
@@ -730,7 +822,7 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
   })
 
   it('returns the author their own words while storing the English', async () => {
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueCountReads('fr')
 
     const res = await post('/inventory/count-sessions', FRENCH_COUNT)
     const body = (await res.json()) as { session: Row }
@@ -742,7 +834,7 @@ describe('POST /inventory/count-sessions - canonical English on write', () => {
   })
 
   it('makes no translation call at all for an English count sheet', async () => {
-    queueSelect('users', [{ preferredLocale: 'en' }])
+    queueCountReads('en')
 
     const res = await post('/inventory/count-sessions', {
       ...FRENCH_COUNT,

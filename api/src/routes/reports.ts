@@ -17,6 +17,7 @@ import {
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { gatherExceptions } from '../lib/exceptions.js'
 import { computePlotProfitability } from '../lib/plot-profitability.js'
+import { computeInventoryShrinkReport } from '../lib/inventory-stock.js'
 import { canAccessFinance, canApproveTasks } from '../lib/rbac.js'
 
 export const reportRoutes = new Hono<{ Variables: AppVariables }>()
@@ -337,6 +338,21 @@ reportRoutes.get('/digest', async (c) => {
       },
     },
     exceptions,
+  })
+})
+
+reportRoutes.get('/inventory-shrink', async (c) => {
+  const user = c.get('user')
+  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const daysRaw = Number(c.req.query('days') ?? '30')
+  const periodDays = Number.isFinite(daysRaw) ? daysRaw : 30
+  const report = await computeInventoryShrinkReport(user.farmId, periodDays)
+
+  return c.json({
+    report: 'inventory_shrink',
+    ...report,
+    flaggedCount: report.items.filter((item) => item.flags.length > 0).length,
   })
 })
 

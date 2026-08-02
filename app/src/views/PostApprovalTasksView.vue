@@ -41,7 +41,7 @@ onMounted(load)
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('postApproval.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('postApproval.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('postApproval.subtitle') }}</p>
       </div>
       <button

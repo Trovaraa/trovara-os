@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
+import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import router from '@/router'
 import { api } from '@/lib/api'
 import type { ConsentStatus } from '@/lib/consent'
@@ -182,13 +184,14 @@ async function applyForcedPasswordChange() {
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
     <div class="w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
-      <div class="flex justify-end mb-4">
+      <div class="flex justify-end gap-2 mb-4">
+        <ThemeSwitcher compact />
         <LanguageSwitcher compact />
       </div>
 
       <div class="text-center mb-8">
-        <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('brand.name') }}</p>
-        <h1 class="text-3xl font-black text-white mt-2">{{ t('brand.farm') }}</h1>
+        <TrovaraLogo class="justify-center mb-5" />
+        <h1 class="text-3xl font-black text-os-fg mt-2">{{ t('brand.farm') }}</h1>
         <p class="text-slate-400 text-sm mt-2">{{ t('brand.tagline') }}</p>
       </div>
 

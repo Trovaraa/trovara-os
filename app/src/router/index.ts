@@ -9,6 +9,7 @@ const workerAllowedNames = new Set([
   'traceability',
   'settings',
   'advisory',
+  'field-reports',
 ])
 
 const salesAllowedNames = new Set([
@@ -24,6 +25,7 @@ const salesAllowedNames = new Set([
   'ai',
   'pay-callback',
   'public-lot',
+  'support',
 ])
 
 function defaultHome(role?: string) {
@@ -121,6 +123,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/field-reports',
+      name: 'field-reports',
+      component: () => import('@/views/FieldReportsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/crops',
       name: 'crops',
       component: () => import('@/views/CropsView.vue'),
@@ -143,6 +151,12 @@ const router = createRouter({
       name: 'sales',
       component: () => import('@/views/SalesView.vue'),
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/support',
+      name: 'support',
+      component: () => import('@/views/SupportView.vue'),
+      meta: { requiresAuth: true, orderStaffOnly: true },
     },
     {
       path: '/products',

@@ -67,6 +67,7 @@ import { authorLocaleHint, isTranslatable, toCanonicalEnglish } from './content-
 import { normalizeQuestion } from './customer-inquiry.js'
 import { checkLlmBudget } from './llm-budget.js'
 import { DRAFT_FREE_TEXT_FIELDS } from './draft-canonical.js'
+import { MOVEMENT_REASON_SENTINELS } from './inventory-stock.js'
 
 const DEFAULT_BATCH_LIMIT = 20
 const MAX_BATCH_LIMIT = 200
@@ -156,17 +157,10 @@ function hasBackfillHeadroom(farmId: string, budgetShare: number): boolean {
 
 /**
  * `inventory_movements.reason` doubles as a marker column: the stock paths write
- * these exact strings (`routes/inventory.ts`, `routes/tasks.ts`,
- * `routes/purchase-orders.ts`, `lib/action-draft-inventory.ts`) and only the
- * hand-typed reasons next to them are prose. They read like lowercase words, so
- * `isTranslatable` cannot tell them apart — they need this list.
+ * sentinel strings (see `MOVEMENT_REASON_SENTINELS`) and only the hand-typed
+ * reasons next to them are prose. They read like lowercase words, so
+ * `isTranslatable` cannot tell them apart — they need that shared list.
  */
-const MOVEMENT_REASON_SENTINELS: ReadonlySet<string> = new Set([
-  'opening_stock_count',
-  'task_consumption',
-  'goods_receipt',
-  'verified_count_session',
-])
 
 /**
  * `orders.source` is 'staff' for a web-entered order and the channel name for

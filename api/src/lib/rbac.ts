@@ -45,9 +45,9 @@ export function canManageProducts(user: SessionUser): boolean {
   return canManageOrders(user)
 }
 
-/** Owner, supervisor, and sales may edit items and record stock moves and counts. */
+/** Inventory changes are restricted to farm operations management. */
 export function canManageInventory(user: SessionUser): boolean {
-  return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
+  return user.role === 'owner' || user.role === 'supervisor'
 }
 
 /** Roles that can act on orders in the app / messaging bots. */

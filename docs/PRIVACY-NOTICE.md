@@ -315,14 +315,7 @@ Do not publish this draft until:
 - [ ] staff and customer data-rights procedures are tested;
 - [ ] AI, WhatsApp, Telegram, backup, and security statements are verified
       against production configuration;
-- [ ] a cookie/local-storage inventory is completed, including the identifiers
-      set by the analytics SDK on each property;
-- [ ] the WebMetrix data processing agreement, processing locations, retention
-      period, and deletion process are obtained and recorded;
-- [ ] the lawful basis for analytics is decided and, where it is consent or a
-      legitimate-interests assessment, recorded;
-- [ ] a decision is recorded on whether analytics remains enabled on the
-      authenticated staff application, and staff are informed either way;
+- [ ] a cookie/local-storage inventory is completed;
 - [ ] a breach-response process and regulatory contacts are approved; and
 - [ ] the consent version is bumped when the final notice is published.
 

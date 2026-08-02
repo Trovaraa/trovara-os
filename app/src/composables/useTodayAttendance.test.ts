@@ -50,4 +50,19 @@ describe('useTodayAttendance', () => {
     )
     expect(attendance.attendance.value).toHaveLength(1)
   })
+
+  it('sends the optional daily summary when clocking out', async () => {
+    api.mockResolvedValueOnce({}).mockResolvedValueOnce({ sessions: [] })
+    const { useTodayAttendance } = await import('./useTodayAttendance')
+    const attendance = useTodayAttendance(() => 'field_worker')
+    attendance.workSummary.value = 'Weeded rows 3–6 and checked irrigation.'
+
+    await attendance.clockOutNow()
+
+    expect(api).toHaveBeenNthCalledWith(1, '/api/attendance/clock-out', {
+      method: 'POST',
+      body: JSON.stringify({ workSummary: 'Weeded rows 3–6 and checked irrigation.' }),
+    })
+    expect(attendance.workSummary.value).toBe('')
+  })
 })

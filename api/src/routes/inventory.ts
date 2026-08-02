@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { randomUUID } from 'node:crypto'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq, sql } from 'drizzle-orm'
@@ -8,6 +9,9 @@ import {
   inventoryCountSessions,
   inventoryItems,
   inventoryMovements,
+  inventoryReconciliationAlerts,
+  inventoryShrinkAlerts,
+  products,
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
@@ -21,6 +25,10 @@ import {
 } from '../lib/content-locale.js'
 import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import { contentLocaleValues, mergeContentLocale, type ContentLocaleMeta } from '../lib/task-drafts.js'
+import {
+  MOVEMENT_REASON_SENTINELS,
+  refreshShrinkAlerts,
+} from '../lib/inventory-stock.js'
 
 const INVENTORY_UNITS = ['kg', 'bags', 'liters', 'units', 'crates'] as const
 
@@ -43,34 +51,23 @@ const COUNT_SESSION_TEXT_FIELDS = ['locationText', 'rejectionReason'] as const
  */
 const INVENTORY_ITEM_TEXT_FIELDS = ['storageLocation'] as const
 
-/**
- * Machine markers that share `inventory_movements.reason` with worker prose.
- * The stock paths write these exact strings and `lib/translation-retry.ts` holds
- * the same list, which is what keeps the retry job from translating them: a
- * hand-typed reason that happens to match one would be labelled with a source
- * locale the job then refuses to sweep, so it is stored verbatim instead.
- */
-const MOVEMENT_REASON_SENTINELS: ReadonlySet<string> = new Set([
-  'opening_stock_count',
-  'task_consumption',
-  'goods_receipt',
-  'verified_count_session',
-])
-
 /** Concurrent canonicalization calls when a count sheet has many noted lines. */
 const WRITE_CONCURRENCY = 4
 
 const createItemSchema = z.object({
+  sku: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),
   name: z.string().trim().min(1).max(200),
   category: z.string().trim().min(1).max(100),
   unit: z.enum(INVENTORY_UNITS),
   quantity: z.number().int().min(0).default(0),
   reorderLevel: z.number().int().min(0).default(10),
+  varianceTolerance: z.number().int().min(0).default(0),
   costPerUnit: z.number().int().min(0).nullable().optional(),
   supplier: z.string().trim().max(200).nullable().optional(),
   expiryDate: z.string().datetime().nullable().optional(),
   storageLocation: z.string().trim().max(200).nullable().optional(),
   batchNumber: z.string().trim().max(100).nullable().optional(),
+  productId: z.string().uuid().nullable().optional(),
 })
 
 // No `quantity`: stock is owned by the movement and count ledger, and a value
@@ -80,6 +77,7 @@ const updateItemSchema = createItemSchema.omit({ quantity: true }).partial()
 const movementSchema = z.object({
   itemId: z.string().uuid(),
   delta: z.number().int().refine((n) => n !== 0, 'Delta must be non-zero'),
+  // Typed sentinels (sale/harvest_in/spoilage/…) or free-text adjust reason.
   reason: z.string().min(1).max(500),
 })
 
@@ -120,6 +118,10 @@ const countSessionSchema = z.object({
 const verifyCountSchema = z.object({
   status: z.enum(['verified', 'rejected']),
   rejectionReason: z.string().trim().min(5).max(2000).nullable().optional(),
+})
+
+const reconciliationStatusSchema = z.object({
+  status: z.enum(['acknowledged', 'resolved']),
 })
 
 async function preferredLocaleForUser(userId: string): Promise<string | null> {
@@ -232,8 +234,32 @@ inventoryRoutes.use('*', authMiddleware)
 inventoryRoutes.get('/', async (c) => {
   const user = c.get('user')
   const items = await db
-    .select()
+    .select({
+      id: inventoryItems.id,
+      farmId: inventoryItems.farmId,
+      productId: inventoryItems.productId,
+      productName: products.name,
+      productSku: products.sku,
+      sku: inventoryItems.sku,
+      name: inventoryItems.name,
+      category: inventoryItems.category,
+      unit: inventoryItems.unit,
+      quantity: inventoryItems.quantity,
+      reorderLevel: inventoryItems.reorderLevel,
+      varianceTolerance: inventoryItems.varianceTolerance,
+      costPerUnit: inventoryItems.costPerUnit,
+      supplier: inventoryItems.supplier,
+      expiryDate: inventoryItems.expiryDate,
+      storageLocation: inventoryItems.storageLocation,
+      batchNumber: inventoryItems.batchNumber,
+      sourceLocale: inventoryItems.sourceLocale,
+      translationStatus: inventoryItems.translationStatus,
+      translationAttempts: inventoryItems.translationAttempts,
+      createdAt: inventoryItems.createdAt,
+      updatedAt: inventoryItems.updatedAt,
+    })
     .from(inventoryItems)
+    .leftJoin(products, eq(inventoryItems.productId, products.id))
     .where(eq(inventoryItems.farmId, user.farmId))
     .orderBy(inventoryItems.name)
 
@@ -253,11 +279,51 @@ inventoryRoutes.get('/', async (c) => {
   return c.json({ items: localized })
 })
 
+async function assertProductLinkAvailable(
+  farmId: string,
+  productId: string,
+  exceptItemId?: string,
+): Promise<string | null> {
+  const [product] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.farmId, farmId)))
+    .limit(1)
+  if (!product) return 'Product not found'
+
+  const [taken] = await db
+    .select({ id: inventoryItems.id })
+    .from(inventoryItems)
+    .where(
+      and(eq(inventoryItems.farmId, farmId), eq(inventoryItems.productId, productId)),
+    )
+    .limit(1)
+  if (taken && taken.id !== exceptItemId) {
+    return 'Product is already linked to another inventory item'
+  }
+  return null
+}
+
 inventoryRoutes.post('/items', zValidator('json', createItemSchema), async (c) => {
   const user = c.get('user')
   if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const body = c.req.valid('json')
+  // Older integrations did not send SKUs. Generate one server-side so every
+  // row is identifiable without turning the migration into a breaking API change.
+  const sku = (body.sku ?? `INV-${randomUUID().slice(0, 8)}`).toUpperCase()
+  const [duplicate] = await db
+    .select({ id: inventoryItems.id })
+    .from(inventoryItems)
+    .where(and(eq(inventoryItems.farmId, user.farmId), eq(inventoryItems.sku, sku)))
+    .limit(1)
+  if (duplicate) return c.json({ error: 'SKU already exists' }, 400)
+
+  if (body.productId) {
+    const linkError = await assertProductLinkAvailable(user.farmId, body.productId)
+    if (linkError) return c.json({ error: linkError }, 400)
+  }
+
   const canonical = await canonicalText(
     body.storageLocation,
     user.farmId,
@@ -268,11 +334,14 @@ inventoryRoutes.post('/items', zValidator('json', createItemSchema), async (c) =
     .insert(inventoryItems)
     .values({
       farmId: user.farmId,
+      productId: body.productId ?? null,
+      sku,
       name: body.name,
       category: body.category,
       unit: body.unit,
       quantity: body.quantity,
       reorderLevel: body.reorderLevel,
+      varianceTolerance: body.varianceTolerance,
       costPerUnit: body.costPerUnit ?? null,
       supplier: body.supplier ?? null,
       expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
@@ -311,6 +380,28 @@ inventoryRoutes.patch('/items/:id', zValidator('json', updateItemSchema), async 
   if (!existing) return c.json({ error: 'Item not found' }, 404)
 
   const body = c.req.valid('json')
+
+  // A movement's `delta` carries no unit of its own, so the item's unit is what
+  // the whole ledger is denominated in: changing it restates every past move.
+  if (body.unit !== undefined && body.unit !== existing.unit) {
+    const [movement] = await db
+      .select({ id: inventoryMovements.id })
+      .from(inventoryMovements)
+      .where(
+        and(eq(inventoryMovements.itemId, itemId), eq(inventoryMovements.farmId, user.farmId)),
+      )
+      .limit(1)
+    if (movement) {
+      return c.json(
+        {
+          error:
+            'Unit cannot change once stock has moved; create a new item with the correct unit',
+        },
+        400,
+      )
+    }
+  }
+
   const viewerLocale = await preferredLocaleForUser(user.id)
   const canonical = await canonicalText(
     body.storageLocation,
@@ -319,10 +410,21 @@ inventoryRoutes.patch('/items/:id', zValidator('json', updateItemSchema), async 
   )
 
   const updates: Partial<typeof existing> = { updatedAt: new Date() }
+  if (body.sku !== undefined) {
+    const sku = body.sku.toUpperCase()
+    const [duplicate] = await db
+      .select({ id: inventoryItems.id })
+      .from(inventoryItems)
+      .where(and(eq(inventoryItems.farmId, user.farmId), eq(inventoryItems.sku, sku)))
+      .limit(1)
+    if (duplicate && duplicate.id !== itemId) return c.json({ error: 'SKU already exists' }, 400)
+    updates.sku = sku
+  }
   if (body.name !== undefined) updates.name = body.name
   if (body.category !== undefined) updates.category = body.category
   if (body.unit !== undefined) updates.unit = body.unit
   if (body.reorderLevel !== undefined) updates.reorderLevel = body.reorderLevel
+  if (body.varianceTolerance !== undefined) updates.varianceTolerance = body.varianceTolerance
   if (body.costPerUnit !== undefined) updates.costPerUnit = body.costPerUnit
   if (body.supplier !== undefined) updates.supplier = body.supplier
   if (body.expiryDate !== undefined) {
@@ -335,6 +437,13 @@ inventoryRoutes.patch('/items/:id', zValidator('json', updateItemSchema), async 
     Object.assign(updates, mergeContentLocale(existing, canonical.locale))
   }
   if (body.batchNumber !== undefined) updates.batchNumber = body.batchNumber
+  if (body.productId !== undefined) {
+    if (body.productId) {
+      const linkError = await assertProductLinkAvailable(user.farmId, body.productId, itemId)
+      if (linkError) return c.json({ error: linkError }, 400)
+    }
+    updates.productId = body.productId
+  }
 
   const [item] = await db
     .update(inventoryItems)
@@ -521,7 +630,17 @@ inventoryRoutes.get('/count-sessions', async (c) => {
 
 inventoryRoutes.post('/count-sessions', zValidator('json', countSessionSchema), async (c) => {
   const user = c.get('user')
+  if (user.role === 'sales') return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
+
+  const itemIds = body.lines.flatMap((line) => (line.itemId ? [line.itemId] : []))
+  const snapshotItems = itemIds.length
+    ? await db.select().from(inventoryItems).where(eq(inventoryItems.farmId, user.farmId))
+    : []
+  const itemById = new Map(snapshotItems.map((item) => [item.id, item]))
+  if (itemIds.some((itemId) => !itemById.has(itemId))) {
+    return c.json({ error: 'Count contains an invalid inventory item' }, 400)
+  }
 
   const authorLocale = await authorLocaleForUserId(user.id)
   const location = await canonicalText(body.locationText, user.farmId, authorLocale)
@@ -544,20 +663,52 @@ inventoryRoutes.post('/count-sessions', zValidator('json', countSessionSchema), 
       })
       .returning()
 
+    let hasVariance = false
     for (const [index, line] of body.lines.entries()) {
       const note = lineNotes[index]
-      await tx.insert(inventoryCountLines).values({
+      const item = line.itemId ? itemById.get(line.itemId) : undefined
+      const expectedQuantity = item?.quantity ?? null
+      const variance = expectedQuantity == null ? null : line.countedQuantity - expectedQuantity
+      const outsideTolerance =
+        variance != null && Math.abs(variance) > (item?.varianceTolerance ?? 0)
+      if (outsideTolerance) hasVariance = true
+
+      const [countLine] = await tx.insert(inventoryCountLines).values({
         sessionId: row.id,
         itemId: line.itemId ?? null,
         itemName: line.itemName,
         category: line.category,
         unit: line.unit,
         countedQuantity: line.countedQuantity,
+        expectedQuantity,
+        variance,
         notes: note.english ?? line.notes ?? null,
         // Each line is its own row, so it carries its own locale pair: one line
         // the LLM could not translate must not leave the other 199 pending.
         ...contentLocaleValues(note.locale),
-      })
+      }).returning()
+
+      if (outsideTolerance && item) {
+        await tx.insert(inventoryReconciliationAlerts).values({
+          farmId: user.farmId,
+          sessionId: row.id,
+          lineId: countLine.id,
+          itemId: item.id,
+          sku: item.sku,
+          expectedQuantity: item.quantity,
+          countedQuantity: line.countedQuantity,
+          variance: variance!,
+          tolerance: item.varianceTolerance,
+        })
+      }
+    }
+
+    if (hasVariance) {
+      await tx
+        .update(inventoryCountSessions)
+        .set({ hasVariance: true })
+        .where(eq(inventoryCountSessions.id, row.id))
+      row.hasVariance = true
     }
 
     return row
@@ -655,6 +806,27 @@ inventoryRoutes.post(
       .from(inventoryCountLines)
       .where(eq(inventoryCountLines.sessionId, sessionId))
 
+    const needsFreshnessCheck = lines.some(
+      (line) => Boolean(line.itemId) && line.expectedQuantity != null,
+    )
+    const currentItems = needsFreshnessCheck
+      ? await db
+          .select()
+          .from(inventoryItems)
+          .where(eq(inventoryItems.farmId, user.farmId))
+      : []
+    const currentById = new Map(currentItems.map((item) => [item.id, item]))
+    const staleLine = lines.find((line) => {
+      if (!line.itemId || line.expectedQuantity == null) return false
+      return currentById.get(line.itemId)?.quantity !== line.expectedQuantity
+    })
+    if (staleLine) {
+      return c.json(
+        { error: 'Stock moved after this count was submitted. Reject it and submit a fresh count.' },
+        409,
+      )
+    }
+
     const updated = await db.transaction(async (tx) => {
       for (const line of lines) {
         let itemId = line.itemId
@@ -665,6 +837,7 @@ inventoryRoutes.post(
             // from now on, so it is stored exactly as it was counted.
             .values({
               farmId: user.farmId,
+              sku: `INV-${randomUUID().slice(0, 8).toUpperCase()}`,
               name: line.itemName,
               category: line.category,
               unit: line.unit as (typeof INVENTORY_UNITS)[number],
@@ -739,6 +912,72 @@ inventoryRoutes.post(
   },
 )
 
+inventoryRoutes.get('/reconciliation-alerts', async (c) => {
+  const user = c.get('user')
+  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const alerts = await db
+    .select({
+      id: inventoryReconciliationAlerts.id,
+      sessionId: inventoryReconciliationAlerts.sessionId,
+      itemId: inventoryReconciliationAlerts.itemId,
+      itemName: inventoryItems.name,
+      unit: inventoryItems.unit,
+      sku: inventoryReconciliationAlerts.sku,
+      expectedQuantity: inventoryReconciliationAlerts.expectedQuantity,
+      countedQuantity: inventoryReconciliationAlerts.countedQuantity,
+      variance: inventoryReconciliationAlerts.variance,
+      tolerance: inventoryReconciliationAlerts.tolerance,
+      status: inventoryReconciliationAlerts.status,
+      createdAt: inventoryReconciliationAlerts.createdAt,
+    })
+    .from(inventoryReconciliationAlerts)
+    .innerJoin(inventoryItems, eq(inventoryReconciliationAlerts.itemId, inventoryItems.id))
+    .where(eq(inventoryReconciliationAlerts.farmId, user.farmId))
+    .orderBy(desc(inventoryReconciliationAlerts.createdAt))
+    .limit(100)
+
+  return c.json({ alerts })
+})
+
+inventoryRoutes.patch(
+  '/reconciliation-alerts/:id',
+  zValidator('json', reconciliationStatusSchema),
+  async (c) => {
+    const user = c.get('user')
+    if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+    const body = c.req.valid('json')
+    const now = new Date()
+
+    const [alert] = await db
+      .update(inventoryReconciliationAlerts)
+      .set(
+        body.status === 'resolved'
+          ? { status: 'resolved', resolvedById: user.id, resolvedAt: now }
+          : { status: 'acknowledged', acknowledgedById: user.id, acknowledgedAt: now },
+      )
+      .where(
+        and(
+          eq(inventoryReconciliationAlerts.id, c.req.param('id')),
+          eq(inventoryReconciliationAlerts.farmId, user.farmId),
+        ),
+      )
+      .returning()
+    if (!alert) return c.json({ error: 'Not found' }, 404)
+
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: `inventory_reconciliation_${body.status}`,
+      entityType: 'inventory_reconciliation_alert',
+      entityId: alert.id,
+      metadata: { sku: alert.sku, variance: alert.variance },
+    })
+
+    return c.json({ alert })
+  },
+)
+
 inventoryRoutes.get('/low-stock', async (c) => {
   const user = c.get('user')
   const items = await db
@@ -761,3 +1000,112 @@ inventoryRoutes.get('/low-stock', async (c) => {
 
   return c.json({ items: localized })
 })
+
+inventoryRoutes.get('/shrink-alerts', async (c) => {
+  const user = c.get('user')
+  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const alerts = await db
+    .select({
+      id: inventoryShrinkAlerts.id,
+      itemId: inventoryShrinkAlerts.itemId,
+      itemName: inventoryItems.name,
+      unit: inventoryItems.unit,
+      sku: inventoryShrinkAlerts.sku,
+      alertType: inventoryShrinkAlerts.alertType,
+      periodDays: inventoryShrinkAlerts.periodDays,
+      periodStart: inventoryShrinkAlerts.periodStart,
+      periodEnd: inventoryShrinkAlerts.periodEnd,
+      qtyIn: inventoryShrinkAlerts.qtyIn,
+      qtyOutSale: inventoryShrinkAlerts.qtyOutSale,
+      qtyOutTask: inventoryShrinkAlerts.qtyOutTask,
+      qtyOutSpoilage: inventoryShrinkAlerts.qtyOutSpoilage,
+      qtyOutOther: inventoryShrinkAlerts.qtyOutOther,
+      soldQty: inventoryShrinkAlerts.soldQty,
+      unexplainedOut: inventoryShrinkAlerts.unexplainedOut,
+      tolerance: inventoryShrinkAlerts.tolerance,
+      status: inventoryShrinkAlerts.status,
+      createdAt: inventoryShrinkAlerts.createdAt,
+      updatedAt: inventoryShrinkAlerts.updatedAt,
+    })
+    .from(inventoryShrinkAlerts)
+    .innerJoin(inventoryItems, eq(inventoryShrinkAlerts.itemId, inventoryItems.id))
+    .where(eq(inventoryShrinkAlerts.farmId, user.farmId))
+    .orderBy(desc(inventoryShrinkAlerts.updatedAt))
+    .limit(100)
+
+  return c.json({ alerts })
+})
+
+inventoryRoutes.post('/shrink-alerts/refresh', async (c) => {
+  const user = c.get('user')
+  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+
+  const daysRaw = Number(c.req.query('days') ?? '30')
+  const periodDays = Number.isFinite(daysRaw) ? daysRaw : 30
+  const result = await refreshShrinkAlerts(user.farmId, periodDays)
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'inventory_shrink_refresh',
+    entityType: 'inventory_shrink_alert',
+    entityId: user.farmId,
+    metadata: {
+      periodDays: result.items.length ? periodDays : periodDays,
+      created: result.created,
+      updated: result.updated,
+      cleared: result.cleared,
+    },
+  })
+
+  return c.json(result)
+})
+
+inventoryRoutes.patch(
+  '/shrink-alerts/:id',
+  zValidator('json', reconciliationStatusSchema),
+  async (c) => {
+    const user = c.get('user')
+    if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+    const body = c.req.valid('json')
+    const now = new Date()
+
+    const [alert] = await db
+      .update(inventoryShrinkAlerts)
+      .set(
+        body.status === 'resolved'
+          ? {
+              status: 'resolved',
+              resolvedById: user.id,
+              resolvedAt: now,
+              updatedAt: now,
+            }
+          : {
+              status: 'acknowledged',
+              acknowledgedById: user.id,
+              acknowledgedAt: now,
+              updatedAt: now,
+            },
+      )
+      .where(
+        and(
+          eq(inventoryShrinkAlerts.id, c.req.param('id')),
+          eq(inventoryShrinkAlerts.farmId, user.farmId),
+        ),
+      )
+      .returning()
+    if (!alert) return c.json({ error: 'Not found' }, 404)
+
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: `inventory_shrink_${body.status}`,
+      entityType: 'inventory_shrink_alert',
+      entityId: alert.id,
+      metadata: { sku: alert.sku, alertType: alert.alertType },
+    })
+
+    return c.json({ alert })
+  },
+)

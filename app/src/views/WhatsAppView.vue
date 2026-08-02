@@ -30,26 +30,26 @@ const staticTemplates: StaticTemplate[] = [
   {
     id: 'task_complete',
     name: 'Task Complete',
-    en: '✅ Task completed on Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nCompleted by: Ade\nTime: 21 Jun 2026, 14:30\n\nPlease review in Trovara OS.',
-    yo: '✅ Iṣẹ parí lóko Trovara\n\nIṣẹ: Weeding - Plot B\nApá oko: Plot B\nOlùparí: Ade\nÀkókò: 21 Jun 2026, 14:30\n\nJọ̀wọ́ wo rẹ̀ nínú Trovara OS.',
-    pcm: '✅ Task don finish for Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nPerson wey finish am: Ade\nTime: 21 Jun 2026, 14:30\n\nAbeg check am for Trovara OS.',
-    fr: '✅ Tâche terminée à la Ferme Trovara\n\nTâche : Weeding - Plot B\nParcelle : Plot B\nTerminée par : Ade\nHeure : 21 Jun 2026, 14:30\n\nVeuillez vérifier dans Trovara OS.',
+    en: 'TASK COMPLETED - Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nCompleted by: Ade\nTime: 21 Jun 2026, 14:30\n\nPlease review in Trovara OS.',
+    yo: 'IṢẸ PARÍ - Oko Trovara\n\nIṣẹ: Weeding - Plot B\nApá oko: Plot B\nOlùparí: Ade\nÀkókò: 21 Jun 2026, 14:30\n\nJọ̀wọ́ wo rẹ̀ nínú Trovara OS.',
+    pcm: 'TASK DON FINISH - Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nPerson wey finish am: Ade\nTime: 21 Jun 2026, 14:30\n\nAbeg check am for Trovara OS.',
+    fr: 'TÂCHE TERMINÉE - Ferme Trovara\n\nTâche : Weeding - Plot B\nParcelle : Plot B\nTerminée par : Ade\nHeure : 21 Jun 2026, 14:30\n\nVeuillez vérifier dans Trovara OS.',
   },
   {
     id: 'incident_report',
     name: 'Incident Report',
-    en: '⚠️ INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nDetails: Irrigation pump stopped during morning shift\nReported by: Chidi\nTime: 21 Jun 2026, 09:15\n\nAction required. Check Trovara OS for full details.',
-    yo: '⚠️ ÌRÒYÌN ÌṢÒRÒ - Oko Trovara\n\nIrú: Equipment failure\nIbù: North paddock\nÀlàyé: Irrigation pump stopped during morning shift\nOlùròyìn: Chidi\nÀkókò: 21 Jun 2026, 09:15\n\nÈtò nílò. Wo Trovara OS fún àlàyé kíkún.',
-    pcm: '⚠️ INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nWetin happen: Irrigation pump stopped during morning shift\nPerson wey report: Chidi\nTime: 21 Jun 2026, 09:15\n\nWe need action. Check Trovara OS for full gist.',
-    fr: "⚠️ RAPPORT D'INCIDENT - Ferme Trovara\n\nType : Equipment failure\nLieu : North paddock\nDétails : Irrigation pump stopped during morning shift\nSignalé par : Chidi\nHeure : 21 Jun 2026, 09:15\n\nAction requise. Consultez Trovara OS pour tous les détails.",
+    en: 'ACTION REQUIRED · INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nDetails: Irrigation pump stopped during morning shift\nReported by: Chidi\nTime: 21 Jun 2026, 09:15\n\nAction required. Check Trovara OS for full details.',
+    yo: 'ÈTÒ NÍLÒ · ÌRÒYÌN ÌṢÒRÒ - Oko Trovara\n\nIrú: Equipment failure\nIbù: North paddock\nÀlàyé: Irrigation pump stopped during morning shift\nOlùròyìn: Chidi\nÀkókò: 21 Jun 2026, 09:15\n\nÈtò nílò. Wo Trovara OS fún àlàyé kíkún.',
+    pcm: 'ACTION REQUIRED · INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nWetin happen: Irrigation pump stopped during morning shift\nPerson wey report: Chidi\nTime: 21 Jun 2026, 09:15\n\nWe need action. Check Trovara OS for full gist.',
+    fr: "ACTION REQUISE · RAPPORT D'INCIDENT - Ferme Trovara\n\nType : Equipment failure\nLieu : North paddock\nDétails : Irrigation pump stopped during morning shift\nSignalé par : Chidi\nHeure : 21 Jun 2026, 09:15\n\nAction requise. Consultez Trovara OS pour tous les détails.",
   },
   {
     id: 'low_stock_alert',
     name: 'Low Stock Alert',
-    en: '📦 LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nCurrent stock: 3 bags\nReorder level: 10 bags\n\nPlease restock soon. View inventory in Trovara OS.',
-    yo: '📦 ÌKÌLÒ ÌNÀWÓ KÉKÉÈRÍ - Oko Trovara\n\nNkan: NPK Fertilizer\nIye lọ́wọ́lọ́wọ́: 3 bags\nIpele títún: 10 bags\n\nJọ̀wọ́ ṣe àtúnṣe kíákíá. Wo àkójọpọ̀ nínú Trovara OS.',
-    pcm: '📦 LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nWetin remain: 3 bags\nReorder level: 10 bags\n\nAbeg restock quick quick. Check inventory for Trovara OS.',
-    fr: "📦 ALERTE STOCK BAS - Ferme Trovara\n\nArticle : NPK Fertilizer\nStock actuel : 3 bags\nSeuil de réapprovisionnement : 10 bags\n\nVeuillez réapprovisionner bientôt. Consultez l'inventaire dans Trovara OS.",
+    en: 'LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nCurrent stock: 3 bags\nReorder level: 10 bags\n\nPlease restock soon. View inventory in Trovara OS.',
+    yo: 'ÌKÌLÒ ÌNÀWÓ KÉKÉÈRÍ - Oko Trovara\n\nNkan: NPK Fertilizer\nIye lọ́wọ́lọ́wọ́: 3 bags\nIpele títún: 10 bags\n\nJọ̀wọ́ ṣe àtúnṣe kíákíá. Wo àkójọpọ̀ nínú Trovara OS.',
+    pcm: 'LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nWetin remain: 3 bags\nReorder level: 10 bags\n\nAbeg restock quick quick. Check inventory for Trovara OS.',
+    fr: "ALERTE STOCK BAS - Ferme Trovara\n\nArticle : NPK Fertilizer\nStock actuel : 3 bags\nSeuil de réapprovisionnement : 10 bags\n\nVeuillez réapprovisionner bientôt. Consultez l'inventaire dans Trovara OS.",
   },
 ]
 
@@ -125,7 +125,7 @@ async function sendMessageForm() {
   <AppLayout>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-white">{{ t('whatsapp.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg">{{ t('whatsapp.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">
           {{ t('whatsapp.subtitle') }}
         </p>

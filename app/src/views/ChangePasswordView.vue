@@ -52,7 +52,7 @@ async function submit() {
 <template>
   <AppLayout>
     <div class="max-w-md">
-      <h2 class="text-2xl font-black text-white">{{ t('changePassword.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('changePassword.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">
         {{ t('changePassword.subtitle') }}
       </p>

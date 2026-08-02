@@ -13,6 +13,7 @@ import {
   harvestLots,
   orders,
   plots,
+  products,
   users,
   zones,
 } from '../db/schema.js'
@@ -31,6 +32,7 @@ import {
   normalizeLotUnit,
 } from '../lib/lot-codes.js'
 import { authorLocaleForUser, enrichHarvestLot, verifyHarvestLot } from '../lib/harvest-lots.js'
+import { applyHarvestStockInForLot } from '../lib/inventory-stock.js'
 import {
   escapeHtml,
   renderTraceabilityCertificateHtml,
@@ -171,6 +173,7 @@ async function lotForViewer<T extends LotRow>(
 }
 
 const createLotSchema = z.object({
+  productId: z.string().uuid().optional(),
   productName: z.string().min(1).max(200),
   quantityKg: z.number().int().min(1),
   unit: z.enum(LOT_UNITS).optional(),
@@ -233,6 +236,7 @@ traceabilityRoutes.get('/', async (c) => {
       cropCycleId: harvestLots.cropCycleId,
       orderId: harvestLots.orderId,
       orderSource: orders.source,
+      productId: harvestLots.productId,
       productName: harvestLots.productName,
       quantityKg: harvestLots.quantityKg,
       unit: harvestLots.unit,
@@ -276,6 +280,15 @@ traceabilityRoutes.get('/', async (c) => {
 traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
   const user = c.get('user')
   const body = c.req.valid('json')
+
+  const [product] = body.productId
+    ? await db
+        .select({ id: products.id, name: products.name })
+        .from(products)
+        .where(and(eq(products.id, body.productId), eq(products.farmId, user.farmId)))
+        .limit(1)
+    : []
+  if (body.productId && !product) return c.json({ error: 'Invalid product' }, 400)
 
   if (body.photoUrl && !validateEvidenceDataUrl(body.photoUrl)) {
     return c.json({ error: 'Invalid photo evidence URL' }, 400)
@@ -331,10 +344,11 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
     .insert(harvestLots)
     .values({
       farmId: user.farmId,
+      productId: product?.id ?? null,
       lotCode,
       plotId: body.plotId,
       cropCycleId: body.cropCycleId,
-      productName: body.productName,
+      productName: product?.name ?? body.productName,
       quantityKg: body.quantityKg,
       unit,
       publicNotes: canonical.text.publicNotes ?? body.publicNotes ?? null,
@@ -367,6 +381,14 @@ traceabilityRoutes.post('/', zValidator('json', createLotSchema), async (c) => {
     afterValue: { quantityKg: lot.quantityKg, unit: lot.unit, status: lot.verificationStatus },
     metadata: { lotCode: lot.lotCode, plotId: lot.plotId ?? undefined },
   })
+
+  if (lot.verificationStatus === 'verified') {
+    await applyHarvestStockInForLot({
+      farmId: user.farmId,
+      lot,
+      recordedById: user.id,
+    })
+  }
 
   // The author reads back their own words; the row holds the English.
   return c.json(

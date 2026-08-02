@@ -102,7 +102,7 @@ onMounted(load)
         <RouterLink to="/settings" class="text-xs text-slate-500 hover:text-farm-green">
           {{ t('security.backToSettings') }}
         </RouterLink>
-        <h2 class="text-2xl font-black text-white mt-2">{{ t('security.title') }}</h2>
+        <h2 class="text-2xl font-black text-os-fg mt-2">{{ t('security.title') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('security.subtitle') }}</p>
       </div>
       <button
@@ -119,7 +119,7 @@ onMounted(load)
 
     <div v-if="activeSessions !== null" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
       <p class="text-xs text-slate-500">{{ t('security.activeSessionsLabel') }}</p>
-      <p class="text-2xl font-black text-white mt-1">{{ activeSessions }}</p>
+      <p class="text-2xl font-black text-os-fg mt-1">{{ activeSessions }}</p>
       <ul v-if="sessionRows.length" class="mt-4 space-y-2">
         <li
           v-for="s in sessionRows"

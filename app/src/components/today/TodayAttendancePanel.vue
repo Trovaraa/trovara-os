@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AttendanceSession, PlotOption } from '@/composables/useTodayAttendance'
 
@@ -10,6 +11,7 @@ export type AttendanceTaskOption = {
 const selectedPlotId = defineModel<string>('selectedPlotId', { required: true })
 const selectedTaskId = defineModel<string>('selectedTaskId', { required: true })
 const attendanceNotes = defineModel<string>('attendanceNotes', { required: true })
+const workSummary = defineModel<string>('workSummary', { required: true })
 const correctingId = defineModel<string | null>('correctingId', { required: true })
 const correctionClockIn = defineModel<string>('correctionClockIn', { required: true })
 const correctionClockOut = defineModel<string>('correctionClockOut', { required: true })
@@ -34,6 +36,12 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const clockOutPromptOpen = ref(false)
+
+function confirmClockOut() {
+  clockOutPromptOpen.value = false
+  emit('clock-out')
+}
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
@@ -76,7 +84,7 @@ function formatTime(iso: string) {
           type="button"
           class="min-h-[44px] rounded-xl bg-red-500/90 px-5 py-2.5 font-bold text-white disabled:opacity-50"
           :disabled="attendanceBusy"
-          @click="emit('clock-out')"
+          @click="clockOutPromptOpen = true"
         >
           {{ attendanceBusy ? t('today.savingAttendance') : t('today.clockOut') }}
         </button>
@@ -114,7 +122,45 @@ function formatTime(iso: string) {
       </div>
     </div>
 
-    <div v-else class="mt-4">
+    <div
+      v-if="clockOutPromptOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('today.clockOutQuestion')"
+      @click.self="clockOutPromptOpen = false"
+    >
+      <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+        <h4 class="text-lg font-black text-os-fg">{{ t('today.clockOutQuestion') }}</h4>
+        <p class="mt-1 text-sm text-slate-400">{{ t('today.clockOutSummaryHint') }}</p>
+        <textarea
+          v-model="workSummary"
+          rows="4"
+          maxlength="2000"
+          class="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white"
+          :placeholder="t('today.clockOutSummaryPlaceholder')"
+        />
+        <div class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="min-h-[44px] rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300"
+            @click="clockOutPromptOpen = false"
+          >
+            {{ t('today.cancelCorrection') }}
+          </button>
+          <button
+            type="button"
+            class="min-h-[44px] rounded-xl bg-red-500/90 px-5 py-2 font-bold text-white disabled:opacity-50"
+            :disabled="attendanceBusy"
+            @click="confirmClockOut"
+          >
+            {{ t('today.confirmClockOut') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="!isWorker" class="mt-4">
       <p v-if="!attendance.length" class="text-sm text-slate-500">{{ t('today.noAttendanceToday') }}</p>
       <ul v-else class="space-y-3">
         <li
@@ -132,6 +178,9 @@ function formatTime(iso: string) {
               </p>
               <p v-if="session.plotName || session.taskTitle" class="mt-1 text-xs text-slate-500">
                 {{ session.plotName }}<span v-if="session.plotName && session.taskTitle"> · </span>{{ session.taskTitle }}
+              </p>
+              <p v-if="session.workSummary" class="mt-2 text-sm text-slate-300">
+                {{ session.workSummary }}
               </p>
               <p v-if="session.correctedAt" class="mt-1 text-[11px] text-amber-400">
                 {{ t('today.corrected') }} · {{ formatTime(session.correctedAt) }}

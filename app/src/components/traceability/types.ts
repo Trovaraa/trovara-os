@@ -3,6 +3,7 @@ export type TraceabilityLot = {
   farmSlug: string
   lotCode: string
   publicToken?: string
+  productId?: string | null
   plotId?: string | null
   plotName?: string | null
   zoneName?: string | null

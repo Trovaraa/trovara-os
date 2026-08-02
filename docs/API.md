@@ -92,33 +92,71 @@ Task status state machine: `pending → in_progress → awaiting_approval → co
 
 ---
 
+## Attendance (`/api/attendance`)
+
+| Method | Path | Auth | Roles | Request | Response |
+|--------|------|------|-------|---------|----------|
+| GET | `/api/attendance/today` | Yes | all (worker: own) | - | `{ sessions[] }` |
+| POST | `/api/attendance/clock-in` | Yes | all | `{ plotId?, taskId?, notes? }` | attendance session |
+| POST | `/api/attendance/clock-out` | Yes | all | `{ workSummary?: string \| null }` | attendance session |
+| PATCH | `/api/attendance/:id` | Yes | owner, supervisor | attendance correction | `{ session }` |
+
+`workSummary` is optional and limited to 2,000 characters. The clock-out still succeeds when it is omitted.
+
+---
+
 ## Inventory (`/api/inventory`)
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
 | GET | `/api/inventory/` | Yes | all | - | `{ items[] }` with `lowStock` flag |
-| POST | `/api/inventory/items` | Yes | owner, supervisor | `{ name, category, unit, quantity?, reorderLevel?, costPerUnit?, supplier?, expiryDate?, storageLocation?, batchNumber? }` | `{ item }`, 201 |
-| PATCH | `/api/inventory/items/:id` | Yes | owner, supervisor, sales | `{ name?, category?, unit?, reorderLevel?, costPerUnit?, supplier?, expiryDate?, storageLocation?, batchNumber? }` | `{ item }` |
-| POST | `/api/inventory/movements` | Yes | owner, supervisor, sales | `{ itemId, delta, reason }` | `{ item }` |
-| POST | `/api/inventory/opening-count` | Yes | owner, supervisor, sales | `{ items: [{ itemId, countedQuantity }] }` | `{ items[] }` |
+| POST | `/api/inventory/items` | Yes | owner, supervisor | `{ sku?, name, category, unit, quantity?, reorderLevel?, varianceTolerance?, costPerUnit?, supplier?, expiryDate?, storageLocation?, batchNumber? }` | `{ item }`, 201 |
+| PATCH | `/api/inventory/items/:id` | Yes | owner, supervisor | `{ sku?, name?, category?, unit?, reorderLevel?, varianceTolerance?, costPerUnit?, supplier?, expiryDate?, storageLocation?, batchNumber? }` | `{ item }` |
+| POST | `/api/inventory/movements` | Yes | owner, supervisor | `{ itemId, delta, reason }` | `{ item }` |
+| POST | `/api/inventory/opening-count` | Yes | owner, supervisor | `{ items: [{ itemId, countedQuantity }] }` | `{ items[] }` |
 | GET | `/api/inventory/count-sessions` | Yes | all | - | `{ sessions[] }` |
-| POST | `/api/inventory/count-sessions` | Yes | all | `{ taskId?, locationText?, lines: [{ itemId?, itemName, category?, unit?, countedQuantity, notes? }] }` | `{ session }`, 201 |
+| POST | `/api/inventory/count-sessions` | Yes | owner, supervisor, field_worker | `{ taskId?, locationText?, lines: [{ itemId?, itemName, category?, unit?, countedQuantity, notes? }] }` | `{ session }`, 201 |
 | POST | `/api/inventory/count-sessions/:id/verify` | Yes | owner, supervisor | `{ status: 'verified' \| 'rejected', rejectionReason? }` | `{ session }` |
+| GET | `/api/inventory/reconciliation-alerts` | Yes | owner, supervisor | - | `{ alerts[] }` |
+| PATCH | `/api/inventory/reconciliation-alerts/:id` | Yes | owner, supervisor | `{ status: 'acknowledged' \| 'resolved' }` | `{ alert }` |
+| GET | `/api/inventory/shrink-alerts` | Yes | owner, supervisor | - | `{ alerts[] }` period I/O leakage |
+| POST | `/api/inventory/shrink-alerts/refresh` | Yes | owner, supervisor | `?days=30` | `{ created, updated, cleared, items[] }` |
+| PATCH | `/api/inventory/shrink-alerts/:id` | Yes | owner, supervisor | `{ status: 'acknowledged' \| 'resolved' }` | `{ alert }` |
 | GET | `/api/inventory/low-stock` | Yes | all | - | `{ items[] }` |
 
 Negative delta blocked if quantity would go below zero.
 
-Creating an item is owner and supervisor, but correcting one is the same
-authority that moves its stock, so sales is included: it is the register they
-already sell against. The PATCH changes only the fields the body carries, and is
-a 404 for an item on another farm. It does not accept `quantity` — stock moves
+Creating and correcting an item, recording movements and setting opening counts
+are restricted to owners and supervisors. Sales may read inventory to fulfil an
+order, but cannot modify stock through the API. PATCH changes only the fields the
+body carries and returns 404 for another farm's item. It does not accept `quantity` — stock moves
 only through movements and counts, so every change to it keeps a movement row
 behind it.
 
-A count session is a field count anyone may submit and only an owner or
-supervisor may resolve, and nobody may verify their own: that is a 400, as is a
+`unit` may be corrected only while nothing has ever moved against the item. A
+movement's `delta` is a bare number and the unit lives on the item, so once the
+ledger holds a row the unit is what that whole history is denominated in and
+changing it would silently restate every past move: that is a 400. An item
+already carrying movements needs a new item under the correct unit instead.
+
+A count session may be submitted by operational staff, but never Sales. Only an
+owner or supervisor may resolve it, and nobody may verify their own: that is a 400, as is a
 rejection with no `rejectionReason` and a session already resolved. Lines cap at
-200.
+200. Each linked line snapshots the expected quantity and computes a variance.
+If the variance exceeds the item's tolerance, Trovara creates a reconciliation
+alert for a manager to acknowledge or resolve before the discrepancy is forgotten.
+
+Items may optionally link to a catalogue `productId` (one stock row per product).
+Dispatch of a paid order decrements linked stock with reason `sale`. Verified
+harvest lots credit linked stock with reason `harvest_in`. Manual outs may use
+typed `spoilage` or free-text adjust reasons. Period shrink reports compare
+inputs vs typed outs and sold qty vs sale movements; `POST …/shrink-alerts/refresh`
+persists open leakage alerts when unexplained out or sales/stock mismatch exceeds
+the item's variance tolerance.
+
+Every inventory item has a farm-unique SKU. Legacy API callers may omit it and
+receive a generated `INV-XXXXXXXX` SKU. Units are controlled values so the
+same stock is not measured inconsistently across movements and counts.
 
 `storageLocation`, a session's `locationText` and a line's `notes` are prose:
 stored as canonical English and read back in the viewer's language. On the write
@@ -134,6 +172,7 @@ submitted while other staff see their own language.
 | GET | `/api/reports/owner` | Yes | owner | Full owner report bundle |
 | GET | `/api/reports/digest` | Yes | owner, supervisor | Daily exception digest |
 | GET | `/api/reports/burn-rate` | Yes | owner, supervisor | Inventory burn rate (30-day lookback) |
+| GET | `/api/reports/inventory-shrink` | Yes | owner, supervisor | Input/output shrink report (`?days=30`) |
 | GET | `/api/reports/action-list` | Yes | owner, supervisor | Manager action list |
 | GET | `/api/reports/audit-export` | Yes | owner | `{ events[] }` |
 
@@ -360,6 +399,49 @@ Order status: `pending → confirmed → dispatched → delivered` or `cancelled
 
 ---
 
+## Products (`/api/products`)
+
+| Method | Path | Auth | Roles | Request | Response |
+|--------|------|------|-------|---------|----------|
+| GET | `/api/products/` | Yes | all | - | `{ products[] }` |
+| POST | `/api/products/` | Yes | owner, supervisor, sales | `{ sku?, name, unit, priceKobo?, currency?, active?, sortOrder? }` | `{ product }`, 201 |
+| PATCH | `/api/products/:id` | Yes | owner, supervisor, sales | partial product | `{ product }` |
+| DELETE | `/api/products/:id` | Yes | owner | - | `{ ok: true }` (soft delete) |
+
+Each SKU is unique within a farm and normalized to uppercase. Legacy API callers
+may omit it and receive a generated `PRD-XXXXXXXX` SKU. Product units are
+controlled (`kg`, `tonne`, `crate`, `tray`, `bag`, `bunch`, `piece`, `pack`,
+`bird`, `litre`, `unit`) so order and harvest metrics stay comparable.
+
+---
+
+## Field reports (`/api/field-reports`)
+
+| Method | Path | Auth | Roles | Request | Response |
+|--------|------|------|-------|---------|----------|
+| GET | `/api/field-reports/` | Yes | owner, supervisor, field_worker | - | `{ reports[] }` (worker: own) |
+| POST | `/api/field-reports/` | Yes | owner, supervisor, field_worker | `{ category, severity?, description, plotId?, batchId?, assetId?, photoUrl? }` | `{ report }`, 201 |
+| PATCH | `/api/field-reports/:id` | Yes | owner, supervisor | `{ status, assignedToId? }` | `{ report }` |
+
+Urgent, critical and theft reports notify the configured operational alert
+channels. Photo evidence is optional and validated against the evidence data-URL allowlist.
+
+---
+
+## Customer support (`/api/support`)
+
+| Method | Path | Auth | Roles | Request | Response |
+|--------|------|------|-------|---------|----------|
+| GET | `/api/support/` | Yes | owner, supervisor, sales | - | `{ tickets[] }` |
+| POST | `/api/support/` | Yes | owner, supervisor, sales | `{ description, contactId?, orderId?, category?, priority? }` | `{ ticket }`, 201 |
+| PATCH | `/api/support/:id` | Yes | owner, supervisor, sales | `{ status, priority?, assignedToId? }` | `{ ticket }` |
+
+Customer WhatsApp/Telegram order conversations also accept `4`, `complaint`,
+`support`, `problem`, or `issue`. Trovara returns a reference in the form
+`TRV-SUP-YYYYMMDD-XXXXXX` and adds the ticket to the same staff queue.
+
+---
+
 ## Finance (`/api/finance`)
 
 | Method | Path | Auth | Roles | Response |
@@ -377,7 +459,7 @@ Order status: `pending → confirmed → dispatched → delivered` or `cancelled
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
 | GET | `/api/traceability/` | Yes | staff | `{ lots[] }` |
-| POST | `/api/traceability/` | Yes | role-gated | `{ lot }` |
+| POST | `/api/traceability/` | Yes | role-gated | `{ productId, quantityKg, unit?, plotId?, cropCycleId?, harvestedAt?, publicNotes?, internalNotes?, photoUrl? }` | `{ lot }` |
 | PATCH | `/api/traceability/:id` | Yes | role-gated | `{ lot }` |
 | DELETE | `/api/traceability/:id` | Yes | owner | `{ ok: true }` |
 | GET | `/api/traceability/export` | Yes | owner | `{ exportedAt, harvestLots, auditChain }` |
@@ -385,6 +467,11 @@ Order status: `pending → confirmed → dispatched → delivered` or `cancelled
 | GET | `/api/traceability/:id/label.html` | Yes | staff | Printable box QR label HTML |
 
 Public (no auth): `GET /public/lots/:token` (lot page), certificate/label HTML under `/public/lots/...` where exposed.
+
+The current app requires standalone lots to select a catalogue `productId`.
+Order-created lots inherit the ordered product ID automatically, preserving
+SKU-to-lot traceability. The API temporarily accepts a name-only legacy payload
+so older field clients can continue syncing while they are upgraded.
 
 ---
 

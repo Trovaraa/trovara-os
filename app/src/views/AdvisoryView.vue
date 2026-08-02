@@ -271,7 +271,7 @@ onMounted(async () => {
   <AppLayout>
     <div class="w-full max-w-2xl min-w-0 pb-8">
       <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('advisory.eyebrow') }}</p>
-      <h2 class="text-2xl sm:text-3xl font-black text-white mt-1">{{ t('advisory.title') }}</h2>
+      <h2 class="text-2xl sm:text-3xl font-black text-os-fg mt-1">{{ t('advisory.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('advisory.subtitle') }}</p>
 
       <div class="mt-5 flex flex-wrap gap-2">
@@ -324,7 +324,7 @@ onMounted(async () => {
                   <p class="text-[10px] uppercase tracking-wide text-slate-400 leading-none">
                     {{ t('advisory.dayShort') }}
                   </p>
-                  <p class="text-3xl font-black text-white leading-none mt-1 tabular-nums">{{ cycleDay }}</p>
+                  <p class="text-3xl font-black text-os-fg leading-none mt-1 tabular-nums">{{ cycleDay }}</p>
                 </div>
               </div>
 
@@ -334,7 +334,7 @@ onMounted(async () => {
                   {{ phaseName }}
                   <span class="text-slate-500 font-normal normal-case">· {{ progressPct }}%</span>
                 </p>
-                <h3 class="mt-2 text-xl sm:text-2xl font-black text-white leading-snug">
+                <h3 class="mt-2 text-xl sm:text-2xl font-black text-os-fg leading-snug">
                   {{ headline }}
                 </h3>
                 <p v-if="headlineDetail" class="mt-2 text-slate-300 text-sm leading-relaxed">
@@ -423,7 +423,7 @@ onMounted(async () => {
         <section v-else-if="tab === 'track'" class="mt-8">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <h3 class="text-xl font-black text-white">{{ t('advisory.howIsFarm') }}</h3>
+              <h3 class="text-xl font-black text-os-fg">{{ t('advisory.howIsFarm') }}</h3>
               <p class="text-slate-400 text-sm mt-1">{{ t('advisory.trackSubtitle') }}</p>
             </div>
             <button type="button" class="text-slate-400 text-xl leading-none" @click="tab = 'home'">×</button>

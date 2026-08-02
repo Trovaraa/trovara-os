@@ -5,7 +5,11 @@ import App from './App.vue'
 import router from './router'
 import i18n from './i18n'
 import { startOfflineSyncListener } from '@/lib/offline-api'
+import { applyTheme, readStoredTheme } from '@/lib/theme'
 import './style.css'
+
+// Re-apply after module load (index.html already set class to avoid FOUC).
+applyTheme(readStoredTheme())
 
 startOfflineSyncListener()
 

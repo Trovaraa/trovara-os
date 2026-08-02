@@ -362,7 +362,7 @@ function inventoryItemLabel(itemId: string): string {
 
     <div class="flex items-start justify-between gap-3 min-w-0">
       <div class="min-w-0 flex-1">
-        <h2 class="text-xl sm:text-2xl font-black text-white leading-tight">{{ t('tasks.myTitle') }}</h2>
+        <h2 class="text-xl sm:text-2xl font-black text-os-fg leading-tight">{{ t('tasks.myTitle') }}</h2>
         <p class="text-slate-400 text-sm mt-1">{{ t('tasks.mySubtitle') }}</p>
       </div>
       <span

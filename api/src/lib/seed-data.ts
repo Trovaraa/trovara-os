@@ -503,11 +503,11 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   const invRows = await db
     .insert(inventoryItems)
     .values([
-      { farmId: farmId, name: 'Poultry Feed', category: 'feed', unit: 'bags', quantity: 45, reorderLevel: 20 },
-      { farmId: farmId, name: 'Organic Fertilizer', category: 'inputs', unit: 'bags', quantity: 3, reorderLevel: 15 },
-      { farmId: farmId, name: 'Coconut Seedlings', category: 'planting', unit: 'units', quantity: 120, reorderLevel: 30 },
-      { farmId: farmId, name: 'Packaging Crates', category: 'packaging', unit: 'crates', quantity: 25, reorderLevel: 10 },
-      { farmId: farmId, name: 'Diesel (generator)', category: 'fuel', unit: 'liters', quantity: 60, reorderLevel: 40 },
+      { farmId: farmId, sku: 'INV-FEED-001', name: 'Poultry Feed', category: 'feed', unit: 'bags', quantity: 45, reorderLevel: 20, varianceTolerance: 1 },
+      { farmId: farmId, sku: 'INV-FERT-001', name: 'Organic Fertilizer', category: 'inputs', unit: 'bags', quantity: 3, reorderLevel: 15 },
+      { farmId: farmId, sku: 'INV-SEED-001', name: 'Coconut Seedlings', category: 'planting', unit: 'units', quantity: 120, reorderLevel: 30, varianceTolerance: 2 },
+      { farmId: farmId, sku: 'INV-CRATE-001', name: 'Packaging Crates', category: 'packaging', unit: 'crates', quantity: 25, reorderLevel: 10, varianceTolerance: 1 },
+      { farmId: farmId, sku: 'INV-DIESEL-001', name: 'Diesel (generator)', category: 'fuel', unit: 'liters', quantity: 60, reorderLevel: 40, varianceTolerance: 2 },
     ])
     .returning()
 
@@ -627,16 +627,17 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   await db.insert(products).values([
     {
       farmId,
+      sku: 'TRV-EGG-CRATE',
       name: 'Trovara Fresh Pasture-Raised Eggs',
       unit: 'crate',
       sortOrder: 1,
       priceKobo: 650000,
     },
-    { farmId, name: 'Trovara Fresh Plantain', unit: 'bunch', sortOrder: 2, priceKobo: 0 },
-    { farmId, name: 'Trovara Fresh Coconut', unit: 'piece', sortOrder: 3, priceKobo: 0 },
-    { farmId, name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0 },
-    { farmId, name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0 },
-    { farmId, name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0 },
+    { farmId, sku: 'TRV-PLT-BUNCH', name: 'Trovara Fresh Plantain', unit: 'bunch', sortOrder: 2, priceKobo: 0 },
+    { farmId, sku: 'TRV-COC-PIECE', name: 'Trovara Fresh Coconut', unit: 'piece', sortOrder: 3, priceKobo: 0 },
+    { farmId, sku: 'TRV-CHK-BIRD', name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0 },
+    { farmId, sku: 'TRV-PLF-PACK', name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0 },
+    { farmId, sku: 'TRV-DRP-PACK', name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0 },
   ])
 
   // Equipment/asset register (pool model). An Admin/supervisor maintains these;

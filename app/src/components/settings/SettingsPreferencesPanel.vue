@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 
 defineProps<{
   isOwner: boolean
@@ -26,6 +27,16 @@ const { t } = useI18n()
 
 <template>
   <div class="contents">
+    <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h3 class="font-bold text-white text-sm">{{ t('settings.appearanceTitle') }}</h3>
+          <p class="text-xs text-slate-500 mt-1">{{ t('settings.appearanceDesc') }}</p>
+        </div>
+        <ThemeSwitcher />
+      </div>
+    </div>
+
     <div
       v-if="isOwner"
       class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5"

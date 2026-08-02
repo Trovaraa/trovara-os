@@ -19,6 +19,7 @@ import {
   orderActionResultMessage,
   staffLocale,
 } from './order-messages.js'
+import { applyOrderSaleOnDispatch } from './inventory-stock.js'
 
 export { ORDER_STAFF_ROLES, ORDER_ALERT_ALWAYS_ROLES } from './rbac.js'
 
@@ -205,6 +206,16 @@ export async function transitionOrder(params: {
     existing.paymentStatus === 'unpaid'
   ) {
     return { ok: false, error: 'Cannot dispatch or deliver an unpaid order' }
+  }
+
+  // Finished-goods stock out on dispatch for catalogue lines linked to inventory.
+  if (params.toStatus === 'dispatched') {
+    const stock = await applyOrderSaleOnDispatch({
+      farmId: params.farmId,
+      orderId: params.orderId,
+      recordedById: params.actor.id,
+    })
+    if (!stock.ok) return { ok: false, error: stock.error }
   }
 
   const updates: Partial<typeof existing> = {

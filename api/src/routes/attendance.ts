@@ -21,6 +21,10 @@ const allocationSchema = z.object({
   notes: z.string().trim().max(2000).nullable().optional(),
 })
 
+const clockOutSchema = z.object({
+  workSummary: z.string().trim().max(2000).nullable().optional(),
+})
+
 const correctionSchema = allocationSchema
   .extend({
     clockInAt: z.string().datetime().optional(),
@@ -84,9 +88,9 @@ attendanceRoutes.post('/clock-in', zValidator('json', allocationSchema), async (
   }
 })
 
-attendanceRoutes.post('/clock-out', async (c) => {
+attendanceRoutes.post('/clock-out', zValidator('json', clockOutSchema), async (c) => {
   try {
-    return c.json(await clockOut(c.get('user')))
+    return c.json(await clockOut(c.get('user'), c.req.valid('json')))
   } catch (error) {
     return attendanceError(c, error)
   }

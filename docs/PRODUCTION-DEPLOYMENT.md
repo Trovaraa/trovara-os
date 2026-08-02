@@ -30,9 +30,9 @@ openssl rand -hex 24
 openssl rand -hex 32
 # -> WHATSAPP_VERIFY_TOKEN
 
-# Founder registration secret; leave OWNER_REGISTRATION_SECRET empty to disable registration
-openssl rand -hex 32
-# -> OWNER_REGISTRATION_SECRET
+# Founder registration: do not generate a shared OWNER_REGISTRATION_SECRET.
+# Leave it empty. Mint a single-use token on the server after the API can reach
+# the database (see "Owner registration token" below and GO-LIVE.md step 7).
 
 # Break-glass emergency login (env-only; not stored as the DB password hash)
 openssl rand -base64 32
@@ -49,6 +49,29 @@ openssl rand -hex 32
 
 `META_APP_SECRET`, Telegram bot tokens, WhatsApp access tokens, and LLM API keys
 must come from their provider dashboards; do not generate replacements locally.
+
+### Owner registration token (server)
+
+Founder signup uses a **single-use DB token**, not a reusable env secret. After
+the API can talk to Postgres, mint one on the production host:
+
+```bash
+cd /home/ubuntu/trovara-os   # or your deploy path
+source "$HOME/.nvm/nvm.sh" && nvm use 22
+npm run reg-token -w api -- --ttl=2 --label="initial founder"
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--ttl=2` | Expires in 2 hours (omit for default 24h) |
+| `--label="initial founder"` | Audit note only |
+
+The CLI prints the token **once**. Paste it into the registration-secret field
+at `/register`. It is consumed on first successful owner create and cannot be
+reused. After the first owner exists, mint further tokens with
+`POST /auth/registration-tokens` (owner session) instead of the CLI. Leave
+`OWNER_REGISTRATION_SECRET` empty in production (legacy reusable fallback only).
+Full go-live flow: [GO-LIVE.md](../../GO-LIVE.md) step 7.
 
 ## 2. Required production configuration
 

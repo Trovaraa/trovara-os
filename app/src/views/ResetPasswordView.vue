@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api } from '@/lib/api'
+import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,8 +58,8 @@ async function submit() {
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
     <main class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
-      <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">Trovara OS</p>
-      <h1 class="mt-2 text-2xl font-black text-white">Reset your password</h1>
+      <TrovaraLogo class="mb-5" />
+      <h1 class="mt-2 text-2xl font-black text-os-fg">Reset your password</h1>
 
       <div v-if="complete" class="mt-6 space-y-4">
         <p class="text-sm text-farm-green">Your password was reset successfully.</p>

@@ -11,16 +11,45 @@ const { t } = useI18n()
 
 type Item = {
   id: string
+  sku: string
   name: string
   category: string
   unit: string
   quantity: number
   reorderLevel: number
+  varianceTolerance: number
   lowStock: boolean
+  productId?: string | null
+  productName?: string | null
+  productSku?: string | null
   supplier?: string | null
   costPerUnit?: number | null
   expiryDate?: string | null
   storageLocation?: string | null
+}
+
+type CatalogueProduct = {
+  id: string
+  sku: string
+  name: string
+  active: boolean
+}
+
+type ShrinkAlert = {
+  id: string
+  itemName: string
+  unit: string
+  sku: string
+  alertType: string
+  periodDays: number
+  qtyIn: number
+  qtyOutSale: number
+  qtyOutOther: number
+  soldQty: number
+  unexplainedOut: number
+  tolerance: number
+  status: string
+  createdAt: string
 }
 
 const auth = useAuthStore()
@@ -34,17 +63,24 @@ const hasStorageLocation = computed(() => items.value.some((i) => i.storageLocat
 
 const selectedItemId = ref('')
 const delta = ref<number | ''>('')
+const reasonKind = ref<'custom' | 'spoilage'>('custom')
 const reason = ref('')
 const submitting = ref(false)
 const moveError = ref<string | null>(null)
+const catalogueProducts = ref<CatalogueProduct[]>([])
+const newItemProductId = ref('')
+const shrinkAlerts = ref<ShrinkAlert[]>([])
+const refreshingShrink = ref(false)
 const openingStockOpen = ref(false)
 const openingCounts = ref<Record<string, number | ''>>({})
 const savingOpening = ref(false)
 const openingMessage = ref<string | null>(null)
 
 const newItemName = ref('')
+const newItemSku = ref('')
 const newItemCategory = ref('supplies')
 const newItemUnit = ref<'kg' | 'bags' | 'liters' | 'units' | 'crates'>('units')
+const newVarianceTolerance = ref(0)
 const creatingItem = ref(false)
 const createItemError = ref<string | null>(null)
 
@@ -55,8 +91,22 @@ type CountSession = {
   recordedById: string
   createdAt: string
   rejectionReason?: string | null
+  hasVariance: boolean
+}
+type ReconciliationAlert = {
+  id: string
+  itemName: string
+  unit: string
+  sku: string
+  expectedQuantity: number
+  countedQuantity: number
+  variance: number
+  tolerance: number
+  status: string
+  createdAt: string
 }
 const countSessions = ref<CountSession[]>([])
+const reconciliationAlerts = ref<ReconciliationAlert[]>([])
 const countLocation = ref('')
 const countLines = ref<Array<{ itemId: string; countedQuantity: number | '' }>>([])
 const submittingCount = ref(false)
@@ -92,6 +142,55 @@ async function loadCountSessions() {
   }
 }
 
+async function loadReconciliationAlerts() {
+  if (!auth.canApprove) return
+  try {
+    const data = await api<{ alerts: ReconciliationAlert[] }>('/api/inventory/reconciliation-alerts')
+    reconciliationAlerts.value = data.alerts ?? []
+  } catch {
+    reconciliationAlerts.value = []
+  }
+}
+
+async function loadCatalogueProducts() {
+  if (!auth.canApprove) return
+  try {
+    const data = await api<{ products: CatalogueProduct[] }>('/api/products')
+    catalogueProducts.value = (data.products ?? []).filter((p) => p.active)
+  } catch {
+    catalogueProducts.value = []
+  }
+}
+
+async function loadShrinkAlerts() {
+  if (!auth.canApprove) return
+  try {
+    const data = await api<{ alerts: ShrinkAlert[] }>('/api/inventory/shrink-alerts')
+    shrinkAlerts.value = data.alerts ?? []
+  } catch {
+    shrinkAlerts.value = []
+  }
+}
+
+async function refreshShrinkAlerts() {
+  if (!auth.canApprove) return
+  refreshingShrink.value = true
+  try {
+    await api('/api/inventory/shrink-alerts/refresh?days=30', { method: 'POST' })
+    await loadShrinkAlerts()
+  } finally {
+    refreshingShrink.value = false
+  }
+}
+
+async function updateShrinkAlert(alertId: string, status: 'acknowledged' | 'resolved') {
+  await api(`/api/inventory/shrink-alerts/${alertId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+  await loadShrinkAlerts()
+}
+
 const {
   suppliers,
   purchaseOrders,
@@ -120,7 +219,14 @@ const {
 })
 
 onMounted(async () => {
-  await Promise.all([load(), loadCountSessions(), loadProcurement()])
+  await Promise.all([
+    load(),
+    loadCountSessions(),
+    loadReconciliationAlerts(),
+    loadShrinkAlerts(),
+    loadCatalogueProducts(),
+    loadProcurement(),
+  ])
 })
 
 function openOpeningStockModal() {
@@ -162,14 +268,19 @@ async function createItem() {
     await api('/api/inventory/items', {
       method: 'POST',
       body: JSON.stringify({
+        sku: newItemSku.value.trim().toUpperCase(),
         name: newItemName.value.trim(),
         category: newItemCategory.value.trim() || 'supplies',
         unit: newItemUnit.value,
+        varianceTolerance: Math.max(0, Math.trunc(newVarianceTolerance.value)),
+        productId: newItemProductId.value || null,
       }),
     })
+    newItemSku.value = ''
     newItemName.value = ''
     newItemCategory.value = 'supplies'
     newItemUnit.value = 'units'
+    newItemProductId.value = ''
     await load()
   } catch (e) {
     createItemError.value = e instanceof Error ? e.message : t('inventory.addItemFailed')
@@ -179,7 +290,10 @@ async function createItem() {
 }
 
 async function recordMovement() {
-  if (!selectedItemId.value || delta.value === '' || !reason.value.trim()) return
+  if (!selectedItemId.value || delta.value === '') return
+  const movementReason =
+    reasonKind.value === 'spoilage' ? 'spoilage' : reason.value.trim()
+  if (!movementReason) return
   submitting.value = true
   moveError.value = null
   try {
@@ -188,11 +302,12 @@ async function recordMovement() {
       body: JSON.stringify({
         itemId: selectedItemId.value,
         delta: Number(delta.value),
-        reason: reason.value.trim(),
+        reason: movementReason,
       }),
     })
     delta.value = ''
     reason.value = ''
+    reasonKind.value = 'custom'
     await load()
   } catch (e) {
     moveError.value = e instanceof Error ? e.message : t('inventory.recordFailed')
@@ -232,7 +347,7 @@ async function submitCountSession() {
       }),
     })
     countMessage.value = 'Count session submitted — awaiting verification before stock posts.'
-    await Promise.all([load(), loadCountSessions()])
+    await Promise.all([load(), loadCountSessions(), loadReconciliationAlerts()])
   } catch (e) {
     countMessage.value = e instanceof Error ? e.message : 'Failed to submit count'
   } finally {
@@ -253,19 +368,27 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
     })
     countMessage.value =
       status === 'verified' ? 'Count verified — stock updated.' : 'Count session rejected.'
-    await Promise.all([load(), loadCountSessions()])
+    await Promise.all([load(), loadCountSessions(), loadReconciliationAlerts()])
   } catch (e) {
     countMessage.value = e instanceof Error ? e.message : 'Verify failed'
   } finally {
     verifyingSessionId.value = null
   }
 }
+
+async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved') {
+  await api(`/api/inventory/reconciliation-alerts/${alertId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+  await loadReconciliationAlerts()
+}
 </script>
 
 <template>
   <AppLayout>
     <div>
-      <h2 class="text-2xl font-black text-white">{{ t('inventory.title') }}</h2>
+      <h2 class="text-2xl font-black text-os-fg">{{ t('inventory.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('inventory.subtitle') }}</p>
       <button
         v-if="auth.canApprove && !loading"
@@ -309,7 +432,14 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
       @submit.prevent="createItem"
     >
       <h3 class="font-bold text-white text-sm">{{ t('inventory.addItem') }}</h3>
-      <div class="grid sm:grid-cols-3 gap-4">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <input
+          v-model="newItemSku"
+          required
+          maxlength="40"
+          placeholder="SKU"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white uppercase"
+        />
         <input
           v-model="newItemName"
           required
@@ -331,11 +461,28 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
           <option value="liters">liters</option>
           <option value="crates">crates</option>
         </select>
+        <select
+          v-model="newItemProductId"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white sm:col-span-2 lg:col-span-1"
+        >
+          <option value="">{{ t('inventory.noProductLink') }}</option>
+          <option v-for="p in catalogueProducts" :key="p.id" :value="p.id">
+            {{ p.sku }} · {{ p.name }}
+          </option>
+        </select>
+        <input
+          v-model.number="newVarianceTolerance"
+          type="number"
+          min="0"
+          step="1"
+          placeholder="Count tolerance"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
       </div>
       <div class="flex items-center gap-3">
         <button
           type="submit"
-          :disabled="creatingItem || !newItemName.trim()"
+          :disabled="creatingItem || !newItemName.trim() || !newItemSku.trim()"
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
         >
           {{ creatingItem ? t('inventory.addingItem') : t('inventory.addItemBtn') }}
@@ -343,6 +490,125 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
         <p v-if="createItemError" class="text-xs text-red-400">{{ createItemError }}</p>
       </div>
     </form>
+
+    <section
+      v-if="auth.canApprove"
+      class="mt-8 rounded-xl border border-amber-900/50 bg-amber-950/15 p-5"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="font-bold text-amber-100">{{ t('inventory.shrinkAlertsTitle') }}</h3>
+          <p class="mt-1 text-xs text-slate-400">{{ t('inventory.shrinkAlertsDesc') }}</p>
+        </div>
+        <button
+          type="button"
+          class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-50"
+          :disabled="refreshingShrink"
+          @click="refreshShrinkAlerts"
+        >
+          {{ refreshingShrink ? t('inventory.shrinkRefreshing') : t('inventory.shrinkRefresh') }}
+        </button>
+      </div>
+      <div v-if="shrinkAlerts.length" class="mt-4 space-y-3">
+        <article
+          v-for="alert in shrinkAlerts.slice(0, 12)"
+          :key="alert.id"
+          class="rounded-lg border border-slate-800 bg-slate-950 p-4"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="font-semibold text-white">{{ alert.sku }} · {{ alert.itemName }}</p>
+              <p class="mt-1 text-sm text-slate-300">
+                <span v-if="alert.alertType === 'unexplained_out'">
+                  {{ t('inventory.unexplainedOut') }}: {{ alert.unexplainedOut }} {{ alert.unit }}
+                  (tolerance ±{{ alert.tolerance }})
+                </span>
+                <span v-else>
+                  {{ t('inventory.salesMismatch') }}: sold {{ alert.soldQty }}, stock out
+                  {{ alert.qtyOutSale }} {{ alert.unit }}
+                </span>
+              </p>
+              <p class="mt-1 text-xs text-slate-500">
+                In {{ alert.qtyIn }} · sale out {{ alert.qtyOutSale }} · other out {{ alert.qtyOutOther }}
+                · {{ alert.periodDays }}d window · {{ new Date(alert.createdAt).toLocaleString() }}
+              </p>
+            </div>
+            <div v-if="alert.status !== 'resolved'" class="flex gap-2">
+              <button
+                v-if="alert.status === 'open'"
+                type="button"
+                class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
+                @click="updateShrinkAlert(alert.id, 'acknowledged')"
+              >
+                Acknowledge
+              </button>
+              <button
+                type="button"
+                class="rounded bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
+                @click="updateShrinkAlert(alert.id, 'resolved')"
+              >
+                Resolve
+              </button>
+            </div>
+            <span v-else class="text-xs font-semibold text-farm-green">Resolved</span>
+          </div>
+        </article>
+      </div>
+      <p v-else class="mt-3 text-xs text-slate-500">No open leakage alerts. Run a rescan after sales and stock moves.</p>
+    </section>
+
+    <section
+      v-if="auth.canApprove && reconciliationAlerts.length"
+      class="mt-8 rounded-xl border border-red-900/60 bg-red-950/20 p-5"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="font-bold text-red-200">Inventory reconciliation alerts</h3>
+          <p class="mt-1 text-xs text-slate-400">Physical counts outside the allowed SKU tolerance.</p>
+        </div>
+        <span class="rounded-full bg-red-900/50 px-3 py-1 text-xs font-bold text-red-200">
+          {{ reconciliationAlerts.filter((alert) => alert.status !== 'resolved').length }} open
+        </span>
+      </div>
+      <div class="mt-4 space-y-3">
+        <article
+          v-for="alert in reconciliationAlerts.slice(0, 12)"
+          :key="alert.id"
+          class="rounded-lg border border-slate-800 bg-slate-950 p-4"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="font-semibold text-white">{{ alert.sku }} · {{ alert.itemName }}</p>
+              <p class="mt-1 text-sm text-slate-300">
+                Expected {{ alert.expectedQuantity }} {{ alert.unit }}, counted {{ alert.countedQuantity }}.
+                <span :class="alert.variance < 0 ? 'text-red-300' : 'text-amber-300'">
+                  Variance {{ alert.variance > 0 ? '+' : '' }}{{ alert.variance }}.
+                </span>
+              </p>
+              <p class="mt-1 text-xs text-slate-500">Tolerance ±{{ alert.tolerance }} · {{ new Date(alert.createdAt).toLocaleString() }}</p>
+            </div>
+            <div v-if="alert.status !== 'resolved'" class="flex gap-2">
+              <button
+                v-if="alert.status === 'open'"
+                type="button"
+                class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
+                @click="updateAlert(alert.id, 'acknowledged')"
+              >
+                Acknowledge
+              </button>
+              <button
+                type="button"
+                class="rounded bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
+                @click="updateAlert(alert.id, 'resolved')"
+              >
+                Resolve
+              </button>
+            </div>
+            <span v-else class="text-xs font-semibold text-farm-green">Resolved</span>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <div
       v-if="auth.canApprove && !loading"
@@ -369,7 +635,7 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option v-for="item in items" :key="item.id" :value="item.id">
-              {{ item.name }} ({{ item.quantity }} {{ item.unit }})
+              {{ item.sku }} · {{ item.name }} ({{ item.quantity }} {{ item.unit }})
             </option>
           </select>
           <input
@@ -407,6 +673,7 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
         >
           <div class="text-xs text-slate-300">
             <span class="capitalize">{{ session.status }}</span>
+            <span v-if="session.hasVariance" class="ml-2 rounded bg-red-900/40 px-2 py-0.5 text-red-300">Variance</span>
             <span class="text-slate-500">
               · {{ new Date(session.createdAt).toLocaleString() }}
               <template v-if="session.locationText"> · {{ session.locationText }}</template>
@@ -441,7 +708,7 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
       @submit.prevent="recordMovement"
     >
       <h3 class="font-bold text-white text-sm">{{ t('inventory.recordMovement') }}</h3>
-      <div class="grid sm:grid-cols-3 gap-4">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.item') }}</label>
           <select
@@ -450,7 +717,7 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
             <option v-for="item in items" :key="item.id" :value="item.id">
-              {{ item.name }} ({{ item.quantity }} {{ item.unit }})
+              {{ item.sku }} · {{ item.name }} ({{ item.quantity }} {{ item.unit }})
             </option>
           </select>
         </div>
@@ -465,6 +732,16 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
           />
         </div>
         <div>
+          <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reasonKind') }}</label>
+          <select
+            v-model="reasonKind"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          >
+            <option value="custom">{{ t('inventory.reasonCustom') }}</option>
+            <option value="spoilage">{{ t('inventory.reasonSpoilage') }}</option>
+          </select>
+        </div>
+        <div v-if="reasonKind === 'custom'">
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reason') }}</label>
           <input
             v-model="reason"
@@ -479,7 +756,12 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
       <div class="flex items-center gap-3">
         <button
           type="submit"
-          :disabled="submitting || !selectedItemId || delta === '' || !reason.trim()"
+          :disabled="
+            submitting ||
+            !selectedItemId ||
+            delta === '' ||
+            (reasonKind === 'custom' && !reason.trim())
+          "
           class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {{ submitting ? t('inventory.recording') : t('inventory.recordMovementBtn') }}
@@ -494,7 +776,8 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
-            <th class="pb-3 font-semibold">{{ t('inventory.item') }}</th>
+            <th class="pb-3 font-semibold">SKU / {{ t('inventory.item') }}</th>
+            <th class="pb-3 font-semibold">{{ t('inventory.linkedProduct') }}</th>
             <th class="pb-3 font-semibold">{{ t('inventory.category') }}</th>
             <th class="pb-3 font-semibold">{{ t('inventory.quantity') }}</th>
             <th class="pb-3 font-semibold">{{ t('inventory.reorderAt') }}</th>
@@ -511,7 +794,17 @@ async function verifyCountSession(sessionId: string, status: 'verified' | 'rejec
             :key="item.id"
             class="border-b border-slate-800/50"
           >
-            <td class="py-4 font-medium text-white">{{ item.name }}</td>
+            <td class="py-4 font-medium text-white">
+              <span class="block font-mono text-[11px] text-farm-green">{{ item.sku }}</span>
+              {{ item.name }}
+            </td>
+            <td class="py-4 text-slate-400 text-xs">
+              <span v-if="item.productId">
+                <span class="font-mono text-farm-green">{{ item.productSku }}</span>
+                · {{ item.productName }}
+              </span>
+              <span v-else class="text-slate-600">{{ t('inventory.noProductLink') }}</span>
+            </td>
             <td class="py-4 text-slate-400 capitalize">{{ item.category }}</td>
             <td class="py-4 font-mono text-slate-300">
               {{ item.quantity }} {{ item.unit }}

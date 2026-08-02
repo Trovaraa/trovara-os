@@ -82,7 +82,7 @@ per-chat slash menu for your role.
 
 ## Next build plan (staff butler parity)
 
-Tracked in [next-steps-trovara-os.md](../../next-steps-trovara-os.md) §3:
+Tracked in [next-steps-trovara-os.md](../../next-steps-trovara-os.md)  3:
 
 | Phase | Work |
 | --- | --- |

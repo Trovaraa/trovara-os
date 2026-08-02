@@ -40,7 +40,7 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 >
 > **Customer number:** when `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` is set, messages to
 > that number run the order catalogue (no staff user match). Paystack pay links use
-> the same flow as the Telegram customer bot — see `docs/INTEGRATIONS.md` §8.
+> the same flow as the Telegram customer bot — see `docs/INTEGRATIONS.md`  8.
 
 ---
 
@@ -166,7 +166,7 @@ Prefer the subscription-based **customer** and **worker** alert streams for day-
 
 ## Next build plan (staff butler parity)
 
-Same phased backlog as Telegram — see [next-steps-trovara-os.md](../../next-steps-trovara-os.md) §3
+Same phased backlog as Telegram — see [next-steps-trovara-os.md](../../next-steps-trovara-os.md)  3
 and [TELEGRAM-COPILOT.md](./TELEGRAM-COPILOT.md#next-build-plan-staff-butler-parity).
 
 **Already on WhatsApp:** role-scoped `help`; create-task / census / asset-count / crop /

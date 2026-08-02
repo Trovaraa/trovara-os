@@ -211,6 +211,22 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+// Single-use owner-registration tokens. Replace the reusable
+// OWNER_REGISTRATION_SECRET env value: each token is consumed on first
+// successful /register and cannot be reused. Only the sha256 hash is stored.
+export const registrationTokens = pgTable('registration_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label'),
+  // Null when minted by the bootstrap CLI (no owner exists yet).
+  createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  usedByUserId: uuid('used_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
 export const consentRecords = pgTable('consent_records', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
@@ -363,6 +379,7 @@ export const attendanceSessions = pgTable(
     plotId: uuid('plot_id').references(() => plots.id, { onDelete: 'set null' }),
     taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     notes: text('notes'),
+    workSummary: text('work_summary'),
     sourceLocale: text('source_locale'),
     translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
     translationAttempts: integer('translation_attempts').default(0).notNull(),
@@ -384,27 +401,41 @@ export const attendanceSessions = pgTable(
   ],
 )
 
-export const inventoryItems = pgTable('inventory_items', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  name: text('name').notNull(),
-  category: text('category').notNull(),
-  unit: inventoryUnitEnum('unit').notNull(),
-  quantity: integer('quantity').default(0).notNull(),
-  reorderLevel: integer('reorder_level').default(10).notNull(),
-  costPerUnit: integer('cost_per_unit'),
-  supplier: text('supplier'),
-  expiryDate: timestamp('expiry_date', { withTimezone: true }),
-  // Worker prose ("back of the feed shed"), the same kind of text as
-  // `assets.locationText`, so it carries a locale pair and is swept.
-  storageLocation: text('storage_location'),
-  batchNumber: text('batch_number'),
-  sourceLocale: text('source_locale'),
-  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
-  translationAttempts: integer('translation_attempts').default(0).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const inventoryItems = pgTable(
+  'inventory_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    // Optional link to a sellable catalogue product. At most one stock row per
+    // product per farm so dispatch/harvest can move finished-goods automatically.
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+    sku: text('sku').notNull(),
+    name: text('name').notNull(),
+    category: text('category').notNull(),
+    unit: inventoryUnitEnum('unit').notNull(),
+    quantity: integer('quantity').default(0).notNull(),
+    reorderLevel: integer('reorder_level').default(10).notNull(),
+    varianceTolerance: integer('variance_tolerance').default(0).notNull(),
+    costPerUnit: integer('cost_per_unit'),
+    supplier: text('supplier'),
+    expiryDate: timestamp('expiry_date', { withTimezone: true }),
+    // Worker prose ("back of the feed shed"), the same kind of text as
+    // `assets.locationText`, so it carries a locale pair and is swept.
+    storageLocation: text('storage_location'),
+    batchNumber: text('batch_number'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('inventory_items_farm_sku_uq').on(t.farmId, t.sku),
+    uniqueIndex('inventory_items_farm_product_uq')
+      .on(t.farmId, t.productId)
+      .where(sql`${t.productId} is not null`),
+  ],
+)
 
 export const inventoryMovements = pgTable(
   'inventory_movements',
@@ -415,8 +446,9 @@ export const inventoryMovements = pgTable(
     delta: integer('delta').notNull(),
     reason: text('reason').notNull(),
     // `reason` is either worker prose or a machine sentinel ('opening_stock_count',
-    // 'task_consumption', 'goods_receipt', 'verified_count_session'); only the
-    // former is ever translated, so sentinel writes must stay 'done'.
+    // 'task_consumption', 'goods_receipt', 'verified_count_session', 'sale',
+    // 'harvest_in', 'spoilage', …); only prose is translated, so sentinel writes
+    // must stay 'done'.
     sourceLocale: text('source_locale'),
     translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
     translationAttempts: integer('translation_attempts').default(0).notNull(),
@@ -795,6 +827,7 @@ export const livestockLogs = pgTable('livestock_logs', {
 export const harvestLots = pgTable('harvest_lots', {
   id: uuid('id').defaultRandom().primaryKey(),
   farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
   lotCode: text('lot_code').notNull(),
   /** High-entropy token for public traceability URLs (not guessable like lotCode). */
   publicToken: text('public_token')
@@ -866,18 +899,23 @@ export const orders = pgTable('orders', {
 
 // Sellable catalog shown by the customer order bot. Prices are in kobo (integer
 // minor units); price_kobo = 0 means "price on request" until a Founder sets it.
-export const products = pgTable('products', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  name: text('name').notNull(),
-  unit: text('unit').default('unit').notNull(),
-  priceKobo: integer('price_kobo').default(0).notNull(),
-  currency: text('currency').default('NGN').notNull(),
-  active: boolean('active').default(true).notNull(),
-  sortOrder: integer('sort_order').default(0).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    sku: text('sku').notNull(),
+    name: text('name').notNull(),
+    unit: text('unit').default('unit').notNull(),
+    priceKobo: integer('price_kobo').default(0).notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    active: boolean('active').default(true).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('products_farm_sku_uq').on(t.farmId, t.sku)],
+)
 
 // A buyer who reached the farm through a chat bot. Anonymous (no login / RBAC);
 // the customer analogue of the staff telegram_link. Scoped per farm + channel.
@@ -1083,6 +1121,54 @@ export const assetLogs = pgTable('asset_logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+export const fieldReports = pgTable(
+  'field_reports',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    createdById: uuid('created_by_id').references(() => users.id).notNull(),
+    category: text('category').notNull(),
+    severity: text('severity').default('normal').notNull(),
+    description: text('description').notNull(),
+    plotId: uuid('plot_id').references(() => plots.id, { onDelete: 'set null' }),
+    batchId: uuid('batch_id').references(() => livestockBatches.id, { onDelete: 'set null' }),
+    assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+    photoUrl: text('photo_url'),
+    status: text('status').default('open').notNull(),
+    assignedToId: uuid('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedById: uuid('resolved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('field_reports_farm_status_created_idx').on(t.farmId, t.status, t.createdAt)],
+)
+
+export const customerSupportTickets = pgTable(
+  'customer_support_tickets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    reference: text('reference').notNull(),
+    contactId: uuid('contact_id').references(() => customerContacts.id, { onDelete: 'set null' }),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    channel: text('channel').default('staff').notNull(),
+    category: text('category').default('complaint').notNull(),
+    priority: text('priority').default('normal').notNull(),
+    status: text('status').default('open').notNull(),
+    description: text('description').notNull(),
+    assignedToId: uuid('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedById: uuid('resolved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_support_tickets_farm_reference_uq').on(t.farmId, t.reference),
+    index('customer_support_tickets_farm_status_created_idx').on(t.farmId, t.status, t.createdAt),
+  ],
+)
+
 // Every question a customer asks the order bot (product availability, farm info,
 // general enquiries). Powers the Founder "most asked" view and the bot's
 // suggested-questions prompt. No login - tied to a customer_contact when known.
@@ -1169,6 +1255,7 @@ export const inventoryCountSessions = pgTable('inventory_count_sessions', {
   taskId: uuid('task_id').references(() => tasks.id),
   locationText: text('location_text'),
   status: text('status').default('submitted').notNull(),
+  hasVariance: boolean('has_variance').default(false).notNull(),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   verifiedById: uuid('verified_by_id').references(() => users.id),
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
@@ -1189,6 +1276,8 @@ export const inventoryCountLines = pgTable('inventory_count_lines', {
   category: text('category').default('supplies').notNull(),
   unit: text('unit').default('units').notNull(),
   countedQuantity: integer('counted_quantity').notNull(),
+  expectedQuantity: integer('expected_quantity'),
+  variance: integer('variance'),
   notes: text('notes'),
   // Covers `notes`. This table has no `farm_id`: the retry job must reach the
   // farm through `session_id -> inventory_count_sessions.farm_id`.
@@ -1197,6 +1286,77 @@ export const inventoryCountLines = pgTable('inventory_count_lines', {
   translationAttempts: integer('translation_attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const inventoryReconciliationAlerts = pgTable(
+  'inventory_reconciliation_alerts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    sessionId: uuid('session_id')
+      .references(() => inventoryCountSessions.id, { onDelete: 'cascade' })
+      .notNull(),
+    lineId: uuid('line_id')
+      .references(() => inventoryCountLines.id, { onDelete: 'cascade' })
+      .notNull(),
+    itemId: uuid('item_id').references(() => inventoryItems.id, { onDelete: 'cascade' }).notNull(),
+    sku: text('sku').notNull(),
+    expectedQuantity: integer('expected_quantity').notNull(),
+    countedQuantity: integer('counted_quantity').notNull(),
+    variance: integer('variance').notNull(),
+    tolerance: integer('tolerance').default(0).notNull(),
+    status: text('status').default('open').notNull(),
+    acknowledgedById: uuid('acknowledged_by_id').references(() => users.id, { onDelete: 'set null' }),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    resolvedById: uuid('resolved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('inventory_reconciliation_alerts_line_uq').on(t.lineId),
+    index('inventory_reconciliation_alerts_farm_status_created_idx').on(
+      t.farmId,
+      t.status,
+      t.createdAt,
+    ),
+  ],
+)
+
+/** Continuous input/output leakage alerts (period shrink, not count-day variance). */
+export const inventoryShrinkAlerts = pgTable(
+  'inventory_shrink_alerts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    itemId: uuid('item_id').references(() => inventoryItems.id, { onDelete: 'cascade' }).notNull(),
+    sku: text('sku').notNull(),
+    // 'unexplained_out' | 'sales_stock_mismatch'
+    alertType: text('alert_type').notNull(),
+    periodDays: integer('period_days').default(30).notNull(),
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+    periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+    qtyIn: integer('qty_in').default(0).notNull(),
+    qtyOutSale: integer('qty_out_sale').default(0).notNull(),
+    qtyOutTask: integer('qty_out_task').default(0).notNull(),
+    qtyOutSpoilage: integer('qty_out_spoilage').default(0).notNull(),
+    qtyOutOther: integer('qty_out_other').default(0).notNull(),
+    soldQty: integer('sold_qty').default(0).notNull(),
+    unexplainedOut: integer('unexplained_out').default(0).notNull(),
+    tolerance: integer('tolerance').default(0).notNull(),
+    status: text('status').default('open').notNull(),
+    acknowledgedById: uuid('acknowledged_by_id').references(() => users.id, { onDelete: 'set null' }),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    resolvedById: uuid('resolved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('inventory_shrink_alerts_open_item_type_uq')
+      .on(t.farmId, t.itemId, t.alertType)
+      .where(sql`${t.status} <> 'resolved'`),
+    index('inventory_shrink_alerts_farm_status_created_idx').on(t.farmId, t.status, t.createdAt),
+  ],
+)
 
 export const actionDrafts = pgTable('action_drafts', {
   id: uuid('id').defaultRandom().primaryKey(),
