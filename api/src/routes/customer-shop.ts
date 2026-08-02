@@ -148,7 +148,13 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
     ? await verifyPassword(account.passwordHash, body.password)
     : await verifyPassword(await getDummyPasswordHash(), body.password)
   if (!account || !account.active || !valid) {
-    return c.json({ error: 'Email or password is incorrect.' }, 401)
+    return c.json(
+      {
+        error:
+          "We couldn't sign you in. Check your email and password, or create an account if you're new.",
+      },
+      401,
+    )
   }
   const token = await createCustomerSession(account.id)
   setCustomerSession(c, token)

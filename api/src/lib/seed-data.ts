@@ -630,8 +630,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     },
   ])
 
-  // Customer-bot catalog (Trovara Fresh *). Eggs have a default price; others
-  // are "price on request" (0) until staff set them in Products.
+  // Customer-bot / shop catalog. Keep inactive until first supply windows open
+  // so the marketing shop and bots do not sell waitlisted inventory as buy-now.
   await db.insert(products).values([
     {
       farmId,
@@ -639,13 +639,14 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       name: 'Trovara Fresh Pasture-Raised Eggs',
       unit: 'crate',
       sortOrder: 1,
-      priceKobo: 650000,
+      priceKobo: 0,
+      active: false,
     },
-    { farmId, sku: 'TRV-PLT-BUNCH', name: 'Trovara Fresh Plantain', unit: 'bunch', sortOrder: 2, priceKobo: 0 },
-    { farmId, sku: 'TRV-COC-PIECE', name: 'Trovara Fresh Coconut', unit: 'piece', sortOrder: 3, priceKobo: 0 },
-    { farmId, sku: 'TRV-CHK-BIRD', name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0 },
-    { farmId, sku: 'TRV-PLF-PACK', name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0 },
-    { farmId, sku: 'TRV-DRP-PACK', name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0 },
+    { farmId, sku: 'TRV-PLT-BUNCH', name: 'Trovara Fresh Plantain', unit: 'bunch', sortOrder: 2, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-COC-PIECE', name: 'Trovara Fresh Coconut', unit: 'piece', sortOrder: 3, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-CHK-BIRD', name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-PLF-PACK', name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-DRP-PACK', name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0, active: false },
   ])
 
   // Equipment/asset register (pool model). An Admin/supervisor maintains these;

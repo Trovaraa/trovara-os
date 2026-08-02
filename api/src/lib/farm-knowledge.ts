@@ -19,22 +19,25 @@ export type CanonicalProduct = {
 }
 
 export const FARM_BLURB =
-  'Trovara Fresh grows pasture-raised eggs, plantain, coconut and free-range poultry for ' +
-  'homes, shops, restaurants and retailers, delivering on scheduled routes.'
+  'Trovara Fresh grows pasture-raised eggs, plantain, coconut and pasture-raised poultry for ' +
+  'homes, shops, restaurants and retailers. First supply windows are opening by product - join the waitlist for updates.'
 
 /**
  * Orderable catalogue (the transactional source of truth for the bot). Prices in
  * kobo; 0 means quote-based. Names/units are customer-facing and editable later in
  * the Products admin.
+ *
+ * Keep `active: false` until a product is genuinely ready for customer orders so
+ * the marketing shop and bots do not offer waitlisted inventory as buy-now.
  */
 export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
   {
     name: 'Trovara Fresh Pasture-Raised Eggs',
     unit: 'crate',
-    priceKobo: 650000,
+    priceKobo: 0,
     currency: 'NGN',
     sortOrder: 1,
-    active: true,
+    active: false,
     tagline: 'Taste what an egg is supposed to be.',
     description:
       'Hens live outdoors on open pasture every day - rotated across fresh grass, never caged. ' +
@@ -47,11 +50,11 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
       'Hand-collected at dawn and date-stamped',
     ],
     specs: [
-      { label: 'Grades', value: 'Farm-fresh, graded pasture-raised eggs' },
+      { label: 'SKU', value: 'TRV-EGG-CRATE' },
       { label: 'Packaging', value: 'Crates of 30; half-crates on request' },
       { label: 'Freshness', value: 'Collected at dawn; date-stamped per crate' },
     ],
-    note: 'A weekly egg subscription (4 crates/month) is available - ask for current subscription pricing.',
+    note: 'Waitlist only until first availability is confirmed.',
   },
   {
     name: 'Trovara Fresh Plantain',
@@ -59,12 +62,12 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     priceKobo: 0,
     currency: 'NGN',
     sortOrder: 2,
-    active: true,
+    active: false,
     tagline: "The world's most versatile staple.",
     description:
       'Grown in rich tropical soil and harvested at the perfect stage - green for cooking, ripe for ' +
       'sweeter preparations. Starchier and heartier than regular bananas. Grown with zero synthetic ' +
-      'chemicals and harvested to export-grade standards. Also available as chips and flour.',
+      'chemicals and harvested to export-grade standards. Also planned as chips and flour.',
     benefits: [
       'High in resistant starch and complex carbohydrates',
       'Rich in potassium, vitamin C, and fiber',
@@ -72,10 +75,11 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
       'No artificial ripening - grown and harvested naturally',
     ],
     specs: [
-      { label: 'Grades', value: 'Grade A green; Grade A ripe (prepackaged boxes)' },
-      { label: 'Packaging', value: 'Graded cartons, 18-20 kg; chips & flour in sealed packs' },
-      { label: 'Shelf life', value: 'Green: 7-10 days; ripe: 3-5 days; flour: 12 months' },
+      { label: 'SKU', value: 'TRV-PLT-BUNCH' },
+      { label: 'Packaging', value: 'Graded cartons; chips & flour in sealed packs (planned)' },
+      { label: 'First harvest', value: 'March 2027 (forecast)' },
     ],
+    note: 'Waitlist only until the first harvest window opens.',
   },
   {
     name: 'Trovara Fresh Coconut',
@@ -83,7 +87,7 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     priceKobo: 0,
     currency: 'NGN',
     sortOrder: 3,
-    active: true,
+    active: false,
     tagline: 'The fruit of a thousand uses.',
     description:
       'Grown in rich tropical soil and harvested at peak maturity for maximum sweetness, water content ' +
@@ -95,11 +99,11 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
       'Multi-purpose: water, flesh, oil, husk',
     ],
     specs: [
-      { label: 'Grades', value: 'Export-grade, mature coconuts' },
+      { label: 'SKU', value: 'TRV-COC-PIECE' },
       { label: 'Packaging', value: 'Mesh bags (25-50 kg) or custom bulk' },
-      { label: 'Shelf life', value: '3-4 weeks at ambient; longer with cold chain' },
+      { label: 'First harvest', value: 'June 2027 (forecast)' },
     ],
-    note: 'Sold in bulk - price on request based on volume.',
+    note: 'Waitlist only until the first harvest window opens.',
   },
   {
     name: 'Trovara Fresh Chicken',
@@ -107,23 +111,23 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     priceKobo: 0,
     currency: 'NGN',
     sortOrder: 4,
-    active: true,
-    tagline: 'Raised with care. Served with pride.',
+    active: false,
+    tagline: 'Grass-fed. Pasture-raised. Grown with care.',
     description:
-      'Birds are raised in open, free-range environments with natural feed and clean water, no growth ' +
-      'hormones. Healthy birds, ethical practices, premium free-range poultry meat.',
+      'Birds are pasture-raised on open grass with a natural grass-and-grain diet and clean water, ' +
+      'with no growth hormones. Healthy birds, ethical practices, premium pasture-raised poultry.',
     benefits: [
-      'Free-range, open environment',
-      'Natural grain-based feed',
+      'Grass-fed and pasture-raised',
+      'Natural grass-and-grain diet',
       'No growth hormones',
-      'Premium free-range poultry meat',
+      'Whole dressed birds and cuts on request',
     ],
     specs: [
-      { label: 'Grades', value: 'Free-range noilers & mature hens' },
+      { label: 'SKU', value: 'TRV-CHK-BIRD' },
       { label: 'Packaging', value: 'Vacuum-sealed or ice-packed' },
-      { label: 'Shelf life', value: 'Fresh: 3-5 days refrigerated; longer frozen' },
+      { label: 'Target supply', value: 'December 2026' },
     ],
-    note: 'Sold whole or in cuts - price on request. Recurring supply contracts available.',
+    note: 'Waitlist only until first dressed birds are ready.',
   },
   {
     name: 'Trovara Fresh Plantain Flour',
@@ -131,11 +135,15 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     priceKobo: 0,
     currency: 'NGN',
     sortOrder: 5,
-    active: true,
+    active: false,
     tagline: 'Plantain, milled fine.',
     description: 'Naturally dried plantain milled into flour for baking and cooking.',
     benefits: ['Gluten-free staple', 'No additives', 'Farm-milled'],
-    specs: [{ label: 'Packaging', value: 'Sealed packs' }],
+    specs: [
+      { label: 'SKU', value: 'TRV-PLF-PACK' },
+      { label: 'Packaging', value: 'Sealed packs' },
+    ],
+    note: 'Planned after plantain harvest; waitlist interest welcome via Products.',
   },
   {
     name: 'Trovara Fresh Dried Plantain',
@@ -143,11 +151,15 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     priceKobo: 0,
     currency: 'NGN',
     sortOrder: 6,
-    active: true,
+    active: false,
     tagline: 'Crisp, natural chips.',
     description: 'Sun-dried or low-heat dried plantain chips for snacking and trade.',
     benefits: ['No artificial ripening', 'Long shelf life'],
-    specs: [{ label: 'Packaging', value: 'Sealed packs' }],
+    specs: [
+      { label: 'SKU', value: 'TRV-DRP-PACK' },
+      { label: 'Packaging', value: 'Sealed packs' },
+    ],
+    note: 'Planned after plantain harvest; waitlist interest welcome via Products.',
   },
 ]
 
