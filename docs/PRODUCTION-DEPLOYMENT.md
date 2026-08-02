@@ -176,7 +176,10 @@ curl -sf https://os.trovara.farm/health
 curl -sf https://os.trovara.farm/ready
 ```
 
-(`./deploy.sh` restarts `trovara-api` for you; the commands above are for manual ops.)
+(`./deploy.sh` restarts `trovara-api` for you; the commands above are for manual ops.)  
+External monitor intervals and escalation: [`uptime-monitoring.md`](./uptime-monitoring.md).  
+Encrypted backup procedure: [`backup-runbook.md`](./backup-runbook.md).
+
 Then verify:
 
 - owner / break-glass login (`BREAK_GLASS_PASSWORD`) and TOTP;

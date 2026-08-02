@@ -199,30 +199,14 @@ Phase 4 AI should automate operations, not generic chat:
 
 ---
 
-## Go-live checklist (internal Trovara)
+## Ops and commercial pointers
 
-- [ ] Node 22 LTS on all devices
-- [ ] `.env` secrets rotated from dev defaults
-- [ ] `pg_dump` backup script documented and tested
-- [ ] Admin recovery: owner can reset supervisor passwords
-- [ ] Offline failure mode documented (manual WhatsApp fallback)
-- [ ] 2-week pilot with owner + 2 supervisors logging daily
+This file is the **product operating model** (day cadence, SoR, required fields, state machines). Deployment and commercial checklists live elsewhere:
 
-## Commercial checklist (future SaaS)
-
-- [ ] Tenant onboarding wizard (farm name, plots, users)
-- [ ] Demo data reset per tenant
-- [ ] Feature flags by plan tier
-- [ ] Export/import (JSON) for migration
-- [ ] Billing integration (deferred)
-
----
-
-## Priority next build items (recommended order)
-
-1. **Formal state machines in code** - enforce transitions server-side (tasks partially done)
-2. **Report definition layer** - `/api/reports/digest`, burn rate, action list
-3. **Manager exception dashboard** - replace generic dashboard with Today home
-4. **Mobile-first + bilingual UI** - worker task screen, i18n scaffold
-5. **Backup/recovery runbook** - `docs/backup.md` + pg_dump script
-6. **Tenant onboarding + demo reset** - for SaaS path
+| Topic | Doc |
+|-------|-----|
+| Production deploy + secrets | [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) |
+| One-time clean go-live | [`../../GO-LIVE.md`](../../GO-LIVE.md) |
+| Backup / restore | [`backup-runbook.md`](./backup-runbook.md) |
+| Future multi-farm subscription billing | [`SAAS-BILLING.md`](./SAAS-BILLING.md) (not customer Paystack) |
+| Role access (product view) | [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md) |

@@ -2,6 +2,8 @@
 
 This matrix describes the current effective access in Trovara OS. “Admin” is the user-facing name for the internal `owner` role.
 
+For HTTP route roles see [`API.md`](./API.md). Security controls (not a second matrix): [`security.md`](./security.md).
+
 | Area | Admin | Supervisor | Field worker | Sales |
 |---|---|---|---|---|
 | Farm setup, users and security | Full control | No administrative changes | No access | No access |

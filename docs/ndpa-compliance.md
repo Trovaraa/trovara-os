@@ -41,6 +41,10 @@ prohibited.
 
 ## Lawful basis & consent
 
+Publishable wording: [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md) (lawful basis / consent sections).
+
+Internal mapping:
+
 | Processing | Basis | Implementation |
 |------------|-------|----------------|
 | Farm staff accounts | Contract / legitimate interest | Terms of service + role assignment by farm owner |
@@ -54,7 +58,7 @@ Consent records: store `{ userId, purpose, version, timestamp, ipHash }` in audi
 
 ## Data subject rights
 
-Support requests within 30 days (NDPA-aligned):
+Publishable rights text: [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md). Support requests within 30 days (NDPA-aligned).
 
 | Right | Trovara OS approach |
 |-------|---------------------|
@@ -68,16 +72,12 @@ Support requests within 30 days (NDPA-aligned):
 
 ## Security measures (technical)
 
-Already aligned in Phase 1 (see [`security.md`](./security.md)):
+Implemented controls and the release gate live in [`security.md`](./security.md). Do not duplicate the Phase 1 list here.
 
-- Argon2 passwords, httpOnly sessions, CSRF on mutations
-- RBAC, farm_id scoping, append-only audit
-- Rate limiting, secure headers, secrets in env
-
-SaaS additions:
+SaaS additions beyond that inventory:
 
 - Encryption at rest (Postgres TDE or volume encryption)
-- TLS 1.2+ everywhere
+- TLS 1.2+ everywhere (terminate at reverse proxy; see [`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example))
 - Tenant isolation (row-level `farm_id` + optional schema-per-tenant for enterprise)
 - Incident response playbook (72h breach notification draft)
 
@@ -97,14 +97,18 @@ DPO responsibilities: privacy impact assessments, staff training, NDPC liaison, 
 
 ## Retention
 
+Customer-facing wording: [`PRIVACY-NOTICE.md`](./PRIVACY-NOTICE.md) (retention section).  
+Operational env vars: `DATA_RETENTION_DAYS`, `SESSION_RETENTION_DAYS`, `CUSTOMER_CONTACT_RETENTION_DAYS` in `.env.example` / [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md).  
+Backup retention procedure: [`backup-runbook.md`](./backup-runbook.md).
+
+Compliance targets (internal):
+
 | Data type | Retention |
 |-----------|-----------|
 | Active farm operational data | Duration of subscription + 90 days export window |
 | Audit events | 7 years (finance/compliance) or as required by customer contract |
-| Session records | Purged `SESSION_RETENTION_DAYS` after expiry (default 7) |
-| Butler chat text (`farm_events`) | Redacted to `[redacted]` after `DATA_RETENTION_DAYS`; event row kept |
-| Customer contact phones | Nulled after `CUSTOMER_CONTACT_RETENTION_DAYS` (defaults to `DATA_RETENTION_DAYS`) |
-| Worker/customer erasure requests | Pseudonymize name/email/phone via owner API; retain orders and audit trail |
+| Session / butler / customer-contact purge | Driven by the retention env vars above |
+| Worker/customer erasure | Pseudonymize via owner API; retain orders and audit trail |
 | Backups | 30 days rolling; encrypted |
 
 ---

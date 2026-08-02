@@ -29,7 +29,7 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 | Requirement | Where |
 | --- | --- |
 | AI key | `OPENAI_API_KEY` in `.env` (vision needs `gpt-4o-mini` or `gpt-4o` - already the default) |
-| Meta WhatsApp app + permanent token | See `docs/INTEGRATIONS.md → 1. Meta WhatsApp Cloud API` |
+| Meta WhatsApp app + permanent token | This doc, **Part C - Go live with Meta** |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` | `.env` (staff butler) |
 | Optional `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` | Second Meta number for public ordering (same webhook URL) |
 | A public URL to your laptop | `ngrok http 3000` (or a deployed HTTPS domain) |
@@ -40,7 +40,7 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 >
 > **Customer number:** when `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` is set, messages to
 > that number run the order catalogue (no staff user match). Paystack pay links use
-> the same flow as the Telegram customer bot — see `docs/INTEGRATIONS.md`  8.
+> the same flow as the Telegram customer bot — see [`PAYSTACK.md`](./PAYSTACK.md).
 
 ---
 

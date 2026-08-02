@@ -1,6 +1,8 @@
 # SaaS Billing - Placeholder Roadmap
 
-Trovara OS currently runs as a **single-farm deployment** on your laptop for Trovara Farm. This document describes what is needed to **sell Trovara OS to other farms** as a SaaS product.
+Trovara OS currently runs as a **single-farm deployment** on your laptop for Trovara Farm. This document describes what is needed to **sell Trovara OS to other farms** as a SaaS product (Trovara Ltd subscription for farm tenants).
+
+This is **not** customer order checkout. Buyer payments on orders use [`PAYSTACK.md`](./PAYSTACK.md).
 
 ## Current state
 

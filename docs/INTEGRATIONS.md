@@ -1,14 +1,25 @@
 # Trovara OS - Integrations Guide
 
-Step-by-step setup for WhatsApp, AI, cron jobs, public traceability, offline mode, and production deployment.
+Index of integration setup. Channel- and payment-specific runbooks live in dedicated docs; this file keeps the shared env map plus topics that are not covered elsewhere (AI, cron, public QR, offline queue, seed → real adoption).
 
-See also: [`API.md`](./API.md), [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md), [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md), [`PAYSTACK.md`](./PAYSTACK.md), [`security.md`](./security.md), [`backup-runbook.md`](./backup-runbook.md).
+| Topic | Canonical doc |
+|-------|----------------|
+| Telegram staff + customer bots | [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) |
+| WhatsApp Meta setup, curl sim, go-live | [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md) |
+| Customer order Paystack | [`PAYSTACK.md`](./PAYSTACK.md) |
+| Production deploy / secrets | [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) |
+| One-time clean go-live (wipe demo) | [`../../GO-LIVE.md`](../../GO-LIVE.md) |
+| Encrypted backup / restore | [`backup-runbook.md`](./backup-runbook.md) |
+| External health probes | [`uptime-monitoring.md`](./uptime-monitoring.md) |
+| API contracts | [`API.md`](./API.md) |
+| Product RBAC | [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md) |
+| Security controls + release gate | [`security.md`](./security.md) |
 
 ---
 
 ## Environment variables overview
 
-Copy `.env.example` to `.env` and uncomment the sections you need. Never commit `.env`.
+Copy `.env.example` to `.env` and uncomment the sections you need. Never commit `.env`. Full production secret generation: [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md).
 
 | Section | Required for | Key variables |
 |---------|--------------|---------------|
@@ -16,9 +27,10 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | API core | Always | `API_HOST`, `API_PORT`, `NODE_ENV` |
 | CORS / frontend | Production | `CORS_ORIGIN`, `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, `PUBLIC_APP_URL` |
 | Break-glass | Emergency owner login | `BREAK_GLASS_PASSWORD`, optional `BREAK_GLASS_EMAIL` |
-| Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD` |
-| WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` |
-| Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` |
+| Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD`, `SEED_SALES_PASSWORD` |
+| WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` — see [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md) |
+| Telegram | Staff + customer bots | `TELEGRAM_*` — see [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) |
+| Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` — see [`PAYSTACK.md`](./PAYSTACK.md) |
 | LLM | AI briefing / incidents / Advisory fallback | `OPENAI_API_KEY` or `LLM_*` |
 | Marketplace search | Trovara OS Advisory product links | `MARKETPLACE_SEARCH_API_KEY`, `MARKETPLACE_SEARCH_PROVIDER` |
 | Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
@@ -26,14 +38,12 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 
 ### Alert subscriptions
 
-Staff alerts fan out on Telegram and WhatsApp:
+Staff alerts fan out on Telegram and WhatsApp. Ownership of the subscription table and command menus: [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) (same behaviour on WhatsApp).
 
 | Stream | Always | Owner opt-in (Settings) |
 |--------|--------|-------------------------|
 | Customer order alerts | Supervisor + sales | `order_alerts_subscribed` |
 | Worker alerts (task awaiting approval, urgent field messages) | Supervisor | `worker_alerts_subscribed` |
-
-See [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) and [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
 
 ### Trovara OS Advisory
 
@@ -41,144 +51,17 @@ Stage/weather rules create recommendations (now → next → safe inputs → not
 
 ---
 
-## 1. Meta WhatsApp Cloud API
+## 1. Messaging channels
 
-Trovara OS sends farm notifications via the [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api). Templates live in `whatsapp/templates.json`; the API renders them and sends plain text messages.
+- **WhatsApp (Meta Cloud API):** account, webhook, verify token, dual phone numbers, and go-live — [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
+- **Telegram:** BotFather, polling/webhook, link codes, ops commands — [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md).
 
-### Step 1 - Meta Business account
-
-1. Go to [Meta Business Suite](https://business.facebook.com/) and create or verify a **Business Portfolio** for your farm or company.
-2. Enable two-step verification on the Meta account that owns the app.
-
-### Step 2 - WhatsApp Business Platform app
-
-1. Open [Meta for Developers](https://developers.facebook.com/) → **My Apps** → **Create App** → type **Business**.
-2. Add the **WhatsApp** product to the app.
-3. Under **WhatsApp → API Setup**, note:
-   - **Staff Phone number ID** → `WHATSAPP_PHONE_NUMBER_ID` (butler / ops alerts)
-   - Add and verify your business phone (Nigeria: `+234…` format).
-4. For **customer ordering**, add a **second** WhatsApp phone number under the same WABA (or a linked number). Copy its Phone number ID → `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`. Leave blank to disable customer WhatsApp.
-5. Create a **System User** in Business Settings with `whatsapp_business_messaging` permission and generate a **permanent** access token (not the 24-hour test token) → `WHATSAPP_ACCESS_TOKEN`. Optional: a separate token for the customer number → `WHATSAPP_CUSTOMER_ACCESS_TOKEN` (otherwise the staff token is reused).
-6. Choose a random secret string for webhook verification → `WHATSAPP_VERIFY_TOKEN` (e.g. `openssl rand -hex 32`).
-
-Optional: set `WHATSAPP_API_VERSION` (default `v21.0`) if Meta deprecates your current version.
-
-Add to `.env`:
-
-```bash
-WHATSAPP_ACCESS_TOKEN=EAAxxxx...
-WHATSAPP_PHONE_NUMBER_ID=123456789012345
-WHATSAPP_CUSTOMER_PHONE_NUMBER_ID=987654321098765
-WHATSAPP_VERIFY_TOKEN=your_random_verify_secret
-WHATSAPP_API_VERSION=v21.0
-```
-
-Inbound routing uses `metadata.phone_number_id` on the shared webhook: staff id → butler; customer id → catalogue/cart. Restart the API after changing env vars.
-
-### Step 3 - Webhook URL
-
-Meta requires a **public HTTPS** endpoint.
-
-| Environment | Webhook URL |
-|-------------|-------------|
-| Production | `https://YOUR_DOMAIN/api/whatsapp/webhook` |
-| Local dev | Tunnel, e.g. `https://abc123.ngrok-free.app/api/whatsapp/webhook` |
-
-**Local dev with ngrok:**
-
-```bash
-# Terminal 1 - API already running on :3000
-ngrok http 3000
-
-# In Meta Developer Console → WhatsApp → Configuration:
-# Callback URL: https://YOUR_NGROK_HOST/api/whatsapp/webhook
-# Verify token: same as WHATSAPP_VERIFY_TOKEN
-# Subscribe to: messages
-```
-
-### Step 4 - Webhook verification (GET)
-
-Meta sends a GET request before activating the webhook:
-
-```
-GET /api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=CHALLENGE_STRING
-```
-
-Trovara OS checks `hub.mode === 'subscribe'` and `hub.verify_token === WHATSAPP_VERIFY_TOKEN`, then returns the `hub.challenge` value as plain text. If credentials are missing, the endpoint returns `501 WhatsApp not configured`.
-
-**Manual test:**
-
-```bash
-curl "http://127.0.0.1:3000/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=test123"
-# Expected: test123
-```
-
-Inbound POST webhooks are acknowledged with `{ ok: true }` and logged to the server console (async processing / DB storage is future work).
-
-### Step 5 - Check status
+Quick status checks (session cookie may be required for some routes):
 
 ```bash
 curl http://127.0.0.1:3000/api/whatsapp/status
-# { "configured": true, "hint": "Ready to send via Meta Cloud API" }
+curl -b cookies.txt http://127.0.0.1:3000/api/telegram/status
 ```
-
-### Step 6 - Send messages (POST /api/whatsapp/send)
-
-Requires an authenticated session as **owner** or **supervisor**.
-
-**From the app:** use the WhatsApp module (`/whatsapp`) when send UI is wired, or call the API directly.
-
-**Example request:**
-
-```bash
-# Log in first to obtain session cookie + CSRF token, then:
-curl -b cookies.txt -X POST http://127.0.0.1:3000/api/whatsapp/send \
-  -H 'Content-Type: application/json' \
-  -H 'X-CSRF-Token: YOUR_CSRF' \
-  -d '{
-    "to": "+2348012345678",
-    "templateId": "task_complete",
-    "lang": "en",
-    "variables": {
-      "taskTitle": "Weeding - Plot B",
-      "workerName": "Ade",
-      "plotName": "Plot B",
-      "completedAt": "21 Jun 2026, 14:30"
-    }
-  }'
-```
-
-**Response:** `{ ok: true, messageId, preview }` or `502` with Meta error details.
-
-**Template IDs** (from `whatsapp/templates.json`): `task_complete`, `incident_report`, `low_stock_alert`. Languages: `en`, `yo`, `pcm`, `fr`.
-
-List templates without auth:
-
-```bash
-curl http://127.0.0.1:3000/api/whatsapp/templates
-```
-
-### Nigeria phone format
-
-- Store and send numbers in international format: **`+234` followed by 10 digits** (no leading 0).
-- Examples: `+2348012345678`, `+2348103693426`.
-- The API strips non-digits before calling Meta (`2348012345678`). Always include country code `234`.
-
-### Cost note
-
-WhatsApp Cloud API uses **conversation-based pricing** (24-hour windows), not per-message SMS rates. Rates vary by country and conversation category (utility, marketing, authentication, service). See [Meta WhatsApp pricing](https://developers.facebook.com/docs/whatsapp/pricing). Pilot with internal numbers before messaging all field workers.
-
-### Seed data vs production
-
-| Feature | Without `WHATSAPP_*` env | With credentials |
-|---------|--------------------------|------------------|
-| `GET /api/whatsapp/templates` | Works - local JSON | Works |
-| Vue `/whatsapp` page | Copy/share templates manually | Same + API send when UI calls send |
-| `POST /api/whatsapp/send` | `501 Not configured` | Sends via Meta |
-| Webhook GET/POST | `501 Not configured` | Verification + inbound ack |
-| Seed farm phone in orders | `+2348012345678` (demo) | Use real worker/supervisor numbers |
-
-**Production:** register and approve message templates in Meta Business Manager before high-volume sends. Local `templates.json` is for rendering only; Meta may require pre-approved templates for outbound business-initiated messages outside the 24-hour customer service window.
 
 ---
 
@@ -213,8 +96,6 @@ LLM_MODEL=llama3.2
 
 Install and run Ollama, pull a model, then set the vars above. The API calls `POST {LLM_BASE_URL}/chat/completions`.
 
-Check status:
-
 ```bash
 curl -b cookies.txt http://127.0.0.1:3000/api/ai/status
 ```
@@ -230,10 +111,6 @@ Aggregates live farm data (tasks, plots, low stock, pending approvals) and retur
 **With LLM configured:** `source: "llm"`, `placeholder: false`, AI-written `summaryText`.
 
 **Without LLM (or on LLM error):** `source: "dashboard_aggregate"`, `placeholder: true`, deterministic `summaryText` built from the same data.
-
-```bash
-curl -b cookies.txt http://127.0.0.1:3000/api/ai/briefing
-```
 
 #### POST `/api/ai/summarize-incident`
 
@@ -285,8 +162,8 @@ npm run generate-tasks
 This runs `scripts/generate-recurring-tasks.sh`, which:
 
 1. Loads `.env`
-2. Logs in as the cron owner (`POST /auth/login`)
-3. Calls `POST /api/templates/generate-tasks` with CSRF header
+2. Logs in as the cron owner (`POST /auth/login`) or uses `CRON_SECRET`
+3. Calls `POST /api/templates/generate-tasks` with CSRF / cron header
 
 ### Environment variables
 
@@ -303,7 +180,8 @@ CRON_OWNER_PASSWORD=strong_production_password
 API_URL=https://os.trovara.farm
 ```
 
-If `CRON_OWNER_PASSWORD` is unset, scripts fall back to `BREAK_GLASS_PASSWORD`, then `SEED_OWNER_PASSWORD` (local / legacy only). **Production must set `CRON_SECRET`.**
+If `CRON_OWNER_PASSWORD` is unset, scripts fall back to `BREAK_GLASS_PASSWORD`, then `SEED_OWNER_PASSWORD` (local / legacy only). **Production must set `CRON_SECRET`.** See also [`security.md`](./security.md) (Still manual / ops).
+
 ### Crontab example
 
 Run daily at 05:00 farm local time:
@@ -329,29 +207,14 @@ https://YOUR_DOMAIN/lot/:lotCode
 Example: `https://os.trovara.farm/lot/<publicToken-or-code>`
 
 QR codes and **Print QR** labels open the public lot page (certificate-style HTML). Staff can also open printable sticker HTML and the **Trovara Farm Traceability Certificate** from Traceability / Sales.
+
 ### Public API (implemented)
 
 ```
 GET /public/lots/:lotCode
 ```
 
-No authentication. Returns:
-
-```json
-{
-  "lot": {
-    "lotCode": "TRV-COC-2026-001",
-    "productName": "Young coconut (sample harvest)",
-    "quantityKg": 120,
-    "harvestedAt": "2026-06-14T…",
-    "plotName": "Coconut Grove",
-    "cropType": "coconut",
-    "farm": { "name": "Trovara Demo Farm", "location": "Ogun State, Nigeria" }
-  },
-  "verified": true,
-  "scannedAt": "2026-06-21T…"
-}
-```
+No authentication. Returns lot summary + farm name/location when the lot exists.
 
 **Test with seed data:**
 
@@ -374,16 +237,10 @@ curl http://127.0.0.1:3000/public/lots/TRV-PLT-2026-002
 
 Encode the **public page URL** (not the API URL) so scanners open a human-readable page.
 
-**Free online tools:** [qr-code-generator.com](https://www.qr-code-generator.com/), [goqr.me](https://goqr.me/)
-
-**CLI (optional):**
-
 ```bash
 npm install -g qrcode
 qrcode -o lot-TRV-COC-2026-001.png "https://YOUR_DOMAIN/lot/TRV-COC-2026-001"
 ```
-
-**Node (optional):** the [`qrcode`](https://www.npmjs.com/package/qrcode) npm package can generate PNG/SVG in a build script or traceability export - not bundled in Trovara OS by default.
 
 Print QR on lot labels, invoice PDFs, or market stall signage. Use short, stable lot codes (e.g. `TRV-COC-2026-001`).
 
@@ -412,53 +269,25 @@ Until sync is wired, the queue module is safe to import but unused in production
 
 ---
 
-## 6. Production deployment (brief)
+## 6. Production, backup, and payments
 
-### Stack
+| Need | Doc |
+|------|-----|
+| Secrets, `deploy.sh`, smoke-test, rollback | [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) |
+| Wipe demo DB and create the first real owner | [`../../GO-LIVE.md`](../../GO-LIVE.md) |
+| Encrypted backup, rclone, restore-test | [`backup-runbook.md`](./backup-runbook.md) |
+| External `/health` + `/ready` monitors | [`uptime-monitoring.md`](./uptime-monitoring.md) |
+| Customer Paystack checkout | [`PAYSTACK.md`](./PAYSTACK.md) |
 
-- **Postgres 17** - `docker compose up -d` (or managed Postgres)
-- **API** - Node 20.17+ / 22 LTS, `npm run build -w api`, run compiled server
-- **Frontend** - `npm run build -w app`, serve `app/dist` via nginx/Caddy or static host
-
-### Critical env vars
-
-```bash
-NODE_ENV=production
-DATABASE_URL=postgresql://user:pass@db-host:5432/trovara_os
-API_HOST=127.0.0.1
-API_PORT=3000
-CORS_ORIGIN=https://os.trovara.farm
-VITE_API_URL=https://os.trovara.farm          # SPA fetch base (build-time)
-VITE_PUBLIC_APP_URL=https://os.trovara.farm   # lot / share links in the UI
-PUBLIC_APP_URL=https://os.trovara.farm        # server links (email, certificates)
-CRON_SECRET=<long random>
-BREAK_GLASS_PASSWORD=<strong secret>
-```
-
-Prefer `./deploy.sh` for production (Node 22, migrate, build, restart). See [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md).
-
-**HTTPS:** Session cookies use `Secure` flag when `NODE_ENV=production`. Terminate TLS at your reverse proxy; do not expose plain HTTP to the internet.
-
-**CORS:** Must match the exact frontend origin (scheme + host + port). Missing `CORS_ORIGIN` logs a startup warning.
-### Docker
-
-`docker-compose.yml` ships Postgres only. Run API and app on the host or extend compose with your own service definitions. Keep Postgres port bound to localhost unless firewalled.
-
-### Database backup
-
-```bash
-./scripts/backup-db.sh
-```
-
-Creates `backups/{POSTGRES_DB}_YYYYMMDD_HHMMSS.sql`. Schedule daily in production. See [`backup-runbook.md`](./backup-runbook.md) for restore steps.
-
-Optional: `BACKUP_DIR`, `PGHOST`, `PGPORT`, `ENV_FILE`.
+Local wipe + reseed for demos: `nvm use 22 && npm run seed` (never on production).
 
 ---
 
 ## 7. Moving from seed data to real data
 
 Seed data (`npm run seed`) creates **Trovara Demo Farm** with zones, plots, tasks, inventory, sample lots (`TRV-COC-2026-001`, `TRV-PLT-2026-002`), and demo users. Use it for training and integration testing only.
+
+For a **production** cutover (empty DB, first real owner), use [`GO-LIVE.md`](../../GO-LIVE.md) — not seed, and not reset-demo.
 
 ### Do not use reset-demo in production
 
@@ -479,6 +308,7 @@ Adopt modules in order so each layer has master data before downstream features:
 9. **Alert subscriptions** - Owners opt into customer and/or worker alerts in Settings.
 10. **WhatsApp / Telegram** - Link staff phones / Telegram; pilot supervisors first.
 11. **AI briefing** - Enable after real data exists so summaries are meaningful.
+
 Check readiness anytime:
 
 ```bash
@@ -486,22 +316,7 @@ curl -b cookies.txt http://127.0.0.1:3000/api/onboarding/status
 # { checklist: { hasZones, hasTemplates, hasUsers, … }, ready: boolean }
 ```
 
-When migrating from demo: export anything you need (`/api/traceability/export`, `./scripts/backup-db.sh`), then either edit records in place or start a fresh DB without running `reset-demo` on production.
-
----
-
-## 8. Paystack (customer order payments)
-
-Full setup runbook: **[`PAYSTACK.md`](./PAYSTACK.md)** (keys, webhook, smoke test, go-live, troubleshooting).
-
-Short version:
-
-1. Set `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`, and `PUBLIC_APP_URL`.
-2. Register webhook `POST {PUBLIC_APP_URL}/api/paystack/webhook` for `charge.success`.
-3. Run `npm run db:migrate -w api` and restart the API.
-4. Place a priced customer order → pay with a test card → confirm **Paid** + invoice in Sales.
-
-Behaviour summary (priced + configured → pay link; otherwise COD; 24h cancel; dispatch blocked while unpaid) is documented in `PAYSTACK.md`.
+When migrating from demo: export anything you need (`/api/traceability/export`, encrypted backup), then either edit records in place or follow [`GO-LIVE.md`](../../GO-LIVE.md).
 
 ---
 
@@ -510,7 +325,7 @@ Behaviour summary (priced + configured → pay link; otherwise COD; 24h cancel; 
 | Integration | Method | Path | Auth |
 |-------------|--------|------|------|
 | WhatsApp webhook verify | GET | `/api/whatsapp/webhook` | No |
-| WhatsApp inbound | POST | `/api/whatsapp/webhook` | No |
+| WhatsApp inbound | POST | `/api/whatsapp/webhook` | No (HMAC when `META_APP_SECRET` set) |
 | WhatsApp send | POST | `/api/whatsapp/send` | owner, supervisor |
 | WhatsApp templates | GET | `/api/whatsapp/templates` | No |
 | WhatsApp status | GET | `/api/whatsapp/status` | No |

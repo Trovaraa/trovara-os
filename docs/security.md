@@ -36,24 +36,10 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Encrypted backups: `scripts/backup-db-encrypted.sh` (GPG symmetric)
 - Negative security tests: RBAC deny, CSRF, rate limits (29 tests in CI)
 
-## Role Matrix
+## Role access
 
-| Resource | owner | supervisor | sales | field_worker |
-|----------|-------|------------|-------|--------------|
-| Dashboard | read | read | read | read (limited) |
-| Tasks - assign | yes | yes | no | no |
-| Tasks - log completion | yes | yes | no | own only |
-| Tasks - approve | yes | yes | no | no |
-| Inventory | read/write | read/write | read | read |
-| Products (add/rename) | yes | yes | yes | no |
-| Products (remove) | yes | no | no | no |
-| Sales / order status | yes | yes | yes | no |
-| Customer order alerts | opt-in | always | always | never |
-| Worker alerts | opt-in | always | never | never |
-| Reports / finance | yes | zone only | no | no |
-| Audit / CSV export | yes | no | no | no |
-| User management | yes | no | no | no |
-| Go-live / demo reset | yes | no | no | no |
+Product-facing access by area: [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md).  
+Per-route roles: [`API.md`](./API.md). Do not maintain a third matrix here.
 
 ### Break-glass notes
 
@@ -73,7 +59,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 
 - Confirm all secrets rotated on the server (OpenAI, Telegram, SESSION_SECRET, POSTGRES_PASSWORD)
 - Confirm HTTPS is enabled for `os.trovara.farm`
-- Configure off-server encrypted backups + logrotate for `logs/*.log`
+- Configure off-server encrypted backups + logrotate for `logs/*.log` ([`backup-runbook.md`](./backup-runbook.md), [`logrotate-trovara-os.conf.example`](./logrotate-trovara-os.conf.example))
 - Set `META_APP_SECRET` when WhatsApp goes live
 - **Set `CRON_SECRET` in production** — cron scripts (`run-data-retention`, proactive alerts, evening digest) must authenticate with `X-CRON-SECRET`; do not rely on owner password fallbacks in production
 - `retry-translations` is the exception: it talks to the DB directly (like `backup`) rather than through the API, so it needs `DATABASE_URL` on the cron host and no `CRON_SECRET`
