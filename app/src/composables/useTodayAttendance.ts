@@ -39,7 +39,9 @@ export function useTodayAttendance(getRole: () => string | undefined) {
   const correctionClockOut = ref('')
   const correctionNotes = ref('')
 
-  const showAttendance = computed(() => getRole() !== 'sales')
+  // Clocking is a field-worker workflow. Owner, supervisor and sales use Today
+  // for oversight, approvals, orders and day close—not personal attendance.
+  const showAttendance = computed(() => getRole() === 'field_worker')
   const openAttendance = computed(
     () => attendance.value.find((session) => session.clockOutAt === null) ?? null,
   )

@@ -72,7 +72,12 @@ export function securityMiddleware() {
     .filter(Boolean)
 
   return [
-    secureHeaders(),
+    // cross-origin: marketing shop (trovara.farm) may call this API directly;
+    // same-origin proxy (/shop-api) also works. Default same-origin CORP blocks
+    // credentialed cross-origin fetches even when CORS allows the origin.
+    secureHeaders({
+      crossOriginResourcePolicy: 'cross-origin',
+    }),
     bodySizeLimit,
     cors({
       origin: (origin) => {

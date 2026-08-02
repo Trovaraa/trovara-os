@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
+import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { onlineStatus, pendingSyncCount, lastSyncedAt, syncStatus, retrySync } from '@/lib/offline-api'
 
 const props = defineProps<{ workerMode?: boolean }>()
@@ -21,11 +22,8 @@ const mainEl = ref<HTMLElement | null>(null)
 const SIDEBAR_COLLAPSED_KEY = 'trovara_sidebar_collapsed'
 const sidebarCollapsed = ref(false)
 
-// The window is the scroll container (see router scrollBehavior). This only resets
-// the inner <main> for any view that constrains its own height - the router owns
-// window scroll so back/forward saved positions are respected.
 onMounted(() => {
-  mainEl.value?.scrollTo({ top: 0 })
+  mainEl.value?.scrollTo({ top: 0, behavior: 'auto' })
   initExpandedGroups()
   try {
     sidebarCollapsed.value = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
@@ -33,6 +31,16 @@ onMounted(() => {
     sidebarCollapsed.value = false
   }
 })
+
+// AppLayout owns the workspace scroll. Reset it after navigation so a new page
+// never opens halfway down, while keeping the sidebar and mobile header stable.
+watch(
+  () => route.fullPath,
+  async () => {
+    await nextTick()
+    mainEl.value?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  },
+)
 
 function toggleSidebarCollapsed() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -227,6 +235,19 @@ const navGroups = computed<NavGroup[]>(() => {
 
 const flatNavItems = computed(() => navGroups.value.flatMap((group) => group.items))
 
+const guidePages = computed(() => {
+  const pages = flatNavItems.value.map(({ to, labelKey }) => ({ to, labelKey }))
+  if (isFieldWorker.value) {
+    if (!pages.some((page) => page.to === '/assets')) {
+      pages.push({ to: '/assets', labelKey: 'nav.assets' })
+    }
+    if (!pages.some((page) => page.to === '/traceability')) {
+      pages.push({ to: '/traceability', labelKey: 'nav.harvest' })
+    }
+  }
+  return pages
+})
+
 // Collapsible sidebar sections. Minimized by default; the section holding the
 // current route opens on first load, and manual toggles are remembered.
 const NAV_STORAGE_KEY = 'trovara_nav_expanded'
@@ -283,6 +304,12 @@ const activeNavLabel = computed(() => {
   return active ? t(active.labelKey) : t('brand.farm')
 })
 
+const guidePageTitle = computed(() => {
+  if (route.path === '/settings/security') return t('nav.settings')
+  const page = guidePages.value.find((item) => item.to === route.path)
+  return page ? t(page.labelKey) : activeNavLabel.value
+})
+
 function translatedRole(role: string): string {
   const key = `roles.${role}`
   const translated = t(key)
@@ -311,7 +338,7 @@ async function handleRetry() {
 </script>
 
 <template>
-  <div class="min-h-screen w-full max-w-[100vw] overflow-x-hidden flex flex-col md:flex-row bg-[var(--os-canvas)]">
+  <div class="h-dvh w-full max-w-[100vw] overflow-hidden flex flex-col md:flex-row bg-[var(--os-canvas)]">
     <!-- Mobile header -->
     <header class="md:hidden sticky top-0 z-40 flex items-center gap-2 px-3 py-3 bg-[var(--os-shell)]/95 backdrop-blur-xl border-b border-[color:var(--os-border)] min-w-0 max-w-full safe-area-x safe-area-pt">
       <button
@@ -627,13 +654,24 @@ async function handleRetry() {
 
     <main
       ref="mainEl"
-      class="os-workspace flex-1 min-w-0 w-full max-w-full p-3 sm:p-4 md:p-8 lg:p-10 overflow-x-hidden overflow-y-auto safe-area-x"
+      class="os-workspace flex-1 min-h-0 min-w-0 w-full max-w-full p-3 sm:p-4 md:p-8 lg:p-10 overflow-x-hidden overflow-y-auto overscroll-y-contain os-scrollbar safe-area-x"
       :class="{ 'pb-[calc(5rem+env(safe-area-inset-bottom))]': isFieldWorker || workerMode }"
     >
       <div class="min-w-0 max-w-[90rem] mx-auto break-words">
         <slot />
       </div>
     </main>
+
+    <OnboardingGuide
+      v-if="auth.user"
+      :user-id="auth.user.id"
+      :user-name="auth.user.name"
+      :role="auth.user.role"
+      :pages="guidePages"
+      :current-path="route.path"
+      :current-title="guidePageTitle"
+      :disabled="route.name === 'change-password'"
+    />
 
     <!-- Mobile bottom nav for field workers -->
     <nav
@@ -719,5 +757,23 @@ async function handleRetry() {
 .os-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.18) transparent;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.os-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.os-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  background-clip: padding-box;
+}
+
+.os-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+  background-clip: padding-box;
 }
 </style>

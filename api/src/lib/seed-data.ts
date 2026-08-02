@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { hashPassword } from './session.js'
 import { getBreakGlassEmail } from './registration.js'
 import { slugify } from './slug.js'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   farms,
@@ -19,18 +19,30 @@ import {
   auditEvents,
   sessions,
   cropCycles,
+  cropCycleStages,
+  cropCycleTasks,
   livestockBatches,
+  livestockScheduleEntries,
   livestockLogs,
   harvestLots,
   orders,
   orderItems,
   products,
+  customerAccounts,
+  customerAccountSessions,
+  customerAccountLinkCodes,
   customerContacts,
   customerChatSessions,
   customerInquiries,
+  customerSupportTickets,
+  paymentAttempts,
+  paymentReceipts,
+  paymentRefunds,
+  invoices,
   assets,
   assetEvents,
   assetLogs,
+  fieldReports,
   expenses,
   consentRecords,
   passwordResetTokens,
@@ -46,8 +58,10 @@ import {
   cropCensusEvidence,
   inventoryCountSessions,
   inventoryCountLines,
+  inventoryReconciliationAlerts,
+  inventoryShrinkAlerts,
   weatherCache,
-  telegramProcessedUpdates,
+  generatedAdvice,
   advisoryRecommendations,
   advisoryObservations,
 } from '../db/schema.js'
@@ -72,6 +86,7 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
       ),
     )
   await db.delete(cropCensusSurveys).where(eq(cropCensusSurveys.farmId, farmId))
+  await db.delete(inventoryReconciliationAlerts).where(eq(inventoryReconciliationAlerts.farmId, farmId))
   await db
     .delete(inventoryCountLines)
     .where(
@@ -104,6 +119,11 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
   await db.delete(purchaseOrders).where(eq(purchaseOrders.farmId, farmId))
   await db.delete(suppliers).where(eq(suppliers.farmId, farmId))
 
+  await db.delete(paymentReceipts).where(eq(paymentReceipts.farmId, farmId))
+  await db.delete(paymentRefunds).where(eq(paymentRefunds.farmId, farmId))
+  await db.delete(paymentAttempts).where(eq(paymentAttempts.farmId, farmId))
+  await db.delete(invoices).where(eq(invoices.farmId, farmId))
+  await db.delete(customerSupportTickets).where(eq(customerSupportTickets.farmId, farmId))
   await db
     .delete(orderItems)
     .where(
@@ -113,24 +133,47 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
       ),
     )
   await db.delete(orders).where(eq(orders.farmId, farmId))
+  await db.delete(fieldReports).where(eq(fieldReports.farmId, farmId))
   await db.delete(assetEvents).where(eq(assetEvents.farmId, farmId))
   await db.delete(assetLogs).where(eq(assetLogs.farmId, farmId))
   await db.delete(assets).where(eq(assets.farmId, farmId))
   await db.delete(customerInquiries).where(eq(customerInquiries.farmId, farmId))
   await db.delete(customerChatSessions).where(eq(customerChatSessions.farmId, farmId))
   await db.delete(customerContacts).where(eq(customerContacts.farmId, farmId))
+  await db
+    .delete(customerAccountSessions)
+    .where(
+      inArray(
+        customerAccountSessions.accountId,
+        db.select({ id: customerAccounts.id }).from(customerAccounts).where(eq(customerAccounts.farmId, farmId)),
+      ),
+    )
+  await db
+    .delete(customerAccountLinkCodes)
+    .where(
+      inArray(
+        customerAccountLinkCodes.accountId,
+        db.select({ id: customerAccounts.id }).from(customerAccounts).where(eq(customerAccounts.farmId, farmId)),
+      ),
+    )
+  await db.delete(customerAccounts).where(eq(customerAccounts.farmId, farmId))
   await db.delete(products).where(eq(products.farmId, farmId))
   await db.delete(expenses).where(eq(expenses.farmId, farmId))
   await db.delete(harvestLots).where(eq(harvestLots.farmId, farmId))
   await db.delete(livestockLogs).where(eq(livestockLogs.farmId, farmId))
+  await db.delete(livestockScheduleEntries).where(eq(livestockScheduleEntries.farmId, farmId))
   await db.delete(farmEvents).where(eq(farmEvents.farmId, farmId))
   await db.delete(advisoryObservations).where(eq(advisoryObservations.farmId, farmId))
   await db.delete(advisoryRecommendations).where(eq(advisoryRecommendations.farmId, farmId))
+  await db.delete(generatedAdvice).where(eq(generatedAdvice.farmId, farmId))
   await db.delete(livestockBatches).where(eq(livestockBatches.farmId, farmId))
+  await db.delete(cropCycleTasks).where(eq(cropCycleTasks.farmId, farmId))
+  await db.delete(cropCycleStages).where(eq(cropCycleStages.farmId, farmId))
   await db.delete(cropCycles).where(eq(cropCycles.farmId, farmId))
   await db.delete(auditEvents).where(eq(auditEvents.farmId, farmId))
   await db.delete(taskInventoryUsage).where(eq(taskInventoryUsage.farmId, farmId))
   await db.delete(inventoryMovements).where(eq(inventoryMovements.farmId, farmId))
+  await db.delete(inventoryShrinkAlerts).where(eq(inventoryShrinkAlerts.farmId, farmId))
   await db.delete(tasks).where(eq(tasks.farmId, farmId))
   await db.delete(recurringSchedules).where(eq(recurringSchedules.farmId, farmId))
   await db.delete(taskTemplates).where(eq(taskTemplates.farmId, farmId))
@@ -147,51 +190,16 @@ async function deleteFarmScopedData(farmId: string): Promise<void> {
   await db.delete(users).where(eq(users.farmId, farmId))
 }
 
+/** Full local wipe. Keeps drizzle migration history; clears app data + caches. */
 async function deleteAllData(): Promise<void> {
-  await db.delete(actionDrafts)
-  await db.delete(attendanceSessions)
-  await db.delete(cropCensusEvidence)
-  await db.delete(cropCensusSurveys)
-  await db.delete(inventoryCountLines)
-  await db.delete(inventoryCountSessions)
-  await db.delete(goodsReceiptLines)
-  await db.delete(goodsReceipts)
-  await db.delete(purchaseOrderLines)
-  await db.delete(purchaseOrders)
-  await db.delete(suppliers)
-  await db.delete(orderItems)
-  await db.delete(orders)
-  await db.delete(assetEvents)
-  await db.delete(assetLogs)
-  await db.delete(assets)
-  await db.delete(customerInquiries)
-  await db.delete(customerChatSessions)
-  await db.delete(customerContacts)
-  await db.delete(products)
-  await db.delete(expenses)
-  await db.delete(harvestLots)
-  await db.delete(livestockLogs)
-  await db.delete(farmEvents)
-  await db.delete(livestockBatches)
-  await db.delete(cropCycles)
-  await db.delete(auditEvents)
-  await db.delete(taskInventoryUsage)
-  await db.delete(inventoryMovements)
-  await db.delete(tasks)
-  await db.delete(recurringSchedules)
-  await db.delete(taskTemplates)
-  await db.delete(plantingUnits)
-  await db.delete(inventoryItems)
-  await db.delete(plots)
-  await db.delete(zones)
-  await db.delete(consentRecords)
-  await db.delete(sessions)
-  await db.delete(passwordResetTokens)
-  await db.delete(weatherCache)
-  await db.delete(telegramProcessedUpdates)
-  await db.update(users).set({ monthlyWageConfirmedById: null })
-  await db.delete(users)
-  await db.delete(farms)
+  await db.execute(sql`
+    TRUNCATE TABLE
+      farms,
+      telegram_processed_updates,
+      content_translations,
+      registration_tokens
+    RESTART IDENTITY CASCADE
+  `)
 }
 
 async function insertDemoContentForFarm(farmId: string): Promise<void> {

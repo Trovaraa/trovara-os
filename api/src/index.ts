@@ -44,6 +44,7 @@ import { supplierRoutes } from './routes/suppliers.js'
 import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import { fieldReportRoutes } from './routes/field-reports.js'
 import { supportRoutes } from './routes/support.js'
+import { customerShopRoutes } from './routes/customer-shop.js'
 import {
   apiMutationRateLimit,
   authMutationRateLimit,
@@ -61,6 +62,7 @@ const app = new Hono()
 app.use('*', ...securityMiddleware())
 app.use('/auth/*', authMutationRateLimit)
 app.use('/api/*', apiMutationRateLimit)
+app.use('/shop/*', apiMutationRateLimit)
 app.use('*', requestLogger)
 
 app.route('/auth', authRoutes)
@@ -92,6 +94,7 @@ app.route('/api/whatsapp', whatsappRoutes)
 app.route('/api/telegram', telegramRoutes)
 app.route('/api/paystack', paystackRoutes)
 app.route('/public', publicRoutes)
+app.route('/shop', customerShopRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/zones', zoneRoutes)
 app.route('/api/users', userRoutes)

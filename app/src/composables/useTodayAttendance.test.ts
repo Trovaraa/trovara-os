@@ -17,9 +17,9 @@ describe('useTodayAttendance', () => {
     vi.clearAllMocks()
   })
 
-  it('loadAttendance clears sessions for sales role', async () => {
+  it.each(['owner', 'supervisor', 'sales'])('does not load personal attendance for %s', async (role) => {
     const { useTodayAttendance } = await import('./useTodayAttendance')
-    const attendance = useTodayAttendance(() => 'sales')
+    const attendance = useTodayAttendance(() => role)
     attendance.attendance.value = [{ id: 'x' } as never]
     await attendance.loadAttendance()
     expect(api).not.toHaveBeenCalled()

@@ -917,6 +917,45 @@ export const products = pgTable(
   (t) => [uniqueIndex('products_farm_sku_uq').on(t.farmId, t.sku)],
 )
 
+// Customer-facing shop identity. This is deliberately separate from staff
+// users/RBAC: customers can see only their own profile, orders and trace links.
+export const customerAccounts = pgTable(
+  'customer_accounts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    email: text('email').notNull(),
+    name: text('name').notNull(),
+    phone: text('phone'),
+    passwordHash: text('password_hash').notNull(),
+    active: boolean('active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('customer_accounts_farm_email_uq').on(t.farmId, t.email)],
+)
+
+export const customerAccountSessions = pgTable('customer_account_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id')
+    .references(() => customerAccounts.id, { onDelete: 'cascade' })
+    .notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const customerAccountLinkCodes = pgTable('customer_account_link_codes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id')
+    .references(() => customerAccounts.id, { onDelete: 'cascade' })
+    .notNull(),
+  codeHash: text('code_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
 // A buyer who reached the farm through a chat bot. Anonymous (no login / RBAC);
 // the customer analogue of the staff telegram_link. Scoped per farm + channel.
 export const customerContacts = pgTable(
@@ -924,6 +963,9 @@ export const customerContacts = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    customerAccountId: uuid('customer_account_id').references(() => customerAccounts.id, {
+      onDelete: 'set null',
+    }),
     channel: text('channel').notNull(),
     externalId: text('external_id').notNull(),
     name: text('name'),

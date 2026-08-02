@@ -19,6 +19,8 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/auth/forgot-password',
   '/auth/reset-password',
   '/auth/totp/use-recovery-code',
+  '/shop/register',
+  '/shop/login',
   '/health',
   '/api/whatsapp/webhook',
   '/api/telegram/webhook',

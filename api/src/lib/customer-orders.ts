@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   customerChatSessions,
+  customerAccounts,
   customerContacts,
   farms,
+  harvestLots,
   orderItems,
   orders,
   products,
@@ -51,10 +53,19 @@ import {
   requestCustomerCancel,
 } from './order-payments.js'
 import { isPaystackConfigured } from './paystack.js'
+import { linkCustomerContactWithCode } from './customer-accounts.js'
+import { sendEmail } from './notifications.js'
 
-export { resolveCustomerFarm, upsertCustomerContact, advanceOrderConversation }
+export {
+  resolveCustomerFarm,
+  upsertCustomerContact,
+  advanceOrderConversation,
+  customerConversationIsActive,
+  createOrderFromCart,
+}
 
 type Channel = 'telegram' | 'whatsapp'
+type CustomerContactChannel = Channel | 'web'
 
 type ContactRow = typeof customerContacts.$inferSelect
 
@@ -157,7 +168,7 @@ async function loadCatalog(farmId: string): Promise<CatalogItem[]> {
 
 async function upsertCustomerContact(
   farmId: string,
-  channel: Channel,
+  channel: CustomerContactChannel,
   externalId: string,
   name?: string | null,
   phone?: string | null,
@@ -217,6 +228,15 @@ async function loadSession(
     cart: (row?.cart as CartLine[] | null) ?? [],
     draft: (row?.draft as OrderDraft | null) ?? {},
   }
+}
+
+async function customerConversationIsActive(
+  farmId: string,
+  channel: Channel,
+  externalId: string,
+): Promise<boolean> {
+  const state = await loadSession(farmId, channel, externalId)
+  return state.step !== 'idle'
 }
 
 async function saveSession(
@@ -324,7 +344,7 @@ async function beginCheckout(params: {
 
 async function createOrderFromCart(params: {
   farmId: string
-  channel: Channel
+  channel: CustomerContactChannel
   contactId: string
   contactName?: string | null
   cart: CartLine[]
@@ -333,6 +353,7 @@ async function createOrderFromCart(params: {
 }): Promise<
   | {
       reference: string
+      orderId: string
       payment?: { authorizationUrl: string; amountKobo: number }
     }
   | { error: string }
@@ -413,6 +434,7 @@ async function createOrderFromCart(params: {
   const reference = orderReference(order.id)
 
   let lotCode: string | undefined
+  let lotPublicToken: string | undefined
   try {
     const lot = await createHarvestLotForOrder({
       farmId: params.farmId,
@@ -425,6 +447,7 @@ async function createOrderFromCart(params: {
       })),
     })
     lotCode = lot.lotCode
+    lotPublicToken = lot.publicToken
   } catch (err) {
     console.error('Auto harvest lot failed:', err instanceof Error ? err.message : err)
   }
@@ -476,6 +499,47 @@ async function createOrderFromCart(params: {
     console.error('Order staff-notify failed:', err instanceof Error ? err.message : err)
   }
 
+  // A linked web account receives the same confirmation regardless of whether
+  // checkout happened on the website, WhatsApp, or Telegram.
+  try {
+    const [recipient] = await db
+      .select({
+        email: customerAccounts.email,
+        name: customerAccounts.name,
+        farmSlug: farms.slug,
+      })
+      .from(customerContacts)
+      .innerJoin(customerAccounts, eq(customerContacts.customerAccountId, customerAccounts.id))
+      .innerJoin(farms, eq(customerContacts.farmId, farms.id))
+      .where(eq(customerContacts.id, params.contactId))
+      .limit(1)
+    if (recipient) {
+      const accountUrl = `${(process.env.PUBLIC_MARKETING_URL ?? 'https://trovara.farm').replace(/\/+$/, '')}/shop`
+      const traceabilityUrl = lotPublicToken
+        ? `${(process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')}/lot/${recipient.farmSlug}/${lotPublicToken}`
+        : null
+      void sendEmail({
+        to: recipient.email,
+        subject: `Trovara order ${reference}`,
+        text: [
+          `Hello ${recipient.name},`,
+          '',
+          `We received your Trovara order ${reference}.`,
+          `Track your order: ${accountUrl}`,
+          ...(traceabilityUrl
+            ? [`Traceability record (available after farm verification): ${traceabilityUrl}`]
+            : []),
+          '',
+          'You can also track this order through your linked WhatsApp or Telegram account.',
+        ].join('\n'),
+      }).catch((err) =>
+        console.error('Customer order email failed:', err instanceof Error ? err.message : err),
+      )
+    }
+  } catch (err) {
+    console.error('Customer order email lookup failed:', err instanceof Error ? err.message : err)
+  }
+
   const allPriced = items.length > 0 && items.every((i) => i.unitPriceKobo > 0) && totalKobo > 0
   if (isPaystackConfigured() && allPriced) {
     const pay = await createPaymentAttemptForOrder({
@@ -486,16 +550,37 @@ async function createOrderFromCart(params: {
     if (!('error' in pay)) {
       return {
         reference,
+        orderId: order.id,
         payment: { authorizationUrl: pay.authorizationUrl, amountKobo: totalKobo },
       }
     }
     console.error('Paystack payment link failed:', pay.error)
   }
 
-  return { reference }
+  return { reference, orderId: order.id }
 }
 
 async function trackOrders(farmId: string, contactId: string): Promise<string> {
+  const [contact] = await db
+    .select({ customerAccountId: customerContacts.customerAccountId })
+    .from(customerContacts)
+    .where(eq(customerContacts.id, contactId))
+    .limit(1)
+
+  let contactIds = [contactId]
+  if (contact?.customerAccountId) {
+    const linked = await db
+      .select({ id: customerContacts.id })
+      .from(customerContacts)
+      .where(
+        and(
+          eq(customerContacts.farmId, farmId),
+          eq(customerContacts.customerAccountId, contact.customerAccountId),
+        ),
+      )
+    contactIds = linked.map((row) => row.id)
+  }
+
   const rows = await db
     .select({
       id: orders.id,
@@ -503,9 +588,13 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
       paymentStatus: orders.paymentStatus,
       totalAmount: orders.totalAmount,
       createdAt: orders.createdAt,
+      publicToken: harvestLots.publicToken,
+      farmSlug: farms.slug,
     })
     .from(orders)
-    .where(and(eq(orders.farmId, farmId), eq(orders.customerContactId, contactId)))
+    .innerJoin(farms, eq(orders.farmId, farms.id))
+    .leftJoin(harvestLots, eq(harvestLots.orderId, orders.id))
+    .where(and(eq(orders.farmId, farmId), inArray(orders.customerContactId, contactIds)))
     .orderBy(desc(orders.createdAt))
     .limit(5)
 
@@ -513,7 +602,11 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
 
   const lines = rows.map((o) => {
     const when = new Date(o.createdAt).toLocaleDateString('en-NG')
-    return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} · ${paymentStatusLabel(o.paymentStatus)} (${when})`
+    const trace =
+      o.publicToken && o.farmSlug
+        ? `\nTrace this order: ${(process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')}/lot/${o.farmSlug}/${o.publicToken}`
+        : ''
+    return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} · ${paymentStatusLabel(o.paymentStatus)} (${when})${trace}`
   })
   return `Your recent orders:\n\n${lines.join('\n')}`
 }
@@ -647,6 +740,18 @@ async function advanceOrderConversation(params: {
       contactId: params.contactId,
       contactName: params.contactName,
     })
+  }
+
+  const linkMatch = text.match(/^link\s+([A-Z0-9-]{6,20})$/i)
+  if (state.step === 'idle' && linkMatch) {
+    const linked = await linkCustomerContactWithCode({
+      farmId,
+      contactId: params.contactId,
+      code: linkMatch[1]!,
+    })
+    if (!linked.ok) return `${linked.error}\n\nType "menu" to continue.`
+    const channelName = channel === 'telegram' ? 'Telegram' : 'WhatsApp'
+    return `Your ${channelName} is now linked to ${linked.accountName}'s Trovara account. Your orders will stay together across the website and chat.\n\nType "2" to see your orders.`
   }
 
   const supportMatch = text.match(/^(?:4|complaint|support|problem|issue)(?:\s*[:\-]?\s*(.*))?$/i)

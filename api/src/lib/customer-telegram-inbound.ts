@@ -6,9 +6,11 @@ import {
 import { checkButlerChatRateLimit } from './butler-rate-limit.js'
 import {
   advanceOrderConversation,
+  customerConversationIsActive,
   resolveCustomerFarm,
   upsertCustomerContact,
 } from './customer-orders.js'
+import { isCustomerConversationCommand } from './customer-message-routing.js'
 
 const RATE_LIMIT_MSG = 'Too many messages - please wait a moment and try again.'
 
@@ -44,8 +46,10 @@ export async function handleCustomerTelegramUpdate(update: TelegramUpdate): Prom
   try {
     const contact = await upsertCustomerContact(farm.id, 'telegram', String(chatId), msg.from?.first_name)
 
-    const looksLikeNewChat = /^(hi|hello|hey|menu|start|order|track|1|2|help)\b/i.test(text)
-    if (!looksLikeNewChat) {
+    const belongsToConversation =
+      isCustomerConversationCommand(text) ||
+      (await customerConversationIsActive(farm.id, 'telegram', String(chatId)))
+    if (!belongsToConversation) {
       const { recordCustomerFeedback } = await import('./order-fulfillment.js')
       const feedback = await recordCustomerFeedback({
         farmId: farm.id,
