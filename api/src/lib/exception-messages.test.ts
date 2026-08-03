@@ -138,7 +138,7 @@ describe('date params', () => {
   const ISO = '2026-03-05T12:00:00.000Z'
 
   it('declares the date params', () => {
-    expect([...DATE_PARAM_KEYS].sort()).toEqual(['lastVerified', 'since'])
+    expect([...DATE_PARAM_KEYS].sort()).toEqual(['lastVerified', 'nextService', 'since'])
   })
 
   it.each(ALL_LOCALES)('formats {since} as a date, not an ISO timestamp, in %s', (locale) => {

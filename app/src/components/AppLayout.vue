@@ -93,6 +93,12 @@ const NAV_ICON_PATHS: Record<string, string> = {
     'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z',
   '/reports':
     'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+  '/journal':
+    'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18s-3.332.477-4.5 1.253',
+  '/newsletter':
+    'M3 8l9 6 9-6m-18 0v9a2 2 0 002 2h14a2 2 0 002-2V8m-14-3h14a2 2 0 012 2v1L12 14 3 8V7a2 2 0 012-2z',
+  '/marketing-leads':
+    'M17 20h5v-2a4 4 0 00-4-4h-1m-5 6H2v-2a4 4 0 014-4h4a4 4 0 014 4v2zm-4-13a4 4 0 11-8 0 4 4 0 018 0zm7 3a3 3 0 10-6 0',
   '/finance':
     'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   '/templates':
@@ -120,7 +126,7 @@ const userInitials = computed(() =>
     .join(''),
 )
 
-type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean; financeAccess?: boolean }
+type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean; financeAccess?: boolean; marketingStaff?: boolean }
 type NavGroup = { titleKey: string | null; items: NavItem[] }
 
 // Grouped sidebar. Field workers keep their flat two-item nav; sales get a
@@ -135,6 +141,8 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/advisory', labelKey: 'nav.advisory' },
           { to: '/worker', labelKey: 'nav.myTasks' },
           { to: '/field-reports', labelKey: 'nav.fieldReports' },
+          { to: '/assets', labelKey: 'nav.assets' },
+          { to: '/traceability', labelKey: 'nav.harvest' },
           { to: '/settings', labelKey: 'nav.settings' },
         ],
       },
@@ -155,6 +163,7 @@ const navGroups = computed<NavGroup[]>(() => {
         items: [
           { to: '/sales', labelKey: 'nav.sales' },
           { to: '/support', labelKey: 'nav.support' },
+          { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
           { to: '/products', labelKey: 'nav.products' },
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
           { to: '/traceability', labelKey: 'nav.traceability' },
@@ -195,6 +204,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/support', labelKey: 'nav.support' },
         { to: '/products', labelKey: 'nav.products', orderStaff: true },
         { to: '/customer-insights', labelKey: 'nav.customerInsights', ownerOnly: true },
+        { to: '/marketing-leads', labelKey: 'nav.marketingLeads', marketingStaff: true },
         { to: '/whatsapp', labelKey: 'nav.whatsapp' },
       ],
     },
@@ -205,6 +215,8 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/events', labelKey: 'nav.events' },
         { to: '/ai', labelKey: 'nav.ai' },
         { to: '/reports', labelKey: 'nav.reports', ownerOnly: true },
+        { to: '/journal', labelKey: 'nav.journal', ownerOnly: true },
+        { to: '/newsletter', labelKey: 'nav.newsletter', ownerOnly: true },
         { to: '/finance', labelKey: 'nav.finance', financeAccess: true },
       ],
     },
@@ -227,6 +239,7 @@ const navGroups = computed<NavGroup[]>(() => {
         if (i.ownerOnly && !auth.isOwner) return false
         if (i.financeAccess && !auth.canAccessFinance) return false
         if (i.orderStaff && !auth.canManageProducts) return false
+        if (i.marketingStaff && !auth.isOwner && !auth.isSales) return false
         return true
       }),
     }))
@@ -578,12 +591,12 @@ async function handleRetry() {
         <template v-if="!sidebarCollapsed">
           <div v-if="!onlineStatus" class="flex items-center gap-2 rounded-lg bg-amber-950/50 border border-amber-700/40 px-3 py-2">
             <span class="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
-            <p class="text-xs text-amber-300 font-medium">{{ t('offline.short') }} - changes queued</p>
+            <p class="text-xs text-amber-300 font-medium">{{ t('offline.queued') }}</p>
           </div>
           <div v-else-if="syncStatus === 'error'" class="flex items-center justify-between gap-2 rounded-lg bg-red-950/50 border border-red-700/40 px-3 py-2">
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 rounded-full bg-red-400 shrink-0" />
-              <p class="text-xs text-red-300 font-medium">Sync failed</p>
+              <p class="text-xs text-red-300 font-medium">{{ t('offline.syncFailed') }}</p>
             </div>
             <button
               type="button"
@@ -596,7 +609,7 @@ async function handleRetry() {
           </div>
           <div v-else-if="pendingSyncCount > 0" class="flex items-center gap-2 rounded-lg bg-blue-950/50 border border-blue-700/40 px-3 py-2">
             <span class="h-2 w-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
-            <p class="text-xs text-blue-300 font-medium">{{ pendingSyncCount }} change(s) syncing</p>
+            <p class="text-xs text-blue-300 font-medium">{{ t('offline.syncing', { count: pendingSyncCount }) }}</p>
           </div>
           <div v-else-if="lastSyncedAt" class="px-1">
             <p class="text-[10px] text-slate-600">Synced {{ formatSyncTime(lastSyncedAt) }}</p>
@@ -610,7 +623,7 @@ async function handleRetry() {
             'bg-red-400': onlineStatus && syncStatus === 'error',
             'bg-blue-400 animate-pulse': onlineStatus && syncStatus !== 'error' && pendingSyncCount > 0,
           }"
-          :title="!onlineStatus ? t('offline.short') : syncStatus === 'error' ? 'Sync failed' : `${pendingSyncCount} pending`"
+          :title="!onlineStatus ? t('offline.short') : syncStatus === 'error' ? t('offline.syncFailed') : t('offline.pendingSync', { count: pendingSyncCount })"
         />
       </div>
 

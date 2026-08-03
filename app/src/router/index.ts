@@ -22,10 +22,10 @@ const salesAllowedNames = new Set([
   'traceability',
   'finance',
   'settings',
-  'ai',
   'pay-callback',
   'public-lot',
   'support',
+  'marketing-leads',
 ])
 
 function defaultHome(role?: string) {
@@ -195,6 +195,24 @@ const router = createRouter({
       meta: { requiresAuth: true, ownerOnly: true },
     },
     {
+      path: '/journal',
+      name: 'journal',
+      component: () => import('@/views/JournalView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/newsletter',
+      name: 'newsletter',
+      component: () => import('@/views/NewsletterView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
+      path: '/marketing-leads',
+      name: 'marketing-leads',
+      component: () => import('@/views/MarketingLeadsView.vue'),
+      meta: { requiresAuth: true, marketingStaffOnly: true },
+    },
+    {
       path: '/templates',
       name: 'templates',
       component: () => import('@/views/TemplatesView.vue'),
@@ -262,6 +280,13 @@ router.beforeEach(async (to) => {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.orderStaffOnly && !auth.canManageProducts) {
+    return defaultHome(auth.user?.role)
+  }
+  if (
+    to.meta.marketingStaffOnly &&
+    auth.user?.role !== 'owner' &&
+    auth.user?.role !== 'sales'
+  ) {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.managerOnly && !auth.canApprove) {

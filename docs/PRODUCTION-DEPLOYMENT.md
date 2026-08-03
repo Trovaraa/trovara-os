@@ -1,13 +1,18 @@
 # Trovara OS production deployment
 
-Use Node 22 for every npm/npx command. The production database currently has no
-real farm data, so a clean rebuild is acceptable if reconciling old migration
-history is harder than preserving demo records.
+Use Node 22 for every npm/npx command.
+
+**Live production:** `https://os.trovara.farm` runs with **real farm data and no seed**.
+Do **not** rebuild, truncate, or reset the production database unless you have an
+explicit disaster-recovery plan and verified encrypted backups. Treat every
+`deploy.sh` as a migrate-forward + restart on the existing DB.
 
 ## 1. Generate production secrets
 
 Run each command independently and paste its output into the corresponding
-production environment variable. Do not commit the generated values.
+production environment variable. Do not commit the generated values. Skip any
+secret that is already set and in use on the live host (especially
+`TOTP_ENCRYPTION_KEY` and `BACKUP_GPG_PASSPHRASE`).
 
 ```bash
 # 32-byte AES key; keep permanently or encrypted owner TOTP secrets become unreadable
@@ -42,13 +47,14 @@ openssl rand -base64 32
 openssl rand -base64 48
 # -> BACKUP_GPG_PASSPHRASE
 
-# URL-safe PostgreSQL password if rotating the demo database
+# URL-safe PostgreSQL password if rotating the database password
 openssl rand -hex 32
 # -> POSTGRES_PASSWORD (also update DATABASE_URL)
 ```
 
-`META_APP_SECRET`, Telegram bot tokens, WhatsApp access tokens, and LLM API keys
-must come from their provider dashboards; do not generate replacements locally.
+`META_APP_SECRET`, Telegram bot tokens, WhatsApp access tokens, Paystack keys,
+email provider credentials, and LLM API keys must come from their provider
+dashboards; do not generate replacements locally.
 
 ### Owner registration token (server)
 
@@ -69,11 +75,13 @@ npm run reg-token -w api -- --ttl=2 --label="initial founder"
 The CLI prints the token **once**. Paste it into the registration-secret field
 at `/register`. It is consumed on first successful owner create and cannot be
 reused. After the first owner exists, mint further tokens with
-`POST /auth/registration-tokens` (owner session) instead of the CLI. Leave
-`OWNER_REGISTRATION_SECRET` empty in production (legacy reusable fallback only).
-Full go-live flow: [GO-LIVE.md](../../GO-LIVE.md) step 7.
+`POST /auth/registration-tokens` (owner session) or Settings → registration
+tokens. Leave `OWNER_REGISTRATION_SECRET` empty in production (legacy reusable
+fallback only). Full go-live flow: [GO-LIVE.md](../../GO-LIVE.md) step 7.
 
 ## 2. Required production configuration
+
+### Core (always)
 
 ```dotenv
 NODE_ENV=production
@@ -85,11 +93,13 @@ CORS_ORIGIN=https://os.trovara.farm
 PUBLIC_APP_URL=https://os.trovara.farm
 VITE_API_URL=https://os.trovara.farm
 VITE_PUBLIC_APP_URL=https://os.trovara.farm
+PUBLIC_MARKETING_URL=https://trovara.farm
 
 TOTP_ENCRYPTION_KEY=<openssl output>
 CRON_SECRET=<openssl output>
 BREAK_GLASS_PASSWORD=<openssl output>
 # BREAK_GLASS_EMAIL=owner@trovara.farm
+# ALLOW_CUSTOMER_CHANNELS_WITHOUT_TOTP=true  # temporary only; remove after owner TOTP is on
 
 EVIDENCE_STORAGE_ROOT=/var/lib/trovara-os/evidence
 BACKUP_DIR=/var/backups/trovara-os
@@ -100,22 +110,160 @@ REQUIRE_EVIDENCE_BACKUP=1
 LLM_DAILY_BUDGET_PER_FARM=500
 MAX_CUSTOMER_ORDER_VALUE_KOBO=50000000
 MAX_CUSTOMER_ORDERS_PER_DAY=5
+CUSTOMER_FARM_ID=<Trovara production farm UUID>
+# Optional alias — must resolve to the SAME farm as CUSTOMER_FARM_ID
+# TELEGRAM_CUSTOMER_FARM_SLUG=trovara-farm
+NETLIFY_JOURNAL_BUILD_HOOK=<private Netlify build-hook URL>
 
 DATA_RETENTION_DAYS=365
 SESSION_RETENTION_DAYS=7
 CUSTOMER_CONTACT_RETENTION_DAYS=365
 ```
 
+### Channels, payments, email (activate when ready)
+
+```dotenv
+# Staff Telegram butler
+TELEGRAM_BOT_TOKEN=<from BotFather>
+TELEGRAM_WEBHOOK_SECRET=<openssl output>
+
+# Customer Telegram order bot (separate token)
+TELEGRAM_CUSTOMER_BOT_TOKEN=<from BotFather>
+TELEGRAM_CUSTOMER_WEBHOOK_SECRET=<openssl output>
+
+# Paystack (in progress — set when ready; test keys first, then live)
+# PAYSTACK_SECRET_KEY=sk_test_...
+# PAYSTACK_PUBLIC_KEY=pk_test_...
+
+# WhatsApp Meta (in progress — set when Business approval + tokens are ready)
+# WHATSAPP_ACCESS_TOKEN=...
+# WHATSAPP_PHONE_NUMBER_ID=...
+# WHATSAPP_CUSTOMER_PHONE_NUMBER_ID=...
+# WHATSAPP_VERIFY_TOKEN=...
+# META_APP_SECRET=...
+
+# Resend — newsletter + transactional (password reset / critical alerts)
+RESEND_API_KEY=<full-access Resend API key>
+RESEND_FROM="Trovara <newsletter@trovara.farm>"
+# Optional ops From; falls back to RESEND_FROM for password reset
+# EMAIL_FROM="Trovara OS <no-reply@trovara.farm>"
+# EMAIL_DELIVERY_REQUIRED=true   # fail closed if email is misconfigured
+RESEND_NEWSLETTER_SEGMENT_ID=<Resend Segment ID>
+RESEND_WEBHOOK_SECRET=<Resend webhook signing secret>
+NEWSLETTER_CONSENT_VERSION=1.0
+```
+
+Trovara OS stores website contact and product-waitlist submissions in
+PostgreSQL first, then uses the same transactional `RESEND_API_KEY` and
+`EMAIL_FROM` (falling back to `RESEND_FROM`) for staff alerts. Set
+`MARKETING_LEAD_NOTIFICATION_EMAILS=info@trovara.farm` to target known
+deliverable mailboxes; comma-separate additional addresses. When unset, active
+owners and Sales staff are used and the configured break-glass owner is
+excluded. If mail is disabled or delivery fails, the public submission still
+succeeds and the failed state is
+retained for an authenticated retry. These submissions are not newsletter
+consent and must not be synced to Resend Contacts or the newsletter Segment.
+
 `VITE_API_URL` is the SPA’s API base (baked in at `npm run build`).  
-`VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public site URL for lot links, emails, and certificates. On `os.trovara.farm` all three are usually the same origin.
+`VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public OS URL for lot links, emails, and certificates.
+`PUBLIC_MARKETING_URL` is used in customer order emails (shop account links).
 
 `BREAK_GLASS_PASSWORD` authenticates the break-glass owner email at login time from env (not the DB hash). `./deploy.sh` requires `CRON_SECRET` in the **VM** production `.env` (not the laptop copy).
+`CUSTOMER_FARM_ID` selects the farm exposed by the public shop and Journal APIs.
+If you also set `TELEGRAM_CUSTOMER_FARM_SLUG`, it **must** be that same farm’s slug —
+mismatched ID vs slug can point shop/bot/Journal at different farms.
+Keep `NETLIFY_JOURNAL_BUILD_HOOK` secret; publishing or unpublishing a Journal
+post calls it to rebuild the static marketing site, RSS feed, and sitemap.
 Set `TRUSTED_PROXY_HOPS` to the real topology: `1` for nginx directly in front
 of the API, `2` when another trusted proxy/CDN is also in the forwarding chain.
 Do not expose port 3000 directly to the internet.
 
 `SESSION_SECRET` is no longer used by the current release. Keep it only while an
 older release remains a rollback option.
+
+### Find `CUSTOMER_FARM_ID` from the production database
+
+`CUSTOMER_FARM_ID` is the UUID of an existing row in the `farms` table. Do not
+generate it with OpenSSL or `uuidgen`: a generated value will not reference a
+farm, so the public shop and Journal APIs will not resolve correctly.
+
+On the production host, load the deployed environment and list the farms:
+
+```bash
+cd /home/ubuntu/trovara-os   # or your deploy path
+set -a
+source .env
+set +a
+
+psql "$DATABASE_URL" -P pager=off \
+  -c "SELECT id, name, slug FROM farms ORDER BY created_at;"
+```
+
+If PostgreSQL runs in this repository's Docker Compose service and `psql` is not
+installed on the host, run the query inside the database container:
+
+```bash
+cd /home/ubuntu/trovara-os
+set -a
+source .env
+set +a
+
+docker compose exec -T db \
+  psql -U "${POSTGRES_USER:-trovara}" -d "${POSTGRES_DB:-trovara_os}" -P pager=off \
+  -c "SELECT id, name, slug FROM farms ORDER BY created_at;"
+```
+
+Choose the row whose slug is `trovara-farm` (or the confirmed production farm
+name), copy its `id`, and add it to the production `.env`:
+
+```dotenv
+CUSTOMER_FARM_ID=<existing farms.id UUID>
+```
+
+Restart the API service after changing `.env`. Never print or copy
+`DATABASE_URL`; only the selected farm UUID is needed.
+
+### Configure the Resend newsletter
+
+Trovara OS PostgreSQL is the newsletter source of truth. Resend is the delivery
+and contact-segmentation provider; failed provider syncs remain visible and can
+be retried from the owner API.
+
+1. In Resend, add and verify the sending domain used by `RESEND_FROM`. Complete
+   its SPF and DKIM DNS records and wait for **Verified** status before opening
+   public signup.
+2. Create an API key with **Full access**. A sending-only key cannot update
+   Contacts or Segment membership. Store it only as `RESEND_API_KEY` in the
+   server `.env`.
+3. In **Contacts → Segments**, create the newsletter Segment and copy its ID to
+   `RESEND_NEWSLETTER_SEGMENT_ID`. Do not create a Resend Audience; Audiences
+   are deprecated.
+4. Set `PUBLIC_MARKETING_URL` to the browser-facing marketing origin. The API
+   creates confirmation and unsubscribe links below that origin at
+   `/newsletter/confirm?token=...` and `/newsletter/unsubscribe?token=...`.
+5. In Resend **Webhooks**, create this production endpoint:
+
+   ```text
+   https://os.trovara.farm/public/newsletter/webhook
+   ```
+
+   Subscribe it to exactly these events:
+
+   ```text
+   contact.updated
+   email.bounced
+   email.complained
+   ```
+
+   Copy its `whsec_...` signing secret to `RESEND_WEBHOOK_SECRET`. Trovara
+   rejects missing or invalid Svix signatures; never use an unsigned production
+   webhook adapter.
+6. Keep `NEWSLETTER_CONSENT_VERSION=1.0` until the consent language changes,
+   then increment it so new consent evidence records the correct version.
+
+Restart `trovara-api.service` after updating the environment. Check startup logs
+for the newsletter configuration warning. If confirmation delivery is
+unavailable, signup retains the pending row but intentionally returns 503.
 
 ## 3. Prepare persistent directories
 
@@ -138,7 +286,7 @@ The evidence path must be outside versioned release directories. Nginx must not
 serve it directly; evidence is retrieved only through the authenticated API.
 
 `deploy.sh` now performs this setup automatically. It reads the systemd service
-user, falling back to the SSH user. To explicitly use Ubuntu, add this to the
+User, falling back to the SSH user. To explicitly use Ubuntu, add this to the
 local `.env.deploy`:
 
 ```dotenv
@@ -160,14 +308,50 @@ high-severity audit, production build, encrypted database/evidence backup,
 backup verification, migrations, frontend release, service restart, and
 health/readiness checks on the VM.
 
-For a brand-new disposable demo database only, `./deploy.sh --skip-backup` is
-available. Do not use that option after real data is entered.
+**Never use `./deploy.sh --skip-backup` on the live farm database.** That flag is
+only for disposable demo databases.
 
-Migration folders through `0025_worker_alerts_subscribe` must apply cleanly.
-If the demo database has inconsistent migration history, take one final backup and
-rebuild rather than manually marking migrations as applied.
+### Migrations
 
-## 5. Restart and smoke-test
+Drizzle applies folders under `api/drizzle/` in **timestamp** order (not only by
+the `00NN` label). Current tip includes through `0040_marketing_leads` (including
+Journal CMS and newsletter migrations).
+
+Note: there are two folders whose label contains `0027`
+(`…_0027_trovara_os_advisory` and `…_0027_registration_tokens`). Both are
+intentional; timestamps decide apply order. Do not manually mark migrations as
+applied. Do not rebuild the DB to “fix” history on production.
+
+After deploy, confirm:
+
+```bash
+psql "$DATABASE_URL" -P pager=off -c "SELECT id FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 5;"
+```
+
+(Exact journal table name may vary with Drizzle version; if that query fails,
+use your usual migrate success log from `deploy.sh`.)
+
+## 5. Scheduled jobs (cron)
+
+With `CRON_SECRET` and `CRON_FARM_ID` (or equivalent farm targeting) set on the
+VM, schedule at least:
+
+```bash
+# Example — daily 05:30 Africa/Lagos; adjust path/user
+30 5 * * * cd /home/ubuntu/trovara-os && /home/ubuntu/.nvm/nvm-exec npm run send-proactive-alerts >> /var/log/trovara-proactive.log 2>&1
+```
+
+Also schedule as needed (see [`INTEGRATIONS.md`](./INTEGRATIONS.md) / scripts):
+
+- `npm run generate-tasks` (recurring templates)
+- `npm run run-data-retention`
+- `npm run send-evening-digest` (if used)
+- encrypted backup timers ([`backup-runbook.md`](./backup-runbook.md))
+
+Advisory + proactive alerts cron is expected to already be installed on the
+live host; verify with `crontab -l` after any VM rebuild.
+
+## 6. Restart and smoke-test
 
 ```bash
 sudo systemctl restart trovara-api
@@ -180,20 +364,28 @@ curl -sf https://os.trovara.farm/ready
 External monitor intervals and escalation: [`uptime-monitoring.md`](./uptime-monitoring.md).  
 Encrypted backup procedure: [`backup-runbook.md`](./backup-runbook.md).
 
+**nginx CSP:** apply the `Content-Security-Policy` (and related) headers from
+[`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example) on the
+live vhost. The SPA also ships a matching meta CSP; `frame-ancestors` only works
+as a response header.
+
 Then verify:
 
 - owner / break-glass login (`BREAK_GLASS_PASSWORD`) and TOTP;
 - session list/revoke and forced password change (non–break-glass accounts);
 - Settings → Alert subscriptions (customer order alerts vs worker alerts);
 - task photo upload and authenticated evidence retrieval;
-- public lot lookup/QR using `publicToken`, printable box label, certificate HTML;
-- Telegram and WhatsApp webhook verification;
+- public lot lookup/QR using `publicToken` and path `/lot/:farmSlug/:lotCode`;
+- printable box label, certificate HTML;
+- Telegram and WhatsApp webhook verification (when configured);
 - customer order caps and known-recipient WhatsApp sends;
 - staff TG/WA ops: `/done` → worker alert; order confirm/dispatch/delivered;
 - privacy export reason/watermark, anonymization preview, and retention preview;
-- encrypted database/evidence backup copied off-server.
+- encrypted database/evidence backup copied off-server;
+- forgot-password email delivery (when email provider is configured);
+- Paystack test charge + webhook (when keys are configured).
 
-## 6. Rollback warning
+## 7. Rollback warning
 
 After an owner successfully verifies TOTP, legacy plaintext secrets are
 re-encrypted. New task evidence is also stored as authenticated file URLs.

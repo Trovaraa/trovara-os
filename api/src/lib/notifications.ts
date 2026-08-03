@@ -11,6 +11,7 @@ type EmailMessage = {
   subject: string
   text: string
   html?: string
+  replyTo?: string
 }
 
 type SmsMessage = {
@@ -23,7 +24,7 @@ type CriticalAlertRecipient = {
   phone?: string | null
 }
 
-type ChannelConfig = {
+type SmsConfig = {
   url?: string
   token?: string
   from?: string
@@ -34,58 +35,60 @@ function enabled(value: string | undefined): boolean {
   return value?.trim().toLowerCase() === 'true'
 }
 
-function channelConfig(channel: Channel): ChannelConfig {
-  const prefix = channel.toUpperCase()
+function smsConfig(): SmsConfig {
   return {
-    url: process.env[`${prefix}_WEBHOOK_URL`]?.trim(),
-    token: process.env[`${prefix}_WEBHOOK_TOKEN`]?.trim(),
-    from: process.env[`${prefix}_FROM`]?.trim(),
-    required: enabled(process.env[`${prefix}_DELIVERY_REQUIRED`]),
+    url: process.env.SMS_WEBHOOK_URL?.trim(),
+    token: process.env.SMS_WEBHOOK_TOKEN?.trim(),
+    from: process.env.SMS_FROM?.trim(),
+    required: enabled(process.env.SMS_DELIVERY_REQUIRED),
   }
 }
 
-function parseFromAddress(from: string): { address: string; name?: string } {
-  const match = from.match(/^\s*(.*?)\s*<([^>]+)>\s*$/)
-  if (match) {
-    const name = match[1]?.replace(/^["']|["']$/g, '').trim()
-    return { address: match[2].trim(), ...(name ? { name } : {}) }
-  }
-  return { address: from.trim() }
+function emailFromAddress(): string | undefined {
+  return (
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.RESEND_FROM?.trim() ||
+    undefined
+  )
 }
 
-function zeptoMailConfigured(): { token: string; from: string; baseUrl: string } | null {
-  const token = process.env.ZEPTOMAIL_SEND_TOKEN?.trim()
-  const from = process.env.EMAIL_FROM?.trim() || process.env.ZEPTOMAIL_FROM?.trim()
-  if (!token || !from) return null
-  const baseUrl =
-    process.env.ZEPTOMAIL_API_URL?.trim() || 'https://api.zeptomail.com/v1.1/email'
-  return { token, from, baseUrl }
+/** Preferred transactional provider (same API key as newsletter). */
+function resendConfigured(): { apiKey: string; from: string } | null {
+  const apiKey = process.env.RESEND_API_KEY?.trim()
+  const from = emailFromAddress()
+  if (!apiKey || !from) return null
+  return { apiKey, from }
 }
 
-async function sendViaZeptoMail(message: EmailMessage): Promise<DeliveryResult> {
-  const config = zeptoMailConfigured()
+function emailProviderReady(): boolean {
+  return Boolean(resendConfigured())
+}
+
+async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
+  const config = resendConfigured()
   const required = enabled(process.env.EMAIL_DELIVERY_REQUIRED)
   if (!config) {
     return { channel: 'email', status: 'disabled', required }
   }
 
-  const from = parseFromAddress(config.from)
-  const htmlbody = message.html?.trim() || `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(message.text)}</pre>`
+  const html =
+    message.html?.trim() ||
+    `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(message.text)}</pre>`
 
   try {
-    const response = await fetch(config.baseUrl, {
+    const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        accept: 'application/json',
+        authorization: `Bearer ${config.apiKey}`,
         'content-type': 'application/json',
-        authorization: `Zoho-enczapikey ${config.token}`,
       },
       body: JSON.stringify({
-        from,
-        to: [{ email_address: { address: message.to } }],
+        from: config.from,
+        to: [message.to],
         subject: message.subject,
-        htmlbody,
-        textbody: message.text,
+        text: message.text,
+        html,
+        ...(message.replyTo ? { reply_to: message.replyTo } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     })
@@ -107,13 +110,10 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
-async function postWebhook(
-  channel: Channel,
-  payload: Record<string, string>,
-): Promise<DeliveryResult> {
-  const config = channelConfig(channel)
+async function sendViaSmsWebhook(payload: { to: string; message: string }): Promise<DeliveryResult> {
+  const config = smsConfig()
   if (!config.url || !config.token || !config.from) {
-    return { channel, status: 'disabled', required: config.required }
+    return { channel: 'sms', status: 'disabled', required: config.required }
   }
 
   try {
@@ -127,33 +127,28 @@ async function postWebhook(
       signal: AbortSignal.timeout(10_000),
     })
     return {
-      channel,
+      channel: 'sms',
       status: response.ok ? 'delivered' : 'failed',
       required: config.required,
     }
   } catch {
-    return { channel, status: 'failed', required: config.required }
+    return { channel: 'sms', status: 'failed', required: config.required }
   }
 }
 
 export function sendEmail(message: EmailMessage): Promise<DeliveryResult> {
-  // Prefer Zoho ZeptoMail when configured; otherwise use the generic webhook adapter.
-  if (zeptoMailConfigured()) {
-    return sendViaZeptoMail(message)
+  if (resendConfigured()) {
+    return sendViaResend(message)
   }
-  return postWebhook('email', {
-    to: message.to,
-    subject: message.subject,
-    text: message.text,
-    ...(message.html ? { html: message.html } : {}),
+  return Promise.resolve({
+    channel: 'email',
+    status: 'disabled',
+    required: enabled(process.env.EMAIL_DELIVERY_REQUIRED),
   })
 }
 
 export function sendSms(message: SmsMessage): Promise<DeliveryResult> {
-  return postWebhook('sms', {
-    to: message.to,
-    message: message.message,
-  })
+  return sendViaSmsWebhook(message)
 }
 
 export function requiredDeliveryFailed(results: DeliveryResult[]): boolean {
@@ -173,15 +168,15 @@ export async function deliverPasswordReset(
   rawToken: string,
   phone?: string | null,
 ): Promise<DeliveryResult[]> {
-  const emailConfig = channelConfig('email')
-  const smsConfig = channelConfig('sms')
-  const emailReady = !!(emailConfig.url && emailConfig.token && emailConfig.from)
-  const smsReady = !!(smsConfig.url && smsConfig.token && smsConfig.from)
+  const emailRequired = enabled(process.env.EMAIL_DELIVERY_REQUIRED)
+  const sms = smsConfig()
+  const emailReady = emailProviderReady()
+  const smsReady = !!(sms.url && sms.token && sms.from)
 
   if (!emailReady && !smsReady) {
     return [
-      { channel: 'email', status: 'disabled', required: emailConfig.required },
-      { channel: 'sms', status: 'disabled', required: smsConfig.required },
+      { channel: 'email', status: 'disabled', required: emailRequired },
+      { channel: 'sms', status: 'disabled', required: sms.required },
     ]
   }
 
@@ -193,12 +188,12 @@ export async function deliverPasswordReset(
       {
         channel: 'email',
         status: emailReady ? 'failed' : 'disabled',
-        required: emailConfig.required,
+        required: emailRequired,
       },
       {
         channel: 'sms',
         status: smsReady ? 'failed' : 'disabled',
-        required: smsConfig.required,
+        required: sms.required,
       },
     ]
   }
@@ -218,7 +213,7 @@ export async function deliverPasswordReset(
       Promise.resolve<DeliveryResult>({
         channel: 'email',
         status: 'disabled',
-        required: emailConfig.required,
+        required: emailRequired,
       }),
     )
   }
@@ -235,7 +230,7 @@ export async function deliverPasswordReset(
       Promise.resolve<DeliveryResult>({
         channel: 'sms',
         status: smsReady ? 'failed' : 'disabled',
-        required: smsConfig.required,
+        required: sms.required,
       }),
     )
   }

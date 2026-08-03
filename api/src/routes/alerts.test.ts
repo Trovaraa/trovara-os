@@ -135,6 +135,7 @@ const EMPTY_SUMMARY = {
   ordersPending: 0,
   rejectedTasks: 0,
   assetLogsMissing: 0,
+  assetMaintenanceDue: 0,
   assetVerificationPending: 0,
   censusMissing: 0,
   censusRejected: 0,

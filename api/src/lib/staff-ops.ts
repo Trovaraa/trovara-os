@@ -8,7 +8,7 @@ import { canApproveTasks } from './rbac.js'
 import type { SessionUser } from './session.js'
 import { canTransitionTask } from './state-machines.js'
 import { processEvidenceValue } from './evidence-store.js'
-import { notifyTaskSubmittedForApproval } from './farm-notify.js'
+import { notifyTaskRejected, notifyTaskSubmittedForApproval } from './farm-notify.js'
 import { staffLocale, type StaffLocale } from './order-messages.js'
 import { mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 import { roleCommandHelp } from './role-menus.js'
@@ -290,6 +290,17 @@ async function updateTaskStatus(params: {
       taskTitle: task.title,
       workerName: params.actor.name,
       note: params.note,
+      actorUserId: params.actor.id,
+    }).catch(() => undefined)
+  }
+
+  if (params.toStatus === 'rejected' && existing.status !== 'rejected' && task) {
+    void notifyTaskRejected({
+      farmId: params.actor.farmId,
+      assignedToId: task.assignedToId,
+      taskId: task.id,
+      taskTitle: task.title,
+      reason: task.rejectionReason,
       actorUserId: params.actor.id,
     }).catch(() => undefined)
   }

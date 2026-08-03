@@ -11,6 +11,7 @@ import SettingsGoLivePanel from '@/components/settings/SettingsGoLivePanel.vue'
 import SettingsOpsPanel from '@/components/settings/SettingsOpsPanel.vue'
 import SettingsPreferencesPanel from '@/components/settings/SettingsPreferencesPanel.vue'
 import SettingsPrivacyPanel from '@/components/settings/SettingsPrivacyPanel.vue'
+import SettingsRegistrationTokensPanel from '@/components/settings/SettingsRegistrationTokensPanel.vue'
 import SettingsSystemStatusPanel from '@/components/settings/SettingsSystemStatusPanel.vue'
 import SettingsTotpPanel from '@/components/settings/SettingsTotpPanel.vue'
 import { useSettingsAdmin } from '@/composables/useSettingsAdmin'
@@ -19,6 +20,7 @@ import { useSettingsFarm } from '@/composables/useSettingsFarm'
 import { useSettingsOnboarding } from '@/composables/useSettingsOnboarding'
 import { useSettingsPreferences } from '@/composables/useSettingsPreferences'
 import { useSettingsPrivacy } from '@/composables/useSettingsPrivacy'
+import { useSettingsRegistrationTokens } from '@/composables/useSettingsRegistrationTokens'
 import { useSettingsTotp } from '@/composables/useSettingsTotp'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
@@ -120,6 +122,21 @@ const {
   await loadTotp()
 })
 
+const {
+  tokens: regTokens,
+  loading: regTokensLoading,
+  creating: creatingRegToken,
+  revokingId: revokingRegTokenId,
+  message: regTokensMessage,
+  createdPlaintext: createdRegToken,
+  label: regTokenLabel,
+  ttlHours: regTokenTtlHours,
+  loadTokens: loadRegTokens,
+  createToken: createRegToken,
+  revokeToken: revokeRegToken,
+  copyCreatedToken: copyCreatedRegToken,
+} = useSettingsRegistrationTokens(() => auth.isOwner)
+
 async function load() {
   loading.value = true
   try {
@@ -131,7 +148,12 @@ async function load() {
     whatsappStatus.value = waData
 
     if (auth.isOwner) {
-      await Promise.all([loadOnboarding(), loadFarm(), loadPrivacyPanels()])
+      await Promise.all([
+        loadOnboarding(),
+        loadFarm(),
+        loadPrivacyPanels(),
+        loadRegTokens(),
+      ])
       try {
         systemStatus.value = await api<SystemStatus>('/system-status')
       } catch {
@@ -262,6 +284,21 @@ onMounted(load)
         @setup="setupTotp"
         @enable="enableTotp"
         @disable="disableTotp"
+      />
+
+      <SettingsRegistrationTokensPanel
+        v-if="auth.isOwner"
+        v-model:label="regTokenLabel"
+        v-model:ttl-hours="regTokenTtlHours"
+        :tokens="regTokens"
+        :loading="regTokensLoading"
+        :creating="creatingRegToken"
+        :revoking-id="revokingRegTokenId"
+        :message="regTokensMessage"
+        :created-plaintext="createdRegToken"
+        @create="createRegToken"
+        @copy="copyCreatedRegToken"
+        @revoke="revokeRegToken"
       />
 
       <SettingsPreferencesPanel

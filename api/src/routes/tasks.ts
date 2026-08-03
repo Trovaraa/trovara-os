@@ -21,7 +21,7 @@ import { canTransitionTask } from '../lib/state-machines.js'
 import type { TaskStatus } from '../db/schema.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
 import { processEvidenceValue, validateEvidenceRef } from '../lib/evidence-store.js'
-import { notifyTaskSubmittedForApproval } from '../lib/farm-notify.js'
+import { notifyTaskRejected, notifyTaskSubmittedForApproval } from '../lib/farm-notify.js'
 import {
   authorLocaleForUserId,
   authorLocaleHint,
@@ -642,6 +642,18 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
       taskTitle: task.title,
       workerName: user.name,
       note: completionNote ?? task.completionNote,
+      actorUserId: user.id,
+    }).catch(() => undefined)
+  }
+
+  const transitionsToRejected = body.status === 'rejected' && existing.status !== 'rejected'
+  if (transitionsToRejected) {
+    void notifyTaskRejected({
+      farmId: user.farmId,
+      assignedToId: task.assignedToId,
+      taskId: task.id,
+      taskTitle: task.title,
+      reason: rejectionReason ?? task.rejectionReason,
       actorUserId: user.id,
     }).catch(() => undefined)
   }

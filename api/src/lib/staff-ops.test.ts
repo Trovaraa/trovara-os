@@ -37,6 +37,7 @@ vi.mock('../db/index.js', () => ({
 vi.mock('./audit.js', () => ({ logAudit: vi.fn(async () => undefined) }))
 vi.mock('./farm-notify.js', () => ({
   notifyTaskSubmittedForApproval: vi.fn(async () => undefined),
+  notifyTaskRejected: vi.fn(async () => undefined),
 }))
 
 const TASK_ID = '11111111-1111-1111-1111-111111111111'

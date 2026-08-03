@@ -589,6 +589,137 @@ export async function notifyTaskSubmittedForApproval(params: {
   )
 }
 
+async function taskRejectedMessage(
+  locale: ReplyLocale,
+  farmId: string,
+  params: { ref: string; taskTitle: string; reason?: string | null },
+): Promise<string> {
+  const header = pick(locale, {
+    en: '❌ Task rejected',
+    fr: '❌ Tâche rejetée',
+    yo: '❌ Wọ́n kọ iṣẹ́',
+    pcm: '❌ Dem reject di work',
+  })
+  const reasonLabel = pick(locale, {
+    en: 'Reason',
+    fr: 'Motif',
+    yo: 'Ìdí',
+    pcm: 'Reason',
+  })
+  const openLine = pick(locale, {
+    en: 'Open Trovara OS → My Tasks to resubmit.',
+    fr: 'Ouvrez Trovara OS → Mes tâches pour renvoyer.',
+    yo: 'Ṣí Trovara OS → My Tasks láti tún fi ránṣẹ́.',
+    pcm: 'Open Trovara OS → My Tasks make you send am again.',
+  })
+
+  const title = await proseForLocale(params.taskTitle, farmId, locale)
+  const reason = params.reason?.trim()
+  const reasonShown = reason
+    ? `\n${reasonLabel}: ${await proseForLocale(reason.slice(0, 500), farmId, locale)}`
+    : ''
+
+  return `${header}\n${params.ref} · ${title}${reasonShown}\n\n${openLine}`
+}
+
+/**
+ * Notify the assigned worker that their task was rejected (Telegram link +
+ * WhatsApp phone). Best-effort; no-op when there is no assignee.
+ */
+export async function notifyTaskRejected(params: {
+  farmId: string
+  assignedToId?: string | null
+  taskId: string
+  taskTitle: string
+  reason?: string | null
+  actorUserId?: string
+}): Promise<void> {
+  if (!params.assignedToId) return
+
+  const workers = await db
+    .select({
+      id: users.id,
+      phone: users.phone,
+      preferredLocale: users.preferredLocale,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.id, params.assignedToId),
+        eq(users.farmId, params.farmId),
+        eq(users.active, true),
+      ),
+    )
+  const worker = workers[0]
+  if (!worker) return
+
+  const ref = `TSK-${params.taskId.replace(/-/g, '').slice(0, 6).toUpperCase()}`
+  const resolve = createMessageResolver(({ locale }) =>
+    taskRejectedMessage(locale, params.farmId, {
+      ref,
+      taskTitle: params.taskTitle,
+      reason: params.reason,
+    }),
+  )
+  const text = await resolve(worker.preferredLocale)
+  if (text === null) return
+
+  if (isWhatsAppConfigured() && worker.phone) {
+    try {
+      const res = await sendWhatsAppText(worker.phone, text)
+      await recordFarmEvent({
+        farmId: params.farmId,
+        actorUserId: params.actorUserId,
+        entityType: 'whatsapp_message',
+        entityId: res.messageId,
+        eventType: 'other',
+        source: 'butler',
+        afterValue: { to: worker.phone, text, role: 'assistant' },
+        metadata: {
+          direction: 'outbound',
+          kind: 'task_rejected',
+          reason: 'task_rejected',
+        },
+      })
+    } catch {
+      // best-effort
+    }
+  }
+
+  const links = await db
+    .select()
+    .from(farmEvents)
+    .where(
+      and(eq(farmEvents.farmId, params.farmId), eq(farmEvents.entityType, 'telegram_link')),
+    )
+    .orderBy(desc(farmEvents.createdAt))
+
+  for (const link of links) {
+    const v = link.afterValue as { userId?: string; chatId?: number } | null
+    if (!v?.userId || !v.chatId || v.userId !== worker.id) continue
+    try {
+      await sendTelegramMessage(v.chatId, text)
+      await recordFarmEvent({
+        farmId: params.farmId,
+        actorUserId: params.actorUserId,
+        entityType: 'telegram_message',
+        entityId: `alert-${Date.now()}-${v.chatId}`,
+        eventType: 'other',
+        source: 'butler',
+        afterValue: { text, role: 'assistant' },
+        metadata: {
+          direction: 'outbound',
+          kind: 'task_rejected',
+          reason: 'task_rejected',
+        },
+      })
+    } catch {
+      // best-effort
+    }
+    break
+  }
+}
+
 /** Alert supervisors (and opted-in owners) when a field worker clocks in. */
 export async function notifyWorkerClockIn(params: {
   farmId: string

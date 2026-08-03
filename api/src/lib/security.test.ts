@@ -122,6 +122,20 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/api/paystack/webhook')).toBe(true)
   })
 
+  it('exempts public token-authorized newsletter routes', () => {
+    expect(isCsrfExemptPath('/public/newsletter/subscribe')).toBe(true)
+    expect(isCsrfExemptPath('/public/newsletter/confirm')).toBe(true)
+    expect(isCsrfExemptPath('/public/newsletter/unsubscribe')).toBe(true)
+    expect(isCsrfExemptPath('/public/newsletter/webhook')).toBe(true)
+  })
+
+  it('exempts exactly the public marketing lead submissions', () => {
+    expect(isCsrfExemptPath('/public/leads/contact')).toBe(true)
+    expect(isCsrfExemptPath('/public/leads/waitlist')).toBe(true)
+    expect(isCsrfExemptPath('/public/leads')).toBe(false)
+    expect(isCsrfExemptPath('/public/leads/contact/extra')).toBe(false)
+  })
+
   it('does not exempt protected API routes', () => {
     expect(isCsrfExemptPath('/api/tasks')).toBe(false)
     expect(isCsrfExemptPath('/auth/change-password')).toBe(false)

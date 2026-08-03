@@ -8,7 +8,7 @@ config({ path: resolve(rootDir, '.env') })
 if (process.env.NODE_ENV === 'production') {
   const configurationErrors: string[] = []
   const isRequired = (name: string) => process.env[name]?.trim().toLowerCase() === 'true'
-  const validateDeliveryChannel = (channel: 'EMAIL' | 'SMS') => {
+  const validateDeliveryChannel = (channel: 'SMS') => {
     const required = isRequired(`${channel}_DELIVERY_REQUIRED`)
     const values = [
       `${channel}_WEBHOOK_URL`,
@@ -33,6 +33,24 @@ if (process.env.NODE_ENV === 'production') {
       } catch {
         configurationErrors.push(`${channel}_WEBHOOK_URL must be a valid HTTPS URL`)
       }
+    }
+  }
+
+  const validateEmailDelivery = () => {
+    const required = isRequired('EMAIL_DELIVERY_REQUIRED')
+    const providerFrom =
+      process.env.EMAIL_FROM?.trim() ||
+      process.env.RESEND_FROM?.trim()
+    const resendKey = process.env.RESEND_API_KEY?.trim()
+    const resendReady = Boolean(resendKey && providerFrom)
+
+    if (resendKey && !providerFrom) {
+      configurationErrors.push('RESEND_API_KEY requires EMAIL_FROM or RESEND_FROM')
+    }
+    if (required && !resendReady) {
+      configurationErrors.push(
+        'EMAIL_DELIVERY_REQUIRED=true requires RESEND_API_KEY and EMAIL_FROM or RESEND_FROM',
+      )
     }
   }
 
@@ -78,8 +96,21 @@ if (process.env.NODE_ENV === 'production') {
     )
   }
 
-  validateDeliveryChannel('EMAIL')
+  validateEmailDelivery()
   validateDeliveryChannel('SMS')
+
+  const marketingLeadRecipients = process.env.MARKETING_LEAD_NOTIFICATION_EMAILS?.trim()
+  if (marketingLeadRecipients) {
+    const invalidRecipients = marketingLeadRecipients
+      .split(',')
+      .map((email) => email.trim())
+      .filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    if (invalidRecipients.length > 0) {
+      configurationErrors.push(
+        'MARKETING_LEAD_NOTIFICATION_EMAILS must be a comma-separated list of valid email addresses',
+      )
+    }
+  }
 
   const publicAppUrl = process.env.PUBLIC_APP_URL?.trim()
   if (isRequired('EMAIL_DELIVERY_REQUIRED') && !publicAppUrl) {

@@ -79,11 +79,8 @@ export function clearQueue() {
 }
 
 /**
- * Drain queue on reconnect - stub: logs items; wire to `api()` when sync is implemented.
- *
- * ```ts
- * window.addEventListener('online', () => { void syncOfflineQueue(api) })
- * ```
+ * Drain queue on reconnect. Callers pass a `send` that hits the real API
+ * (see `offline-api.ts` / `main.ts` online listener).
  */
 export async function syncOfflineQueue(
   send: (path: string, init: RequestInit) => Promise<unknown>,

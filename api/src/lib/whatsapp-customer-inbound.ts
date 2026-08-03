@@ -6,6 +6,11 @@ import {
   upsertCustomerContact,
 } from './customer-orders.js'
 import { isCustomerConversationCommand } from './customer-message-routing.js'
+import {
+  customerChannelsRequireOwnerTotp,
+  farmHasOwnerTotpEnabled,
+  OWNER_TOTP_REQUIRED_CUSTOMER_MSG,
+} from './owner-totp-gate.js'
 import { sendWhatsAppText } from './whatsapp-meta.js'
 
 const RATE_LIMIT_MSG = 'Too many messages - please wait a moment and try again.'
@@ -58,6 +63,20 @@ export async function handleInboundCustomerWhatsApp(
             'Online ordering is not available yet. Please check back soon.',
             { kind: 'customer' },
           ).catch(() => undefined)
+          continue
+        }
+
+        if (
+          customerChannelsRequireOwnerTotp() &&
+          !(await farmHasOwnerTotpEnabled(farm.id))
+        ) {
+          console.error(
+            'Customer WhatsApp blocked: no owner TOTP enabled for farm',
+            farm.id,
+          )
+          await sendWhatsAppText(phone, OWNER_TOTP_REQUIRED_CUSTOMER_MSG, {
+            kind: 'customer',
+          }).catch(() => undefined)
           continue
         }
 

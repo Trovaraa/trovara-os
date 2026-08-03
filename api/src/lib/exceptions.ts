@@ -31,6 +31,7 @@ export type ExceptionType =
   | 'order_pending'
   | 'rejected_task'
   | 'asset_log_missing'
+  | 'asset_maintenance_due'
   | 'asset_verification_pending'
   | 'census_missing'
   | 'census_rejected'
@@ -79,6 +80,7 @@ export type ExceptionSummary = {
   ordersPending: number
   rejectedTasks: number
   assetLogsMissing: number
+  assetMaintenanceDue: number
   assetVerificationPending: number
   censusMissing: number
   censusRejected: number
@@ -257,7 +259,11 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     skipFieldOps
       ? Promise.resolve([])
       : db
-          .select({ id: assets.id, name: assets.name })
+          .select({
+            id: assets.id,
+            name: assets.name,
+            nextServiceAt: assets.nextServiceAt,
+          })
           .from(assets)
           .where(and(eq(assets.farmId, user.farmId), eq(assets.active, true))),
     skipFieldOps
@@ -294,8 +300,14 @@ export async function gatherExceptions(user: SessionUser): Promise<{
   const loggedTodayAssetIds = new Set(
     (loggedTodayRows as Array<{ assetId: string }>).map((r) => r.assetId),
   )
-  const missingAssetRows = (activeAssetRows as Array<{ id: string; name: string }>).filter(
-    (a) => !loggedTodayAssetIds.has(a.id),
+  const activeAssets = activeAssetRows as Array<{
+    id: string
+    name: string
+    nextServiceAt: Date | null
+  }>
+  const missingAssetRows = activeAssets.filter((a) => !loggedTodayAssetIds.has(a.id))
+  const maintenanceDueRows = activeAssets.filter(
+    (a) => a.nextServiceAt != null && a.nextServiceAt.getTime() <= now.getTime(),
   )
 
   const exceptions: ExceptionItem[] = []
@@ -417,6 +429,21 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     })
   }
 
+  for (const a of maintenanceDueRows) {
+    exceptions.push({
+      type: 'asset_maintenance_due',
+      severity: 'medium',
+      title: a.name,
+      ...messageFields('exceptions.msg.maintenanceDue', {
+        nextService: a.nextServiceAt!.toISOString(),
+      }),
+      entityType: 'asset',
+      entityId: a.id,
+      timestamp: a.nextServiceAt!.toISOString(),
+      metadata: { nextServiceAt: a.nextServiceAt!.toISOString() },
+    })
+  }
+
   for (const log of pendingAssetVerificationRows as Array<{
     id: string
     assetName: string | null
@@ -504,6 +531,7 @@ export async function gatherExceptions(user: SessionUser): Promise<{
     ordersPending: pendingOrderRows.length,
     rejectedTasks: rejectedRows.length,
     assetLogsMissing: missingAssetRows.length,
+    assetMaintenanceDue: maintenanceDueRows.length,
     assetVerificationPending: pendingAssetVerificationRows.length,
     censusMissing: (missingCensusPlots as unknown[]).length,
     censusRejected: (rejectedCensusRows as unknown[]).length,
@@ -548,6 +576,11 @@ const ACTION_BY_EXCEPTION: Record<
   asset_log_missing: {
     action: 'log_asset',
     labelKey: 'exceptions.action.logEquipment',
+    link: '/assets',
+  },
+  asset_maintenance_due: {
+    action: 'service_asset',
+    labelKey: 'exceptions.action.serviceEquipment',
     link: '/assets',
   },
   asset_verification_pending: {

@@ -27,7 +27,11 @@ export type ActionText = {
  * api/src/lib/exception-messages.ts; both renderers format these for the
  * active locale instead of interpolating the raw timestamp.
  */
-export const DATE_PARAM_KEYS: ReadonlySet<string> = new Set(['since', 'lastVerified'])
+export const DATE_PARAM_KEYS: ReadonlySet<string> = new Set([
+  'since',
+  'lastVerified',
+  'nextService',
+])
 
 const KEY_PREFIX = 'exceptions.'
 

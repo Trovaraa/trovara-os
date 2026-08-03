@@ -158,8 +158,15 @@ function allRows(): Rows {
         assignedToName: 'Chidi',
       },
     ],
-    activeAssets: [{ id: 'asset-1', name: 'Tractor' }],
-    loggedToday: [],
+    activeAssets: [
+      {
+        id: 'asset-1',
+        name: 'Tractor',
+        nextServiceAt: new Date('2026-06-01T12:00:00.000Z'),
+      },
+      { id: 'asset-2', name: 'Pump', nextServiceAt: null },
+    ],
+    loggedToday: [{ assetId: 'asset-2' }],
     pendingAssetVerification: [
       {
         id: 'alog-1',
@@ -250,6 +257,11 @@ describe('gatherExceptions message keys', () => {
       messageKey: 'exceptions.msg.noDailyLog',
     })
     expect(byType(exceptions, 'asset_log_missing')[0].messageParams).toBeUndefined()
+    expect(byType(exceptions, 'asset_maintenance_due')[0]).toMatchObject({
+      title: 'Tractor',
+      messageKey: 'exceptions.msg.maintenanceDue',
+      messageParams: { nextService: '2026-06-01T12:00:00.000Z' },
+    })
 
     const [named, unnamed] = byType(exceptions, 'asset_verification_pending')
     expect(named).toMatchObject({
@@ -366,6 +378,7 @@ describe('English copy is pinned exactly', () => {
       'order_pending|Order: Mama Ngozi|Pending over 48h - NGN 45000',
       'rejected_task|Fix fence|Rejected - needs resubmission (Chidi)',
       'asset_log_missing|Tractor|No daily log recorded yet today',
+      'asset_maintenance_due|Tractor|Maintenance due (scheduled 1 Jun 2026)',
       'asset_verification_pending|Generator|Reported by Dami - needs verification',
       'asset_verification_pending|Equipment log|Reported by staff - needs verification',
       'census_missing|Block C|No verified crop census for this block',
@@ -416,6 +429,7 @@ describe('buildActionList', () => {
       'confirm_order|exceptions.action.confirmOrder|/sales',
       'resubmit_task|exceptions.action.resubmit|/tasks',
       'log_asset|exceptions.action.logEquipment|/assets',
+      'service_asset|exceptions.action.serviceEquipment|/assets',
       'verify_asset|exceptions.action.verifyAssetLog|/assets',
       'verify_asset|exceptions.action.verifyAssetLog|/assets',
       'record_census|exceptions.action.recordCensus|/zones',

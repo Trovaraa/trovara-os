@@ -121,18 +121,34 @@ Stages cannot move backward without owner override (future).
 
 ### Order
 
+Fulfilment status:
+
 ```
 pending → confirmed → dispatched → delivered
    ↓           ↓
 cancelled   cancelled
 ```
 
+Payment status (orthogonal; customer Paystack / COD):
+
+```
+unpaid | paid | not_required | refund_pending | refunded | partially_refunded
+```
+
+Pilot fulfilment: **sales** (with admin/supervisor) owns packing, dispatch, and
+delivered updates. There is no separate driver role yet — coordinate delivery by
+phone/notes on the order until scheduling ships.
+
+**Unpaid gate:** dispatch is blocked while `payment_status` is `unpaid` (Paystack
+path). COD / `not_required` and already-paid orders may dispatch. Refunds and
+Sales payment verification are covered in [`PAYSTACK.md`](./PAYSTACK.md).
+
 | Transition | Allowed roles |
 |------------|---------------|
-| pending → confirmed | supervisor, owner |
-| confirmed → dispatched | supervisor, owner (sets dispatchedAt) |
-| dispatched → delivered | supervisor, owner |
-| pending/confirmed → cancelled | supervisor, owner |
+| pending → confirmed | sales, supervisor, owner |
+| confirmed → dispatched | sales, supervisor, owner (sets dispatchedAt; may decrement linked finished goods; blocked if unpaid) |
+| dispatched → delivered | sales, supervisor, owner |
+| pending/confirmed → cancelled | sales, supervisor, owner |
 
 ### Livestock log types
 - `feeding`, `vaccination`, `health_check` - append only
@@ -146,12 +162,12 @@ cancelled   cancelled
 | Exception | Detection | Action |
 |-----------|-----------|--------|
 | Late task | `dueDate` passed, status ≠ completed | Surface on Today home; daily digest |
-| Rejected task | status = rejected | Worker notified (future WhatsApp); resubmit |
+| Rejected task | status = rejected | Assignee notified on Telegram/WhatsApp (if linked); resubmit from My Tasks |
 | Low stock | quantity ≤ reorderLevel | Alert on dashboard + digest |
 | Inventory burn rate | avg daily consumption × days remaining | Report: days until stockout |
 | Missing data | required field null on submit | Zod validation error, block save |
 | Duplicate lot code | unique constraint | 400 error with message |
-| Offline log | client queue (future) | Sync on reconnect; timestamp preserved |
+| Offline log | PWA offline queue (`offline-api` / IndexedDB) | Sync on reconnect; sync health in app chrome; timestamp preserved |
 | Pest/disease incident | livestock_log or task tag = incident | Escalate to owner digest |
 | Partial delivery | movement reason contains batch ref | Allow multiple partial movements |
 

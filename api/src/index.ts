@@ -45,6 +45,13 @@ import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import { fieldReportRoutes } from './routes/field-reports.js'
 import { supportRoutes } from './routes/support.js'
 import { customerShopRoutes } from './routes/customer-shop.js'
+import { journalRoutes, publicJournalRoutes } from './routes/journal.js'
+import { newsletterRoutes, publicNewsletterRoutes } from './routes/newsletter.js'
+import {
+  marketingLeadRoutes,
+  publicMarketingLeadRoutes,
+} from './routes/marketing-leads.js'
+import { newsletterConfigMissing } from './lib/newsletter-resend.js'
 import {
   apiMutationRateLimit,
   authMutationRateLimit,
@@ -80,6 +87,9 @@ app.route('/api/suppliers', supplierRoutes)
 app.route('/api/purchase-orders', purchaseOrderRoutes)
 app.route('/api/field-reports', fieldReportRoutes)
 app.route('/api/support', supportRoutes)
+app.route('/api/journal', journalRoutes)
+app.route('/api/newsletter', newsletterRoutes)
+app.route('/api/marketing-leads', marketingLeadRoutes)
 app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)
@@ -94,6 +104,9 @@ app.route('/api/whatsapp', whatsappRoutes)
 app.route('/api/telegram', telegramRoutes)
 app.route('/api/paystack', paystackRoutes)
 app.route('/public', publicRoutes)
+app.route('/public/journal', publicJournalRoutes)
+app.route('/public/newsletter', publicNewsletterRoutes)
+app.route('/public/leads', publicMarketingLeadRoutes)
 app.route('/shop', customerShopRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/zones', zoneRoutes)
@@ -149,6 +162,15 @@ if (
   console.warn(
     'WARNING: WhatsApp is configured without META_APP_SECRET - inbound webhook signatures are NOT verified. Set META_APP_SECRET (Meta app dashboard → App settings → Basic).',
   )
+}
+
+if (process.env.NODE_ENV === 'production') {
+  const missingNewsletterConfig = newsletterConfigMissing()
+  if (missingNewsletterConfig.length) {
+    console.warn(
+      `WARNING: Newsletter delivery/sync is not fully configured. Missing: ${missingNewsletterConfig.join(', ')}. Public signup will retain pending records but return 503 when confirmation cannot be sent.`,
+    )
+  }
 }
 
 console.log(`Trovara OS API listening on http://${host}:${port}`)

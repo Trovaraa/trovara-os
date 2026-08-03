@@ -31,6 +31,7 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` — see [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md) |
 | Telegram | Staff + customer bots | `TELEGRAM_*` — see [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) |
 | Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` — see [`PAYSTACK.md`](./PAYSTACK.md) |
+| Email + public forms | Newsletter, password reset, contact/waitlist alerts | `RESEND_*`, `EMAIL_FROM`, optional `MARKETING_LEAD_NOTIFICATION_EMAILS` — see [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) and [`API.md`](./API.md) |
 | LLM | AI briefing / incidents / Advisory fallback | `OPENAI_API_KEY` or `LLM_*` |
 | Marketplace search | Trovara OS Advisory product links | `MARKETPLACE_SEARCH_API_KEY`, `MARKETPLACE_SEARCH_PROVIDER` |
 | Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
@@ -201,10 +202,10 @@ Buyers and auditors can verify harvest lots without logging in.
 ### Public page (consumer URL)
 
 ```
-https://YOUR_DOMAIN/lot/:lotCode
+https://YOUR_DOMAIN/lot/:farmSlug/:lotCode
 ```
 
-Example: `https://os.trovara.farm/lot/<publicToken-or-code>`
+Example: `https://os.trovara.farm/lot/trovara-farm/<publicToken-or-code>`
 
 QR codes and **Print QR** labels open the public lot page (certificate-style HTML). Staff can also open printable sticker HTML and the **Trovara Farm Traceability Certificate** from Traceability / Sales.
 
@@ -239,7 +240,7 @@ Encode the **public page URL** (not the API URL) so scanners open a human-readab
 
 ```bash
 npm install -g qrcode
-qrcode -o lot-TRV-COC-2026-001.png "https://YOUR_DOMAIN/lot/TRV-COC-2026-001"
+qrcode -o lot-TRV-COC-2026-001.png "https://YOUR_DOMAIN/lot/trovara-farm/<publicToken>"
 ```
 
 Print QR on lot labels, invoice PDFs, or market stall signage. Use short, stable lot codes (e.g. `TRV-COC-2026-001`).

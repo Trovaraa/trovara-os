@@ -124,7 +124,10 @@ vi.mock('../middleware/auth.js', () => ({
 
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
 vi.mock('../lib/farm-events.js', () => ({ recordFarmEvent: vi.fn() }))
-vi.mock('../lib/farm-notify.js', () => ({ notifyTaskSubmittedForApproval: vi.fn(async () => undefined) }))
+vi.mock('../lib/farm-notify.js', () => ({
+  notifyTaskSubmittedForApproval: vi.fn(async () => undefined),
+  notifyTaskRejected: vi.fn(async () => undefined),
+}))
 vi.mock('../lib/security-log.js', () => ({ logSecurityEvent: vi.fn() }))
 vi.mock('../lib/evidence-store.js', () => ({
   processEvidenceValue: vi.fn(async (_farmId: string, value: string) => value),

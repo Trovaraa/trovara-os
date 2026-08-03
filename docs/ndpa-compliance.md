@@ -174,7 +174,7 @@ the customer-facing privacy notice.
 - [ ] NDPC registration filed
 - [ ] DPO appointed and published contact
 - [x] Draft privacy notice created (`PRIVACY-NOTICE.md`)
-- [ ] Draft privacy notice legally reviewed, operational details completed, and published
+- [x] Public privacy notice published at https://trovara.farm/privacy (keep OS `PRIVACY-NOTICE.md` aligned; counsel review recommended)
 - [ ] Terms of service completed (jurisdiction: Nigeria)
 - [ ] Data processing agreements with sub-processors
 - [ ] Nigeria-only production region verified

@@ -143,6 +143,11 @@ async function resolveCustomerFarm(): Promise<{
   name: string
   location: string
 } | null> {
+  const configuredId = process.env.CUSTOMER_FARM_ID?.trim()
+  if (configuredId) {
+    const [f] = await db.select().from(farms).where(eq(farms.id, configuredId)).limit(1)
+    if (f) return { id: f.id, name: f.name, location: f.location }
+  }
   const slug = process.env.TELEGRAM_CUSTOMER_FARM_SLUG?.trim()
   if (slug) {
     const [f] = await db.select().from(farms).where(eq(farms.slug, slug)).limit(1)

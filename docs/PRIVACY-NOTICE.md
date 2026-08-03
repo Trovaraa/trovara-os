@@ -1,15 +1,17 @@
 # Trovara Privacy Notice
 
-Status: **Draft for legal and operational review**  
-Effective date: **Not yet published**  
-Applies to: Trovara OS, Trovara Farm customer ordering channels, and public
-traceability pages.
+Status: **Operational companion** (in-product / staff)  
+Public customer-facing policy: **published** at
+[https://trovara.farm/privacy](https://trovara.farm/privacy) (last updated 2 August 2026).  
+Applies to: Trovara OS, Trovara Farm website enquiry and waitlist forms,
+customer ordering channels, and public traceability pages.
 
 This notice explains how Trovara collects, uses, shares, stores, and protects
 personal data. It is written for farm staff, customers, suppliers, and other
-people who use Trovara services.
+people who use Trovara services. Keep this file aligned with the published
+marketing privacy page when processors or retention change.
 
-This draft is adapted to Trovara's actual processing activities. It uses the
+This text is adapted to Trovara's actual processing activities. It uses the
 structure of established Nigerian privacy notices, including Moniepoint's
 privacy notice, but does not copy language intended for Moniepoint's recruitment
 or regulated banking activities.
@@ -24,8 +26,9 @@ act as the controller for its own staff and customer data, while the Trovara OS
 operator may act as a processor. Those roles must be documented in a data
 processing agreement before a multi-farm SaaS launch.
 
-Privacy contact: `dpo@trovara.farm` **(reserved placeholder; must be activated
-and monitored before publication)**.
+Privacy contact: `info@trovara.farm` (published on trovara.farm/privacy).
+Optional dedicated DPO mailbox (`dpo@trovara.farm`) may be added later — keep
+both surfaces consistent when that changes.
 
 ## 2. Personal data we collect
 
@@ -40,6 +43,9 @@ Depending on how you interact with Trovara, we may collect:
   settlements in this product.
 - **Contact and order data:** customer name, phone number, delivery address,
   Telegram or WhatsApp identifier, order contents, amount, status, and history.
+- **Website enquiry and waitlist data:** name, email address or phone number,
+  enquiry subject and message, requested product, submission history, and
+  Trovara staff follow-up status.
 - **Farm-work data:** assigned tasks, completion and approval records, notes,
   inventory movements, harvest and livestock logs, and the staff member who
   recorded or verified an event.
@@ -56,10 +62,11 @@ Depending on how you interact with Trovara, we may collect:
   publication. Internal notes and personal data must not be published on a
   public lot page.
 
-Trovara does not currently collect payment-card details. Customer bot orders
-use payment on delivery. A future payment provider must collect and tokenize
-card or bank details on its own secure systems; Trovara should store only the
-provider's references and payment status.
+Trovara does not collect payment-card details on Trovara systems. When Paystack
+(or another processor) is enabled, card or bank details are entered only on the
+processor’s secure pages; Trovara stores payment references, amounts, and status
+for the order. Until Paystack is configured for a farm, customer bot and shop
+orders may use payment on delivery (COD).
 
 ## 3. How we obtain personal data
 
@@ -74,7 +81,7 @@ We obtain data:
 - automatically when the application creates session, audit, consent, and
   security records; and
 - from service providers when they return message-delivery, AI-processing, or
-  future payment results.
+  payment results (for example Paystack charge confirmations).
 
 ## 4. Why we use personal data
 
@@ -84,6 +91,8 @@ Trovara uses personal data to:
 - manage farm work, staff assignments, inventory, livestock, crops, assets,
   harvests, sales, finance, and traceability;
 - accept, fulfil, update, and support customer orders;
+- answer website enquiries, manage requested product-availability waitlists,
+  and notify authorised owners or Sales staff for follow-up;
 - recognise returning bot customers and display their previous Trovara orders;
 - send operational alerts and respond through Telegram or WhatsApp;
 - transcribe voice notes and generate requested AI summaries or assistance;
@@ -115,6 +124,11 @@ The appropriate lawful basis depends on the activity:
 Marketing consent must be separate from service access. Withdrawing consent
 does not invalidate processing that was lawful before withdrawal, and it may
 not stop processing supported by another lawful basis.
+
+Submitting an enquiry or asking to join a product waitlist is a request for
+that specific follow-up, not consent to receive a newsletter. Trovara does not
+add those submissions to newsletter lists or email-marketing segments unless
+the person separately completes the newsletter consent process.
 
 ## 6. AI, voice, photos, and automated processing
 
@@ -195,6 +209,9 @@ Current or proposed retention rules include:
   `DATA_RETENTION_DAYS`;
 - customer contact phone numbers on inactive bot contacts: nulled after
   `CUSTOMER_CONTACT_RETENTION_DAYS` (defaults to `DATA_RETENTION_DAYS`);
+- website enquiries and product waitlist records: retained while follow-up or
+  availability notification is reasonably required, subject to the approved
+  marketing-lead retention schedule and applicable legal obligations;
 - encrypted backups: rolling retention defined in the backup runbook;
 - financial and audit records: retained for the legally required period; and
 - customer bot and order history: a specific production retention period must
@@ -302,22 +319,21 @@ date. Where required, users will be notified and asked to provide fresh consent.
 The application's consent version must be updated when a revised notice changes
 the processing users previously accepted.
 
-## 17. Publication checklist
+## 17. Publication / maintenance checklist
 
-Do not publish this draft until:
+Public notice is live at trovara.farm/privacy. Remaining operational follow-ups:
 
-- [ ] the legal entity/controller name and physical address are confirmed;
-- [ ] the privacy/DPO mailbox is active and monitored;
-- [ ] lawful bases are reviewed by Nigerian privacy counsel;
-- [ ] exact retention periods are approved;
-- [ ] the hosting location and production sub-processors are listed;
-- [ ] cross-border transfer safeguards are documented;
-- [ ] staff and customer data-rights procedures are tested;
-- [ ] AI, WhatsApp, Telegram, backup, and security statements are verified
-      against production configuration;
-- [ ] a cookie/local-storage inventory is completed;
-- [ ] a breach-response process and regulatory contacts are approved; and
-- [ ] the consent version is bumped when the final notice is published.
+- [x] public privacy page published (marketing site);
+- [x] controller name, address, and contact published on that page;
+- [x] analytics / Resend / Meta / Telegram processors disclosed on that page;
+- [ ] lawful bases reviewed by Nigerian privacy counsel (recommended);
+- [ ] exact retention periods approved against live OS cron settings;
+- [ ] data processing agreements with sub-processors where required;
+- [ ] staff and customer data-rights procedures tested end-to-end;
+- [ ] AI, WhatsApp, Telegram, backup, and security statements re-verified
+      whenever production configuration changes;
+- [ ] breach-response process and regulatory contacts rehearsed;
+- [ ] OS in-app consent version bumped when material processing changes.
 
 ## References
 

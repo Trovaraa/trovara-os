@@ -132,6 +132,7 @@ export type DigestReport = {
     ordersPending: number
     rejectedTasks: number
     assetLogsMissing: number
+    assetMaintenanceDue?: number
     assetVerificationPending: number
     total: number
   }

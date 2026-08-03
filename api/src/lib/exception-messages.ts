@@ -17,6 +17,7 @@ export type ExceptionMessageKey =
   | 'exceptions.msg.orderPending'
   | 'exceptions.msg.rejectedResubmit'
   | 'exceptions.msg.noDailyLog'
+  | 'exceptions.msg.maintenanceDue'
   | 'exceptions.msg.reportedNeedsVerification'
   | 'exceptions.msg.noCensus'
   | 'exceptions.msg.censusRejected'
@@ -33,6 +34,7 @@ export type ExceptionMessageKey =
   | 'exceptions.action.reviewOverdue'
   | 'exceptions.action.reviewMortality'
   | 'exceptions.action.logEquipment'
+  | 'exceptions.action.serviceEquipment'
   | 'exceptions.action.verifyAssetLog'
   | 'exceptions.action.recordCensus'
   | 'exceptions.action.resubmitCensus'
@@ -48,7 +50,11 @@ export type ExceptionParams = Record<string, string | number>
  * Params holding an ISO date string. Both renderers format these for the
  * target locale instead of interpolating the raw timestamp.
  */
-export const DATE_PARAM_KEYS: ReadonlySet<string> = new Set(['since', 'lastVerified'])
+export const DATE_PARAM_KEYS: ReadonlySet<string> = new Set([
+  'since',
+  'lastVerified',
+  'nextService',
+])
 
 /** English is required; other locales fall back to English until translated. */
 type LocaleTable = { en: string; fr?: string; yo?: string; pcm?: string }
@@ -107,6 +113,12 @@ export const EXCEPTION_MESSAGES: Record<ExceptionMessageKey, LocaleTable> = {
     fr: 'Aucun journal quotidien enregistré aujourd’hui',
     yo: 'Kò sí àkọsílẹ̀ ojoojúmọ́ lónìí',
     pcm: 'Never log daily record today',
+  },
+  'exceptions.msg.maintenanceDue': {
+    en: 'Maintenance due (scheduled {nextService})',
+    fr: 'Entretien dû (prévu le {nextService})',
+    yo: 'Ìtọ́jú tó yẹ (tí a ṣètò fún {nextService})',
+    pcm: 'Maintenance don due (scheduled {nextService})',
   },
   'exceptions.msg.reportedNeedsVerification': {
     en: 'Reported by {reporter} - needs verification',
@@ -209,6 +221,12 @@ export const EXCEPTION_MESSAGES: Record<ExceptionMessageKey, LocaleTable> = {
     fr: 'Enregistrer l’équipement : {title}',
     yo: 'Kọ ohun èlò sílẹ̀: {title}',
     pcm: 'Log equipment: {title}',
+  },
+  'exceptions.action.serviceEquipment': {
+    en: 'Service equipment: {title}',
+    fr: 'Entretenir l’équipement : {title}',
+    yo: 'Ṣe ìtọ́jú ohun èlò: {title}',
+    pcm: 'Service equipment: {title}',
   },
   'exceptions.action.verifyAssetLog': {
     en: 'Verify equipment log: {title}',

@@ -8,6 +8,80 @@ Errors return JSON: `{ "error": "message" }` with appropriate HTTP status.
 
 Roles: `owner` | `supervisor` | `sales` | `field_worker`
 
+## Journal CMS
+
+Owner-only authenticated reads are `GET /api/journal` and
+`GET /api/journal/:id`. Owner-only mutations are `POST /api/journal` (always creates a draft),
+`PATCH /api/journal/:id` (including `{ published: true|false }`), and
+`DELETE /api/journal/:id`. `POST /api/journal/media` accepts
+`{ dataUrl }` for a JPEG, PNG, or WebP cover image up to 1.5 MB and returns
+`{ url }`.
+
+Public, rate-limited reads are `GET /public/journal` and
+`GET /public/journal/:slug`. They expose published posts only; the list omits
+`bodyMarkdown`, while detail includes it. Public cover URLs serve only files
+from the dedicated Journal media store. Public farm selection prefers
+`CUSTOMER_FARM_ID`, then `TELEGRAM_CUSTOMER_FARM_SLUG`, then the oldest farm.
+
+---
+
+## Newsletter
+
+Trovara OS is the subscriber and consent source of truth. Public subscribe,
+confirm, unsubscribe, and signed-webhook actions are rate-limited JSON `POST`
+routes below `/public/newsletter`.
+
+- `/subscribe` accepts `name`, `email`, optional `phone`, required
+  `consent: true`, `phoneConsent`, and optional `honey`. A phone number requires
+  separate phone consent.
+- `/confirm` and `/unsubscribe` accept `{ token }`. Raw tokens are never stored.
+- `/webhook` accepts only verified Resend/Svix events and deduplicates them by
+  `svix-id`.
+
+The owner-only `GET /api/newsletter` list supports optional `status` and
+`search` query parameters. Owners can resend pending confirmation, retry Resend
+sync, or unsubscribe while retaining consent history using
+`POST /api/newsletter/:id/resend-confirmation`,
+`POST /api/newsletter/:id/sync`, and `PATCH /api/newsletter/:id/status`.
+Re-subscribing requires the subscriber to submit and confirm the public form.
+
+---
+
+## Marketing contacts and product waitlists
+
+Trovara OS is the source of truth for website enquiries and product waitlists.
+These records are separate from newsletter consent and are never added to
+newsletter subscribers, Resend Contacts, or a Resend Segment.
+
+The public, per-IP rate-limited routes are:
+
+- `POST /public/leads/contact` with
+  `{ name, email, phone?, message, subject, honey? }`. `subject` is one of
+  `general`, `bulk-order`, `waitlist`, `shop`, `farm-visit`, `farm-os`,
+  `farm-advisory`, `partnership`, `export`, `media`, or `other`.
+- `POST /public/leads/waitlist` with `{ name, contact, product, honey? }`.
+  `contact` is an email or phone number and `product` is `coconut`, `plantain`,
+  `poultry`, `eggs`, or `palm-oil`.
+
+Both return the enumeration-safe `{ "ok": true, "accepted": true }`. A filled
+honeypot is accepted without persistence. Repeated joins for the same farm,
+product, and normalized contact update the original row, increment
+`submissionCount`, and reopen `closed` or `spam` leads as `new`.
+
+Owners and Sales can use `GET /api/marketing-leads` with optional `type`,
+`status`, and `search` filters. It returns `leads` and counts by status/type.
+`PATCH /api/marketing-leads/:id` changes status and/or assignment; assignees
+must be active owners or Sales users in the same farm.
+`POST /api/marketing-leads/:id/notify` retries staff notification. Every query
+is farm-scoped, no delete endpoint exists, and changes are audited.
+
+Initial staff notification is best-effort and never makes a public submission
+fail. Delivery status, error, and attempt time remain on the lead for retry.
+It uses the existing transactional Resend setup (`RESEND_API_KEY` plus
+`EMAIL_FROM` or `RESEND_FROM`). Set the optional
+`MARKETING_LEAD_NOTIFICATION_EMAILS` comma-separated list to target known
+mailboxes; otherwise active Owner/Sales users are used, excluding break-glass.
+
 ---
 
 ## Health

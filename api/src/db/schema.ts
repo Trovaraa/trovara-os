@@ -90,6 +90,38 @@ export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
   'received',
   'cancelled',
 ])
+export const newsletterSubscriberStatusEnum = pgEnum('newsletter_subscriber_status', [
+  'pending',
+  'confirmed',
+  'unsubscribed',
+  'suppressed',
+])
+export const newsletterSyncStatusEnum = pgEnum('newsletter_sync_status', [
+  'pending',
+  'synced',
+  'failed',
+])
+export const newsletterDeliveryStatusEnum = pgEnum('newsletter_delivery_status', [
+  'pending',
+  'sent',
+  'failed',
+])
+export const marketingLeadTypeEnum = pgEnum('marketing_lead_type', [
+  'contact',
+  'product_waitlist',
+])
+export const marketingLeadStatusEnum = pgEnum('marketing_lead_status', [
+  'new',
+  'in_progress',
+  'contacted',
+  'closed',
+  'spam',
+])
+export const marketingLeadNotificationStatusEnum = pgEnum('marketing_lead_notification_status', [
+  'pending',
+  'sent',
+  'failed',
+])
 
 /**
  * Free-text columns are stored in canonical English. `translation_status`
@@ -189,6 +221,188 @@ export const users = pgTable(
   },
   (t) => [
     uniqueIndex('users_farm_employee_number_uq').on(t.farmId, t.employeeNumber),
+  ],
+)
+
+export const journalPosts = pgTable(
+  'journal_posts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    slug: text('slug').notNull(),
+    title: text('title').notNull(),
+    excerpt: text('excerpt').notNull(),
+    bodyMarkdown: text('body_markdown').notNull(),
+    authorName: text('author_name').notNull(),
+    category: text('category').notNull(),
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    coverImageUrl: text('cover_image_url'),
+    published: boolean('published').default(false).notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdById: uuid('created_by_id')
+      .references(() => users.id, { onDelete: 'restrict' })
+      .notNull(),
+    updatedById: uuid('updated_by_id')
+      .references(() => users.id, { onDelete: 'restrict' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('journal_posts_farm_slug_uq').on(t.farmId, t.slug),
+    index('journal_posts_farm_created_idx').on(t.farmId, t.createdAt),
+    index('journal_posts_public_idx')
+      .on(t.farmId, t.publishedAt)
+      .where(sql`${t.published} = true`),
+    check('journal_posts_slug_format', sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+    check(
+      'journal_posts_published_at_consistent',
+      sql`(${t.published} = false) or (${t.publishedAt} is not null)`,
+    ),
+    check('journal_posts_tags_array', sql`jsonb_typeof(${t.tags}) = 'array'`),
+  ],
+)
+
+export const newsletterSubscribers = pgTable(
+  'newsletter_subscribers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    email: text('email').notNull(),
+    fullName: text('full_name').notNull(),
+    phone: text('phone'),
+    emailConsentAt: timestamp('email_consent_at', { withTimezone: true }).notNull(),
+    emailConsentVersion: text('email_consent_version').notNull(),
+    emailConsentSource: text('email_consent_source').notNull(),
+    phoneConsentAt: timestamp('phone_consent_at', { withTimezone: true }),
+    status: newsletterSubscriberStatusEnum('status').default('pending').notNull(),
+    confirmationTokenHash: text('confirmation_token_hash'),
+    confirmationTokenExpiresAt: timestamp('confirmation_token_expires_at', { withTimezone: true }),
+    confirmationDeliveryStatus: newsletterDeliveryStatusEnum('confirmation_delivery_status')
+      .default('pending')
+      .notNull(),
+    confirmationDeliveryError: text('confirmation_delivery_error'),
+    confirmationLastSentAt: timestamp('confirmation_last_sent_at', { withTimezone: true }),
+    unsubscribeTokenHash: text('unsubscribe_token_hash').notNull(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+    unsubscribedReason: text('unsubscribed_reason'),
+    suppressedAt: timestamp('suppressed_at', { withTimezone: true }),
+    suppressedReason: text('suppressed_reason'),
+    resendContactId: text('resend_contact_id'),
+    resendLastSyncStatus: newsletterSyncStatusEnum('resend_last_sync_status')
+      .default('pending')
+      .notNull(),
+    resendLastSyncError: text('resend_last_sync_error'),
+    resendLastSyncAt: timestamp('resend_last_sync_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('newsletter_subscribers_farm_email_uq').on(t.farmId, t.email),
+    uniqueIndex('newsletter_subscribers_confirmation_token_uq')
+      .on(t.confirmationTokenHash)
+      .where(sql`${t.confirmationTokenHash} is not null`),
+    uniqueIndex('newsletter_subscribers_unsubscribe_token_uq').on(t.unsubscribeTokenHash),
+    index('newsletter_subscribers_farm_status_idx').on(t.farmId, t.status),
+    check('newsletter_subscribers_email_normalized', sql`${t.email} = lower(${t.email})`),
+    check(
+      'newsletter_subscribers_confirmation_token_consistent',
+      sql`(${t.confirmationTokenHash} is null) = (${t.confirmationTokenExpiresAt} is null)`,
+    ),
+    check(
+      'newsletter_subscribers_phone_consent_consistent',
+      sql`${t.phone} is null or ${t.phoneConsentAt} is not null`,
+    ),
+  ],
+)
+
+export const newsletterConsentEvents = pgTable(
+  'newsletter_consent_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    subscriberId: uuid('subscriber_id')
+      .references(() => newsletterSubscribers.id, { onDelete: 'restrict' })
+      .notNull(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    email: text('email').notNull(),
+    fullName: text('full_name').notNull(),
+    phone: text('phone'),
+    emailConsentAt: timestamp('email_consent_at', { withTimezone: true }).notNull(),
+    emailConsentVersion: text('email_consent_version').notNull(),
+    emailConsentSource: text('email_consent_source').notNull(),
+    phoneConsentAt: timestamp('phone_consent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('newsletter_consent_events_subscriber_created_idx').on(t.subscriberId, t.createdAt),
+    index('newsletter_consent_events_farm_created_idx').on(t.farmId, t.createdAt),
+  ],
+)
+
+export const newsletterWebhookEvents = pgTable(
+  'newsletter_webhook_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    svixId: text('svix_id').notNull(),
+    eventType: text('event_type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    processingError: text('processing_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('newsletter_webhook_events_svix_id_uq').on(t.svixId),
+    index('newsletter_webhook_events_farm_created_idx').on(t.farmId, t.createdAt),
+  ],
+)
+
+export const marketingLeads = pgTable(
+  'marketing_leads',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    leadType: marketingLeadTypeEnum('lead_type').notNull(),
+    status: marketingLeadStatusEnum('status').default('new').notNull(),
+    name: text('name').notNull(),
+    email: text('email'),
+    phone: text('phone'),
+    normalizedContact: text('normalized_contact').notNull(),
+    subjectKey: text('subject_key'),
+    subjectLabel: text('subject_label'),
+    message: text('message'),
+    productKey: text('product_key'),
+    productLabel: text('product_label'),
+    source: text('source').notNull(),
+    submissionCount: integer('submission_count').default(1).notNull(),
+    lastSubmittedAt: timestamp('last_submitted_at', { withTimezone: true }).defaultNow().notNull(),
+    assignedToId: uuid('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
+    staffNotificationStatus: marketingLeadNotificationStatusEnum('staff_notification_status')
+      .default('pending')
+      .notNull(),
+    staffNotificationError: text('staff_notification_error'),
+    staffNotifiedAt: timestamp('staff_notified_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('marketing_leads_farm_status_idx').on(t.farmId, t.status),
+    index('marketing_leads_farm_type_idx').on(t.farmId, t.leadType),
+    index('marketing_leads_farm_created_idx').on(t.farmId, t.createdAt),
+    uniqueIndex('marketing_leads_waitlist_contact_uq')
+      .on(t.farmId, t.productKey, t.normalizedContact)
+      .where(sql`${t.leadType} = 'product_waitlist'`),
+    check(
+      'marketing_leads_contact_shape',
+      sql`${t.leadType} <> 'contact' or (${t.email} is not null and ${t.subjectKey} is not null and ${t.subjectLabel} is not null and ${t.message} is not null)`,
+    ),
+    check(
+      'marketing_leads_waitlist_shape',
+      sql`${t.leadType} <> 'product_waitlist' or (${t.productKey} is not null and ${t.productLabel} is not null and (${t.email} is not null or ${t.phone} is not null))`,
+    ),
+    check('marketing_leads_submission_count_positive', sql`${t.submissionCount} >= 1`),
   ],
 )
 

@@ -52,6 +52,7 @@ type ExceptionSummary = {
   ordersPending: number
   rejectedTasks: number
   assetLogsMissing: number
+  assetMaintenanceDue?: number
   assetVerificationPending: number
   censusMissing?: number
   censusRejected?: number
@@ -178,6 +179,7 @@ const exceptionIcon: Record<string, string> = {
   order_pending: 'text-orange-400',
   rejected_task: 'text-rose-400',
   asset_log_missing: 'text-amber-400',
+  asset_maintenance_due: 'text-orange-400',
   asset_verification_pending: 'text-cyan-400',
   census_missing: 'text-amber-400',
   census_rejected: 'text-rose-400',
@@ -196,6 +198,7 @@ const exceptionLabel: Record<string, string> = {
   order_pending: 'today.lblOrderPending',
   rejected_task: 'today.lblRejected',
   asset_log_missing: 'today.lblNotLogged',
+  asset_maintenance_due: 'today.lblMaintenanceDue',
   asset_verification_pending: 'today.lblVerifyAsset',
   census_missing: 'today.lblCensusMissing',
   census_rejected: 'today.lblCensusRejected',
@@ -222,6 +225,7 @@ const summaryCards = computed(() => {
         { key: 'ordersPending', labelKey: 'today.lblOrders', color: 'text-orange-400' },
         { key: 'rejectedTasks', labelKey: 'today.lblRejected', color: 'text-rose-400' },
         { key: 'assetLogsMissing', labelKey: 'today.lblNotLogged', color: 'text-amber-400' },
+        { key: 'assetMaintenanceDue', labelKey: 'today.lblMaintenanceDue', color: 'text-orange-400' },
         { key: 'assetVerificationPending', labelKey: 'today.lblVerifyAssets', color: 'text-cyan-400' },
       ]
   return isSales.value

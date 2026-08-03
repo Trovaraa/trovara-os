@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const canSendWhatsApp = computed(
+  () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
+)
 
 type StaticTemplate = {
   id: string
@@ -29,7 +34,7 @@ type WhatsAppStatus = {
 const staticTemplates: StaticTemplate[] = [
   {
     id: 'task_complete',
-    name: 'Task Complete',
+    name: 'taskComplete',
     en: 'TASK COMPLETED - Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nCompleted by: Ade\nTime: 21 Jun 2026, 14:30\n\nPlease review in Trovara OS.',
     yo: 'IṢẸ PARÍ - Oko Trovara\n\nIṣẹ: Weeding - Plot B\nApá oko: Plot B\nOlùparí: Ade\nÀkókò: 21 Jun 2026, 14:30\n\nJọ̀wọ́ wo rẹ̀ nínú Trovara OS.',
     pcm: 'TASK DON FINISH - Trovara Farm\n\nTask: Weeding - Plot B\nPlot: Plot B\nPerson wey finish am: Ade\nTime: 21 Jun 2026, 14:30\n\nAbeg check am for Trovara OS.',
@@ -37,7 +42,7 @@ const staticTemplates: StaticTemplate[] = [
   },
   {
     id: 'incident_report',
-    name: 'Incident Report',
+    name: 'incidentReport',
     en: 'ACTION REQUIRED · INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nDetails: Irrigation pump stopped during morning shift\nReported by: Chidi\nTime: 21 Jun 2026, 09:15\n\nAction required. Check Trovara OS for full details.',
     yo: 'ÈTÒ NÍLÒ · ÌRÒYÌN ÌṢÒRÒ - Oko Trovara\n\nIrú: Equipment failure\nIbù: North paddock\nÀlàyé: Irrigation pump stopped during morning shift\nOlùròyìn: Chidi\nÀkókò: 21 Jun 2026, 09:15\n\nÈtò nílò. Wo Trovara OS fún àlàyé kíkún.',
     pcm: 'ACTION REQUIRED · INCIDENT REPORT - Trovara Farm\n\nType: Equipment failure\nLocation: North paddock\nWetin happen: Irrigation pump stopped during morning shift\nPerson wey report: Chidi\nTime: 21 Jun 2026, 09:15\n\nWe need action. Check Trovara OS for full gist.',
@@ -45,13 +50,22 @@ const staticTemplates: StaticTemplate[] = [
   },
   {
     id: 'low_stock_alert',
-    name: 'Low Stock Alert',
+    name: 'lowStockAlert',
     en: 'LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nCurrent stock: 3 bags\nReorder level: 10 bags\n\nPlease restock soon. View inventory in Trovara OS.',
     yo: 'ÌKÌLÒ ÌNÀWÓ KÉKÉÈRÍ - Oko Trovara\n\nNkan: NPK Fertilizer\nIye lọ́wọ́lọ́wọ́: 3 bags\nIpele títún: 10 bags\n\nJọ̀wọ́ ṣe àtúnṣe kíákíá. Wo àkójọpọ̀ nínú Trovara OS.',
     pcm: 'LOW STOCK ALERT - Trovara Farm\n\nItem: NPK Fertilizer\nWetin remain: 3 bags\nReorder level: 10 bags\n\nAbeg restock quick quick. Check inventory for Trovara OS.',
     fr: "ALERTE STOCK BAS - Ferme Trovara\n\nArticle : NPK Fertilizer\nStock actuel : 3 bags\nSeuil de réapprovisionnement : 10 bags\n\nVeuillez réapprovisionner bientôt. Consultez l'inventaire dans Trovara OS.",
   },
 ]
+
+function templateTitle(key: string): string {
+  const map: Record<string, string> = {
+    taskComplete: t('whatsapp.tplTaskComplete'),
+    incidentReport: t('whatsapp.tplIncidentReport'),
+    lowStockAlert: t('whatsapp.tplLowStock'),
+  }
+  return map[key] ?? key
+}
 
 const copied = ref<string | null>(null)
 const waStatus = ref<WhatsAppStatus | null>(null)
@@ -139,8 +153,15 @@ async function sendMessageForm() {
       </span>
     </div>
 
+    <p
+      v-if="waStatus?.configured && !canSendWhatsApp"
+      class="mt-6 text-xs text-slate-500"
+    >
+      {{ t('whatsapp.sendRestricted') }}
+    </p>
+
     <form
-      v-if="waStatus?.configured"
+      v-if="waStatus?.configured && canSendWhatsApp"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="sendMessageForm"
     >
@@ -211,7 +232,7 @@ async function sendMessageForm() {
         :key="tpl.id"
         class="bg-slate-900 border border-slate-800 rounded-xl p-5"
       >
-        <h3 class="font-bold text-white">{{ tpl.name }}</h3>
+        <h3 class="font-bold text-white">{{ templateTitle(tpl.name) }}</h3>
 
         <div class="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
           <div

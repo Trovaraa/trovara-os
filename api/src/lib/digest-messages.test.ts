@@ -13,6 +13,7 @@ const EMPTY_SUMMARY: ExceptionSummary = {
   ordersPending: 0,
   rejectedTasks: 0,
   assetLogsMissing: 0,
+  assetMaintenanceDue: 0,
   assetVerificationPending: 0,
   censusMissing: 0,
   censusRejected: 0,
@@ -32,6 +33,7 @@ function summary(overrides: Partial<ExceptionSummary>): ExceptionSummary {
       merged.ordersPending +
       merged.rejectedTasks +
       merged.assetLogsMissing +
+      merged.assetMaintenanceDue +
       merged.assetVerificationPending +
       merged.censusMissing +
       merged.censusRejected +
@@ -117,6 +119,7 @@ describe('renderEveningDigest', () => {
         ordersPending: 5,
         rejectedTasks: 6,
         assetLogsMissing: 7,
+        assetMaintenanceDue: 1,
         assetVerificationPending: 8,
         censusMissing: 9,
         censusRejected: 10,

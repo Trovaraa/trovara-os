@@ -10,13 +10,10 @@ import {
 
 const ENV_KEYS = [
   'PUBLIC_APP_URL',
-  'EMAIL_WEBHOOK_URL',
-  'EMAIL_WEBHOOK_TOKEN',
   'EMAIL_FROM',
   'EMAIL_DELIVERY_REQUIRED',
-  'ZEPTOMAIL_SEND_TOKEN',
-  'ZEPTOMAIL_FROM',
-  'ZEPTOMAIL_API_URL',
+  'RESEND_API_KEY',
+  'RESEND_FROM',
   'SMS_WEBHOOK_URL',
   'SMS_WEBHOOK_TOKEN',
   'SMS_FROM',
@@ -41,41 +38,17 @@ describe('notification delivery', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('posts provider-neutral email and SMS webhook payloads', async () => {
-    process.env.EMAIL_WEBHOOK_URL = 'https://notify.example/email'
-    process.env.EMAIL_WEBHOOK_TOKEN = 'email-secret'
-    process.env.EMAIL_FROM = 'alerts@trovara.farm'
+  it('posts provider-neutral SMS webhook payloads', async () => {
     process.env.SMS_WEBHOOK_URL = 'https://notify.example/sms'
     process.env.SMS_WEBHOOK_TOKEN = 'sms-secret'
     process.env.SMS_FROM = 'Trovara'
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }))
 
     await expect(
-      sendEmail({ to: 'owner@example.com', subject: 'Critical', text: 'Low stock' }),
-    ).resolves.toMatchObject({ status: 'delivered' })
-    await expect(
       sendSms({ to: '+2348000000000', message: 'Critical: low stock' }),
     ).resolves.toMatchObject({ status: 'delivered' })
 
-    expect(fetch).toHaveBeenNthCalledWith(
-      1,
-      'https://notify.example/email',
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer email-secret',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          to: 'owner@example.com',
-          subject: 'Critical',
-          text: 'Low stock',
-          from: 'alerts@trovara.farm',
-        }),
-      }),
-    )
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
+    expect(fetch).toHaveBeenCalledWith(
       'https://notify.example/sms',
       expect.objectContaining({
         body: JSON.stringify({
@@ -87,8 +60,8 @@ describe('notification delivery', () => {
     )
   })
 
-  it('sends via Zoho ZeptoMail when ZEPTOMAIL_SEND_TOKEN is set', async () => {
-    process.env.ZEPTOMAIL_SEND_TOKEN = 'zepto-token'
+  it('sends via Resend when RESEND_API_KEY is set', async () => {
+    process.env.RESEND_API_KEY = 're_test'
     process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }))
 
@@ -97,27 +70,53 @@ describe('notification delivery', () => {
     ).resolves.toMatchObject({ status: 'delivered' })
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://api.zeptomail.com/v1.1/email',
+      'https://api.resend.com/emails',
       expect.objectContaining({
         method: 'POST',
         headers: {
-          accept: 'application/json',
+          authorization: 'Bearer re_test',
           'content-type': 'application/json',
-          authorization: 'Zoho-enczapikey zepto-token',
         },
       }),
     )
     const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))
-    expect(body.from).toEqual({ address: 'no-reply@trovara.farm', name: 'Trovara OS' })
-    expect(body.to[0].email_address.address).toBe('owner@example.com')
+    expect(body.from).toBe('Trovara OS <no-reply@trovara.farm>')
+    expect(body.to).toEqual(['owner@example.com'])
     expect(body.subject).toBe('Reset')
-    expect(body.textbody).toBe('Click here')
+    expect(body.text).toBe('Click here')
+  })
+
+  it('passes a reply-to address to Resend', async () => {
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }))
+
+    await sendEmail({
+      to: 'info@trovara.farm',
+      subject: 'New lead',
+      text: 'A customer contacted Trovara.',
+      replyTo: 'customer@example.com',
+    })
+
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))
+    expect(body.reply_to).toBe('customer@example.com')
+  })
+
+  it('delivers password reset via Resend without webhook credentials', async () => {
+    process.env.PUBLIC_APP_URL = 'https://os.example.com'
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }))
+
+    const results = await deliverPasswordReset('owner@example.com', 'raw-token')
+    expect(results).toContainEqual({ channel: 'email', status: 'delivered', required: false })
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))
+    expect(body.text).toContain('https://os.example.com/reset-password?token=raw-token')
   })
 
   it('builds and delivers a reset link from PUBLIC_APP_URL', async () => {
     process.env.PUBLIC_APP_URL = 'https://os.example.com/base'
-    process.env.EMAIL_WEBHOOK_URL = 'https://notify.example/email'
-    process.env.EMAIL_WEBHOOK_TOKEN = 'secret'
+    process.env.RESEND_API_KEY = 're_test'
     process.env.EMAIL_FROM = 'security@example.com'
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }))
 
@@ -128,7 +127,7 @@ describe('notification delivery', () => {
 
     const request = vi.mocked(fetch).mock.calls[0]?.[1]
     const body = JSON.parse(String(request?.body))
-    expect(body.to).toBe('owner@example.com')
+    expect(body.to).toEqual(['owner@example.com'])
     expect(body.text).toContain('https://os.example.com/reset-password?token=raw-token')
   })
 
@@ -169,8 +168,7 @@ describe('notification delivery', () => {
   })
 
   it('fans critical alerts out by email and available phone number', async () => {
-    process.env.EMAIL_WEBHOOK_URL = 'https://notify.example/email'
-    process.env.EMAIL_WEBHOOK_TOKEN = 'email-secret'
+    process.env.RESEND_API_KEY = 're_test'
     process.env.EMAIL_FROM = 'alerts@example.com'
     process.env.SMS_WEBHOOK_URL = 'https://notify.example/sms'
     process.env.SMS_WEBHOOK_TOKEN = 'sms-secret'
@@ -188,9 +186,9 @@ describe('notification delivery', () => {
 
     expect(results).toHaveLength(3)
     expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
-      'https://notify.example/email',
+      'https://api.resend.com/emails',
       'https://notify.example/sms',
-      'https://notify.example/email',
+      'https://api.resend.com/emails',
     ])
   })
 })

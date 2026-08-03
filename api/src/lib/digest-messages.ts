@@ -30,6 +30,7 @@ const COUNTER_ORDER: readonly DigestCounterKey[] = [
   'lowStock',
   'ordersPending',
   'assetLogsMissing',
+  'assetMaintenanceDue',
   'assetVerificationPending',
   'censusMissing',
   'censusRejected',
@@ -84,6 +85,12 @@ const COUNTER_LABELS: Record<DigestCounterKey, MsgTable> = {
     fr: 'Équipements non enregistrés aujourd’hui',
     yo: 'Ohun èlò tí a kò kọ sílẹ̀ lónìí',
     pcm: 'Equipment wey dem no log today',
+  },
+  assetMaintenanceDue: {
+    en: 'Equipment maintenance due',
+    fr: 'Entretien d’équipement dû',
+    yo: 'Ìtọ́jú ohun èlò tó yẹ',
+    pcm: 'Equipment maintenance don due',
   },
   assetVerificationPending: {
     en: 'Asset logs to verify',

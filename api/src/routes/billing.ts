@@ -14,7 +14,7 @@ billingRoutes.get('/status', async (c) => {
   return c.json({
     enabled: false,
     mode: 'single_farm',
-    message: 'Multi-farm SaaS billing is not enabled. Trovara OS runs as a single-farm deployment on your laptop.',
+    message: 'Multi-farm SaaS billing is not enabled. Trovara OS currently runs as a single-farm production deployment.',
     roadmap: {
       stripe: 'Connect Stripe account + webhook for subscriptions',
       plans: ['Starter (1 farm, 10 users)', 'Growth (3 farms)', 'Enterprise'],

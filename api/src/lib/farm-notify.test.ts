@@ -57,6 +57,7 @@ const {
   notifyOwner,
   notifyRoles,
   notifyRolesTelegram,
+  notifyTaskRejected,
   notifyTaskSubmittedForApproval,
   notifyWorkerClockIn,
   relayFreeFormEnglish,
@@ -373,6 +374,45 @@ describe('notifyTaskSubmittedForApproval', () => {
     })
 
     expect(sentBodies()[0]).toContain('Task submitted for approval')
+  })
+})
+
+describe('notifyTaskRejected', () => {
+  it('messages the assigned worker with localized rejection copy and reason', async () => {
+    userRows = [{ id: 'u1', phone: '+234800000001', preferredLocale: 'fr' }]
+    linkRows = [{ afterValue: { userId: 'u1', chatId: 42 } }]
+
+    await notifyTaskRejected({
+      farmId: FARM,
+      assignedToId: 'u1',
+      taskId: 'abc123de-0000-0000-0000-000000000000',
+      taskTitle: 'Spray Zone C',
+      reason: 'Missed the inner rows',
+    })
+
+    const [body] = sentBodies()
+    expect(body).toContain('Tâche rejetée')
+    expect(body).toContain('TSK-ABC123')
+    expect(body).toContain('[fr] Spray Zone C')
+    expect(body).toContain('[fr] Missed the inner rows')
+    expect(body).toContain('Mes tâches')
+    expect(sendTelegramMessage.mock.calls[0]?.[0]).toBe(42)
+    expect(sendTelegramMessage.mock.calls[0]?.[1]).toContain('Tâche rejetée')
+  })
+
+  it('no-ops when there is no assignee', async () => {
+    userRows = recipients('en')
+
+    await notifyTaskRejected({
+      farmId: FARM,
+      assignedToId: null,
+      taskId: 'abc123de-0000-0000-0000-000000000000',
+      taskTitle: 'Spray Zone C',
+      reason: 'Missed the inner rows',
+    })
+
+    expect(sendWhatsAppText).not.toHaveBeenCalled()
+    expect(sendTelegramMessage).not.toHaveBeenCalled()
   })
 })
 
