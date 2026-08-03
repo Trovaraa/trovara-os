@@ -33,7 +33,7 @@
     "typecheck": "npx tsc --noEmit -p api && npx vue-tsc --noEmit -p app"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.4",
     "glob": "13.0.6",
     "happy-dom": "^20.11.1"
   },
