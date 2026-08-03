@@ -5,7 +5,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { expenses, invoices, orders, paymentAttempts, paymentRefunds, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAccessFinance } from '../lib/rbac.js'
+import { canAccessFinance, hasRole } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import type { SessionUser } from '../lib/session.js'
 import {
@@ -360,6 +360,8 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
 financeRoutes.delete('/:id', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
+  // Destructive money ops stay owner-only; sales may create/update expenses.
+  if (!hasRole(user, 'owner')) return c.json({ error: 'Forbidden' }, 403)
 
   const expenseId = c.req.param('id')
 

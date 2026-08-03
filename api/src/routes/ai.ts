@@ -255,6 +255,11 @@ aiRoutes.use('*', async (c, next) => {
 })
 
 aiRoutes.get('/status', (c) => {
+  try {
+    requireRole(c.get('user'), 'owner', 'supervisor')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   return c.json({
     configured: isLlmConfigured(),
     hint: isLlmConfigured()

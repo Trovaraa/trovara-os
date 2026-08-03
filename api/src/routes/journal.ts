@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context, Next } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -140,146 +141,162 @@ journalRoutes.get('/:id', async (c) => {
   return c.json({ post })
 })
 
-journalRoutes.post('/media', zValidator('json', mediaSchema), async (c) => {
-  const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
-  try {
-    const url = await storeJournalMedia(user.farmId, c.req.valid('json').dataUrl)
-    return c.json({ url }, 201)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : ''
-    if (message.includes('too large')) {
+async function requireJournalOwner(c: Context<{ Variables: AppVariables }>, next: Next) {
+  // Owner before Zod so non-owners get 403, not a schema 400.
+  if (!isOwner(c.get('user'))) return c.json({ error: 'Forbidden' }, 403)
+  await next()
+}
+
+journalRoutes.post(
+  '/media',
+  requireJournalOwner,
+  zValidator('json', mediaSchema),
+  async (c) => {
+    const user = c.get('user')
+    try {
+      const url = await storeJournalMedia(user.farmId, c.req.valid('json').dataUrl)
+      return c.json({ url }, 201)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (message.includes('too large')) {
+        return c.json(
+          {
+            error:
+              'Image too large. Use JPEG, PNG, or WebP under about 1.5 MB (covers are auto-resized to 1600px on upload).',
+          },
+          400,
+        )
+      }
+      if (message.includes('MIME') || message.includes('data URL') || message.includes('Invalid')) {
+        return c.json(
+          {
+            error:
+              'Unsupported image. Use JPEG, PNG, or WebP under about 1.5 MB. On iPhone, set Camera → Formats → Most Compatible if HEIC fails.',
+          },
+          400,
+        )
+      }
       return c.json(
         {
           error:
-            'Image too large. Use JPEG, PNG, or WebP under about 1.5 MB (covers are auto-resized to 1600px on upload).',
+            'Could not store that image. Use JPEG, PNG, or WebP under about 1.5 MB (max edge 1600px after resize).',
         },
         400,
       )
     }
-    if (message.includes('MIME') || message.includes('data URL') || message.includes('Invalid')) {
-      return c.json(
-        {
-          error:
-            'Unsupported image. Use JPEG, PNG, or WebP under about 1.5 MB. On iPhone, set Camera → Formats → Most Compatible if HEIC fails.',
-        },
-        400,
-      )
+  },
+)
+
+journalRoutes.post(
+  '/',
+  requireJournalOwner,
+  zValidator('json', postFieldsSchema),
+  async (c) => {
+    const user = c.get('user')
+    const body = c.req.valid('json')
+    if (!validCoverUrl(user.farmId, body.coverImageUrl)) {
+      return c.json({ error: 'Invalid cover image URL' }, 400)
     }
-    return c.json(
-      {
-        error:
-          'Could not store that image. Use JPEG, PNG, or WebP under about 1.5 MB (max edge 1600px after resize).',
-      },
-      400,
-    )
-  }
-})
+    if (await slugExists(user.farmId, body.slug)) {
+      return c.json({ error: 'Slug already exists' }, 409)
+    }
 
-journalRoutes.post('/', zValidator('json', postFieldsSchema), async (c) => {
-  const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
-  const body = c.req.valid('json')
-  if (!validCoverUrl(user.farmId, body.coverImageUrl)) {
-    return c.json({ error: 'Invalid cover image URL' }, 400)
-  }
-  if (await slugExists(user.farmId, body.slug)) {
-    return c.json({ error: 'Slug already exists' }, 409)
-  }
-
-  try {
-    const [post] = await db
-      .insert(journalPosts)
-      .values({
-        ...body,
-        coverImageUrl: body.coverImageUrl ?? null,
-        farmId: user.farmId,
-        published: false,
-        publishedAt: null,
-        createdById: user.id,
-        updatedById: user.id,
-      })
-      .returning()
-    await logAudit({
-      farmId: user.farmId,
-      userId: user.id,
-      action: 'create',
-      entityType: 'journal_post',
-      entityId: post.id,
-      access: requestAccessMeta((name) => c.req.header(name)),
-      metadata: { slug: post.slug, published: false },
-    })
-    return c.json({ post }, 201)
-  } catch (error) {
-    if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
-    throw error
-  }
-})
-
-journalRoutes.patch('/:id', zValidator('json', patchPostSchema), async (c) => {
-  const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
-  const postId = c.req.param('id')
-  const [existing] = await db
-    .select()
-    .from(journalPosts)
-    .where(and(eq(journalPosts.id, postId), eq(journalPosts.farmId, user.farmId)))
-    .limit(1)
-  if (!existing) return c.json({ error: 'Not found' }, 404)
-
-  const body = c.req.valid('json')
-  if (!validCoverUrl(user.farmId, body.coverImageUrl)) {
-    return c.json({ error: 'Invalid cover image URL' }, 400)
-  }
-  if (body.slug && (await slugExists(user.farmId, body.slug, postId))) {
-    return c.json({ error: 'Slug already exists' }, 409)
-  }
-
-  const nextPublished = body.published ?? existing.published
-  const changedPublication = nextPublished !== existing.published
-  const publishedAt = nextPublished
-    ? existing.publishedAt ?? new Date()
-    : null
-
-  try {
-    const [post] = await db
-      .update(journalPosts)
-      .set({
-        ...body,
-        published: nextPublished,
-        publishedAt,
-        updatedById: user.id,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(journalPosts.id, postId), eq(journalPosts.farmId, user.farmId)))
-      .returning()
-
-    await logAudit({
-      farmId: user.farmId,
-      userId: user.id,
-      action: 'update',
-      entityType: 'journal_post',
-      entityId: postId,
-      access: requestAccessMeta((name) => c.req.header(name)),
-      metadata: { fields: Object.keys(body).sort() },
-    })
-    if (changedPublication) {
+    try {
+      const [post] = await db
+        .insert(journalPosts)
+        .values({
+          ...body,
+          coverImageUrl: body.coverImageUrl ?? null,
+          farmId: user.farmId,
+          published: false,
+          publishedAt: null,
+          createdById: user.id,
+          updatedById: user.id,
+        })
+        .returning()
       await logAudit({
         farmId: user.farmId,
         userId: user.id,
-        action: nextPublished ? 'publish' : 'unpublish',
+        action: 'create',
+        entityType: 'journal_post',
+        entityId: post.id,
+        access: requestAccessMeta((name) => c.req.header(name)),
+        metadata: { slug: post.slug, published: false },
+      })
+      return c.json({ post }, 201)
+    } catch (error) {
+      if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
+      throw error
+    }
+  },
+)
+
+journalRoutes.patch(
+  '/:id',
+  requireJournalOwner,
+  zValidator('json', patchPostSchema),
+  async (c) => {
+    const user = c.get('user')
+    const postId = c.req.param('id')
+    const [existing] = await db
+      .select()
+      .from(journalPosts)
+      .where(and(eq(journalPosts.id, postId), eq(journalPosts.farmId, user.farmId)))
+      .limit(1)
+    if (!existing) return c.json({ error: 'Not found' }, 404)
+
+    const body = c.req.valid('json')
+    if (!validCoverUrl(user.farmId, body.coverImageUrl)) {
+      return c.json({ error: 'Invalid cover image URL' }, 400)
+    }
+    if (body.slug && (await slugExists(user.farmId, body.slug, postId))) {
+      return c.json({ error: 'Slug already exists' }, 409)
+    }
+
+    const nextPublished = body.published ?? existing.published
+    const changedPublication = nextPublished !== existing.published
+    const publishedAt = nextPublished ? existing.publishedAt ?? new Date() : null
+
+    try {
+      const [post] = await db
+        .update(journalPosts)
+        .set({
+          ...body,
+          published: nextPublished,
+          publishedAt,
+          updatedById: user.id,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(journalPosts.id, postId), eq(journalPosts.farmId, user.farmId)))
+        .returning()
+
+      await logAudit({
+        farmId: user.farmId,
+        userId: user.id,
+        action: 'update',
         entityType: 'journal_post',
         entityId: postId,
         access: requestAccessMeta((name) => c.req.header(name)),
+        metadata: { fields: Object.keys(body).sort() },
       })
+      if (changedPublication) {
+        await logAudit({
+          farmId: user.farmId,
+          userId: user.id,
+          action: nextPublished ? 'publish' : 'unpublish',
+          entityType: 'journal_post',
+          entityId: postId,
+          access: requestAccessMeta((name) => c.req.header(name)),
+        })
+      }
+      if (nextPublished || existing.published) triggerJournalBuildHook(postId)
+      return c.json({ post })
+    } catch (error) {
+      if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
+      throw error
     }
-    if (nextPublished || existing.published) triggerJournalBuildHook(postId)
-    return c.json({ post })
-  } catch (error) {
-    if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
-    throw error
-  }
-})
+  },
+)
 
 journalRoutes.delete('/:id', async (c) => {
   const user = c.get('user')

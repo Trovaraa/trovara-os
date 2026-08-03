@@ -572,6 +572,8 @@ zoneRoutes.get('/plots/:plotId/timeline', async (c) => {
 
 zoneRoutes.get('/', async (c) => {
   const user = c.get('user')
+  // Match Zones UI (managerOnly): farm layout listing is ops, not sales.
+  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const rows = await db
     .select()
@@ -587,6 +589,7 @@ zoneRoutes.get('/', async (c) => {
 
 zoneRoutes.get('/:id', async (c) => {
   const user = c.get('user')
+  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
   const zoneId = c.req.param('id')
 
   const [zone] = await db

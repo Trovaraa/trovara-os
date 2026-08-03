@@ -114,6 +114,17 @@ describe('journal routes', () => {
     expect(inserts).toHaveLength(0)
   })
 
+  it('rejects non-owners with 403 before Zod on incomplete bodies', async () => {
+    sessionUser = { ...sessionUser, role: 'supervisor' }
+    const response = await (await adminApp()).request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(response.status).toBe(403)
+    expect(inserts).toHaveLength(0)
+  })
+
   it('does not expose drafts to non-owner staff', async () => {
     sessionUser = { ...sessionUser, role: 'supervisor' }
     const response = await (await adminApp()).request('/')
