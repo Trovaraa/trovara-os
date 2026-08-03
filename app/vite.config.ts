@@ -50,7 +50,7 @@ export default defineConfig({
     contentSecurityPolicy(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/trovara-monogram-icon-v1.svg', 'icons/icon-maskable.svg'],
+      includeAssets: ['icons/trovara-os-icon.svg', 'icons/icon-maskable.svg'],
       manifest: false, // we have our own manifest.webmanifest in /public
       workbox: {
         // Workbox's production terser worker exits early under Node 22 in some
