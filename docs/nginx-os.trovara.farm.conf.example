@@ -71,12 +71,13 @@ server {
     proxy_send_timeout 120s;
   }
 
-  # Public traceability + health probes (still no-store for API JSON)
-  location /public/ {
+  # Public journal media, lot JSON, health — must win over any static-extension
+  # regex that would otherwise look for .png/.jpg under the SPA document root.
+  location ^~ /public/ {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
-    add_header Cache-Control "no-store" always;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
   }
 
   location = /health {

@@ -172,4 +172,19 @@ describe('journal routes', () => {
     expect(response.status).toBe(404)
     expect(readJournalMedia).not.toHaveBeenCalled()
   })
+
+  it('serves owner journal media over the authenticated API path', async () => {
+    const { readJournalMedia } = await import('../lib/journal-media.js')
+    vi.mocked(readJournalMedia).mockResolvedValue({
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+      contentType: 'image/jpeg',
+    })
+    const response = await (await adminApp()).request('/media/examplefileexamplefileex.jpg')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+    expect(readJournalMedia).toHaveBeenCalledWith(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'examplefileexamplefileex.jpg',
+    )
+  })
 })

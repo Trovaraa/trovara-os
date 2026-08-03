@@ -221,6 +221,21 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+/** OS editor loads covers via authenticated /api (nginx always proxies /api). */
+function coverDisplaySrc(url: string | null | undefined): string | null {
+  if (!url) return null
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url
+  const match = url.match(/^\/public\/journal\/media\/[^/]+\/([^/]+)$/)
+  if (match) return `/api/journal/media/${match[1]}`
+  return url
+}
+
+function validCoverUrlShape(value: string): boolean {
+  return /^\/public\/journal\/media\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{20,64}\.(?:jpg|png|webp)$/i.test(
+    value,
+  )
+}
+
 async function uploadCover(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -235,6 +250,16 @@ async function uploadCover(event: Event) {
       method: 'POST',
       body: JSON.stringify({ dataUrl }),
     })
+    if (!data.url || !validCoverUrlShape(data.url)) {
+      throw new Error(t('journal.uploadFailed'))
+    }
+    const preview = coverDisplaySrc(data.url)
+    if (preview && !preview.startsWith('data:')) {
+      const probe = await fetch(preview, { credentials: 'include', method: 'GET' })
+      if (!probe.ok) {
+        throw new Error(t('journal.uploadFailed'))
+      }
+    }
     form.coverImageUrl = data.url
     notice.value = t('journal.imageUploaded')
   } catch (e) {
@@ -468,8 +493,8 @@ onMounted(loadPosts)
             />
             <p v-if="uploading" class="mt-2 text-xs text-slate-400">{{ t('journal.uploading') }}</p>
             <img
-              v-if="form.coverImageUrl"
-              :src="form.coverImageUrl"
+              v-if="coverDisplaySrc(form.coverImageUrl)"
+              :src="coverDisplaySrc(form.coverImageUrl)!"
               :alt="t('journal.coverPreviewAlt')"
               class="mt-3 max-h-64 w-full rounded-xl border border-slate-800 object-cover"
             />

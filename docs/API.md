@@ -15,10 +15,12 @@ Owner-only authenticated reads are `GET /api/journal` and
 `PATCH /api/journal/:id` (including `{ published: true|false }`), and
 `DELETE /api/journal/:id`. `POST /api/journal/media` accepts
 `{ dataUrl }` for a JPEG, PNG, or WebP cover image up to 1.5 MB and returns
-`{ url }`.
+`{ url }` (a `/public/journal/media/{farmId}/{file}` path for storage and marketing).
+Owner preview of that file is `GET /api/journal/media/:filename` (session farm only).
 
-Public, rate-limited reads are `GET /public/journal` and
-`GET /public/journal/:slug`. They expose published posts only; the list omits
+Public, rate-limited reads are `GET /public/journal`,
+`GET /public/journal/:slug`, and `GET /public/journal/media/:farmId/:filename`.
+They expose published posts / public cover bytes only; the list omits
 `bodyMarkdown`, while detail includes it. Public cover URLs serve only files
 from the dedicated Journal media store. Public farm selection prefers
 `CUSTOMER_FARM_ID`, then `TELEGRAM_CUSTOMER_FARM_SLUG`, then the oldest farm.

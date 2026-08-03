@@ -107,6 +107,26 @@ journalRoutes.get('/', async (c) => {
   return c.json({ posts })
 })
 
+/** Owner preview of covers (auth + /api proxy). Public marketing still uses /public/journal/media. */
+journalRoutes.get('/media/:filename', async (c) => {
+  const user = c.get('user')
+  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
+  const filename = c.req.param('filename')
+  try {
+    const { buffer, contentType } = await readJournalMedia(user.farmId, filename)
+    return new Response(new Uint8Array(buffer), {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'private, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'",
+      },
+    })
+  } catch {
+    return c.json({ error: 'Not found' }, 404)
+  }
+})
+
 journalRoutes.get('/:id', async (c) => {
   const user = c.get('user')
   if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
