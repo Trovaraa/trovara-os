@@ -59,6 +59,7 @@ describe('guided onboarding copy', () => {
       '/advisory',
       '/worker',
       '/field-reports',
+      '/inventory',
       '/settings',
       '/assets',
       '/traceability',

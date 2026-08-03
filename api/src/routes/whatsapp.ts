@@ -184,13 +184,19 @@ const sendSchema = z
   })
 
 whatsappRoutes.use('/send', authMiddleware)
-whatsappRoutes.post('/send', zValidator('json', sendSchema), async (c) => {
+whatsappRoutes.post(
+  '/send',
+  async (c, next) => {
+    try {
+      requireRole(c.get('user'), 'owner', 'supervisor')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    await next()
+  },
+  zValidator('json', sendSchema),
+  async (c) => {
   const user = c.get('user')
-  try {
-    requireRole(user, 'owner', 'supervisor')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
 
   const { allowed, retryAfterSec } = checkRateLimit(
     `whatsapp-send:${user.id}`,

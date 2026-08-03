@@ -3,12 +3,22 @@ import type { Context, Next } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { logSecurityEvent } from './security-log.js'
 import { secureCompare } from './secure-compare.js'
-import { clientIpFromHeaders } from './client-ip.js'
+import { withAccessMeta } from './request-access-meta.js'
 
 export const CSRF_COOKIE = 'trovara_csrf'
 export const CSRF_HEADER = 'X-CSRF-Token'
 
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+
+/** Keep in sync with CUSTOMER_SESSION_COOKIE in customer-accounts.ts */
+const CUSTOMER_SESSION_COOKIE = 'trovara_customer_session'
+
+/** Shop mutations that require a customer session; guests should get 401, not CSRF 403. */
+const CUSTOMER_SESSION_MUTATION_PATHS = new Set([
+  '/shop/orders',
+  '/shop/logout',
+  '/shop/link-code',
+])
 
 // Webhooks are authenticated by their own mechanisms (Meta HMAC signature,
 // Telegram secret token) - they carry no cookies, so CSRF doesn't apply.
@@ -77,17 +87,28 @@ export async function csrfMiddleware(c: Context, next: Next) {
     return
   }
 
+  // Unauthenticated shop mutations: defer to the route (401) instead of CSRF 403.
+  if (
+    CUSTOMER_SESSION_MUTATION_PATHS.has(c.req.path) &&
+    !getCookie(c, CUSTOMER_SESSION_COOKIE)
+  ) {
+    await next()
+    return
+  }
+
   const cookieToken = getCookie(c, CSRF_COOKIE)
   const headerToken = c.req.header(CSRF_HEADER)
 
   if (!cookieToken || !headerToken || !secureCompare(cookieToken, headerToken)) {
-    logSecurityEvent('csrf_failure', {
-      method: c.req.method,
-      path: c.req.path,
-      hasCookie: Boolean(cookieToken),
-      hasHeader: Boolean(headerToken),
-      ip: clientIpFromHeaders((name) => c.req.header(name)),
-    })
+    logSecurityEvent(
+      'csrf_failure',
+      withAccessMeta((name) => c.req.header(name), {
+        method: c.req.method,
+        path: c.req.path,
+        hasCookie: Boolean(cookieToken),
+        hasHeader: Boolean(headerToken),
+      }),
+    )
     return c.json({ error: 'Invalid or missing CSRF token' }, 403)
   }
 

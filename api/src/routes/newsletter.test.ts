@@ -180,7 +180,7 @@ describe('public newsletter routes', () => {
     expect(JSON.stringify(subscriberInsert?.values)).not.toContain(rawToken)
   })
 
-  it('retains pending signup and returns 503 when delivery fails', async () => {
+  it('retains pending signup and returns 202 when delivery fails', async () => {
     selectQueue.push([])
     sendConfirmationEmail.mockRejectedValueOnce(new Error('provider unavailable'))
     const response = await (await publicApp()).request('/subscribe', {
@@ -192,7 +192,9 @@ describe('public newsletter routes', () => {
         consent: true,
       }),
     })
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(202)
+    const body = await response.json()
+    expect(body).toMatchObject({ ok: true, accepted: true })
     expect(inserted.some((entry) => entry.table === 'newsletter_subscribers')).toBe(true)
     expect(
       updates.some(

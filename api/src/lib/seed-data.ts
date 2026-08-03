@@ -217,6 +217,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   // Break-glass owner authenticates via BREAK_GLASS_PASSWORD in env at login time.
   // Store a random unusable hash so the real secret is never the DB password.
   const breakGlassPlaceholderHash = await hashPassword(randomBytes(32).toString('base64url'))
+  const seedMustChangePassword =
+    process.env.SEED_SKIP_MUST_CHANGE_PASSWORD === 'true' ? false : true
 
   const [owner, sup1, sup2, worker1, worker2, sales] = await db
     .insert(users)
@@ -228,6 +230,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         phone: '2348100000000',
         passwordHash: breakGlassPlaceholderHash,
         role: 'owner',
+        active: true,
         mustChangePassword: false,
       },
       {
@@ -238,7 +241,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         passwordHash: await hashPassword(supervisorPassword),
         role: 'supervisor',
         monthlyWageNgn: 176000,
-        mustChangePassword: true,
+        active: true,
+        mustChangePassword: seedMustChangePassword,
       },
       {
         farmId: farmId,
@@ -248,7 +252,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         passwordHash: await hashPassword(supervisorPassword),
         role: 'supervisor',
         monthlyWageNgn: 176000,
-        mustChangePassword: true,
+        active: true,
+        mustChangePassword: seedMustChangePassword,
       },
       {
         farmId: farmId,
@@ -267,7 +272,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         employmentType: 'permanent',
         employmentStartDate: '2025-06-01',
         employmentStatus: 'employed',
-        mustChangePassword: true,
+        active: true,
+        mustChangePassword: seedMustChangePassword,
       },
       {
         farmId: farmId,
@@ -286,7 +292,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         employmentType: 'casual',
         employmentStartDate: '2025-09-01',
         employmentStatus: 'employed',
-        mustChangePassword: true,
+        active: true,
+        mustChangePassword: seedMustChangePassword,
       },
       {
         farmId: farmId,
@@ -305,7 +312,8 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         employmentType: 'permanent',
         employmentStartDate: '2025-09-01',
         employmentStatus: 'employed',
-        mustChangePassword: true,
+        active: true,
+        mustChangePassword: seedMustChangePassword,
       },
     ])
     .returning()

@@ -197,6 +197,14 @@ const enRolePages: OnboardingCopy['rolePages'] = {
         'Send urgent reports promptly—do not wait until the end of the day.',
       ],
     },
+    '/inventory': {
+      summary: 'Submit a stock count for the store. You record what you counted; a supervisor verifies before stock numbers change.',
+      actions: [
+        'Select each item you counted and enter the real quantity on the shelf.',
+        'Add a location note when it helps (for example cold room or packing shed).',
+        'Submit the count and wait for supervisor verification—do not change stock yourself.',
+      ],
+    },
     '/settings': {
       summary: 'Your personal settings only: language, appearance, notifications, and password. You cannot change farm-wide setup here.',
       actions: [
@@ -295,6 +303,14 @@ const pcmRolePages: OnboardingCopy['rolePages'] = {
         'Send urgent report quick—no wait till day finish.',
       ],
     },
+    '/inventory': {
+      summary: 'Submit stock count for store. You write wetin you count; supervisor go verify before stock number change.',
+      actions: [
+        'Choose each item wey you count and enter real quantity wey dey shelf.',
+        'Add location note if e go help (cold room or packing shed).',
+        'Submit the count and wait for supervisor—no change stock yourself.',
+      ],
+    },
     '/settings': {
       summary: 'Na your personal setting only: language, look, notification and password. You no fit change farm-wide setup here.',
       actions: [
@@ -388,6 +404,14 @@ const yoRolePages: OnboardingCopy['rolePages'] = {
         'Fi ìròyìn pàtàkì ránṣẹ́ kíákíá—má ṣe dúró títí ọjọ́ fi parí.',
       ],
     },
+    '/inventory': {
+      summary: 'Fi iye ọjà tí o ka sílẹ̀. Ìwọ ni yóò kọ ohun tí o ka; supervisor ni yóò jẹ́rìí kí stock tó yí.',
+      actions: [
+        'Yan ọjà kọ̀ọ̀kan tí o ka, kí o sì tẹ iye gidi tó wà lórí pẹpẹ.',
+        'Fi ibi sílẹ̀ bí ó bá wúlò (ilé tútù tàbí ilé ìdìpọ̀).',
+        'Fi ìkà ránṣẹ́, dúró fún ìfọwọ́sí supervisor—má ṣe yí stock fúnrarẹ.',
+      ],
+    },
     '/settings': {
       summary: 'Ìṣètò ti ara ẹ nìkan: èdè, àwọ̀, ìkìlọ̀ àti ọ̀rọ̀ aṣínà. O kò lè yí ìṣètò gbogbo oko padà níbi.',
       actions: [
@@ -479,6 +503,14 @@ const frRolePages: OnboardingCopy['rolePages'] = {
         'Choisissez la bonne zone ou parcelle.',
         'Décrivez clairement ce que vous avez vu et ajoutez une photo si utile.',
         'Envoyez les signalements urgents tout de suite—n’attendez pas la fin de la journée.',
+      ],
+    },
+    '/inventory': {
+      summary: 'Soumettez un inventaire du magasin. Vous saisissez ce que vous avez compté ; un superviseur vérifie avant que le stock change.',
+      actions: [
+        'Sélectionnez chaque article compté et saisissez la quantité réelle sur l’étagère.',
+        'Ajoutez un lieu si utile (chambre froide ou atelier d’emballage).',
+        'Soumettez le comptage et attendez la vérification—ne modifiez pas le stock vous-même.',
       ],
     },
     '/settings': {

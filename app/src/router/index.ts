@@ -10,6 +10,7 @@ const workerAllowedNames = new Set([
   'settings',
   'advisory',
   'field-reports',
+  'inventory',
 ])
 
 const salesAllowedNames = new Set([
@@ -115,7 +116,7 @@ const router = createRouter({
       path: '/tasks/post-approval',
       name: 'post-approval-tasks',
       component: () => import('@/views/PostApprovalTasksView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, managerOnly: true },
     },
     {
       path: '/inventory',
@@ -193,7 +194,7 @@ const router = createRouter({
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, managerOnly: true },
     },
     {
       path: '/journal',

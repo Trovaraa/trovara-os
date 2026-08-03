@@ -104,6 +104,11 @@ function secureCookies(): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
+/** Production fail-closed on verify mail; local/dev keep the account + log the link. */
+function requireLiveShopEmail(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
 function marketingUrl(): string {
   const url = process.env.PUBLIC_MARKETING_URL?.trim()
   if (!url) return 'https://trovara.farm'
@@ -183,7 +188,7 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
 
   const rateLimited = await enforceShopEmailRateLimits(c, ip, email)
   if (rateLimited) return rateLimited
-  if (!emailProviderReady()) return emailDeliveryUnavailable(c)
+  if (requireLiveShopEmail() && !emailProviderReady()) return emailDeliveryUnavailable(c)
 
   const [existing] = await db
     .select({ id: customerAccounts.id })
@@ -212,20 +217,22 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
       const { rawToken } = await createCustomerEmailVerificationToken(unverified.id)
       const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
       logShopEmailLinkLocally('verify', email, verifyUrl)
-      const mail = shopVerifyEmailContent(unverified.name, verifyUrl)
-      const delivery = await sendEmail({
-        to: email,
-        subject: mail.subject,
-        text: mail.text,
-        html: mail.html,
-      })
-      // Keep the anti-enumeration 201 even if resend fails (do not 503 vs verified 201).
-      if (delivery.status !== 'delivered') {
-        logSecurityEvent('password_reset_delivery_failed', {
-          reason: 'shop_register_unverified_resend_failed',
-          status: delivery.status,
-          path: c.req.path,
+      if (emailProviderReady()) {
+        const mail = shopVerifyEmailContent(unverified.name, verifyUrl)
+        const delivery = await sendEmail({
+          to: email,
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html,
         })
+        // Keep the anti-enumeration 201 even if resend fails (do not 503 vs verified 201).
+        if (delivery.status !== 'delivered') {
+          logSecurityEvent('password_reset_delivery_failed', {
+            reason: 'shop_register_unverified_resend_failed',
+            status: delivery.status,
+            path: c.req.path,
+          })
+        }
       }
     }
     return c.json({
@@ -256,8 +263,17 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
   const { rawToken } = await createCustomerEmailVerificationToken(account.id)
   const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
   logShopEmailLinkLocally('verify', email, verifyUrl)
-  const mail = shopVerifyEmailContent(body.name, verifyUrl)
 
+  if (!emailProviderReady()) {
+    // Non-prod only (gated above): account kept; use API log link to verify.
+    return c.json({
+      ok: true,
+      needsVerification: true,
+      message: 'Registration successful. Please check your email to verify your account.',
+    }, 201)
+  }
+
+  const mail = shopVerifyEmailContent(body.name, verifyUrl)
   const delivery = await sendEmail({
     to: email,
     subject: mail.subject,
@@ -265,8 +281,15 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
     html: mail.html,
   })
   if (delivery.status !== 'delivered') {
-    await db.delete(customerAccounts).where(eq(customerAccounts.id, account.id))
-    return emailSendFailed(c)
+    if (requireLiveShopEmail()) {
+      await db.delete(customerAccounts).where(eq(customerAccounts.id, account.id))
+      return emailSendFailed(c)
+    }
+    logSecurityEvent('password_reset_delivery_failed', {
+      reason: 'shop_register_verify_send_failed_kept_local',
+      status: delivery.status,
+      path: c.req.path,
+    })
   }
 
   return c.json({
@@ -570,68 +593,81 @@ customerShopRoutes.get('/orders', async (c) => {
   })
 })
 
-customerShopRoutes.post('/orders', zValidator('json', orderSchema), async (c) => {
-  const account = await currentCustomer(c)
-  if (!account) return c.json({ error: 'Sign in required.' }, 401)
-  
-  const [fullAccount] = await db
-    .select({ emailVerifiedAt: customerAccounts.emailVerifiedAt })
-    .from(customerAccounts)
-    .where(eq(customerAccounts.id, account.id))
-    .limit(1)
-  
-  if (!fullAccount || !fullAccount.emailVerifiedAt) {
-    return c.json(
-      {
-        error: 'Please verify your email before placing an order. Check your inbox for the verification link.',
+customerShopRoutes.post(
+  '/orders',
+  async (c, next) => {
+    // Auth before Zod so anonymous/empty bodies return 401, not 400.
+    const account = await currentCustomer(c)
+    if (!account) return c.json({ error: 'Sign in required.' }, 401)
+    c.set('shopAccount', account)
+    await next()
+  },
+  zValidator('json', orderSchema),
+  async (c) => {
+    const account = c.get('shopAccount') as NonNullable<Awaited<ReturnType<typeof currentCustomer>>>
+
+    const [fullAccount] = await db
+      .select({ emailVerifiedAt: customerAccounts.emailVerifiedAt })
+      .from(customerAccounts)
+      .where(eq(customerAccounts.id, account.id))
+      .limit(1)
+
+    if (!fullAccount || !fullAccount.emailVerifiedAt) {
+      return c.json(
+        {
+          error:
+            'Please verify your email before placing an order. Check your inbox for the verification link.',
+        },
+        403,
+      )
+    }
+
+    const body = c.req.valid('json')
+    const ids = [...new Set(body.items.map((item) => item.productId))]
+    const catalog = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        unit: products.unit,
+        priceKobo: products.priceKobo,
+        currency: products.currency,
+      })
+      .from(products)
+      .where(
+        and(
+          eq(products.farmId, account.farmId),
+          eq(products.active, true),
+          inArray(products.id, ids),
+        ),
+      )
+    if (catalog.length !== ids.length) {
+      return c.json({ error: 'One or more products are unavailable.' }, 400)
+    }
+
+    const contact = await upsertCustomerContact(
+      account.farmId,
+      'web',
+      account.id,
+      account.name,
+      body.phone || account.phone,
+      account.id,
+    )
+
+    const result = await createOrderFromCart({
+      farmId: account.farmId,
+      channel: 'web',
+      contactId: contact.id,
+      contactName: account.name,
+      cart: body.items.map((item) => ({ productId: item.productId, qty: item.quantity })),
+      draft: {
+        name: account.name,
+        phone: body.phone || account.phone || undefined,
+        address: body.address,
       },
-      403,
-    )
-  }
-
-  const body = c.req.valid('json')
-  const ids = [...new Set(body.items.map((item) => item.productId))]
-  const catalog = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      unit: products.unit,
-      priceKobo: products.priceKobo,
-      currency: products.currency,
+      catalog,
     })
-    .from(products)
-    .where(
-      and(
-        eq(products.farmId, account.farmId),
-        eq(products.active, true),
-        inArray(products.id, ids),
-      ),
-    )
-  if (catalog.length !== ids.length) return c.json({ error: 'One or more products are unavailable.' }, 400)
+    if ('error' in result) return c.json({ error: result.error }, 400)
 
-  const contact = await upsertCustomerContact(
-    account.farmId,
-    'web',
-    account.id,
-    account.name,
-    body.phone || account.phone,
-    account.id,
-  )
-
-  const result = await createOrderFromCart({
-    farmId: account.farmId,
-    channel: 'web',
-    contactId: contact.id,
-    contactName: account.name,
-    cart: body.items.map((item) => ({ productId: item.productId, qty: item.quantity })),
-    draft: {
-      name: account.name,
-      phone: body.phone || account.phone || undefined,
-      address: body.address,
-    },
-    catalog,
-  })
-  if ('error' in result) return c.json({ error: result.error }, 400)
-
-  return c.json(result, 201)
-})
+    return c.json(result, 201)
+  },
+)

@@ -234,27 +234,48 @@ export function useReportsData() {
   const error = ref<string | null>(null)
 
   onMounted(async () => {
-    try {
-      const [owner, digestRes, burnRateRes, shrinkRes, actionListRes, plotPnlRes] =
-        await Promise.all([
-          api<OwnerReports>('/api/reports/owner'),
-          api<DigestReport>('/api/reports/digest'),
-          api<BurnRateReport>('/api/reports/burn-rate'),
-          api<InventoryShrinkReport>('/api/reports/inventory-shrink?days=30'),
-          api<ActionListReport>('/api/reports/action-list'),
-          api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
-        ])
-      data.value = owner
-      digest.value = digestRes
-      burnRate.value = burnRateRes
-      inventoryShrink.value = shrinkRes
-      actionList.value = actionListRes
-      plotProfitability.value = plotPnlRes
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : t('reports.loadFailed')
-    } finally {
-      loading.value = false
+    // Ops and finance are authorized differently (supervisor can approve but not
+    // access finance). Fetch separately so a 403 on /owner does not blank the page.
+    const [opsSettled, financeSettled] = await Promise.all([
+      Promise.allSettled([
+        api<DigestReport>('/api/reports/digest'),
+        api<BurnRateReport>('/api/reports/burn-rate'),
+        api<InventoryShrinkReport>('/api/reports/inventory-shrink?days=30'),
+        api<ActionListReport>('/api/reports/action-list'),
+      ]),
+      Promise.allSettled([
+        api<OwnerReports>('/api/reports/owner'),
+        api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
+      ]),
+    ])
+
+    const [digestRes, burnRateRes, shrinkRes, actionListRes] = opsSettled
+    if (digestRes.status === 'fulfilled') digest.value = digestRes.value
+    if (burnRateRes.status === 'fulfilled') burnRate.value = burnRateRes.value
+    if (shrinkRes.status === 'fulfilled') inventoryShrink.value = shrinkRes.value
+    if (actionListRes.status === 'fulfilled') actionList.value = actionListRes.value
+
+    const [ownerRes, plotPnlRes] = financeSettled
+    if (ownerRes.status === 'fulfilled') data.value = ownerRes.value
+    if (plotPnlRes.status === 'fulfilled') plotProfitability.value = plotPnlRes.value
+
+    const hasAny =
+      !!data.value ||
+      !!digest.value ||
+      !!burnRate.value ||
+      !!inventoryShrink.value ||
+      !!actionList.value ||
+      !!plotProfitability.value
+
+    if (!hasAny) {
+      const firstRejection = [...opsSettled, ...financeSettled].find(
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
+      )
+      const reason = firstRejection?.reason
+      error.value = reason instanceof Error ? reason.message : t('reports.loadFailed')
     }
+
+    loading.value = false
   })
 
   function formatMoney(amount: number, currency: string) {

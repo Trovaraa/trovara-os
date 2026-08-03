@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import JournalRichTextEditor from '@/components/JournalRichTextEditor.vue'
 import { api } from '@/lib/api'
+import { prepareJournalCoverDataUrl } from '@/lib/journal-cover'
 
 type JournalPost = {
   id: string
@@ -221,12 +222,17 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-/** OS editor loads covers via authenticated /api (nginx always proxies /api). */
+function mapCoverPrepareError(code: string): string {
+  if (code === 'UNSUPPORTED_IMAGE') return t('journal.imageUnsupported')
+  if (code === 'IMAGE_TOO_LARGE') return t('journal.imageTooLarge')
+  if (code === 'COMPRESS_FAILED') return t('journal.imageCompressFailed')
+  return t('journal.uploadFailed')
+}
+
+/** Prefer public media URLs (nginx ^~ /public/). /api/…/*.jpg can hit a static-asset regex. */
 function coverDisplaySrc(url: string | null | undefined): string | null {
   if (!url) return null
   if (url.startsWith('data:') || url.startsWith('blob:')) return url
-  const match = url.match(/^\/public\/journal\/media\/[^/]+\/([^/]+)$/)
-  if (match) return `/api/journal/media/${match[1]}`
   return url
 }
 
@@ -244,7 +250,25 @@ async function uploadCover(event: Event) {
   uploading.value = true
   clearMessages()
   try {
-    const dataUrl = await readFileAsDataUrl(file)
+    // Hard stop before we try to load multi‑dozen‑MB camera dumps into memory.
+    if (file.size > 25 * 1024 * 1024) {
+      throw new Error(t('journal.imageTooLarge'))
+    }
+
+    let dataUrl: string
+    try {
+      dataUrl = await prepareJournalCoverDataUrl(file)
+    } catch (prepareError) {
+      const code = prepareError instanceof Error ? prepareError.message : ''
+      const compatible =
+        /^image\/(jpeg|png|webp)$/i.test(file.type) && file.size <= 1.5 * 1024 * 1024
+      // Only fall back for already-small JPEG/PNG/WebP if canvas compression fails.
+      if (code === 'COMPRESS_FAILED' && compatible) {
+        dataUrl = await readFileAsDataUrl(file)
+      } else {
+        throw new Error(mapCoverPrepareError(code || 'COMPRESS_FAILED'))
+      }
+    }
     form.coverImageUrl = dataUrl
     const data = await api<{ url: string }>('/api/journal/media', {
       method: 'POST',
@@ -253,11 +277,16 @@ async function uploadCover(event: Event) {
     if (!data.url || !validCoverUrlShape(data.url)) {
       throw new Error(t('journal.uploadFailed'))
     }
+    // Prefer authenticated preview; keep the uploaded URL even if preview probe fails.
     const preview = coverDisplaySrc(data.url)
     if (preview && !preview.startsWith('data:')) {
-      const probe = await fetch(preview, { credentials: 'include', method: 'GET' })
-      if (!probe.ok) {
-        throw new Error(t('journal.uploadFailed'))
+      try {
+        const probe = await fetch(preview, { credentials: 'include', method: 'GET' })
+        if (!probe.ok) {
+          console.warn('Journal cover preview probe failed', probe.status)
+        }
+      } catch {
+        console.warn('Journal cover preview probe failed')
       }
     }
     form.coverImageUrl = data.url
@@ -486,11 +515,12 @@ onMounted(loadPosts)
             <input
               id="journal-cover"
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
               class="mt-1.5 block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:font-semibold file:text-white hover:file:bg-slate-600"
               :disabled="uploading"
               @change="uploadCover"
             />
+            <p class="mt-2 text-xs font-normal text-slate-500">{{ t('journal.coverHint') }}</p>
             <p v-if="uploading" class="mt-2 text-xs text-slate-400">{{ t('journal.uploading') }}</p>
             <img
               v-if="coverDisplaySrc(form.coverImageUrl)"

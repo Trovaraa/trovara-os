@@ -203,13 +203,19 @@ userRoutes.get('/', async (c) => {
   return c.json({ users: visible })
 })
 
-userRoutes.post('/', zValidator('json', createUserSchema), async (c) => {
+userRoutes.post(
+  '/',
+  async (c, next) => {
+    try {
+      requireRole(c.get('user'), 'owner')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    await next()
+  },
+  zValidator('json', createUserSchema),
+  async (c) => {
   const user = c.get('user')
-  try {
-    requireRole(user, 'owner')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
 
   const body = c.req.valid('json')
   const email = body.email.toLowerCase()

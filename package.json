@@ -34,11 +34,13 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "glob": "13.0.6",
     "happy-dom": "^20.11.1"
   },
   "overrides": {
     "fast-uri": "3.1.5",
     "brace-expansion": "5.0.9",
+    "glob": "$glob",
     "happy-dom": "^20.11.1"
   }
 }

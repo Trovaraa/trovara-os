@@ -247,11 +247,13 @@ publicNewsletterRoutes.post('/subscribe', zValidator('json', subscribeSchema), a
 
   await db.insert(newsletterConsentEvents).values({ subscriberId: subscriber.id, ...consent })
 
+  // Keep pending signup even when Resend fails; anti-enumeration always 202.
+  // Local/dev: confirmation link is logged so inbox delivery is not required.
   if (!(await deliverConfirmation(subscriber, confirmationToken))) {
-    return c.json(
-      { error: 'We could not send a confirmation email right now. Please try again later.' },
-      503,
-    )
+    if (process.env.NODE_ENV !== 'production') {
+      const confirmUrl = `${(process.env.PUBLIC_MARKETING_URL?.trim() || 'https://trovara.farm').replace(/\/+$/, '')}/newsletter/confirm?token=${encodeURIComponent(confirmationToken)}`
+      console.info(`[newsletter-email:confirm] to=${email} link=${confirmUrl}`)
+    }
   }
   return c.json(PUBLIC_ACCEPTED, 202)
 })

@@ -31,12 +31,25 @@ const revokingId = ref<string | null>(null)
 const revokeMessage = ref<string | null>(null)
 
 function formatDetails(metadata: Record<string, unknown>): string {
-  const keys = Object.keys(metadata)
+  const skip = new Set(['ip', 'country', 'region'])
+  const keys = Object.keys(metadata).filter((k) => !skip.has(k))
   if (keys.length === 0) return t('security.noDetails')
   return keys
     .slice(0, 4)
     .map((k) => `${k}: ${String(metadata[k])}`)
     .join(' · ')
+}
+
+function metaString(metadata: Record<string, unknown>, key: string): string {
+  const value = metadata[key]
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function formatLocation(metadata: Record<string, unknown>): string {
+  const country = metaString(metadata, 'country')
+  const region = metaString(metadata, 'region')
+  if (region && country) return `${region}, ${country}`
+  return country || region || t('security.noDetails')
 }
 
 async function load() {
@@ -154,7 +167,9 @@ onMounted(load)
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
             <th class="pb-3 font-semibold">{{ t('security.thTimestamp') }}</th>
-            <th class="pb-3 font-semibold">{{ t('security.thEventType') }}</th>
+            <th class="pb-3 font-semibold">{{ t('security.thAction') }}</th>
+            <th class="pb-3 font-semibold">{{ t('security.thIp') }}</th>
+            <th class="pb-3 font-semibold">{{ t('security.thLocation') }}</th>
             <th class="pb-3 font-semibold">{{ t('security.thDetails') }}</th>
           </tr>
         </thead>
@@ -168,6 +183,12 @@ onMounted(load)
               {{ new Date(event.ts).toLocaleString() }}
             </td>
             <td class="py-3 font-mono text-farm-gold">{{ event.type }}</td>
+            <td class="py-3 text-slate-300 font-mono text-xs whitespace-nowrap">
+              {{ metaString(event.metadata, 'ip') || t('security.noDetails') }}
+            </td>
+            <td class="py-3 text-slate-400 text-xs whitespace-nowrap">
+              {{ formatLocation(event.metadata) }}
+            </td>
             <td class="py-3 text-slate-400 text-xs break-all">
               {{ formatDetails(event.metadata) }}
             </td>

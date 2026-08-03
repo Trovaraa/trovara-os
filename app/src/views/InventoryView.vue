@@ -53,6 +53,8 @@ type ShrinkAlert = {
 }
 
 const auth = useAuthStore()
+const isFieldWorker = computed(() => auth.user?.role === 'field_worker')
+const canSubmitCount = computed(() => auth.canApprove || isFieldWorker.value)
 const items = ref<Item[]>([])
 const loading = ref(true)
 
@@ -133,7 +135,7 @@ async function load() {
 }
 
 async function loadCountSessions() {
-  if (!auth.canApprove) return
+  if (!canSubmitCount.value) return
   try {
     const data = await api<{ sessions: CountSession[] }>('/api/inventory/count-sessions')
     countSessions.value = data.sessions ?? []
@@ -611,10 +613,12 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
     </section>
 
     <div
-      v-if="auth.canApprove && !loading"
+      v-if="canSubmitCount && !loading"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
     >
-      <h3 class="font-bold text-white text-sm">Verified inventory count</h3>
+      <h3 class="font-bold text-white text-sm">
+        {{ isFieldWorker ? 'Submit inventory count' : 'Verified inventory count' }}
+      </h3>
       <p class="text-xs text-slate-500">
         Submit a count session. Stock only updates after a different Admin/Supervisor verifies it.
       </p>
@@ -679,7 +683,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
               <template v-if="session.locationText"> · {{ session.locationText }}</template>
             </span>
           </div>
-          <div v-if="session.status === 'submitted'" class="flex gap-2">
+          <div v-if="auth.canApprove && session.status === 'submitted'" class="flex gap-2">
             <button
               type="button"
               :disabled="verifyingSessionId === session.id"

@@ -10,6 +10,7 @@ import { triggerJournalBuildHook } from '../lib/journal-build-hook.js'
 import { readJournalMedia, storeJournalMedia } from '../lib/journal-media.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { requestAccessMeta } from '../lib/request-access-meta.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
 // A marketing rebuild reads the list, each post body, and each cover image in
@@ -64,7 +65,7 @@ const patchPostSchema = postFieldsSchema
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required')
 
 const mediaSchema = z.object({
-  dataUrl: z.string().max(2_100_000),
+  dataUrl: z.string().max(3_400_000),
 })
 
 function isOwner(user: { role: string }): boolean {
@@ -145,8 +146,33 @@ journalRoutes.post('/media', zValidator('json', mediaSchema), async (c) => {
   try {
     const url = await storeJournalMedia(user.farmId, c.req.valid('json').dataUrl)
     return c.json({ url }, 201)
-  } catch {
-    return c.json({ error: 'Invalid or unsupported image' }, 400)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message.includes('too large')) {
+      return c.json(
+        {
+          error:
+            'Image too large. Use JPEG, PNG, or WebP under about 1.5 MB (covers are auto-resized to 1600px on upload).',
+        },
+        400,
+      )
+    }
+    if (message.includes('MIME') || message.includes('data URL') || message.includes('Invalid')) {
+      return c.json(
+        {
+          error:
+            'Unsupported image. Use JPEG, PNG, or WebP under about 1.5 MB. On iPhone, set Camera → Formats → Most Compatible if HEIC fails.',
+        },
+        400,
+      )
+    }
+    return c.json(
+      {
+        error:
+          'Could not store that image. Use JPEG, PNG, or WebP under about 1.5 MB (max edge 1600px after resize).',
+      },
+      400,
+    )
   }
 })
 
@@ -180,6 +206,7 @@ journalRoutes.post('/', zValidator('json', postFieldsSchema), async (c) => {
       action: 'create',
       entityType: 'journal_post',
       entityId: post.id,
+      access: requestAccessMeta((name) => c.req.header(name)),
       metadata: { slug: post.slug, published: false },
     })
     return c.json({ post }, 201)
@@ -233,6 +260,7 @@ journalRoutes.patch('/:id', zValidator('json', patchPostSchema), async (c) => {
       action: 'update',
       entityType: 'journal_post',
       entityId: postId,
+      access: requestAccessMeta((name) => c.req.header(name)),
       metadata: { fields: Object.keys(body).sort() },
     })
     if (changedPublication) {
@@ -242,6 +270,7 @@ journalRoutes.patch('/:id', zValidator('json', patchPostSchema), async (c) => {
         action: nextPublished ? 'publish' : 'unpublish',
         entityType: 'journal_post',
         entityId: postId,
+        access: requestAccessMeta((name) => c.req.header(name)),
       })
     }
     if (nextPublished || existing.published) triggerJournalBuildHook(postId)
@@ -276,6 +305,7 @@ journalRoutes.delete('/:id', async (c) => {
     action: 'delete',
     entityType: 'journal_post',
     entityId: postId,
+    access: requestAccessMeta((name) => c.req.header(name)),
     metadata: { slug: existing.slug },
   })
   if (existing.published) triggerJournalBuildHook(postId)

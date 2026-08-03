@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import { getEvidenceStorageRoot } from './evidence-store.js'
 
-const MAX_DECODED_BYTES = 1_500_000
-const MAX_DATA_URL_LENGTH = 2_100_000
+const MAX_DECODED_BYTES = 2_500_000
+const MAX_DATA_URL_LENGTH = 3_400_000
 const PUBLIC_PREFIX = '/public/journal/media'
 const MIME_TO_EXT = {
   'image/jpeg': 'jpg',

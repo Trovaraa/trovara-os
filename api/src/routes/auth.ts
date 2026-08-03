@@ -43,10 +43,10 @@ import {
   sessionCookieOptions,
   verifyPassword,
 } from '../lib/session.js'
-import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { generateCsrfToken, setCsrfCookie, CSRF_COOKIE } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { requestAccessMeta, withAccessMeta } from '../lib/request-access-meta.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { checkDurableRateLimit, checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
 import { createTotpChallenge } from '../lib/totp.js'
@@ -93,13 +93,13 @@ function hashResetToken(token: string): string {
 }
 
 authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
-  const ip = clientIpFromHeaders((name) => c.req.header(name))
+  const access = requestAccessMeta((name) => c.req.header(name))
+  const ip = access.ip
   if (!(await checkDurableRateLimit(staffLoginRateKey(ip)))) {
-    logSecurityEvent('failed_login', {
+    logSecurityEvent('failed_login', withAccessMeta((name) => c.req.header(name), {
       reason: 'rate_limited',
-      ip,
       path: c.req.path,
-    })
+    }))
     return c.json({ error: 'Too many login attempts. Try again later.' }, 429)
   }
 
@@ -117,11 +117,13 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
 
   if (!user || !user.active) {
     await verifyPassword(await getDummyPasswordHash(), password)
-    logSecurityEvent('failed_login', {
-      reason: !user ? 'unknown_email' : 'inactive_user',
-      email: emailNorm,
-      ip,
-    })
+    logSecurityEvent(
+      'failed_login',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: !user ? 'unknown_email' : 'inactive_user',
+        email: emailNorm,
+      }),
+    )
     return c.json({ error: 'Invalid email or password' }, 401)
   }
 
@@ -136,12 +138,14 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     const envPasswordMatches = verifyBreakGlassPassword(password)
     usedEnvBreakGlass = verifyArmedBreakGlassPassword(password)
     if (envPasswordMatches && !usedEnvBreakGlass) {
-      logSecurityEvent('failed_login', {
-        reason: 'break_glass_disarmed',
-        email: emailNorm,
-        userId: user.id,
-        ip,
-      })
+      logSecurityEvent(
+        'failed_login',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'break_glass_disarmed',
+          email: emailNorm,
+          userId: user.id,
+        }),
+      )
       // Correct env password while disarmed: tell the operator why (they already
       // know the secret). Wrong passwords still get the generic 401 below.
       return c.json(
@@ -158,12 +162,14 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     valid = await verifyPassword(user.passwordHash, password)
   }
   if (!valid) {
-    logSecurityEvent('failed_login', {
-      reason: breakGlass ? 'invalid_break_glass_or_password' : 'invalid_password',
-      email: email.toLowerCase(),
-      userId: user.id,
-      ip,
-    })
+    logSecurityEvent(
+      'failed_login',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: breakGlass ? 'invalid_break_glass_or_password' : 'invalid_password',
+        email: email.toLowerCase(),
+        userId: user.id,
+      }),
+    )
     return c.json({ error: 'Invalid email or password' }, 401)
   }
 
@@ -194,17 +200,20 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   setCsrfCookie(c, generateCsrfToken())
 
   if (breakGlass && usedEnvBreakGlass) {
-    logSecurityEvent('break_glass_login', {
-      userId: user.id,
-      email: user.email,
-      ip,
-      sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
-    })
+    logSecurityEvent(
+      'break_glass_login',
+      withAccessMeta((name) => c.req.header(name), {
+        userId: user.id,
+        email: user.email,
+        sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
+      }),
+    )
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
       action: 'break_glass_login',
       entityType: 'session',
+      access,
       metadata: {
         email: user.email,
         via: 'env_password',
@@ -218,6 +227,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     userId: user.id,
     action: 'login',
     entityType: 'session',
+    access,
     metadata: breakGlass && usedEnvBreakGlass ? { via: 'break_glass_env' } : undefined,
   })
 
@@ -271,18 +281,18 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   const mutation = checkAuthMutationRateLimit(authMutationKey(c))
   if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
-  const ip = clientIpFromHeaders((name) => c.req.header(name))
+  const access = requestAccessMeta((name) => c.req.header(name))
+  const ip = access.ip
   const body = c.req.valid('json')
   const secretMode = await resolveRegistrationSecret(body.registrationSecret)
   if (secretMode.kind === 'disabled') {
     return c.json({ error: 'Admin registration is disabled' }, 503)
   }
   if (secretMode.kind === 'invalid') {
-    logSecurityEvent('failed_registration', {
+    logSecurityEvent('failed_registration', withAccessMeta((name) => c.req.header(name), {
       reason: secretMode.reason,
       email: normalizeRegisterEmail(body.email),
-      ip,
-    })
+    }))
     return c.json({ error: 'Invalid registration secret' }, 401)
   }
 
@@ -315,11 +325,10 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   if (secretMode.kind === 'token') {
     const claimed = await claimRegistrationToken(secretMode.tokenId)
     if (!claimed) {
-      logSecurityEvent('failed_registration', {
+      logSecurityEvent('failed_registration', withAccessMeta((name) => c.req.header(name), {
         reason: 'token_race_lost',
         email,
-        ip,
-      })
+      }))
       return c.json({ error: 'Invalid registration secret' }, 401)
     }
   }
@@ -353,12 +362,11 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
 
   if (secretMode.kind === 'token') {
     await attachRegistrationTokenUser(secretMode.tokenId, created.id)
-    logSecurityEvent('registration_token_used', {
+    logSecurityEvent('registration_token_used', withAccessMeta((name) => c.req.header(name), {
       tokenId: secretMode.tokenId,
       userId: created.id,
       email,
-      ip,
-    })
+    }))
   }
 
   const acceptedAt = new Date()
@@ -388,6 +396,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
     action: 'register',
     entityType: 'user',
     entityId: created.id,
+    access,
     metadata: { role: 'owner', via: 'founder_registration' },
   })
 
@@ -412,6 +421,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
 authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), async (c) => {
   const mutation = checkAuthMutationRateLimit(authMutationKey(c))
   if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
+  const access = requestAccessMeta((name) => c.req.header(name))
 
   const { email } = c.req.valid('json')
   const normalizedEmail = email.toLowerCase()
@@ -438,7 +448,7 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
       tokenHash: hashResetToken(rawToken),
       expiresAt,
     }).returning({ id: passwordResetTokens.id })
-    logSecurityEvent('password_reset_requested', { email: normalizedEmail, userId: user.id })
+    logSecurityEvent('password_reset_requested', withAccessMeta((name) => c.req.header(name), { email: normalizedEmail, userId: user.id }))
 
     const delivery = await deliverPasswordReset(user.email, rawToken, user.phone)
     if (requiredDeliveryFailed(delivery) && resetToken) {
@@ -446,12 +456,12 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
         .where(eq(passwordResetTokens.id, resetToken.id))
-      logSecurityEvent('password_reset_delivery_failed', {
+      logSecurityEvent('password_reset_delivery_failed', withAccessMeta((name) => c.req.header(name), {
         userId: user.id,
         requiredChannels: delivery
           .filter((result) => result.required && result.status !== 'delivered')
           .map((result) => result.channel),
-      })
+      }))
     }
 
     await logAudit({
@@ -459,14 +469,15 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
       userId: user.id,
       action: 'password_reset_requested',
       entityType: 'security',
+      access,
       metadata: { expiresAt: expiresAt.toISOString() },
     })
   } else {
-    logSecurityEvent('password_reset_requested', {
+    logSecurityEvent('password_reset_requested', withAccessMeta((name) => c.req.header(name), {
       email: normalizedEmail,
       userFound: Boolean(user?.active),
       breakGlass: user ? isBreakGlassEmail(user.email) : false,
-    })
+    }))
   }
 
   return c.json({
@@ -476,6 +487,7 @@ authRoutes.post('/forgot-password', zValidator('json', forgotPasswordSchema), as
 })
 
 authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), async (c) => {
+  const access = requestAccessMeta((name) => c.req.header(name))
   const { token, password, newPassword } = c.req.valid('json')
   const nextPassword = newPassword ?? password
   if (!nextPassword) return c.json({ error: 'Password is required' }, 400)
@@ -498,7 +510,7 @@ authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), asyn
     .limit(1)
 
   if (!tokenRow) {
-    logSecurityEvent('password_reset_failed', { reason: 'invalid_or_expired_token' })
+    logSecurityEvent('password_reset_failed', withAccessMeta((name) => c.req.header(name), { reason: 'invalid_or_expired_token' }))
     return c.json({ error: 'Invalid or expired reset token' }, 400)
   }
 
@@ -520,12 +532,13 @@ authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), asyn
   // No active session after reset - revoke all sessions for this user
   await revokeOtherSessions(tokenRow.userId, undefined)
 
-  logSecurityEvent('password_reset_completed', { userId: tokenRow.userId })
+  logSecurityEvent('password_reset_completed', withAccessMeta((name) => c.req.header(name), { userId: tokenRow.userId }))
   await logAudit({
     farmId: tokenRow.farmId,
     userId: tokenRow.userId,
     action: 'password_reset_completed',
     entityType: 'security',
+    access,
   })
 
   return c.json({ ok: true })
@@ -568,12 +581,14 @@ authRoutes.post('/change-password', authMiddleware, zValidator('json', changePas
   const currentToken = getCookie(c, SESSION_COOKIE)
   await revokeOtherSessions(user.id, currentToken)
 
-  logSecurityEvent('password_changed', { userId: user.id })
+  const access = requestAccessMeta((name) => c.req.header(name))
+  logSecurityEvent('password_changed', withAccessMeta((name) => c.req.header(name), { userId: user.id }))
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
     action: 'password_changed',
     entityType: 'security',
+    access,
   })
 
   return c.json({ ok: true })
@@ -648,6 +663,7 @@ authRoutes.patch('/preferences', authMiddleware, zValidator('json', updatePrefer
     action: 'update_preferences',
     entityType: 'user',
     entityId: user.id,
+    access: requestAccessMeta((name) => c.req.header(name)),
     metadata: patch,
   })
 
@@ -664,6 +680,7 @@ authRoutes.post('/revoke-all-sessions', authMiddleware, async (c) => {
     userId: user.id,
     action: 'revoke_all_sessions',
     entityType: 'session',
+    access: requestAccessMeta((name) => c.req.header(name)),
     metadata: { revokedSessions },
   })
 
@@ -702,6 +719,7 @@ authRoutes.delete('/sessions/:id', authMiddleware, async (c) => {
     action: 'revoke_session',
     entityType: 'session',
     entityId: sessionId,
+    access: requestAccessMeta((name) => c.req.header(name)),
   })
   return c.json({ ok: true })
 })
@@ -756,17 +774,19 @@ authRoutes.post(
       ttlHours,
     })
 
-    logSecurityEvent('registration_token_created', {
+    const access = requestAccessMeta((name) => c.req.header(name))
+    logSecurityEvent('registration_token_created', withAccessMeta((name) => c.req.header(name), {
       tokenId: generated.id,
       userId: user.id,
       farmId: user.farmId,
-    })
+    }))
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
       action: 'create',
       entityType: 'registration_token',
       entityId: generated.id,
+      access,
       metadata: { label: label ?? null, expiresAt: generated.expiresAt.toISOString() },
     })
 
@@ -808,17 +828,19 @@ authRoutes.post('/registration-tokens/:id/revoke', authMiddleware, async (c) => 
     return c.json({ error: 'Token not found or already used' }, 404)
   }
 
-  logSecurityEvent('registration_token_revoked', {
+  const access = requestAccessMeta((name) => c.req.header(name))
+  logSecurityEvent('registration_token_revoked', withAccessMeta((name) => c.req.header(name), {
     tokenId,
     userId: user.id,
     farmId: user.farmId,
-  })
+  }))
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
     action: 'delete',
     entityType: 'registration_token',
     entityId: tokenId,
+    access,
   })
   return c.json({ ok: true })
 })

@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { SESSION_COOKIE, getUserFromSession, type SessionUser } from '../lib/session.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { withAccessMeta } from '../lib/request-access-meta.js'
 
 export type AppVariables = {
   user: SessionUser
@@ -31,13 +32,16 @@ export async function authMiddleware(c: Context<{ Variables: AppVariables }>, ne
   c.set('user', user)
   await next()
   if (c.res.status === 403) {
-    logSecurityEvent('forbidden_access', {
-      path: c.req.path,
-      method: c.req.method,
-      userId: user.id,
-      farmId: user.farmId,
-      role: user.role,
-    })
+    logSecurityEvent(
+      'forbidden_access',
+      withAccessMeta((name) => c.req.header(name), {
+        path: c.req.path,
+        method: c.req.method,
+        userId: user.id,
+        farmId: user.farmId,
+        role: user.role,
+      }),
+    )
   }
 }
 

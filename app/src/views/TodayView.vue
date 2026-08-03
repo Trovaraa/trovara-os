@@ -490,7 +490,7 @@ function formatTime(iso: string) {
       <section v-if="isWorker && data.myTasksToday" class="mt-8">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-white">{{ t('today.myTasksToday') }}</h3>
-          <RouterLink to="/tasks" class="text-xs text-farm-green hover:underline">{{ t('today.viewAll') }}</RouterLink>
+          <RouterLink to="/worker" class="text-xs text-farm-green hover:underline">{{ t('today.viewAll') }}</RouterLink>
         </div>
         <ul v-if="data.myTasksToday.length" class="space-y-3">
           <li
@@ -547,8 +547,26 @@ function formatTime(iso: string) {
             {{ isWorker ? t('today.blockers') : t('today.exceptions') }}
           </h3>
           <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            <RouterLink to="/tasks" class="text-farm-green hover:underline">{{ t('nav.tasks') }}</RouterLink>
-            <RouterLink to="/inventory" class="text-farm-green hover:underline">{{ t('nav.inventory') }}</RouterLink>
+            <RouterLink
+              v-if="isWorker"
+              to="/worker"
+              class="text-farm-green hover:underline"
+            >{{ t('nav.myTasks') }}</RouterLink>
+            <RouterLink
+              v-if="isWorker"
+              to="/inventory"
+              class="text-farm-green hover:underline"
+            >{{ t('nav.inventory') }}</RouterLink>
+            <RouterLink
+              v-if="!isWorker"
+              to="/tasks"
+              class="text-farm-green hover:underline"
+            >{{ t('nav.tasks') }}</RouterLink>
+            <RouterLink
+              v-if="!isWorker"
+              to="/inventory"
+              class="text-farm-green hover:underline"
+            >{{ t('nav.inventory') }}</RouterLink>
             <RouterLink v-if="!isWorker" to="/sales" class="text-farm-green hover:underline">{{ t('nav.sales') }}</RouterLink>
           </div>
         </div>

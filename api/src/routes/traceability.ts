@@ -206,9 +206,12 @@ export const traceabilityRoutes = new Hono<{ Variables: AppVariables }>()
 
 traceabilityRoutes.use('*', authMiddleware)
 
-// Owner-only gate for finance/export-style endpoints (QR, certificate, delete).
-function requireOwner(user: SessionUser): SessionUser | null {
-  return canAccessFinance(user) ? user : null
+/**
+ * Timeline, certificate, and CSV export: ops (owner/supervisor via canAssignTasks)
+ * or finance (owner/sales via canAccessFinance). Lot delete is owner-only separately.
+ */
+function requireTraceArtifactAccess(user: SessionUser): SessionUser | null {
+  return canAssignTasks(user) || canAccessFinance(user) ? user : null
 }
 
 traceabilityRoutes.get('/', async (c) => {
@@ -517,7 +520,7 @@ traceabilityRoutes.get('/:id/label.html', async (c) => {
 })
 
 traceabilityRoutes.get('/:id/timeline', async (c) => {
-  const user = requireOwner(c.get('user'))
+  const user = requireTraceArtifactAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
   const lotId = c.req.param('id')
@@ -557,7 +560,7 @@ traceabilityRoutes.get('/:id/timeline', async (c) => {
 // QR serves, so its `publicNotes` stay canonical English: two copies of one
 // certificate must not read differently depending on who printed it.
 traceabilityRoutes.get('/:id/certificate.html', async (c) => {
-  const user = requireOwner(c.get('user'))
+  const user = requireTraceArtifactAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
   const lotId = c.req.param('id')
@@ -645,8 +648,8 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
 })
 
 traceabilityRoutes.delete('/:id', async (c) => {
-  const user = requireOwner(c.get('user'))
-  if (!user) return c.json({ error: 'Forbidden' }, 403)
+  const user = c.get('user')
+  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
 
   const lotId = c.req.param('id')
 
@@ -673,7 +676,7 @@ traceabilityRoutes.delete('/:id', async (c) => {
 })
 
 traceabilityRoutes.get('/export', async (c) => {
-  const user = requireOwner(c.get('user'))
+  const user = requireTraceArtifactAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
   const [lots, events] = await Promise.all([

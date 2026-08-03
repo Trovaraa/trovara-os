@@ -59,9 +59,36 @@ server {
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   proxy_set_header X-Forwarded-Proto $scheme;
+  # Optional geo (when Cloudflare or nginx geo module sets these):
+  # proxy_set_header CF-IPCountry $http_cf_ipcountry;
+  # proxy_set_header CF-Region $http_cf_region;
+  # proxy_set_header X-Country-Code $geoip_country_code;
+  # proxy_set_header X-Region-Code $geoip_region_name;
 
-  # API + auth: no caching of authenticated responses
-  location ~ ^/(api|auth)/ {
+  # API + auth + shop: prefix ^~ so these win over static-extension regexes
+  # (e.g. location ~* \.(jpg|png)$) that would otherwise look for files under the
+  # SPA document root and 404 journal/evidence image previews.
+  location ^~ /api/ {
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+  }
+
+  location ^~ /auth/ {
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+  }
+
+  location ^~ /shop/ {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";

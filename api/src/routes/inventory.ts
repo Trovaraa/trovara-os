@@ -628,9 +628,15 @@ inventoryRoutes.get('/count-sessions', async (c) => {
   return c.json({ sessions: localized })
 })
 
-inventoryRoutes.post('/count-sessions', zValidator('json', countSessionSchema), async (c) => {
+inventoryRoutes.post(
+  '/count-sessions',
+  async (c, next) => {
+    if (c.get('user').role === 'sales') return c.json({ error: 'Forbidden' }, 403)
+    await next()
+  },
+  zValidator('json', countSessionSchema),
+  async (c) => {
   const user = c.get('user')
-  if (user.role === 'sales') return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
 
   const itemIds = body.lines.flatMap((line) => (line.itemId ? [line.itemId] : []))
