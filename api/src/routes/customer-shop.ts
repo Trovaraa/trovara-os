@@ -597,14 +597,13 @@ customerShopRoutes.post(
   '/orders',
   async (c, next) => {
     // Auth before Zod so anonymous/empty bodies return 401, not 400.
-    const account = await currentCustomer(c)
-    if (!account) return c.json({ error: 'Sign in required.' }, 401)
-    c.set('shopAccount', account)
+    if (!(await currentCustomer(c))) return c.json({ error: 'Sign in required.' }, 401)
     await next()
   },
   zValidator('json', orderSchema),
   async (c) => {
-    const account = c.get('shopAccount') as NonNullable<Awaited<ReturnType<typeof currentCustomer>>>
+    const account = await currentCustomer(c)
+    if (!account) return c.json({ error: 'Sign in required.' }, 401)
 
     const [fullAccount] = await db
       .select({ emailVerifiedAt: customerAccounts.emailVerifiedAt })

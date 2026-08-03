@@ -13,11 +13,19 @@ describe('requestAccessMeta', () => {
     process.env.TRUSTED_PROXY_HOPS = '1'
     try {
       const meta = requestAccessMeta((name) => headers[name.toLowerCase()])
-      expect(meta).toEqual({ ip: '203.0.113.10', country: 'NG', region: 'LA' })
+      expect(meta).toEqual({ ip: '203.0.113.10', country: 'Nigeria', region: 'LA' })
     } finally {
       if (prev === undefined) delete process.env.TRUSTED_PROXY_HOPS
       else process.env.TRUSTED_PROXY_HOPS = prev
     }
+  })
+
+  it('approximates location from public IP when geo headers are absent', () => {
+    const meta = requestAccessMeta((name) =>
+      name === 'x-real-ip' ? '8.8.8.8' : undefined,
+    )
+    expect(meta.ip).toBe('8.8.8.8')
+    expect(meta.country).toBe('United States')
   })
 
   it('omits XX / T1 country codes', () => {

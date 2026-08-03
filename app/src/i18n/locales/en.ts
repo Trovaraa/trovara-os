@@ -1592,6 +1592,8 @@ export default {
       thLocation: 'Location',
       thDetails: 'Details',
       noEvents: 'No security events recorded yet.',
+      locationApproxNote:
+        'Location is approximated from the recorded IP address and may not match the exact city.',
       noDetails: '-',
       loadFailed: 'Failed to load security data',
       confirmRevoke: 'Log out all devices? You will stay signed in on this browser.',

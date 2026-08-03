@@ -1550,6 +1550,8 @@ export default {
       thLocation: 'Location',
       thDetails: 'Details',
       noEvents: 'No security event don record yet.',
+      locationApproxNote:
+        'Location na estimate from di IP address; e fit no be di exact city.',
       noDetails: '-',
       loadFailed: 'Security data no load',
       confirmRevoke: 'Log out all devices? You go still dey signed in for dis browser.',

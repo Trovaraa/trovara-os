@@ -196,6 +196,7 @@ onMounted(load)
         </tbody>
       </table>
       <p v-if="!events.length" class="text-slate-500 text-sm mt-4">{{ t('security.noEvents') }}</p>
+      <p v-else class="text-xs text-slate-500 mt-4">{{ t('security.locationApproxNote') }}</p>
     </div>
   </AppLayout>
 </template>

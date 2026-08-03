@@ -9,6 +9,7 @@ import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import { isLlmConfigured } from '../lib/llm.js'
 import { isWhatsAppConfigured } from '../lib/whatsapp-meta.js'
 import { getLastBackupInfo } from '../lib/backup-status.js'
+import { enrichAccessLocation } from '../lib/ip-location.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -150,7 +151,7 @@ systemRoutes.get('/api/system/security-events', authMiddleware, async (c) => {
         return {
           ts: parsed.ts,
           type: parsed.type,
-          metadata: parsed.metadata ?? {},
+          metadata: enrichAccessLocation(parsed.metadata ?? {}),
         }
       } catch {
         return null

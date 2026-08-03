@@ -1553,6 +1553,8 @@ export default {
       thLocation: 'Lieu',
       thDetails: 'Détails',
       noEvents: 'Aucun événement de sécurité enregistré.',
+      locationApproxNote:
+        'Le lieu est approximatif d’après l’adresse IP enregistrée et peut ne pas correspondre à la ville exacte.',
       noDetails: '-',
       loadFailed: 'Échec du chargement des données de sécurité',
       confirmRevoke: 'Déconnecter tous les appareils ? Vous resterez connecté sur ce navigateur.',

@@ -1548,6 +1548,8 @@ export default {
       thLocation: 'Ibùdó',
       thDetails: 'Àlàyé',
       noEvents: 'Kò sí ìṣẹ̀lẹ̀ ààbò tí a kọ sílẹ̀.',
+      locationApproxNote:
+        'Ibùdó jẹ́ àfojúsùn láti orí àdírẹ́sì IP tí a kọ sílẹ̀; ó lè má jẹ́ ìlú gangan.',
       noDetails: '-',
       loadFailed: 'Kò lè gbé dátà ààbò',
       confirmRevoke: 'Já kúrò lórí gbogbo ẹ̀rọ? O yóò wà ní ìgbà wíwọlé lórí aṣàwákiri yìí.',
