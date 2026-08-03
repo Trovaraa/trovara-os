@@ -90,17 +90,18 @@ export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
     active: false,
     tagline: 'The fruit of a thousand uses.',
     description:
-      'Grown in rich tropical soil and harvested at peak maturity for maximum sweetness, water content ' +
-      'and nutrition. Available from fresh coconut water to dried copra, in bulk for trade.',
+      'Grown in rich tropical soil and harvested at peak maturity for retail and processing. ' +
+      'Whole mature fruit ships first; coconut milk, chips, and oil are planned after harvest.',
     benefits: [
-      'Rich in electrolytes and hydration',
-      'Naturally sweet, chemical-free',
-      'Harvested at full maturity',
-      'Multi-purpose: water, flesh, oil, husk',
+      'Harvested at full maturity for retail and processing',
+      'Naturally grown, chemical-free',
+      'Whole fruit SKU for trade and kitchens',
+      'Milk, chips, and oil planned after first harvest',
     ],
     specs: [
-      { label: 'SKU', value: 'TRV-COC-PIECE' },
-      { label: 'Packaging', value: 'Mesh bags (25-50 kg) or custom bulk' },
+      { label: 'Fresh SKU', value: 'TRV-COC-PIECE' },
+      { label: 'Processed SKUs', value: 'TRV-COC-MILK · TRV-COC-CHIPS · TRV-COC-OIL (planned)' },
+      { label: 'Packaging', value: 'Mesh bags (25-50 kg) or custom bulk; retail packs for processed lines' },
       { label: 'First harvest', value: 'June 2027 (forecast)' },
     ],
     note: 'Waitlist only until the first harvest window opens.',

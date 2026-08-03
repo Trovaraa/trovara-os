@@ -647,6 +647,9 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
     { farmId, sku: 'TRV-CHK-BIRD', name: 'Trovara Fresh Chicken', unit: 'bird', sortOrder: 4, priceKobo: 0, active: false },
     { farmId, sku: 'TRV-PLF-PACK', name: 'Trovara Fresh Plantain Flour', unit: 'pack', sortOrder: 5, priceKobo: 0, active: false },
     { farmId, sku: 'TRV-DRP-PACK', name: 'Trovara Fresh Dried Plantain', unit: 'pack', sortOrder: 6, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-COC-MILK', name: 'Trovara Fresh Coconut Milk', unit: 'pack', sortOrder: 7, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-COC-CHIPS', name: 'Trovara Fresh Coconut Chips', unit: 'pack', sortOrder: 8, priceKobo: 0, active: false },
+    { farmId, sku: 'TRV-COC-OIL', name: 'Trovara Fresh Coconut Oil', unit: 'bottle', sortOrder: 9, priceKobo: 0, active: false },
   ])
 
   // Equipment/asset register (pool model). An Admin/supervisor maintains these;
