@@ -384,6 +384,10 @@ export const marketingLeads = pgTable(
       .notNull(),
     staffNotificationError: text('staff_notification_error'),
     staffNotifiedAt: timestamp('staff_notified_at', { withTimezone: true }),
+    // Nullable so pre-consent rows remain readable after migration backfill.
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    consentVersion: text('consent_version'),
+    privacyNoticeUrl: text('privacy_notice_url'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -414,6 +418,14 @@ export const sessions = pgTable('sessions', {
   userAgent: text('user_agent'),
   ipHash: text('ip_hash'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+/** Durable login attempt counters (survive API restarts; used for staff + shop). */
+export const loginRateLimits = pgTable('login_rate_limits', {
+  rateKey: text('rate_key').primaryKey(),
+  attemptCount: integer('attempt_count').default(0).notNull(),
+  windowStartsAt: timestamp('window_starts_at', { withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {
@@ -1142,6 +1154,7 @@ export const customerAccounts = pgTable(
     name: text('name').notNull(),
     phone: text('phone'),
     passwordHash: text('password_hash').notNull(),
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     active: boolean('active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -1165,6 +1178,28 @@ export const customerAccountLinkCodes = pgTable('customer_account_link_codes', {
     .references(() => customerAccounts.id, { onDelete: 'cascade' })
     .notNull(),
   codeHash: text('code_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const customerPasswordResetTokens = pgTable('customer_password_reset_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id')
+    .references(() => customerAccounts.id, { onDelete: 'cascade' })
+    .notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const customerEmailVerificationTokens = pgTable('customer_email_verification_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id')
+    .references(() => customerAccounts.id, { onDelete: 'cascade' })
+    .notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

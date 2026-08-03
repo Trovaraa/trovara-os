@@ -3,11 +3,13 @@ import {
   DEFAULT_BREAK_GLASS_EMAIL,
   isAllowedOwnerEmail,
   isBreakGlassEmail,
+  isBreakGlassEnvLoginEnabled,
   normalizeRegisterEmail,
   normalizeRegisterPhone,
   OWNER_EMAIL_DOMAIN,
   registerBodySchema,
   validateRegistrationSecret,
+  verifyArmedBreakGlassPassword,
   verifyBreakGlassPassword,
 } from './registration.js'
 
@@ -112,10 +114,13 @@ describe('isBreakGlassEmail', () => {
 
 describe('verifyBreakGlassPassword', () => {
   const prev = process.env.BREAK_GLASS_PASSWORD
+  const prevEnabled = process.env.BREAK_GLASS_ENABLED
 
   afterEach(() => {
     if (prev === undefined) delete process.env.BREAK_GLASS_PASSWORD
     else process.env.BREAK_GLASS_PASSWORD = prev
+    if (prevEnabled === undefined) delete process.env.BREAK_GLASS_ENABLED
+    else process.env.BREAK_GLASS_ENABLED = prevEnabled
   })
 
   it('compares against BREAK_GLASS_PASSWORD from env', () => {
@@ -127,5 +132,17 @@ describe('verifyBreakGlassPassword', () => {
   it('fails when env password is unset', () => {
     delete process.env.BREAK_GLASS_PASSWORD
     expect(verifyBreakGlassPassword('anything')).toBe(false)
+  })
+
+  it('armed verify requires BREAK_GLASS_ENABLED=true', () => {
+    process.env.BREAK_GLASS_PASSWORD = 'env-break-glass-secret'
+    delete process.env.BREAK_GLASS_ENABLED
+    expect(isBreakGlassEnvLoginEnabled()).toBe(false)
+    expect(verifyArmedBreakGlassPassword('env-break-glass-secret')).toBe(false)
+
+    process.env.BREAK_GLASS_ENABLED = 'true'
+    expect(isBreakGlassEnvLoginEnabled()).toBe(true)
+    expect(verifyArmedBreakGlassPassword('env-break-glass-secret')).toBe(true)
+    expect(verifyArmedBreakGlassPassword('wrong')).toBe(false)
   })
 })

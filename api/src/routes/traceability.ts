@@ -38,6 +38,7 @@ import {
   renderTraceabilityCertificateHtml,
 } from '../lib/traceability-certificate.js'
 import { toCanonicalEnglish, toViewerLocaleMany } from '../lib/content-locale.js'
+import { publicLotPageUrl as publicLotUrl } from '../lib/public-app-url.js'
 import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import { contentLocaleValues, type ContentLocaleMeta } from '../lib/task-drafts.js'
 
@@ -208,14 +209,6 @@ traceabilityRoutes.use('*', authMiddleware)
 // Owner-only gate for finance/export-style endpoints (QR, certificate, delete).
 function requireOwner(user: SessionUser): SessionUser | null {
   return canAccessFinance(user) ? user : null
-}
-
-function appBaseUrl() {
-  return (process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')
-}
-
-function publicLotUrl(farmSlug: string | null | undefined, publicToken: string): string {
-  return `${appBaseUrl()}/lot/${farmSlug ?? 'farm'}/${publicToken}`
 }
 
 traceabilityRoutes.get('/', async (c) => {

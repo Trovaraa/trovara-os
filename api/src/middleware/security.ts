@@ -5,13 +5,30 @@ import { getCookie } from 'hono/cookie'
 import { csrfMiddleware } from '../lib/csrf.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 
-const loginAttempts = new Map<string, { count: number; resetAt: number }>()
 const mutationAttempts = new Map<string, { count: number; resetAt: number }>()
 const authMutationAttempts = new Map<string, { count: number; resetAt: number }>()
 const MUTATION_WINDOW_MS = 15 * 60 * 1000
 const MUTATION_MAX = 120
 const AUTH_MUTATION_MAX = 30
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+
+// Staff + shop login counters are durable (Postgres) so restarts cannot clear lockouts.
+export {
+  checkDurableRateLimit,
+  checkLoginRateLimit,
+  resetDurableRateLimit,
+  resetLoginRateLimit,
+  staffLoginRateKey,
+  shopLoginRateKey,
+  shopEmailIpRateKey,
+  shopEmailAddrRateKey,
+  hashedRateKey,
+  purgeExpiredLoginRateLimits,
+  LOGIN_RATE_MAX_ATTEMPTS,
+  SHOP_EMAIL_IP_MAX_ATTEMPTS,
+  SHOP_EMAIL_ADDR_MAX_ATTEMPTS,
+  LOGIN_RATE_WINDOW_MS,
+} from '../lib/login-rate-limit.js'
 
 // Photo/voice uploads arrive as base64 JSON (~8 MB worst case); anything bigger
 // is abuse. A reverse proxy (Caddy/nginx) should enforce the same cap in front.
@@ -90,22 +107,6 @@ export function securityMiddleware() {
     }),
     csrfMiddleware,
   ]
-}
-
-export function checkLoginRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const entry = loginAttempts.get(ip)
-  if (!entry || now > entry.resetAt) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 })
-    return true
-  }
-  if (entry.count >= 5) return false
-  entry.count += 1
-  return true
-}
-
-export function resetLoginRateLimit(ip: string) {
-  loginAttempts.delete(ip)
 }
 
 export function checkMutationRateLimit(identity: string): {

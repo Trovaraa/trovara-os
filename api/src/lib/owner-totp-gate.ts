@@ -1,10 +1,12 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
+import { getBreakGlassEmail } from './registration.js'
 
 /**
- * True when at least one active owner on the farm has authenticator (TOTP)
- * enabled. Used to gate customer-facing order channels in production.
+ * True when at least one active day-to-day owner on the farm has authenticator
+ * (TOTP) enabled. The break-glass emergency account is excluded so enabling
+ * 2FA only on that reserved address cannot satisfy the customer-channel gate.
  */
 export async function farmHasOwnerTotpEnabled(farmId: string): Promise<boolean> {
   const [row] = await db
@@ -16,6 +18,7 @@ export async function farmHasOwnerTotpEnabled(farmId: string): Promise<boolean> 
         eq(users.role, 'owner'),
         eq(users.active, true),
         eq(users.totpEnabled, true),
+        ne(users.email, getBreakGlassEmail()),
       ),
     )
     .limit(1)

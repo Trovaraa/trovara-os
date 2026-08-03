@@ -6,6 +6,8 @@ import {
   customerAccountSessions,
   customerAccounts,
   customerContacts,
+  customerPasswordResetTokens,
+  customerEmailVerificationTokens,
 } from '../db/schema.js'
 
 const CUSTOMER_SESSION_DAYS = 30
@@ -138,4 +140,141 @@ export async function linkCustomerContactWithCode(params: {
   })
 
   return { ok: true, accountName: match.accountName }
+}
+
+export async function revokeAllCustomerSessions(accountId: string): Promise<number> {
+  const deleted = await db
+    .delete(customerAccountSessions)
+    .where(eq(customerAccountSessions.accountId, accountId))
+  return deleted.length ?? 0
+}
+
+function hashCustomerToken(token: string): string {
+  return sha256(token)
+}
+
+export async function createCustomerPasswordResetToken(accountId: string): Promise<{
+  rawToken: string
+  expiresAt: Date
+}> {
+  const now = new Date()
+  await db
+    .update(customerPasswordResetTokens)
+    .set({ usedAt: now })
+    .where(
+      and(
+        eq(customerPasswordResetTokens.accountId, accountId),
+        isNull(customerPasswordResetTokens.usedAt),
+        gt(customerPasswordResetTokens.expiresAt, now),
+      ),
+    )
+
+  const rawToken = randomBytes(32).toString('base64url')
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+  await db.insert(customerPasswordResetTokens).values({
+    accountId,
+    tokenHash: hashCustomerToken(rawToken),
+    expiresAt,
+  })
+
+  return { rawToken, expiresAt }
+}
+
+export async function consumeCustomerPasswordResetToken(token: string): Promise<{
+  accountId: string
+  farmId: string
+} | null> {
+  const now = new Date()
+  const [tokenRow] = await db
+    .select({
+      id: customerPasswordResetTokens.id,
+      accountId: customerPasswordResetTokens.accountId,
+      farmId: customerAccounts.farmId,
+    })
+    .from(customerPasswordResetTokens)
+    .innerJoin(customerAccounts, eq(customerPasswordResetTokens.accountId, customerAccounts.id))
+    .where(
+      and(
+        eq(customerPasswordResetTokens.tokenHash, hashCustomerToken(token)),
+        gt(customerPasswordResetTokens.expiresAt, now),
+        isNull(customerPasswordResetTokens.usedAt),
+      ),
+    )
+    .limit(1)
+
+  if (!tokenRow) return null
+
+  await db
+    .update(customerPasswordResetTokens)
+    .set({ usedAt: now })
+    .where(eq(customerPasswordResetTokens.id, tokenRow.id))
+
+  return { accountId: tokenRow.accountId, farmId: tokenRow.farmId }
+}
+
+export async function createCustomerEmailVerificationToken(accountId: string): Promise<{
+  rawToken: string
+  expiresAt: Date
+}> {
+  const now = new Date()
+  await db
+    .update(customerEmailVerificationTokens)
+    .set({ usedAt: now })
+    .where(
+      and(
+        eq(customerEmailVerificationTokens.accountId, accountId),
+        isNull(customerEmailVerificationTokens.usedAt),
+        gt(customerEmailVerificationTokens.expiresAt, now),
+      ),
+    )
+
+  const rawToken = randomBytes(32).toString('base64url')
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+  await db.insert(customerEmailVerificationTokens).values({
+    accountId,
+    tokenHash: hashCustomerToken(rawToken),
+    expiresAt,
+  })
+
+  return { rawToken, expiresAt }
+}
+
+export async function consumeCustomerEmailVerificationToken(token: string): Promise<{
+  accountId: string
+  farmId: string
+  email: string
+} | null> {
+  const now = new Date()
+  const [tokenRow] = await db
+    .select({
+      id: customerEmailVerificationTokens.id,
+      accountId: customerEmailVerificationTokens.accountId,
+      farmId: customerAccounts.farmId,
+      email: customerAccounts.email,
+    })
+    .from(customerEmailVerificationTokens)
+    .innerJoin(customerAccounts, eq(customerEmailVerificationTokens.accountId, customerAccounts.id))
+    .where(
+      and(
+        eq(customerEmailVerificationTokens.tokenHash, hashCustomerToken(token)),
+        gt(customerEmailVerificationTokens.expiresAt, now),
+        isNull(customerEmailVerificationTokens.usedAt),
+      ),
+    )
+    .limit(1)
+
+  if (!tokenRow) return null
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(customerEmailVerificationTokens)
+      .set({ usedAt: now })
+      .where(eq(customerEmailVerificationTokens.id, tokenRow.id))
+    await tx
+      .update(customerAccounts)
+      .set({ emailVerifiedAt: now })
+      .where(eq(customerAccounts.id, tokenRow.accountId))
+  })
+
+  return { accountId: tokenRow.accountId, farmId: tokenRow.farmId, email: tokenRow.email }
 }

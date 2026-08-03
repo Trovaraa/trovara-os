@@ -3,21 +3,16 @@ import QRCode from 'qrcode'
 import { db } from '../db/index.js'
 import { farms, harvestLots, orders } from '../db/schema.js'
 import { orderReference } from './customer-cart.js'
+import { publicAppBaseUrl, publicLotPageUrl } from './public-app-url.js'
 import {
   redactCustomerDisplayName,
   renderBoxLabelHtml,
 } from './traceability-certificate.js'
 
-function appBaseUrl() {
-  return (process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')
-}
-
-export function publicLotPageUrl(farmSlug: string | null | undefined, publicToken: string): string {
-  return `${appBaseUrl()}/lot/${farmSlug ?? 'farm'}/${publicToken}`
-}
+export { publicLotPageUrl }
 
 export function publicLotLabelUrl(farmSlug: string | null | undefined, publicToken: string): string {
-  return `${appBaseUrl()}/public/lots/${farmSlug ?? 'farm'}/${publicToken}/label.html`
+  return `${publicAppBaseUrl()}/public/lots/${farmSlug ?? 'farm'}/${publicToken}/label.html`
 }
 
 export type PrintableLot = {

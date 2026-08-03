@@ -61,9 +61,16 @@ export async function api<T>(
       error?: unknown
       message?: unknown
       code?: unknown
+      breakGlassDisarmed?: unknown
     }
-    const err = new Error(messageFromErrorBody(body, res.status)) as Error & { code?: string }
+    const err = new Error(messageFromErrorBody(body, res.status)) as Error & {
+      code?: string
+      breakGlassDisarmed?: boolean
+    }
     if (typeof body.code === 'string' && body.code.trim()) err.code = body.code
+    if (body.breakGlassDisarmed === true || body.code === 'break_glass_disarmed') {
+      err.breakGlassDisarmed = true
+    }
     throw err
   }
 

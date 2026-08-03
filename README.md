@@ -32,11 +32,12 @@ npm run dev
 
 Staff demo passwords are set in `.env` (`SEED_SUPERVISOR_PASSWORD`, etc.).
 The owner / break-glass account (`owner@trovara.farm`) authenticates with
-`BREAK_GLASS_PASSWORD` from the environment at login time (not the DB hash).
+`BREAK_GLASS_PASSWORD` **only when** `BREAK_GLASS_ENABLED=true` (local seed sets
+this; production should leave it unset except during emergency recovery).
 
 | Email | Role |
 |-------|------|
-| owner@trovara.farm | owner (break-glass via `BREAK_GLASS_PASSWORD`) |
+| owner@trovara.farm | owner (break-glass via armed `BREAK_GLASS_PASSWORD`) |
 | supervisor1@trovara.farm | supervisor |
 | supervisor2@trovara.farm | supervisor |
 | worker1@trovara.farm | field_worker |
@@ -47,7 +48,7 @@ The owner / break-glass account (`owner@trovara.farm`) authenticates with
 
 - API binds to `127.0.0.1` only (local)
 - httpOnly session cookies, argon2 passwords, server-side RBAC
-- Break-glass password is env-only (`BREAK_GLASS_PASSWORD`)
+- Break-glass password is env-only (`BREAK_GLASS_PASSWORD`); login requires `BREAK_GLASS_ENABLED=true`
 - See `docs/security.md` and `docs/ROLE-PERMISSION-MATRIX.md`
 
 ## Structure

@@ -158,7 +158,7 @@ Document and verify for the current production configuration:
 - Email / notification provider
 - Telegram (staff and customer bots)
 - WhatsApp Business API (Meta) - data processing agreement required
-- Configured AI provider (text, images, transcription, and TTS)
+- OpenAI (configured AI provider: free-text customer enquiry answers, staff AI features, text, images, transcription, and TTS; US processing; message text and minimised operational context; no sale of data)
 - Payment processor (future)
 
 No analytics provider is listed because Trovara OS sends data to none.

@@ -2,7 +2,7 @@
 
 Status: **Operational companion** (in-product / staff)  
 Public customer-facing policy: **published** at
-[https://trovara.farm/privacy](https://trovara.farm/privacy) (last updated 2 August 2026).  
+[https://trovara.farm/privacy](https://trovara.farm/privacy) (last updated 3 August 2026).  
 Applies to: Trovara OS, Trovara Farm website enquiry and waitlist forms,
 customer ordering channels, and public traceability pages.
 
@@ -52,7 +52,11 @@ Depending on how you interact with Trovara, we may collect:
 - **Field evidence:** optional photos, voice notes, transcripts, and location
   data supplied while documenting farm work.
 - **Communications:** questions and messages sent through Telegram, WhatsApp,
-  the customer order bot, or the Trovara AI assistant.
+  the customer order bot, or the Trovara AI assistant. Free-text farm or produce
+  questions via the Telegram customer bot (and WhatsApp when that channel is
+  used) may be sent to OpenAI so an answer can be drafted; catalogue browsing,
+  cart, and order-placement steps remain largely deterministic and do not
+  require that AI step.
 - **Security and device data:** session identifier, user agent, security events,
   and a one-way hash of the connecting IP address. Trovara does not intentionally
   store the raw IP address in the application session record.
@@ -111,10 +115,12 @@ it.
 The appropriate lawful basis depends on the activity:
 
 - **Contract or steps before a contract:** account administration, customer
-  ordering, delivery, and services requested by the user.
+  ordering, delivery, answering product or farm enquiries the person sends, and
+  services requested by the user.
 - **Legitimate interests:** secure farm operations, task coordination, fraud
-  prevention, service reliability, and relevant customer support, balanced
-  against the person's rights.
+  prevention, service reliability, and relevant customer support (including
+  drafting replies with AI assistance where needed), balanced against the
+  person's rights.
 - **Legal obligation:** accounting, employment, tax, regulatory, and lawful
   disclosure duties.
 - **Consent:** optional AI processing, marketing, non-essential media or
@@ -133,8 +139,10 @@ the person separately completes the newsletter consent process.
 ## 6. AI, voice, photos, and automated processing
 
 When an AI-enabled feature is used, relevant prompts, farm context, text,
-photos, voice notes, or transcripts may be sent to the configured AI provider.
-Only data necessary for the requested task should be sent.
+photos, voice notes, or transcripts may be sent to **OpenAI** (the configured
+AI provider) to draft answers to customer enquiries or to support staff AI
+features. Only the message text and the minimum operational context needed for
+the task should be sent. Trovara does not sell personal data to OpenAI.
 
 AI output may be incomplete or incorrect. Trovara requires human confirmation
 before AI-generated suggestions create or change operational records. Trovara
@@ -168,8 +176,9 @@ Trovara may disclose data only as necessary to:
   encrypted backups;
 - Meta Platforms for WhatsApp Business messaging;
 - Telegram for bot messaging;
-- the configured AI provider for requested AI, transcription, image, or
-  text-to-speech processing;
+- **OpenAI** for free-text customer enquiry answers, staff AI assistance,
+  transcription, image, or text-to-speech processing (message text and
+  minimised operational context only; no sale of data);
 - notification, email, payment, or support providers added in the future;
 - professional advisers, auditors, insurers, or authorities where legally
   required; and
@@ -183,8 +192,12 @@ for their independent purposes unless separately disclosed and lawfully based.
 
 ## 9. International transfers
 
-Telegram, Meta, AI providers, and infrastructure providers may process data
-outside Nigeria. Before enabling each production integration, Trovara must
+Telegram, Meta, OpenAI, and infrastructure providers may process data outside
+Nigeria. **OpenAI** processes enquiry text and related context in the
+United States when used to draft customer answers or support staff AI features.
+Trovara minimises what is sent and relies on the contractual and product
+safeguards OpenAI offers for API use; this notice does not invent further
+transfer paperwork. Before enabling each production integration, Trovara must
 document the destination, transfer mechanism, provider terms, security
 controls, and any NDPA-required adequacy or contractual safeguards.
 
@@ -325,7 +338,7 @@ Public notice is live at trovara.farm/privacy. Remaining operational follow-ups:
 
 - [x] public privacy page published (marketing site);
 - [x] controller name, address, and contact published on that page;
-- [x] analytics / Resend / Meta / Telegram processors disclosed on that page;
+- [x] analytics / Resend / Meta / Telegram / OpenAI processors disclosed on that page;
 - [ ] lawful bases reviewed by Nigerian privacy counsel (recommended);
 - [ ] exact retention periods approved against live OS cron settings;
 - [ ] data processing agreements with sub-processors where required;

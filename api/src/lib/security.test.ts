@@ -136,6 +136,21 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/public/leads/contact/extra')).toBe(false)
   })
 
+  it('exempts customer shop unauthenticated routes', () => {
+    expect(isCsrfExemptPath('/shop/register')).toBe(true)
+    expect(isCsrfExemptPath('/shop/login')).toBe(true)
+    expect(isCsrfExemptPath('/shop/forgot-password')).toBe(true)
+    expect(isCsrfExemptPath('/shop/reset-password')).toBe(true)
+    expect(isCsrfExemptPath('/shop/verify-email')).toBe(true)
+    expect(isCsrfExemptPath('/shop/resend-verification')).toBe(true)
+  })
+
+  it('requires CSRF for customer shop authenticated routes', () => {
+    expect(isCsrfExemptPath('/shop/orders')).toBe(false)
+    expect(isCsrfExemptPath('/shop/logout')).toBe(false)
+    expect(isCsrfExemptPath('/shop/me')).toBe(false)
+  })
+
   it('does not exempt protected API routes', () => {
     expect(isCsrfExemptPath('/api/tasks')).toBe(false)
     expect(isCsrfExemptPath('/auth/change-password')).toBe(false)

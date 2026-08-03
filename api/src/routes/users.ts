@@ -353,7 +353,7 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
       return c.json(
         {
           error:
-            'Break-glass password is managed via BREAK_GLASS_PASSWORD in the server .env (restart API after changing it).',
+            'Break-glass password is managed via BREAK_GLASS_PASSWORD in the server .env. Env login also requires BREAK_GLASS_ENABLED=true (arm for recovery, then disarm and restart).',
         },
         400,
       )

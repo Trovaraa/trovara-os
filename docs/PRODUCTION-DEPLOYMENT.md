@@ -88,17 +88,20 @@ NODE_ENV=production
 API_HOST=127.0.0.1
 API_PORT=3000
 TRUSTED_PROXY_HOPS=1
-CORS_ORIGIN=https://os.trovara.farm
+CORS_ORIGIN=https://os.trovara.farm,https://trovara.farm,https://www.trovara.farm
 
 PUBLIC_APP_URL=https://os.trovara.farm
 VITE_API_URL=https://os.trovara.farm
 VITE_PUBLIC_APP_URL=https://os.trovara.farm
+VITE_PUBLIC_MARKETING_URL=https://trovara.farm
 PUBLIC_MARKETING_URL=https://trovara.farm
 
 TOTP_ENCRYPTION_KEY=<openssl output>
 CRON_SECRET=<openssl output>
 BREAK_GLASS_PASSWORD=<openssl output>
 # BREAK_GLASS_EMAIL=owner@trovara.farm
+# Leave BREAK_GLASS_ENABLED unset in production. Arm only for emergency recovery:
+# BREAK_GLASS_ENABLED=true
 # ALLOW_CUSTOMER_CHANNELS_WITHOUT_TOTP=true  # temporary only; remove after owner TOTP is on
 
 EVIDENCE_STORAGE_ROOT=/var/lib/trovara-os/evidence
@@ -165,10 +168,13 @@ retained for an authenticated retry. These submissions are not newsletter
 consent and must not be synced to Resend Contacts or the newsletter Segment.
 
 `VITE_API_URL` is the SPA’s API base (baked in at `npm run build`).  
-`VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public OS URL for lot links, emails, and certificates.
-`PUBLIC_MARKETING_URL` is used in customer order emails (shop account links).
+`VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public OS URL for emails, certificates, labels, and the OS lot SPA fallback.  
+`PUBLIC_MARKETING_URL` (and build-time `VITE_PUBLIC_MARKETING_URL`) is the brand site. When set, QR codes and buyer lot links prefer `${PUBLIC_MARKETING_URL}/lot/:farmSlug/:token` so scanners open the marketing-branded page; OS still serves `/lot/...` and `GET /public/lots/...`. Also used for shop account links in customer order emails. Ensure `CORS_ORIGIN` includes `https://trovara.farm` if the marketing site ever calls the API cross-origin (same-origin `/lot-api` and `/shop-api` proxies do not need CORS).
 
-`BREAK_GLASS_PASSWORD` authenticates the break-glass owner email at login time from env (not the DB hash). `./deploy.sh` requires `CRON_SECRET` in the **VM** production `.env` (not the laptop copy).
+`BREAK_GLASS_PASSWORD` is the emergency owner secret (env only, not the DB hash).
+Env login also requires `BREAK_GLASS_ENABLED=true` — leave it **unset** in production
+and arm only for recovery (1-hour session; disarm and restart after). `./deploy.sh`
+requires `CRON_SECRET` in the **VM** production `.env` (not the laptop copy).
 `CUSTOMER_FARM_ID` selects the farm exposed by the public shop and Journal APIs.
 If you also set `TELEGRAM_CUSTOMER_FARM_SLUG`, it **must** be that same farm’s slug —
 mismatched ID vs slug can point shop/bot/Journal at different farms.
@@ -371,7 +377,7 @@ as a response header.
 
 Then verify:
 
-- owner / break-glass login (`BREAK_GLASS_PASSWORD`) and TOTP;
+- owner / break-glass login (armed `BREAK_GLASS_ENABLED` + `BREAK_GLASS_PASSWORD`) and day-to-day owner TOTP;
 - session list/revoke and forced password change (non–break-glass accounts);
 - Settings → Alert subscriptions (customer order alerts vs worker alerts);
 - task photo upload and authenticated evidence retrieval;

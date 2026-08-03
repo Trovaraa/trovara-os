@@ -93,6 +93,7 @@ async function staffApp() {
 beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.MARKETING_LEAD_NOTIFICATION_EMAILS
+  delete process.env.MARKETING_LEAD_CONSENT_VERSION
   inserted.length = 0
   conflicts.length = 0
   selectQueue.length = 0
@@ -130,6 +131,9 @@ describe('marketing lead notifications', () => {
       staffNotificationStatus: 'pending',
       staffNotificationError: null,
       staffNotifiedAt: null,
+      consentAt: new Date(),
+      consentVersion: '1.0',
+      privacyNoticeUrl: 'https://trovara.farm/privacy',
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -144,6 +148,33 @@ describe('marketing lead notifications', () => {
 })
 
 describe('public marketing lead routes', () => {
+  it('rejects contact and waitlist submissions without consent', async () => {
+    const app = await publicApp()
+    const contact = await app.request('/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Ada',
+        email: 'ada@example.com',
+        subject: 'general',
+        message: 'Hello',
+      }),
+    })
+    const waitlist = await app.request('/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Ada',
+        contact: 'ada@example.com',
+        product: 'coconut',
+        consent: false,
+      }),
+    })
+    expect(contact.status).toBe(400)
+    expect(waitlist.status).toBe(400)
+    expect(inserted).toHaveLength(0)
+  })
+
   it('validates contact subjects and accepts the existing contact payload', async () => {
     const app = await publicApp()
     const invalid = await app.request('/contact', {
@@ -154,6 +185,7 @@ describe('public marketing lead routes', () => {
         email: 'ada@example.com',
         subject: 'not-a-subject',
         message: 'Hello',
+        consent: true,
       }),
     })
     expect(invalid.status).toBe(400)
@@ -167,6 +199,7 @@ describe('public marketing lead routes', () => {
         phone: '+234 800 000 0000',
         subject: 'farm-os',
         message: 'Tell me more.',
+        consent: true,
       }),
     })
     expect(valid.status).toBe(202)
@@ -175,7 +208,43 @@ describe('public marketing lead routes', () => {
       email: 'ada@example.com',
       subjectKey: 'farm-os',
       subjectLabel: 'Trovara Farm OS (Operations System)',
+      consentVersion: '1.0',
+      privacyNoticeUrl: 'https://trovara.farm/privacy',
     })
+    expect(inserted[0]?.values.consentAt).toBeInstanceOf(Date)
+  })
+
+  it('stores consentVersion from the body when provided', async () => {
+    const response = await (await publicApp()).request('/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Ada',
+        email: 'ada@example.com',
+        subject: 'general',
+        message: 'Hello',
+        consent: true,
+        consentVersion: '2.1',
+      }),
+    })
+    expect(response.status).toBe(202)
+    expect(inserted[0]?.values).toMatchObject({ consentVersion: '2.1' })
+  })
+
+  it('falls back to MARKETING_LEAD_CONSENT_VERSION when the body omits it', async () => {
+    process.env.MARKETING_LEAD_CONSENT_VERSION = '1.5'
+    const response = await (await publicApp()).request('/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Ada',
+        contact: 'ada@example.com',
+        product: 'eggs',
+        consent: true,
+      }),
+    })
+    expect(response.status).toBe(202)
+    expect(inserted[0]?.values).toMatchObject({ consentVersion: '1.5' })
   })
 
   it.each([
@@ -188,7 +257,7 @@ describe('public marketing lead routes', () => {
     const response = await (await publicApp()).request('/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Ada', contact: 'ADA@Example.COM', product }),
+      body: JSON.stringify({ name: 'Ada', contact: 'ADA@Example.COM', product, consent: true }),
     })
     expect(response.status).toBe(202)
     expect(inserted[0]?.values).toMatchObject({
@@ -197,6 +266,7 @@ describe('public marketing lead routes', () => {
       productLabel: label,
       email: 'ada@example.com',
       normalizedContact: 'email:ada@example.com',
+      consentVersion: '1.0',
     })
   })
 
@@ -204,7 +274,13 @@ describe('public marketing lead routes', () => {
     const response = await (await publicApp()).request('/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Ada Updated', contact: '+234 800 000 0000', product: 'eggs' }),
+      body: JSON.stringify({
+        name: 'Ada Updated',
+        contact: '+234 800 000 0000',
+        product: 'eggs',
+        consent: true,
+        consentVersion: '1.0',
+      }),
     })
     expect(response.status).toBe(202)
     expect(inserted[0]?.values).toMatchObject({
@@ -218,9 +294,12 @@ describe('public marketing lead routes', () => {
       email: null,
       phone: '+234 800 000 0000',
       staffNotificationStatus: 'pending',
+      consentVersion: '1.0',
+      privacyNoticeUrl: 'https://trovara.farm/privacy',
     })
     expect((conflicts[0]?.set as Row).submissionCount).toBeDefined()
     expect((conflicts[0]?.set as Row).status).toBeDefined()
+    expect((conflicts[0]?.set as Row).consentAt).toBeInstanceOf(Date)
   })
 
   it('accepts honeypots without persistence', async () => {
@@ -231,6 +310,7 @@ describe('public marketing lead routes', () => {
         name: 'Bot',
         contact: 'bot@example.com',
         product: 'coconut',
+        consent: true,
         honey: 'filled',
       }),
     })

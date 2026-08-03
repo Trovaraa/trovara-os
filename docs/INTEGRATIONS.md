@@ -26,7 +26,7 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | Postgres | Always | `POSTGRES_*`, `DATABASE_URL` |
 | API core | Always | `API_HOST`, `API_PORT`, `NODE_ENV` |
 | CORS / frontend | Production | `CORS_ORIGIN`, `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, `PUBLIC_APP_URL` |
-| Break-glass | Emergency owner login | `BREAK_GLASS_PASSWORD`, optional `BREAK_GLASS_EMAIL` |
+| Break-glass | Emergency owner login (arm with `BREAK_GLASS_ENABLED`) | `BREAK_GLASS_PASSWORD`, optional `BREAK_GLASS_EMAIL`; `BREAK_GLASS_ENABLED=true` only while recovering |
 | Seed users | Local demo seed | `SEED_SUPERVISOR_PASSWORD`, `SEED_WORKER_PASSWORD`, `SEED_SALES_PASSWORD` |
 | WhatsApp | Staff + customer bots | `WHATSAPP_*`, `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `META_APP_SECRET` — see [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md) |
 | Telegram | Staff + customer bots | `TELEGRAM_*` — see [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) |
@@ -205,7 +205,15 @@ Buyers and auditors can verify harvest lots without logging in.
 https://YOUR_DOMAIN/lot/:farmSlug/:lotCode
 ```
 
-Example: `https://os.trovara.farm/lot/trovara-farm/<publicToken-or-code>`
+Example (OS SPA, always available): `https://os.trovara.farm/lot/trovara-farm/<publicToken-or-code>`
+
+When `PUBLIC_MARKETING_URL` is set (e.g. `https://trovara.farm`), QR codes and buyer-facing share links prefer the marketing route of the same shape:
+
+```
+https://trovara.farm/lot/trovara-farm/<publicToken-or-code>
+```
+
+The marketing site fetches `GET /public/lots/:farmSlug/:lotCode` (via same-origin `/lot-api` proxy) and renders brand UI. Certificates and box labels remain on the OS origin under `/public/lots/...`.
 
 QR codes and **Print QR** labels open the public lot page (certificate-style HTML). Staff can also open printable sticker HTML and the **Trovara Farm Traceability Certificate** from Traceability / Sales.
 

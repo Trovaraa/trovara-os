@@ -17,7 +17,7 @@ import {
   logInquiry,
   suggestedQuestions,
 } from './customer-inquiry.js'
-import { publicAppBaseUrl } from './public-app-url.js'
+import { publicLotPageUrl, publicMarketingBaseUrl } from './public-app-url.js'
 import {
   addToCart,
   cartTotalKobo,
@@ -56,6 +56,7 @@ import {
 import { isPaystackConfigured } from './paystack.js'
 import { linkCustomerContactWithCode } from './customer-accounts.js'
 import { sendEmail } from './notifications.js'
+import { customerOrderEmailContent } from './email-template.js'
 
 export {
   resolveCustomerFarm,
@@ -529,24 +530,21 @@ async function createOrderFromCart(params: {
       .where(eq(customerContacts.id, params.contactId))
       .limit(1)
     if (recipient) {
-      const accountUrl = `${(process.env.PUBLIC_MARKETING_URL ?? 'https://trovara.farm').replace(/\/+$/, '')}/shop`
+      const accountUrl = `${publicMarketingBaseUrl() ?? 'https://trovara.farm'}/shop`
       const traceabilityUrl = lotPublicToken
-        ? `${publicAppBaseUrl()}/lot/${recipient.farmSlug}/${lotPublicToken}`
+        ? publicLotPageUrl(recipient.farmSlug, lotPublicToken)
         : null
+      const mail = customerOrderEmailContent({
+        name: recipient.name,
+        reference,
+        accountUrl,
+        traceabilityUrl,
+      })
       void sendEmail({
         to: recipient.email,
-        subject: `Trovara order ${reference}`,
-        text: [
-          `Hello ${recipient.name},`,
-          '',
-          `We received your Trovara order ${reference}.`,
-          `Track your order: ${accountUrl}`,
-          ...(traceabilityUrl
-            ? [`Traceability record (available after farm verification): ${traceabilityUrl}`]
-            : []),
-          '',
-          'You can also track this order through your linked WhatsApp or Telegram account.',
-        ].join('\n'),
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
       }).catch((err) =>
         console.error('Customer order email failed:', err instanceof Error ? err.message : err),
       )
@@ -634,7 +632,7 @@ async function trackOrders(farmId: string, contactId: string): Promise<string> {
     const when = new Date(o.createdAt).toLocaleDateString('en-NG')
     const trace =
       o.publicToken && o.farmSlug
-        ? `\nTrace this order: ${publicAppBaseUrl()}/lot/${o.farmSlug}/${o.publicToken}`
+        ? `\nTrace this order: ${publicLotPageUrl(o.farmSlug, o.publicToken)}`
         : ''
     return `${orderReference(o.id)} - ${orderStatusLabel(o.status)} · ${paymentStatusLabel(o.paymentStatus)} (${when})${trace}`
   })

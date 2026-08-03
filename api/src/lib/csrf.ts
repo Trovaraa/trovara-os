@@ -21,6 +21,10 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/auth/totp/use-recovery-code',
   '/shop/register',
   '/shop/login',
+  '/shop/forgot-password',
+  '/shop/reset-password',
+  '/shop/verify-email',
+  '/shop/resend-verification',
   // Public double-opt-in actions carry no staff session cookie. Confirmation
   // and unsubscribe are authorized by high-entropy, single-purpose tokens;
   // the Resend webhook verifies its Svix signature.

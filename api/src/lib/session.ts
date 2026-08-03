@@ -7,6 +7,8 @@ import type { UserRole } from '../db/schema.js'
 
 const SESSION_COOKIE = 'trovara_session'
 const SESSION_DAYS = 7
+/** Emergency env break-glass sessions stay short so a static credential is not a week-long key. */
+export const BREAK_GLASS_SESSION_TTL_MS = 60 * 60 * 1000
 
 export { SESSION_COOKIE }
 
@@ -52,11 +54,14 @@ export function hashIp(ip: string): string {
 export type CreateSessionOptions = {
   userAgent?: string
   ipHash?: string
+  /** Override default 7-day lifetime (e.g. break-glass emergency sessions). */
+  ttlMs?: number
 }
 
 export async function createSession(userId: string, options: CreateSessionOptions = {}): Promise<string> {
   const token = generateSessionToken()
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000)
+  const ttlMs = options.ttlMs ?? SESSION_DAYS * 24 * 60 * 60 * 1000
+  const expiresAt = new Date(Date.now() + ttlMs)
   await db.insert(sessions).values({
     userId,
     tokenHash: hashToken(token),

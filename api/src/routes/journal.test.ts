@@ -163,4 +163,13 @@ describe('journal routes', () => {
     expect(payload.posts[0].slug).toBe('published-post')
     expect(payload.posts[0]).not.toHaveProperty('bodyMarkdown')
   })
+
+  it('rejects journal media for a farmId that does not match the resolved shop farm', async () => {
+    const { readJournalMedia } = await import('../lib/journal-media.js')
+    const response = await (await publicApp()).request(
+      '/media/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/example.jpg',
+    )
+    expect(response.status).toBe(404)
+    expect(readJournalMedia).not.toHaveBeenCalled()
+  })
 })

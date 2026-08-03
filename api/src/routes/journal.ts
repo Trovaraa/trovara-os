@@ -297,7 +297,10 @@ publicJournalRoutes.get('/', async (c) => {
 
 publicJournalRoutes.get('/media/:farmId/:filename', async (c) => {
   if (!publicRateLimit(c)) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  const farm = await resolveCustomerFarm()
+  if (!farm) return c.json({ error: 'Not found' }, 404)
   const farmId = c.req.param('farmId')
+  if (farmId !== farm.id) return c.json({ error: 'Not found' }, 404)
   const filename = c.req.param('filename')
 
   try {

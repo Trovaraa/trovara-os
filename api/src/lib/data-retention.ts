@@ -2,6 +2,8 @@ import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { customerContacts, farmEvents, sessions, tasks, users } from '../db/schema.js'
 import { deleteEvidenceByUrl } from './evidence-store.js'
+import { purgeExpiredLoginRateLimits } from './login-rate-limit.js'
+import { loginRateLimits } from '../db/schema.js'
 
 const CHAT_ENTITY_TYPES = ['whatsapp_message', 'telegram_message'] as const
 const REDACTED_TEXT = '[redacted]'
@@ -47,6 +49,7 @@ export async function getRetentionPreview(farmId: string): Promise<{
   pendingExpiredSessions: number
   pendingChatMessages: number
   pendingContactPhones: number
+  pendingExpiredLoginRateLimits: number
 }> {
   const config = getRetentionConfig()
   const evidenceCutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000)
@@ -105,12 +108,18 @@ export async function getRetentionPreview(farmId: string): Promise<{
       ),
     )
 
+  const [loginRateRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(loginRateLimits)
+    .where(sql`${loginRateLimits.windowStartsAt} + interval '15 minutes' < now()`)
+
   return {
     config,
     pendingTaskEvidence: taskEvidenceRow?.count ?? 0,
     pendingExpiredSessions,
     pendingChatMessages: chatRow?.count ?? 0,
     pendingContactPhones: contactRow?.count ?? 0,
+    pendingExpiredLoginRateLimits: loginRateRow?.count ?? 0,
   }
 }
 
@@ -124,6 +133,7 @@ export async function runDataRetention(farmId?: string): Promise<{
   purgedExpiredSessions: number
   redactedChatMessages: number
   nulledContactPhones: number
+  purgedLoginRateLimits: number
 }> {
   const config = getRetentionConfig()
   const evidenceCutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000)
@@ -238,6 +248,8 @@ export async function runDataRetention(farmId?: string): Promise<{
 
   // audit_events rows are append-only and never deleted by retention (legal hold safe).
 
+  const purgedLoginRateLimits = await purgeExpiredLoginRateLimits()
+
   return {
     farmId,
     retentionDays: config.retentionDays,
@@ -248,5 +260,6 @@ export async function runDataRetention(farmId?: string): Promise<{
     purgedExpiredSessions,
     redactedChatMessages: redactedRows.length,
     nulledContactPhones: nulledContacts.length,
+    purgedLoginRateLimits,
   }
 }

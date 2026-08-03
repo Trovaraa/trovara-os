@@ -16,13 +16,14 @@ import {
   renderBoxLabelHtml,
   renderTraceabilityCertificateHtml,
 } from '../lib/traceability-certificate.js'
+import { publicAppBaseUrl, publicLotPageUrl } from '../lib/public-app-url.js'
 
 export const publicRoutes = new Hono()
 
 const PUBLIC_LOT_RATE = { max: 60, windowMs: 60_000 }
 
 function appBaseUrl() {
-  return (process.env.PUBLIC_APP_URL ?? 'https://os.trovara.farm').replace(/\/+$/, '')
+  return publicAppBaseUrl()
 }
 
 function publicLotSelect() {
@@ -172,7 +173,7 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode/certificate.html', async (c) => {
     return c.json({ error: 'Lot not found', code: 'not_found' }, 404)
   }
 
-  const publicUrl = `${appBaseUrl()}/lot/${lot.farmSlug ?? 'farm'}/${lot.publicToken}`
+  const publicUrl = publicLotPageUrl(lot.farmSlug, lot.publicToken)
   const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', margin: 1, width: 180 })
   const html = renderTraceabilityCertificateHtml(
     {
@@ -210,7 +211,7 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode/label.html', async (c) => {
   const lot = await lookupPublicLot(farmSlug, tokenOrCode)
   if (!lot) return c.json({ error: 'Lot not found' }, 404)
 
-  const publicUrl = `${appBaseUrl()}/lot/${lot.farmSlug ?? 'farm'}/${lot.publicToken}`
+  const publicUrl = publicLotPageUrl(lot.farmSlug, lot.publicToken)
   const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', margin: 1, width: 280 })
   const autoPrint = c.req.query('autoprint') === '1'
   const html = renderBoxLabelHtml(

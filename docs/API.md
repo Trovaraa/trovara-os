@@ -96,13 +96,50 @@ mailboxes; otherwise active Owner/Sales users are used, excluding break-glass.
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| POST | `/auth/login` | No | - | `{ email, password }` | `{ user, mustChangePassword? }` + cookies. Break-glass email uses `BREAK_GLASS_PASSWORD` from env. |
+| POST | `/auth/login` | No | - | `{ email, password }` | `{ user, mustChangePassword? }` + cookies. Break-glass email uses armed `BREAK_GLASS_PASSWORD` (`BREAK_GLASS_ENABLED=true`; 1-hour session). |
 | POST | `/auth/logout` | Yes | any | - | `{ ok: true }` |
 | GET | `/auth/me` | Yes | any | - | `{ user }` |
 | GET | `/auth/preferences` | Yes | owner | - | `{ butlerTtsMode, orderAlertsSubscribed, workerAlertsSubscribed }` |
 | PATCH | `/auth/preferences` | Yes | owner | partial prefs | updated prefs |
 
 Login rate limit: 5 attempts per IP per 15 minutes.
+
+---
+
+## Customer Shop (`/shop`)
+
+Customer-facing shop authentication with email verification and password reset.
+
+| Method | Path | Auth | Request | Response |
+|--------|------|------|---------|----------|
+| POST | `/shop/register` | No | `{ email, password, name, phone? }` | `{ ok: true, needsVerification: true, message }`. Never returns 409 for anti-enumeration. Sends verification email. |
+| POST | `/shop/login` | No | `{ email, password }` | `{ account, csrfToken }` + cookies. Returns 403 with `needsVerification: true` if email unverified. Rate limited. |
+| POST | `/shop/logout` | Yes | - | `{ ok: true }` |
+| GET | `/shop/me` | Yes | - | `{ account, channels }` |
+| GET | `/shop/session` | No | - | `{ csrfToken, account? }` |
+| POST | `/shop/forgot-password` | No | `{ email }` | `{ ok: true, message }`. Generic response for anti-enumeration. |
+| POST | `/shop/reset-password` | No | `{ token, newPassword }` | `{ ok: true, message }`. Revokes all sessions. |
+| POST | `/shop/verify-email` | No | `{ token }` | `{ ok: true, message, account, csrfToken }`. Creates session on success. |
+| POST | `/shop/resend-verification` | No | `{ email }` | `{ ok: true, message }`. Generic response for anti-enumeration. |
+| GET | `/shop/orders` | Yes | - | `{ orders }` with items and traceability. |
+| POST | `/shop/orders` | Yes | `{ items, address, phone? }` | Order created. Requires emailVerifiedAt. |
+| GET | `/shop/catalog` | No | - | `{ farm, products }` |
+| POST | `/shop/link-code` | Yes | - | `{ code, expiresAt, instruction }` for linking chat bots. |
+
+**Security hardening:**
+- Existing customer accounts grandfathered: `emailVerifiedAt` set to `createdAt` on migration.
+- New registrations: `emailVerifiedAt` null until verified; no session created.
+- Login: requires verified email; rate limited (5/15min per IP).
+- Orders: require verified email (`emailVerifiedAt IS NOT NULL`).
+- Password reset links expire in 1 hour, verification links in 48 hours.
+- All tokens are high-entropy, single-use, SHA256 hashed.
+- Anti-enumeration: register/forgot-password/resend-verification return generic messages.
+- CSRF exempt: register, login, forgot-password, reset-password, verify-email, resend-verification.
+
+Email links use `PUBLIC_MARKETING_URL` (fallback `https://trovara.farm`):
+- Password reset: `/shop/reset-password?token=...`
+- Email verification: `/shop/verify-email?token=...`
+
 ---
 
 ## Dashboard (`/api/dashboard`)

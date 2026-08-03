@@ -41,7 +41,7 @@ vi.mock('../middleware/auth.js', () => ({
 
 vi.mock('../middleware/security.js', () => ({
   checkAuthMutationRateLimit: vi.fn(() => ({ allowed: true })),
-  resetLoginRateLimit: vi.fn(),
+  resetLoginRateLimit: vi.fn(async () => undefined),
 }))
 
 vi.mock('../lib/csrf.js', () => ({

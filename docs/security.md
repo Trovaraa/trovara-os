@@ -13,16 +13,17 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - API binds to `127.0.0.1` by default
 - CORS restricted to configured origins
 - Security headers on all API responses
-- Rate limiting on login (5 attempts / 15 min per IP)
+- Rate limiting on login (5 attempts / 15 min per IP; durable in Postgres; staff vs shop namespaced; keys hashed)
+- Rate limiting on shop email endpoints (register / forgot / resend: 10/IP and 3/email per 15 min)
 - Rate limiting on mutations (120 writes / 15 min per user or IP)
 - Rate limiting on AI endpoints (60/hour per user, configurable)
 - CSRF double-submit cookie on POST/PATCH/DELETE (`trovara_csrf` + `X-CSRF-Token`)
 - Session metadata: user agent + SHA-256 hashed IP stored on login
 - Session revocation: `POST /auth/revoke-all-sessions`
 - Password reset + forced change on first login (`mustChangePassword`) for staff accounts
-- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); password change / forgot-password blocked for that email; use is audited as `break_glass_login`. The owner row is auto-provisioned when a farm exists (API boot / first break-glass login) so clean go-live without seed still works.
+- Break-glass owner login: password checked against `BREAK_GLASS_PASSWORD` in env (not DB hash); **env login requires `BREAK_GLASS_ENABLED=true`** (default off — arm for recovery, then disarm and restart). Successful env break-glass issues a **1-hour** session and revokes other sessions for that user; password change / forgot-password blocked for that email; use is audited as `break_glass_login`. The owner row is auto-provisioned when a farm exists (API boot / first break-glass login) so clean go-live without seed still works.
 - Owner alert subscriptions: separate opt-in for customer order alerts vs worker alerts (Telegram/WhatsApp)
-- TOTP 2FA for owner accounts (setup/enable/disable in Settings)
+- TOTP 2FA for owner accounts (setup/enable/disable in Settings). Day-to-day owner TOTP (not the break-glass email) gates customer order channels in production.
 - Butler prompt-injection hardening (sanitized inbound + anti-injection system rules)
 - Data retention: `DATA_RETENTION_DAYS` + `npm run run-data-retention`
 - Pending-translation retry: `npm run retry-translations` (DB-direct like `backup`, no HTTP endpoint; needs `DATABASE_URL`, not `CRON_SECRET`)
@@ -35,6 +36,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - API error log: `logs/api.log` (5xx responses, unhandled errors)
 - Encrypted backups: `scripts/backup-db-encrypted.sh` (GPG symmetric)
 - Negative security tests: RBAC deny, CSRF, rate limits (29 tests in CI)
+- Login rate limits (5 / 15 min per IP) are stored in Postgres (`login_rate_limits`) as SHA-256 keys (`staff:login` / `shop:login` scopes) so API restarts cannot clear a lockout and staff/shop counters stay separate; expired windows are purged by the retention cron.
 
 ## Role access
 
@@ -45,8 +47,10 @@ Per-route roles: [`API.md`](./API.md). Do not maintain a third matrix here.
 
 - Email: `BREAK_GLASS_EMAIL` (default `owner@trovara.farm`) — reserved; do not use it for Founder self-registration.
 - Emergency password: `BREAK_GLASS_PASSWORD` in server `.env` (restart API after changing).
-- If that user also has a DB password (e.g. registered before the reserve rule), either the env password or the DB password can sign in; only the env path is audited as `break_glass_login`.
-- Failed logins do not reveal env values.
+- **Arming:** set `BREAK_GLASS_ENABLED=true` and restart only when you need emergency access; unset and restart immediately after. Password may stay set for readiness while login stays disarmed.
+- Env break-glass sessions expire after **1 hour** and revoke other sessions for that account.
+- If that user also has a DB password (e.g. registered before the reserve rule), either the armed env password or the DB password can sign in; only the env path is audited as `break_glass_login`.
+- Failed logins do not reveal env values. A **correct** env password while disarmed returns 403 (`break_glass_disarmed`); the login UI shows a short popup (“Break-glass login is disabled.”). A wrong password still returns the generic 401.
 
 ## Laptop Dev
 

@@ -87,8 +87,15 @@ async function submitLogin() {
       return
     }
     await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
-  } catch {
-    // Store handles user-facing error state.
+  } catch (e) {
+    const disarmed =
+      e instanceof Error &&
+      'breakGlassDisarmed' in e &&
+      (e as Error & { breakGlassDisarmed?: boolean }).breakGlassDisarmed === true
+    if (disarmed) {
+      auth.error = null
+      window.alert('Break-glass login is disabled.')
+    }
   }
 }
 

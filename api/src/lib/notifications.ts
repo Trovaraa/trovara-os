@@ -1,3 +1,9 @@
+import {
+  emailLayout,
+  escapeEmailHtml,
+  staffPasswordResetEmailContent,
+} from './email-template.js'
+
 type Channel = 'email' | 'sms'
 
 type DeliveryResult = {
@@ -45,11 +51,13 @@ function smsConfig(): SmsConfig {
 }
 
 function emailFromAddress(): string | undefined {
-  return (
+  const raw =
     process.env.EMAIL_FROM?.trim() ||
     process.env.RESEND_FROM?.trim() ||
     undefined
-  )
+  if (!raw) return undefined
+  // Strip accidental surrounding quotes from .env editors / shell exports.
+  return raw.replace(/^['"]|['"]$/g, '').trim() || undefined
 }
 
 /** Preferred transactional provider (same API key as newsletter). */
@@ -60,7 +68,7 @@ function resendConfigured(): { apiKey: string; from: string } | null {
   return { apiKey, from }
 }
 
-function emailProviderReady(): boolean {
+export function emailProviderReady(): boolean {
   return Boolean(resendConfigured())
 }
 
@@ -92,12 +100,22 @@ async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
       }),
       signal: AbortSignal.timeout(10_000),
     })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      console.error(
+        `Resend email failed (${response.status}) to=${message.to} subject=${JSON.stringify(message.subject)}: ${detail.slice(0, 400)}`,
+      )
+    }
     return {
       channel: 'email',
       status: response.ok ? 'delivered' : 'failed',
       required,
     }
-  } catch {
+  } catch (err) {
+    console.error(
+      `Resend email request error to=${message.to}:`,
+      err instanceof Error ? err.message : err,
+    )
     return { channel: 'email', status: 'failed', required }
   }
 }
@@ -137,8 +155,17 @@ async function sendViaSmsWebhook(payload: { to: string; message: string }): Prom
 }
 
 export function sendEmail(message: EmailMessage): Promise<DeliveryResult> {
+  const html =
+    message.html ??
+    emailLayout({
+      preheader: message.subject,
+      documentTitle: message.subject,
+      badge: 'TROVARA',
+      headline: message.subject,
+      body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65;white-space:pre-wrap">${escapeEmailHtml(message.text)}</p>`,
+    })
   if (resendConfigured()) {
-    return sendViaResend(message)
+    return sendViaResend({ ...message, html })
   }
   return Promise.resolve({
     channel: 'email',
@@ -200,12 +227,13 @@ export async function deliverPasswordReset(
 
   const deliveries: Promise<DeliveryResult>[] = []
   if (emailReady) {
+    const mail = staffPasswordResetEmailContent(resetUrl)
     deliveries.push(
       sendEmail({
         to: email,
-        subject: 'Reset your Trovara OS password',
-        text: `Use this link to reset your password. It expires in one hour:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this message.`,
-        html: `<p>Use the link below to reset your password. It expires in one hour.</p><p><a href="${resetUrl}">Reset password</a></p><p>If you did not request this, you can ignore this message.</p>`,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
       }),
     )
   } else {
@@ -244,8 +272,17 @@ export async function deliverCriticalAlert(
   message: string,
 ): Promise<DeliveryResult[]> {
   const deliveries: Promise<DeliveryResult>[] = []
+  const html = emailLayout({
+    preheader: subject,
+    documentTitle: subject,
+    badge: 'CRITICAL ALERT',
+    headline: subject,
+    intro: 'Immediate attention may be required.',
+    body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65;white-space:pre-wrap">${escapeEmailHtml(message)}</p>`,
+    footer: 'Sent by Trovara OS monitoring. Review the farm dashboard when you can.',
+  })
   for (const recipient of recipients) {
-    deliveries.push(sendEmail({ to: recipient.email, subject, text: message }))
+    deliveries.push(sendEmail({ to: recipient.email, subject, text: message, html }))
     if (recipient.phone) {
       deliveries.push(sendSms({ to: recipient.phone, message: `${subject}\n${message}` }))
     }

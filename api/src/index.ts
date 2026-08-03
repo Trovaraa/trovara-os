@@ -51,6 +51,7 @@ import {
   marketingLeadRoutes,
   publicMarketingLeadRoutes,
 } from './routes/marketing-leads.js'
+import { shopCustomerRoutes } from './routes/shop-customers.js'
 import { newsletterConfigMissing } from './lib/newsletter-resend.js'
 import {
   apiMutationRateLimit,
@@ -90,6 +91,7 @@ app.route('/api/support', supportRoutes)
 app.route('/api/journal', journalRoutes)
 app.route('/api/newsletter', newsletterRoutes)
 app.route('/api/marketing-leads', marketingLeadRoutes)
+app.route('/api/shop-customers', shopCustomerRoutes)
 app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)
@@ -186,6 +188,15 @@ void ensureBreakGlassOwner()
     } else if (result === 'skipped') {
       console.warn(
         'Break-glass owner not provisioned yet (no farm row). Create the farm, then restart the API or sign in once as the break-glass email.',
+      )
+    }
+    if (process.env.BREAK_GLASS_ENABLED === 'true') {
+      console.warn(
+        'WARNING: BREAK_GLASS_ENABLED=true — env break-glass login is armed (single-factor until TOTP is enabled on that account). Disarm after use: unset BREAK_GLASS_ENABLED and restart.',
+      )
+    } else if (getBreakGlassPasswordFromEnv()) {
+      console.log(
+        'Break-glass env login is disarmed (BREAK_GLASS_ENABLED unset). Password is ready; set BREAK_GLASS_ENABLED=true only for emergency recovery.',
       )
     }
   })

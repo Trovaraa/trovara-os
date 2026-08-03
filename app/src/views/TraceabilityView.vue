@@ -55,7 +55,10 @@ const timelineEvents = ref<Array<{ id: string; type: string; at: string; note?: 
 const timelineError = ref<string | null>(null)
 
 function publicLotUrl(lot: Pick<HarvestLot, 'farmSlug' | 'lotCode' | 'publicToken'>) {
-  const base = import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin
+  const base =
+    import.meta.env.VITE_PUBLIC_MARKETING_URL ??
+    import.meta.env.VITE_PUBLIC_APP_URL ??
+    window.location.origin
   const token = lot.publicToken ?? lot.lotCode
   return `${String(base).replace(/\/+$/, '')}/lot/${lot.farmSlug}/${token}`
 }

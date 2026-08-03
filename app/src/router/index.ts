@@ -26,6 +26,7 @@ const salesAllowedNames = new Set([
   'public-lot',
   'support',
   'marketing-leads',
+  'shop-customers',
 ])
 
 function defaultHome(role?: string) {
@@ -210,6 +211,12 @@ const router = createRouter({
       path: '/marketing-leads',
       name: 'marketing-leads',
       component: () => import('@/views/MarketingLeadsView.vue'),
+      meta: { requiresAuth: true, marketingStaffOnly: true },
+    },
+    {
+      path: '/shop-customers',
+      name: 'shop-customers',
+      component: () => import('@/views/ShopCustomersView.vue'),
       meta: { requiresAuth: true, marketingStaffOnly: true },
     },
     {

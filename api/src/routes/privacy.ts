@@ -295,6 +295,7 @@ privacyRoutes.post('/system/run-retention', zValidator('json', retentionSchema),
         purgedExpiredSessions: result.purgedExpiredSessions,
         redactedChatMessages: result.redactedChatMessages,
         nulledContactPhones: result.nulledContactPhones,
+        purgedLoginRateLimits: result.purgedLoginRateLimits,
       },
     })
   }

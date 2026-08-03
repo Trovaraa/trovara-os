@@ -13,6 +13,7 @@ import {
   normalizeRegisterPhone,
   registerBodySchema,
   validateRegistrationSecret,
+  verifyArmedBreakGlassPassword,
   verifyBreakGlassPassword,
 } from '../lib/registration.js'
 import {
@@ -28,6 +29,7 @@ import {
 import { requireRole } from '../lib/rbac.js'
 import { ensureBreakGlassOwner } from '../lib/break-glass.js'
 import {
+  BREAK_GLASS_SESSION_TTL_MS,
   SESSION_COOKIE,
   countActiveSessions,
   createSession,
@@ -46,7 +48,7 @@ import { generateCsrfToken, setCsrfCookie, CSRF_COOKIE } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { checkLoginRateLimit, checkAuthMutationRateLimit, resetLoginRateLimit } from '../middleware/security.js'
+import { checkDurableRateLimit, checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
 import { createTotpChallenge } from '../lib/totp.js'
 import { deliverPasswordReset, requiredDeliveryFailed } from '../lib/notifications.js'
 import { authMutationKey, denyAuthMutation } from './auth-shared.js'
@@ -92,7 +94,7 @@ function hashResetToken(token: string): string {
 
 authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   const ip = clientIpFromHeaders((name) => c.req.header(name))
-  if (!checkLoginRateLimit(ip)) {
+  if (!(await checkDurableRateLimit(staffLoginRateKey(ip)))) {
     logSecurityEvent('failed_login', {
       reason: 'rate_limited',
       ip,
@@ -124,13 +126,33 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   }
 
   const breakGlass = isBreakGlassEmail(user.email)
-  // Break-glass email: env password is the emergency path; DB hash still works so
-  // a Founder who registered as this address can sign in with the password they set.
+  // Break-glass email: env password is the emergency path (only when
+  // BREAK_GLASS_ENABLED=true); DB hash still works so a Founder who registered
+  // as this address can sign in with the password they set.
   let valid = false
   let usedEnvBreakGlass = false
   if (breakGlass) {
     await verifyPassword(await getDummyPasswordHash(), password)
-    usedEnvBreakGlass = verifyBreakGlassPassword(password)
+    const envPasswordMatches = verifyBreakGlassPassword(password)
+    usedEnvBreakGlass = verifyArmedBreakGlassPassword(password)
+    if (envPasswordMatches && !usedEnvBreakGlass) {
+      logSecurityEvent('failed_login', {
+        reason: 'break_glass_disarmed',
+        email: emailNorm,
+        userId: user.id,
+        ip,
+      })
+      // Correct env password while disarmed: tell the operator why (they already
+      // know the secret). Wrong passwords still get the generic 401 below.
+      return c.json(
+        {
+          error: 'Break-glass login is disabled.',
+          code: 'break_glass_disarmed',
+          breakGlassDisarmed: true,
+        },
+        403,
+      )
+    }
     valid = usedEnvBreakGlass || (await verifyPassword(user.passwordHash, password))
   } else {
     valid = await verifyPassword(user.passwordHash, password)
@@ -155,10 +177,17 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     })
   }
 
-  resetLoginRateLimit(ip)
+  await resetDurableRateLimit(staffLoginRateKey(ip))
+
+  if (usedEnvBreakGlass) {
+    // Drop any lingering sessions before issuing the short emergency session.
+    await revokeOtherSessions(user.id, undefined)
+  }
+
   const token = await createSession(user.id, {
     userAgent,
     ipHash: hashedIp,
+    ttlMs: usedEnvBreakGlass ? BREAK_GLASS_SESSION_TTL_MS : undefined,
   })
   const secure = process.env.NODE_ENV === 'production'
   setCookie(c, SESSION_COOKIE, token, sessionCookieOptions(secure))
@@ -169,13 +198,18 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
       userId: user.id,
       email: user.email,
       ip,
+      sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
     })
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
       action: 'break_glass_login',
       entityType: 'session',
-      metadata: { email: user.email, via: 'env_password' },
+      metadata: {
+        email: user.email,
+        via: 'env_password',
+        sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
+      },
     })
   }
 
@@ -198,6 +232,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
       butlerTtsMode: user.butlerTtsMode,
       preferredLocale: user.preferredLocale,
     },
+    // Env break-glass cannot rotate via UI; do not force a change-password loop.
     mustChangePassword: breakGlass && usedEnvBreakGlass ? false : user.mustChangePassword,
   })
 })

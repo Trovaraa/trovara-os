@@ -8,6 +8,10 @@ import { marketingLeads, users } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
+import {
+  escapeEmailHtml,
+  marketingLeadEmailContent,
+} from '../lib/email-template.js'
 import { sendEmail } from '../lib/notifications.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { getBreakGlassEmail } from '../lib/registration.js'
@@ -43,18 +47,28 @@ const optionalPhone = z.preprocess(
   (value) => (typeof value === 'string' && !value.trim() ? undefined : value),
   z.string().trim().min(7).max(40).optional(),
 )
+const optionalConsentVersion = z.preprocess(
+  (value) => (typeof value === 'string' && !value.trim() ? undefined : value),
+  z.string().trim().min(1).max(32).optional(),
+)
+const leadConsentFields = {
+  consent: z.literal(true),
+  consentVersion: optionalConsentVersion,
+} as const
 const contactSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(320),
   phone: optionalPhone,
   message: z.string().trim().min(1).max(4_000),
   subject: subjectSchema,
+  ...leadConsentFields,
   honey: z.string().max(500).optional(),
 }).strict()
 const waitlistSchema = z.object({
   name: z.string().trim().min(1).max(120),
   contact: z.string().trim().min(5).max(320),
   product: productSchema,
+  ...leadConsentFields,
   honey: z.string().max(500).optional(),
 }).strict().superRefine((value, context) => {
   if (!contactParts(value.contact)) {
@@ -65,6 +79,19 @@ const waitlistSchema = z.object({
     })
   }
 })
+const DEFAULT_PRIVACY_NOTICE_URL = 'https://trovara.farm/privacy'
+
+function marketingLeadConsentVersion(fromBody?: string): string {
+  return fromBody?.trim() || process.env.MARKETING_LEAD_CONSENT_VERSION?.trim() || '1.0'
+}
+
+function marketingLeadConsentRecord(fromBody?: string) {
+  return {
+    consentAt: new Date(),
+    consentVersion: marketingLeadConsentVersion(fromBody),
+    privacyNoticeUrl: DEFAULT_PRIVACY_NOTICE_URL,
+  }
+}
 const listSchema = z.object({
   type: z.enum(leadTypes).optional(),
   status: z.enum(leadStatuses).optional(),
@@ -122,15 +149,6 @@ function publicRateLimit(c: { req: { header: (name: string) => string | undefine
   return result.allowed
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
 function safeError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error))
     .replace(/re_[A-Za-z0-9_-]+/g, '[redacted]')
@@ -159,90 +177,35 @@ function configuredMarketingLeadRecipients(): Array<{ email: string }> | null {
 
 function leadNotificationHtml(lead: MarketingLead, descriptor: string, contact: string): string {
   const isContact = lead.leadType === 'contact'
-  const label = isContact ? 'NEW WEBSITE ENQUIRY' : 'NEW PRODUCT WAITLIST JOIN'
-  const title = isContact ? 'A new enquiry just came in' : 'Someone joined a product waitlist'
   const contactHref = lead.email
-    ? `mailto:${escapeHtml(lead.email)}`
+    ? `mailto:${escapeEmailHtml(lead.email)}`
     : lead.phone
-      ? `tel:${escapeHtml(lead.phone)}`
+      ? `tel:${escapeEmailHtml(lead.phone)}`
       : null
   const contactValue = contactHref
-    ? `<a href="${contactHref}" style="color:#276338;text-decoration:none;font-weight:700">${escapeHtml(contact)}</a>`
-    : escapeHtml(contact)
-  const message = lead.message
-    ? `<div style="margin:24px 0 0;padding:18px 20px;background:#f4f7f2;border-left:4px solid #889058;border-radius:0 8px 8px 0">
-        <p style="margin:0 0 8px;color:#617064;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase">Message</p>
-        <p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">${escapeHtml(lead.message).replace(/\n/g, '<br>')}</p>
-      </div>`
-    : ''
+    ? `<a href="${contactHref}" style="color:#276338;text-decoration:none;font-weight:700">${escapeEmailHtml(contact)}</a>`
+    : escapeEmailHtml(contact)
+  const messageHtml = lead.message
+    ? escapeEmailHtml(lead.message).replace(/\n/g, '<br>')
+    : undefined
 
-  return `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title></head>
-<body style="margin:0;background:#f1f4ef;color:#28382f;font-family:Arial,Helvetica,sans-serif">
-  <div style="display:none;max-height:0;overflow:hidden">${escapeHtml(`${lead.name} submitted ${descriptor}.`)}</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f4ef">
-    <tr>
-      <td align="center" style="padding:32px 16px">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:#ffffff;border:1px solid #dfe8dc;border-radius:14px;overflow:hidden">
-          <tr>
-            <td style="padding:24px 28px;background:#18311f">
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding-right:12px;vertical-align:middle">
-                    <img src="https://trovara.farm/brand/trovara-mark.png" width="46" height="46" alt="" style="display:block;width:46px;height:46px;border:0;border-radius:9px">
-                  </td>
-                  <td style="vertical-align:middle">
-                    <span style="display:block;color:#ffffff;font-size:19px;font-weight:800;letter-spacing:1.5px;line-height:1.1">TROVARA</span>
-                    <span style="display:block;margin-top:4px;color:#c5ce82;font-size:9px;font-weight:700;letter-spacing:3.5px;line-height:1">FARM OS</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:32px 28px">
-              <span style="display:inline-block;padding:6px 10px;background:#edf4e9;color:#276338;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:1px">${label}</span>
-              <h1 style="margin:16px 0 8px;color:#18311f;font-size:27px;line-height:1.25">${title}</h1>
-              <p style="margin:0 0 26px;color:#617064;font-size:15px;line-height:1.6">Review the details below and follow up while the enquiry is fresh.</p>
-
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e2e9df;border-radius:10px">
-                <tr>
-                  <td style="width:34%;padding:13px 16px;border-bottom:1px solid #e8eee5;color:#718075;font-size:12px;font-weight:700;text-transform:uppercase">Name</td>
-                  <td style="padding:13px 16px;border-bottom:1px solid #e8eee5;color:#28382f;font-size:14px;font-weight:700">${escapeHtml(lead.name)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:13px 16px;border-bottom:1px solid #e8eee5;color:#718075;font-size:12px;font-weight:700;text-transform:uppercase">Contact</td>
-                  <td style="padding:13px 16px;border-bottom:1px solid #e8eee5;font-size:14px">${contactValue}</td>
-                </tr>
-                <tr>
-                  <td style="padding:13px 16px;border-bottom:1px solid #e8eee5;color:#718075;font-size:12px;font-weight:700;text-transform:uppercase">${isContact ? 'Topic' : 'Product'}</td>
-                  <td style="padding:13px 16px;border-bottom:1px solid #e8eee5;color:#28382f;font-size:14px">${escapeHtml(descriptor)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:13px 16px;color:#718075;font-size:12px;font-weight:700;text-transform:uppercase">Submissions</td>
-                  <td style="padding:13px 16px;color:#28382f;font-size:14px">${lead.submissionCount}</td>
-                </tr>
-              </table>
-
-              ${message}
-
-              <p style="margin:28px 0 0">
-                <a href="${escapeHtml(marketingLeadsUrl())}" style="display:inline-block;padding:13px 20px;background:#2f6b3b;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:700">Open in Trovara OS</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:18px 28px;background:#f8faf7;border-top:1px solid #e2e9df;color:#718075;font-size:12px;line-height:1.5">
-              Sent automatically because you are an active Owner or Sales user in Trovara OS.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+  return marketingLeadEmailContent({
+    badge: isContact ? 'NEW WEBSITE ENQUIRY' : 'NEW PRODUCT WAITLIST JOIN',
+    headline: isContact ? 'A new enquiry just came in' : 'Someone joined a product waitlist',
+    intro: 'Review the details below and follow up while the enquiry is fresh.',
+    preheader: `${lead.name} submitted ${descriptor}.`,
+    rows: [
+      { label: 'Name', valueHtml: escapeEmailHtml(lead.name) },
+      { label: 'Contact', valueHtml: contactValue },
+      {
+        label: isContact ? 'Topic' : 'Product',
+        valueHtml: escapeEmailHtml(descriptor),
+      },
+      { label: 'Submissions', valueHtml: String(lead.submissionCount) },
+    ],
+    messageHtml,
+    ctaHref: marketingLeadsUrl(),
+  })
 }
 
 export async function notifyMarketingLead(lead: MarketingLead): Promise<boolean> {
@@ -319,6 +282,7 @@ publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), as
   if (!farm) return c.json({ error: 'Form service is temporarily unavailable.' }, 503)
   const now = new Date()
   const email = normalizeEmail(body.email)
+  const consent = marketingLeadConsentRecord(body.consentVersion)
   const [lead] = await db.insert(marketingLeads).values({
     farmId: farm.id,
     leadType: 'contact',
@@ -331,6 +295,7 @@ publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), as
     message: body.message,
     source: 'marketing_public_contact',
     lastSubmittedAt: now,
+    ...consent,
   }).returning()
   startNotification(lead)
   return c.json(PUBLIC_ACCEPTED, 202)
@@ -345,6 +310,7 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
   const contact = contactParts(body.contact)
   if (!contact) return c.json({ error: 'Invalid contact' }, 400)
   const now = new Date()
+  const consent = marketingLeadConsentRecord(body.consentVersion)
   const [lead] = await db.insert(marketingLeads).values({
     farmId: farm.id,
     leadType: 'product_waitlist',
@@ -356,6 +322,7 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
     productLabel: PRODUCTS[body.product],
     source: 'marketing_public_waitlist',
     lastSubmittedAt: now,
+    ...consent,
   }).onConflictDoUpdate({
     target: [marketingLeads.farmId, marketingLeads.productKey, marketingLeads.normalizedContact],
     targetWhere: sql`${marketingLeads.leadType} = 'product_waitlist'`,
@@ -366,6 +333,9 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
       status: sql`case when ${marketingLeads.status} in ('closed', 'spam') then 'new'::marketing_lead_status else ${marketingLeads.status} end`,
       submissionCount: sql`${marketingLeads.submissionCount} + 1`,
       lastSubmittedAt: now,
+      consentAt: consent.consentAt,
+      consentVersion: consent.consentVersion,
+      privacyNoticeUrl: consent.privacyNoticeUrl,
       staffNotificationStatus: 'pending',
       staffNotificationError: null,
       updatedAt: now,

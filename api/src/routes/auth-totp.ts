@@ -21,7 +21,7 @@ import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { checkAuthMutationRateLimit, resetLoginRateLimit } from '../middleware/security.js'
+import { checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
 import { requireRole } from '../lib/rbac.js'
 import { authMutationKey, denyAuthMutation } from './auth-shared.js'
 import {
@@ -158,7 +158,7 @@ export function registerTotpRoutes(app: AuthApp) {
 
     resetTotpChallengeRateLimit(totpChallenge, ip)
     consumeTotpChallenge(totpChallenge)
-    resetLoginRateLimit(ip)
+    await resetDurableRateLimit(staffLoginRateKey(ip))
 
     const sessionToken = await createSession(user.id, {
       userAgent,
@@ -384,7 +384,7 @@ export function registerTotpRoutes(app: AuthApp) {
 
       resetTotpChallengeRateLimit(totpChallenge, ip)
       consumeTotpChallenge(totpChallenge)
-      resetLoginRateLimit(ip)
+      await resetDurableRateLimit(staffLoginRateKey(ip))
 
       const sessionToken = await createSession(user.id, {
         userAgent,

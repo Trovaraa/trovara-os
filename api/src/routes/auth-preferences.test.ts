@@ -51,8 +51,8 @@ vi.mock('../middleware/auth.js', () => ({
 
 vi.mock('../middleware/security.js', () => ({
   checkAuthMutationRateLimit: vi.fn(() => ({ allowed: true, retryAfterSec: 0 })),
-  checkLoginRateLimit: vi.fn(() => true),
-  resetLoginRateLimit: vi.fn(),
+  checkLoginRateLimit: vi.fn(async () => true),
+  resetLoginRateLimit: vi.fn(async () => undefined),
 }))
 
 vi.mock('../routes/auth-totp.js', () => ({ registerTotpRoutes: () => undefined }))

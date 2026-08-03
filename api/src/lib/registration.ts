@@ -67,14 +67,33 @@ export function isBreakGlassEmail(email: string): boolean {
 /**
  * Break-glass password lives only in process env (BREAK_GLASS_PASSWORD), not the DB.
  * Changing it requires updating .env and restarting the API — no re-seed.
+ *
+ * Env-password login is also gated by BREAK_GLASS_ENABLED (see
+ * isBreakGlassEnvLoginEnabled). Keep the password set for emergency readiness;
+ * leave ENABLED unset/false in production so the static credential cannot
+ * permanently bypass owner TOTP.
  */
 export function getBreakGlassPasswordFromEnv(): string | null {
   const password = process.env.BREAK_GLASS_PASSWORD?.trim()
   return password || null
 }
 
+/** Explicit ops arming for env break-glass login. Default off. */
+export function isBreakGlassEnvLoginEnabled(): boolean {
+  return process.env.BREAK_GLASS_ENABLED === 'true'
+}
+
 export function verifyBreakGlassPassword(password: string): boolean {
   const expected = getBreakGlassPasswordFromEnv()
   if (!expected) return false
   return secureCompareSecret(password, expected)
+}
+
+/**
+ * True when the provided password matches the env secret AND break-glass login
+ * is armed. Password verification alone is still used for already-authenticated
+ * flows (change-password / TOTP confirm); only session creation is gated.
+ */
+export function verifyArmedBreakGlassPassword(password: string): boolean {
+  return isBreakGlassEnvLoginEnabled() && verifyBreakGlassPassword(password)
 }
