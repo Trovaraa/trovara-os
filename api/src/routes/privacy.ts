@@ -13,7 +13,7 @@ import {
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { getRetentionPreview, runDataRetention } from '../lib/data-retention.js'
 import {
@@ -47,7 +47,7 @@ async function loadActorForRetention(c: any): Promise<{ user: SessionUser | null
   if (hasValidCronSecret(c)) return { user: null, cron: true }
   await authMiddleware(c, async () => undefined)
   const user = c.get('user') as SessionUser
-  requireRole(user, 'owner')
+  requirePermission(user, 'privacy.admin')
   return { user, cron: false }
 }
 
@@ -58,7 +58,7 @@ privacyRoutes.use('/privacy/*', authMiddleware)
 privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'privacy.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -127,7 +127,7 @@ privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), as
 privacyRoutes.get('/privacy/retention-status', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'privacy.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -139,7 +139,7 @@ privacyRoutes.get('/privacy/retention-status', async (c) => {
 privacyRoutes.get('/privacy/anonymize-targets', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'privacy.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -175,7 +175,7 @@ privacyRoutes.get('/privacy/anonymize-targets', async (c) => {
 privacyRoutes.post('/privacy/anonymize-user/:id', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'privacy.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -213,7 +213,7 @@ privacyRoutes.post(
   async (c) => {
     const user = c.get('user')
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'privacy.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }

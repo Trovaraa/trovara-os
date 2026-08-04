@@ -57,7 +57,23 @@ export const CSRF_EXEMPT_PATHS = new Set([
 ])
 
 export function isCsrfExemptPath(path: string): boolean {
-  return CSRF_EXEMPT_PATHS.has(path)
+  const normalized =
+    path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+  return CSRF_EXEMPT_PATHS.has(normalized)
+}
+
+/** Internet scanners; still reject the request, but don't flood the security dashboard. */
+const CSRF_FAILURE_NOISE_PATHS = new Set([
+  '/api/gql',
+  '/api/graphql',
+  '/graphql',
+  '/gql',
+])
+
+function shouldLogCsrfFailure(path: string): boolean {
+  const normalized =
+    path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+  return !CSRF_FAILURE_NOISE_PATHS.has(normalized)
 }
 
 export function generateCsrfToken(): string {
@@ -100,15 +116,17 @@ export async function csrfMiddleware(c: Context, next: Next) {
   const headerToken = c.req.header(CSRF_HEADER)
 
   if (!cookieToken || !headerToken || !secureCompare(cookieToken, headerToken)) {
-    logSecurityEvent(
-      'csrf_failure',
-      withAccessMeta((name) => c.req.header(name), {
-        method: c.req.method,
-        path: c.req.path,
-        hasCookie: Boolean(cookieToken),
-        hasHeader: Boolean(headerToken),
-      }),
-    )
+    if (shouldLogCsrfFailure(c.req.path)) {
+      logSecurityEvent(
+        'csrf_failure',
+        withAccessMeta((name) => c.req.header(name), {
+          method: c.req.method,
+          path: c.req.path,
+          hasCookie: Boolean(cookieToken),
+          hasHeader: Boolean(headerToken),
+        }),
+      )
+    }
     return c.json({ error: 'Invalid or missing CSRF token' }, 403)
   }
 

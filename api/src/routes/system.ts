@@ -4,12 +4,13 @@ import { getCookie } from 'hono/cookie'
 import { sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import { isLlmConfigured } from '../lib/llm.js'
 import { isWhatsAppConfigured } from '../lib/whatsapp-meta.js'
 import { getLastBackupInfo } from '../lib/backup-status.js'
 import { enrichAccessLocation } from '../lib/ip-location.js'
+import { selectSecurityDashboardEvents } from '../lib/security-log.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,11 +45,11 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
-async function isOwnerInProduction(c: Context): Promise<boolean> {
+async function canViewIntegrationsInProduction(c: Context): Promise<boolean> {
   if (!isProduction()) return true
   const token = getCookie(c, SESSION_COOKIE)
   const user = await getUserFromSession(token)
-  return user?.role === 'owner'
+  return Boolean(user && hasPermission(user, 'integrations.view'))
 }
 
 // Public: basic liveness probe
@@ -65,9 +66,9 @@ systemRoutes.get('/ready', async (c) => {
   return c.json({ status: 'ready', db: 'ok', latencyMs: db_.latencyMs })
 })
 
-// Public: version info (minimal in production unless owner)
+// Public: version info (minimal in production unless integrations.view)
 systemRoutes.get('/version', async (c) => {
-  if (!(await isOwnerInProduction(c))) {
+  if (!(await canViewIntegrationsInProduction(c))) {
     return c.json({ ok: true })
   }
 
@@ -85,10 +86,10 @@ systemRoutes.get('/version', async (c) => {
   })
 })
 
-// Owner/supervisor only: full system status
+// Staff with integrations.view: full system status
 systemRoutes.get('/system-status', authMiddleware, async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner' && user.role !== 'supervisor') {
+  if (!hasPermission(user, 'integrations.view')) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -121,11 +122,11 @@ systemRoutes.get('/system-status', authMiddleware, async (c) => {
   })
 })
 
-// Owner only: recent security log entries (JSONL tail)
+// Security admin: recent security log entries (JSONL tail)
 systemRoutes.get('/api/system/security-events', authMiddleware, async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'security.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -136,29 +137,11 @@ systemRoutes.get('/api/system/security-events', authMiddleware, async (c) => {
   }
 
   const raw = readFileSync(logPath, 'utf8')
-  const lines = raw.split('\n').filter((line) => line.trim())
-  const tail = lines.slice(-100)
-
-  const events = tail
-    .map((line) => {
-      try {
-        const parsed = JSON.parse(line) as {
-          ts?: string
-          type?: string
-          metadata?: Record<string, unknown>
-        }
-        if (!parsed.ts || !parsed.type) return null
-        return {
-          ts: parsed.ts,
-          type: parsed.type,
-          metadata: enrichAccessLocation(parsed.metadata ?? {}),
-        }
-      } catch {
-        return null
-      }
-    })
-    .filter((row): row is { ts: string; type: string; metadata: Record<string, unknown> } => !!row)
-    .reverse()
+  const lines = raw.split('\n')
+  const events = selectSecurityDashboardEvents(lines, 100).map((event) => ({
+    ...event,
+    metadata: enrichAccessLocation(event.metadata),
+  }))
 
   return c.json({ events })
 })

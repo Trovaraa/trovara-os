@@ -15,7 +15,9 @@ import {
 import { sendEmail } from '../lib/notifications.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { getBreakGlassEmail } from '../lib/registration.js'
+import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
+import type { SessionUser } from '../lib/session.js'
 
 const SUBJECTS = {
   general: 'General Enquiry',
@@ -345,13 +347,14 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
   return c.json(PUBLIC_ACCEPTED, 202)
 })
 
-function requireLeadRole(role: string): boolean {
-  return role === 'owner' || role === 'sales'
+function canManageLeads(user: SessionUser): boolean {
+  // Owner + sales (finance.read); supervisors have orders.manage but not lead inbox access.
+  return hasPermission(user, 'finance.read')
 }
 
 marketingLeadRoutes.get('/', zValidator('query', listSchema), async (c) => {
   const user = c.get('user')
-  if (!requireLeadRole(user.role)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canManageLeads(user)) return c.json({ error: 'Forbidden' }, 403)
   const query = c.req.valid('query')
   const filters = [eq(marketingLeads.farmId, user.farmId)]
   if (query.type) filters.push(eq(marketingLeads.leadType, query.type))
@@ -427,7 +430,7 @@ marketingLeadRoutes.get('/', zValidator('query', listSchema), async (c) => {
 
 marketingLeadRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => {
   const user = c.get('user')
-  if (!requireLeadRole(user.role)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canManageLeads(user)) return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
   const [existing] = await db.select().from(marketingLeads).where(and(
     eq(marketingLeads.id, c.req.param('id')),
@@ -466,7 +469,7 @@ marketingLeadRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => 
 
 marketingLeadRoutes.post('/:id/notify', async (c) => {
   const user = c.get('user')
-  if (!requireLeadRole(user.role)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canManageLeads(user)) return c.json({ error: 'Forbidden' }, 403)
   const [lead] = await db.select().from(marketingLeads).where(and(
     eq(marketingLeads.id, c.req.param('id')),
     eq(marketingLeads.farmId, user.farmId),

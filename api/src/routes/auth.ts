@@ -26,7 +26,7 @@ import {
   releaseRegistrationToken,
   revokeRegistrationToken,
 } from '../lib/registration-tokens.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { ensureBreakGlassOwner } from '../lib/break-glass.js'
 import {
   BREAK_GLASS_SESSION_TTL_MS,
@@ -46,6 +46,7 @@ import {
 import { generateCsrfToken, setCsrfCookie, CSRF_COOKIE } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { staffLoginSecurityMeta } from '../lib/login-security-meta.js'
 import { requestAccessMeta, withAccessMeta } from '../lib/request-access-meta.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { checkDurableRateLimit, checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
@@ -138,14 +139,13 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
     const envPasswordMatches = verifyBreakGlassPassword(password)
     usedEnvBreakGlass = verifyArmedBreakGlassPassword(password)
     if (envPasswordMatches && !usedEnvBreakGlass) {
-      logSecurityEvent(
-        'failed_login',
-        withAccessMeta((name) => c.req.header(name), {
-          reason: 'break_glass_disarmed',
-          email: emailNorm,
-          userId: user.id,
-        }),
-      )
+      const disarmedMeta = withAccessMeta((name) => c.req.header(name), {
+        reason: 'break_glass_disarmed',
+        email: emailNorm,
+        userId: user.id,
+      })
+      logSecurityEvent('failed_login', disarmedMeta)
+      logSecurityEvent('break_glass_disarmed_attempt', disarmedMeta)
       // Correct env password while disarmed: tell the operator why (they already
       // know the secret). Wrong passwords still get the generic 401 below.
       return c.json(
@@ -202,10 +202,9 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   if (breakGlass && usedEnvBreakGlass) {
     logSecurityEvent(
       'break_glass_login',
-      withAccessMeta((name) => c.req.header(name), {
-        userId: user.id,
-        email: user.email,
+      await staffLoginSecurityMeta((name) => c.req.header(name), user, {
         sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
+        via: 'env_password',
       }),
     )
     await logAudit({
@@ -220,6 +219,11 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
         sessionTtlMs: BREAK_GLASS_SESSION_TTL_MS,
       },
     })
+  } else {
+    logSecurityEvent(
+      'login',
+      await staffLoginSecurityMeta((name) => c.req.header(name), user),
+    )
   }
 
   await logAudit({
@@ -390,6 +394,13 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   setCookie(c, SESSION_COOKIE, sessionToken, sessionCookieOptions(secure))
   setCsrfCookie(c, generateCsrfToken())
 
+  logSecurityEvent(
+    'login',
+    await staffLoginSecurityMeta((name) => c.req.header(name), created, {
+      via: 'registration',
+    }),
+  )
+
   await logAudit({
     farmId: farm.id,
     userId: created.id,
@@ -545,8 +556,18 @@ authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), asyn
 })
 
 authRoutes.post('/logout', authMiddleware, async (c) => {
+  const user = c.get('user')
   const token = getCookie(c, SESSION_COOKIE)
   if (token) await deleteSession(token)
+  logSecurityEvent(
+    'logout',
+    withAccessMeta((name) => c.req.header(name), {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      farmId: user.farmId,
+    }),
+  )
   deleteCookie(c, SESSION_COOKIE, { path: '/' })
   deleteCookie(c, CSRF_COOKIE, { path: '/' })
   return c.json({ ok: true })
@@ -596,7 +617,9 @@ authRoutes.post('/change-password', authMiddleware, zValidator('json', changePas
 
 authRoutes.get('/preferences', authMiddleware, async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (user.role !== 'owner' && !hasPermission(user, 'security.admin')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const [existing] = await db
     .select({
@@ -616,14 +639,20 @@ authRoutes.get('/preferences', authMiddleware, async (c) => {
 authRoutes.patch('/preferences', authMiddleware, zValidator('json', updatePreferencesSchema), async (c) => {
   const user = c.get('user')
   const body = c.req.valid('json')
-  // Butler TTS and alert subscriptions stay owner-only; language is every user's
+  // Butler TTS and alert subscriptions stay security.admin; language is every user's
   // own setting - field staff read AI replies and TG/WA alerts in it too.
   const ownerOnlyFields =
     body.butlerTtsMode !== undefined ||
     body.orderAlertsSubscribed !== undefined ||
     body.workerAlertsSubscribed !== undefined
   const localeOnly = body.preferredLocale !== undefined && !ownerOnlyFields
-  if (!localeOnly && user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (
+    !localeOnly &&
+    user.role !== 'owner' &&
+    !hasPermission(user, 'security.admin')
+  ) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   if (!ownerOnlyFields && body.preferredLocale === undefined) {
     return c.json({ error: 'No preferences to update' }, 400)
   }
@@ -675,6 +704,14 @@ authRoutes.post('/revoke-all-sessions', authMiddleware, async (c) => {
   const currentToken = getCookie(c, SESSION_COOKIE)
   const revokedSessions = await revokeOtherSessions(user.id, currentToken)
 
+  logSecurityEvent(
+    'sessions_revoked',
+    withAccessMeta((name) => c.req.header(name), {
+      userId: user.id,
+      email: user.email,
+      revokedSessions,
+    }),
+  )
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -713,6 +750,14 @@ authRoutes.delete('/sessions/:id', authMiddleware, async (c) => {
   if (result === 'current') {
     return c.json({ error: 'Cannot revoke the current session - use Sign out instead.' }, 400)
   }
+  logSecurityEvent(
+    'session_revoked',
+    withAccessMeta((name) => c.req.header(name), {
+      userId: user.id,
+      email: user.email,
+      sessionId,
+    }),
+  )
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -743,7 +788,15 @@ authRoutes.get('/me', authMiddleware, async (c) => {
     .limit(1)
   if (!existing) return c.json({ error: 'Unauthorized' }, 401)
   const activeSessions = await countActiveSessions(user.id)
-  return c.json({ user: existing, activeSessions })
+  return c.json({
+    user: {
+      ...existing,
+      farmRoleId: user.farmRoleId ?? null,
+      permissions: user.permissions ?? [],
+      isBreakGlass: isBreakGlassEmail(existing.email),
+    },
+    activeSessions,
+  })
 })
 
 // ── Owner-only single-use registration tokens ──────────────────────────────
@@ -762,7 +815,7 @@ authRoutes.post(
   async (c) => {
     const user = c.get('user')
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'security.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -805,7 +858,7 @@ authRoutes.post(
 authRoutes.get('/registration-tokens', authMiddleware, async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'security.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -816,7 +869,7 @@ authRoutes.get('/registration-tokens', authMiddleware, async (c) => {
 authRoutes.post('/registration-tokens/:id/revoke', authMiddleware, async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'security.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

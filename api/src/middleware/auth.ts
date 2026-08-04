@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie'
 import { SESSION_COOKIE, getUserFromSession, type SessionUser } from '../lib/session.js'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { withAccessMeta } from '../lib/request-access-meta.js'
+import { resolvePermissionKeys } from '../lib/farm-roles.js'
 
 export type AppVariables = {
   user: SessionUser
@@ -27,6 +28,16 @@ export async function authMiddleware(c: Context<{ Variables: AppVariables }>, ne
 
   if (user.mustChangePassword && !isPasswordChangeExemptPath(c.req.path)) {
     return c.json({ error: 'Password change required' }, 403)
+  }
+
+  try {
+    user.permissions = await resolvePermissionKeys({
+      role: user.role,
+      farmId: user.farmId,
+      farmRoleId: user.farmRoleId,
+    })
+  } catch {
+    // Keep request usable with legacy role fallbacks if role tables are unavailable.
   }
 
   c.set('user', user)

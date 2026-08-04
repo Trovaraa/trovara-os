@@ -13,6 +13,9 @@ export type User = {
   name: string
   role: UserRole
   farmId: string
+  farmRoleId?: string | null
+  permissions?: string[]
+  isBreakGlass?: boolean
   totpEnabled?: boolean
   butlerTtsMode?: 'off' | 'voice_replies' | 'always'
   preferredLocale?: AppLocale
@@ -49,11 +52,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!user.value)
   const isOwner = computed(() => user.value?.role === 'owner')
+  function hasPermission(key: string): boolean {
+    if (user.value?.role === 'owner') return true
+    return user.value?.permissions?.includes(key) ?? false
+  }
   const canApprove = computed(
-    () => user.value?.role === 'owner' || user.value?.role === 'supervisor',
+    () =>
+      hasPermission('tasks.approve') ||
+      user.value?.role === 'owner' ||
+      user.value?.role === 'supervisor',
   )
   const canManageOrders = computed(
     () =>
+      hasPermission('orders.manage') ||
       user.value?.role === 'owner' ||
       user.value?.role === 'supervisor' ||
       user.value?.role === 'sales',
@@ -61,7 +72,10 @@ export const useAuthStore = defineStore('auth', () => {
   const canManageProducts = computed(() => canManageOrders.value)
   const isSales = computed(() => user.value?.role === 'sales')
   const canAccessFinance = computed(
-    () => user.value?.role === 'owner' || user.value?.role === 'sales',
+    () =>
+      hasPermission('finance.read') ||
+      user.value?.role === 'owner' ||
+      user.value?.role === 'sales',
   )
 
   // The profile is the cross-device source of truth for language: it also drives
@@ -118,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       if ('user' in data) {
         user.value = data.user
+        await fetchMe()
         if (!options?.skipRedirect && user.value) {
           await router.push(user.value.role === 'field_worker' ? '/today' : user.value.role === 'sales' ? '/sales' : '/dashboard')
         }
@@ -147,6 +162,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isOwner,
+    hasPermission,
     canApprove,
     canManageOrders,
     canManageProducts,

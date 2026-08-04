@@ -8,7 +8,7 @@ import { getCookie } from 'hono/cookie'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import {
   getWhatsAppConfig,
@@ -31,11 +31,11 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
-async function isOwnerInProduction(c: Context): Promise<boolean> {
+async function canConfigureWhatsAppInProduction(c: Context): Promise<boolean> {
   if (!isProduction()) return true
   const token = getCookie(c, SESSION_COOKIE)
   const user = await getUserFromSession(token)
-  return user?.role === 'owner'
+  return Boolean(user && hasPermission(user, 'whatsapp.configure'))
 }
 
 export const whatsappRoutes = new Hono<{ Variables: AppVariables }>()
@@ -136,7 +136,7 @@ whatsappRoutes.post('/webhook', async (c) => {
 })
 
 whatsappRoutes.get('/status', async (c) => {
-  if (!(await isOwnerInProduction(c))) {
+  if (!(await canConfigureWhatsAppInProduction(c))) {
     return c.json({ ok: true })
   }
   return c.json({
@@ -148,7 +148,7 @@ whatsappRoutes.get('/status', async (c) => {
 })
 
 whatsappRoutes.get('/templates', async (c) => {
-  if (!(await isOwnerInProduction(c))) {
+  if (!(await canConfigureWhatsAppInProduction(c))) {
     return c.json({ ok: true })
   }
 
@@ -173,7 +173,7 @@ const sendSchema = z
   .object({
     to: z.string().min(8).max(20),
     templateId: z.string().min(1).optional(),
-    /** Free-form message body - owner only; bypasses template allowlist when combined with overrideAllowlist. */
+    /** Free-form message body - requires whatsapp.configure; bypasses template allowlist when combined with overrideAllowlist. */
     text: z.string().min(1).max(1000).optional(),
     overrideAllowlist: z.boolean().optional(),
     lang: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
@@ -188,7 +188,7 @@ whatsappRoutes.post(
   '/send',
   async (c, next) => {
     try {
-      requireRole(c.get('user'), 'owner', 'supervisor')
+      requirePermission(c.get('user'), 'whatsapp.send')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -226,8 +226,8 @@ whatsappRoutes.post(
   let usedTemplateId: string | null = null
 
   if (body.text?.trim()) {
-    if (user.role !== 'owner') {
-      return c.json({ error: 'Free-form WhatsApp messages require owner role' }, 403)
+    if (!hasPermission(user, 'whatsapp.configure')) {
+      return c.json({ error: 'Free-form WhatsApp messages require whatsapp.configure' }, 403)
     }
     messageText = body.text.trim()
   } else {
@@ -238,7 +238,8 @@ whatsappRoutes.post(
   }
 
   const onAllowlist = await isAllowedWhatsAppRecipient(user.farmId, body.to)
-  const canBypassAllowlist = user.role === 'owner' && Boolean(body.overrideAllowlist)
+  const canBypassAllowlist =
+    hasPermission(user, 'whatsapp.configure') && Boolean(body.overrideAllowlist)
   if (!onAllowlist && !canBypassAllowlist) {
     logSecurityEvent('whatsapp_recipient_blocked', {
       farmId: user.farmId,
@@ -248,7 +249,7 @@ whatsappRoutes.post(
     return c.json(
       {
         error:
-          'Recipient phone is not on this farm’s staff or customer contact list. Owners may send free-form with overrideAllowlist.',
+          'Recipient phone is not on this farm’s staff or customer contact list. Users with whatsapp.configure may send free-form with overrideAllowlist.',
       },
       403,
     )
@@ -292,7 +293,7 @@ whatsappRoutes.use('/notify-owner', authMiddleware)
 whatsappRoutes.post('/notify-owner', zValidator('json', notifyOwnerSchema), async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner', 'supervisor')
+    requirePermission(user, 'whatsapp.send')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

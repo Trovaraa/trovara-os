@@ -217,11 +217,67 @@ export const users = pgTable(
      */
     workerAlertsSubscribed: boolean('worker_alerts_subscribed').default(false).notNull(),
     active: boolean('active').default(true).notNull(),
+    /** Farm-scoped role bundle; null falls back to system template for `role`. */
+    farmRoleId: uuid('farm_role_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     uniqueIndex('users_farm_employee_number_uq').on(t.farmId, t.employeeNumber),
+    index('users_farm_role_id_idx').on(t.farmRoleId),
   ],
+)
+
+export const farmRoles = pgTable(
+  'farm_roles',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: text('name').notNull(),
+    isSystem: boolean('is_system').default(false).notNull(),
+    clonedFrom: text('cloned_from'),
+    permissionsVersion: integer('permissions_version').default(1).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('farm_roles_farm_name_uq').on(t.farmId, t.name),
+    index('farm_roles_farm_cloned_from_idx').on(t.farmId, t.clonedFrom),
+  ],
+)
+
+export const farmRolePermissions = pgTable(
+  'farm_role_permissions',
+  {
+    roleId: uuid('role_id')
+      .references(() => farmRoles.id, { onDelete: 'cascade' })
+      .notNull(),
+    permissionKey: text('permission_key').notNull(),
+  },
+  (t) => [uniqueIndex('farm_role_permissions_pk').on(t.roleId, t.permissionKey)],
+)
+
+export const portalVaultEntries = pgTable(
+  'portal_vault_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    label: text('label').notNull(),
+    category: text('category').default('other').notNull(),
+    loginUrl: text('login_url').notNull(),
+    loginEmail: text('login_email').notNull(),
+    passwordCiphertext: text('password_ciphertext').notNull(),
+    notes: text('notes'),
+    lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('portal_vault_entries_farm_idx').on(t.farmId)],
 )
 
 export const journalPosts = pgTable(

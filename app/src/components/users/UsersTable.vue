@@ -8,12 +8,14 @@ defineProps<{
   deleting: string | null
   deleteError: string | null
   displayRole: (user: FarmUser) => string
+  canBreakGlassCleanup?: boolean
 }>()
 
 const emit = defineEmits<{
   edit: [user: FarmUser]
   toggle: [user: FarmUser]
   delete: [user: FarmUser]
+  'break-glass-admin': [user: FarmUser]
 }>()
 
 const { t } = useI18n()
@@ -94,6 +96,21 @@ const { t } = useI18n()
               @click="emit('delete', user)"
             >
               {{ deleting === user.id ? '…' : t('users.delete') }}
+            </button>
+            <button
+              v-if="canBreakGlassCleanup && user.role === 'owner'"
+              type="button"
+              class="ml-2 text-xs px-3 py-1.5 rounded-lg bg-amber-950/50 text-amber-200 hover:bg-amber-900/60 disabled:opacity-50"
+              :disabled="deleting === user.id"
+              @click="emit('break-glass-admin', user)"
+            >
+              {{
+                deleting === user.id
+                  ? '…'
+                  : user.active
+                    ? 'Break-glass deactivate'
+                    : 'Break-glass reactivate'
+              }}
             </button>
           </td>
         </tr>

@@ -51,6 +51,7 @@ import {
 } from '../middleware/security.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { withAccessMeta } from '../lib/request-access-meta.js'
 
 export const customerShopRoutes = new Hono()
 
@@ -328,6 +329,13 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
     : await verifyPassword(await getDummyPasswordHash(), body.password)
   
   if (!account || !account.active || !valid) {
+    logSecurityEvent(
+      'failed_customer_login',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: !account ? 'unknown_email' : !account.active ? 'inactive' : 'invalid_password',
+        email: body.email.toLowerCase(),
+      }),
+    )
     return c.json(
       {
         error:
@@ -338,6 +346,14 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
   }
 
   if (!account.emailVerifiedAt) {
+    logSecurityEvent(
+      'failed_customer_login',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: 'email_unverified',
+        email: account.email,
+        accountId: account.id,
+      }),
+    )
     return c.json(
       {
         error: 'Please verify your email before signing in. Check your inbox for the verification link.',
@@ -352,6 +368,14 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
   setCustomerSession(c, token)
   const csrfToken = generateCsrfToken()
   setCsrfCookie(c, csrfToken)
+  logSecurityEvent(
+    'customer_login',
+    withAccessMeta((name) => c.req.header(name), {
+      accountId: account.id,
+      email: account.email,
+      farmId: account.farmId,
+    }),
+  )
   return c.json({
     account: {
       id: account.id,
@@ -431,6 +455,13 @@ customerShopRoutes.post('/reset-password', zValidator('json', resetPasswordSchem
 
   await revokeAllCustomerSessions(tokenData.accountId)
 
+  logSecurityEvent(
+    'customer_password_reset_completed',
+    withAccessMeta((name) => c.req.header(name), {
+      accountId: tokenData.accountId,
+    }),
+  )
+
   return c.json({ ok: true, message: 'Password reset successfully. Please sign in.' })
 })
 
@@ -458,6 +489,15 @@ customerShopRoutes.post('/verify-email', zValidator('json', verifyEmailSchema), 
     .from(customerAccounts)
     .where(eq(customerAccounts.id, tokenData.accountId))
     .limit(1)
+
+  logSecurityEvent(
+    'customer_email_verified',
+    withAccessMeta((name) => c.req.header(name), {
+      accountId: tokenData.accountId,
+      email: account?.email,
+      farmId: account?.farmId,
+    }),
+  )
 
   return c.json({
     ok: true,

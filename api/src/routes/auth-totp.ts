@@ -20,9 +20,11 @@ import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
+import { staffLoginSecurityMeta } from '../lib/login-security-meta.js'
+import { withAccessMeta } from '../lib/request-access-meta.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { authMutationKey, denyAuthMutation } from './auth-shared.js'
 import {
   buildOtpAuthUrl,
@@ -145,11 +147,14 @@ export function registerTotpRoutes(app: AuthApp) {
 
     if (!(await verifyStoredTotpToken(user.id, user.totpSecret, totpToken))) {
       const locked = recordTotpChallengeFailure(totpChallenge, ip)
-      logSecurityEvent('failed_login', {
-        reason: locked ? 'totp_rate_limited' : 'invalid_totp',
-        userId: user.id,
-        ip,
-      })
+      logSecurityEvent(
+        'failed_login',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: locked ? 'totp_rate_limited' : 'invalid_totp',
+          userId: user.id,
+          email: user.email,
+        }),
+      )
       return c.json(
         { error: locked ? 'Too many failed attempts. Sign in again.' : 'Invalid authentication code' },
         locked ? 429 : 401,
@@ -170,12 +175,10 @@ export function registerTotpRoutes(app: AuthApp) {
     setCsrfCookie(c, generateCsrfToken())
 
     if (isBreakGlassEmail(user.email)) {
-      logSecurityEvent('break_glass_login', {
-        userId: user.id,
-        email: user.email,
-        ip,
-        via: 'totp',
-      })
+      logSecurityEvent(
+        'break_glass_login',
+        await staffLoginSecurityMeta((name) => c.req.header(name), user, { via: 'totp' }),
+      )
       await logAudit({
         farmId: user.farmId,
         userId: user.id,
@@ -183,6 +186,11 @@ export function registerTotpRoutes(app: AuthApp) {
         entityType: 'session',
         metadata: { email: user.email, via: 'totp' },
       })
+    } else {
+      logSecurityEvent(
+        'login',
+        await staffLoginSecurityMeta((name) => c.req.header(name), user, { via: 'totp' }),
+      )
     }
 
     await logAudit({
@@ -210,7 +218,7 @@ export function registerTotpRoutes(app: AuthApp) {
 
   app.get('/totp/status', authMiddleware, async (c) => {
     const user = c.get('user')
-    if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+    if (!hasPermission(user, 'security.admin')) return c.json({ error: 'Forbidden' }, 403)
 
     const [existing] = await db
       .select({
@@ -231,7 +239,7 @@ export function registerTotpRoutes(app: AuthApp) {
   app.post('/totp/setup', authMiddleware, async (c) => {
     const user = c.get('user')
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'security.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -265,7 +273,7 @@ export function registerTotpRoutes(app: AuthApp) {
     if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'security.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -281,6 +289,14 @@ export function registerTotpRoutes(app: AuthApp) {
       return c.json({ error: 'Run setup first' }, 400)
     }
     if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
+      logSecurityEvent(
+        'totp_enable_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_totp',
+          userId: user.id,
+          email: user.email,
+        }),
+      )
       return c.json({ error: 'Invalid authentication code' }, 400)
     }
 
@@ -290,6 +306,14 @@ export function registerTotpRoutes(app: AuthApp) {
       .set({ totpEnabled: true, totpRecoveryCodes: hashes })
       .where(eq(users.id, user.id))
 
+    logSecurityEvent(
+      'totp_enabled',
+      withAccessMeta((name) => c.req.header(name), {
+        userId: user.id,
+        email: user.email,
+        farmId: user.farmId,
+      }),
+    )
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
@@ -306,7 +330,7 @@ export function registerTotpRoutes(app: AuthApp) {
     if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'security.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -326,11 +350,29 @@ export function registerTotpRoutes(app: AuthApp) {
     const validPassword = isBreakGlassEmail(user.email)
       ? verifyBreakGlassPassword(password)
       : await verifyPassword(existing.passwordHash, password)
-    if (!validPassword) return c.json({ error: 'Current password is incorrect' }, 400)
+    if (!validPassword) {
+      logSecurityEvent(
+        'totp_disable_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_password',
+          userId: user.id,
+          email: user.email,
+        }),
+      )
+      return c.json({ error: 'Current password is incorrect' }, 400)
+    }
     if (!existing.totpSecret || !existing.totpEnabled) {
       return c.json({ error: '2FA is not enabled' }, 400)
     }
     if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
+      logSecurityEvent(
+        'totp_disable_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_totp',
+          userId: user.id,
+          email: user.email,
+        }),
+      )
       return c.json({ error: 'Invalid authentication code' }, 400)
     }
 
@@ -339,6 +381,15 @@ export function registerTotpRoutes(app: AuthApp) {
       .set({ totpEnabled: false, totpSecret: null, totpRecoveryCodes: null })
       .where(eq(users.id, user.id))
 
+    logSecurityEvent(
+      'totp_disabled',
+      withAccessMeta((name) => c.req.header(name), {
+        userId: user.id,
+        email: user.email,
+        farmId: user.farmId,
+        via: 'totp',
+      }),
+    )
     await logAudit({
       farmId: user.farmId,
       userId: user.id,
@@ -376,6 +427,15 @@ export function registerTotpRoutes(app: AuthApp) {
       const verified = await verifyAndConsumeRecoveryCode(user.id, recoveryCode)
       if (!verified.ok) {
         const locked = recordTotpChallengeFailure(totpChallenge, ip)
+        logSecurityEvent(
+          'totp_recovery_failed',
+          withAccessMeta((name) => c.req.header(name), {
+            reason: locked ? 'rate_limited' : 'invalid_recovery_code',
+            userId: user.id,
+            email: user.email,
+            via: 'login',
+          }),
+        )
         return c.json(
           { error: locked ? 'Too many failed attempts. Sign in again.' : 'Invalid recovery code' },
           locked ? 429 : 401,
@@ -393,6 +453,13 @@ export function registerTotpRoutes(app: AuthApp) {
       const secure = process.env.NODE_ENV === 'production'
       setCookie(c, SESSION_COOKIE, sessionToken, sessionCookieOptions(secure))
       setCsrfCookie(c, generateCsrfToken())
+
+      logSecurityEvent(
+        'login',
+        await staffLoginSecurityMeta((name) => c.req.header(name), user, {
+          via: 'recovery_code',
+        }),
+      )
 
       await logAudit({
         farmId: user.farmId,
@@ -421,7 +488,7 @@ export function registerTotpRoutes(app: AuthApp) {
     const sessionToken = getCookie(c, SESSION_COOKIE)
     const sessionUser = sessionToken ? await getUserFromSession(sessionToken) : null
     if (!sessionUser) return c.json({ error: 'Unauthorized' }, 401)
-    if (sessionUser.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+    if (!hasPermission(sessionUser, 'security.admin')) return c.json({ error: 'Forbidden' }, 403)
     if (!password) return c.json({ error: 'Password is required' }, 400)
 
     const mutation = checkAuthMutationRateLimit(authMutationKey(c, sessionUser.id))
@@ -440,16 +507,47 @@ export function registerTotpRoutes(app: AuthApp) {
     const validPassword = isBreakGlassEmail(sessionUser.email)
       ? verifyBreakGlassPassword(password)
       : await verifyPassword(existing.passwordHash, password)
-    if (!validPassword) return c.json({ error: 'Current password is incorrect' }, 400)
+    if (!validPassword) {
+      logSecurityEvent(
+        'totp_disable_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_password',
+          userId: sessionUser.id,
+          email: sessionUser.email,
+          via: 'recovery_code',
+        }),
+      )
+      return c.json({ error: 'Current password is incorrect' }, 400)
+    }
 
     const verified = await verifyAndConsumeRecoveryCode(sessionUser.id, recoveryCode)
-    if (!verified.ok) return c.json({ error: 'Invalid recovery code' }, 401)
+    if (!verified.ok) {
+      logSecurityEvent(
+        'totp_recovery_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_recovery_code',
+          userId: sessionUser.id,
+          email: sessionUser.email,
+          via: 'disable',
+        }),
+      )
+      return c.json({ error: 'Invalid recovery code' }, 401)
+    }
 
     await db
       .update(users)
       .set({ totpEnabled: false, totpSecret: null, totpRecoveryCodes: null })
       .where(eq(users.id, sessionUser.id))
 
+    logSecurityEvent(
+      'totp_disabled',
+      withAccessMeta((name) => c.req.header(name), {
+        userId: sessionUser.id,
+        email: sessionUser.email,
+        farmId: sessionUser.farmId,
+        via: 'recovery_code',
+      }),
+    )
     await logAudit({
       farmId: sessionUser.farmId,
       userId: sessionUser.id,
@@ -467,7 +565,7 @@ export function registerTotpRoutes(app: AuthApp) {
     if (!mutation.allowed) return denyAuthMutation(c, mutation.retryAfterSec)
 
     try {
-      requireRole(user, 'owner')
+      requirePermission(user, 'security.admin')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -483,12 +581,29 @@ export function registerTotpRoutes(app: AuthApp) {
       return c.json({ error: '2FA is not enabled' }, 400)
     }
     if (!(await verifyStoredTotpToken(user.id, existing.totpSecret, token))) {
+      logSecurityEvent(
+        'totp_recovery_failed',
+        withAccessMeta((name) => c.req.header(name), {
+          reason: 'invalid_totp',
+          userId: user.id,
+          email: user.email,
+          via: 'regenerate_codes',
+        }),
+      )
       return c.json({ error: 'Invalid authentication code' }, 400)
     }
 
     const { plaintext, hashes } = generateRecoveryCodes()
     await db.update(users).set({ totpRecoveryCodes: hashes }).where(eq(users.id, user.id))
 
+    logSecurityEvent(
+      'totp_recovery_codes_regenerated',
+      withAccessMeta((name) => c.req.header(name), {
+        userId: user.id,
+        email: user.email,
+        farmId: user.farmId,
+      }),
+    )
     await logAudit({
       farmId: user.farmId,
       userId: user.id,

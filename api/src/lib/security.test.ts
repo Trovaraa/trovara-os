@@ -127,6 +127,7 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/public/newsletter/confirm')).toBe(true)
     expect(isCsrfExemptPath('/public/newsletter/unsubscribe')).toBe(true)
     expect(isCsrfExemptPath('/public/newsletter/webhook')).toBe(true)
+    expect(isCsrfExemptPath('/public/newsletter/webhook/')).toBe(true)
   })
 
   it('exempts exactly the public marketing lead submissions', () => {

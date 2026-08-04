@@ -5,10 +5,12 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { hashPassword } from '../lib/session.js'
-import { isBreakGlassEmail } from '../lib/registration.js'
+import { isBreakGlassEmail, verifyArmedBreakGlassPassword } from '../lib/registration.js'
 import { logAudit } from '../lib/audit.js'
+import { logSecurityEvent } from '../lib/security-log.js'
+import { withAccessMeta } from '../lib/request-access-meta.js'
 import {
   generateLinkCode,
   isTelegramLinked,
@@ -16,6 +18,11 @@ import {
 } from '../lib/butler-link-codes.js'
 import { revokeAllUserAccess } from '../lib/access-revoke.js'
 import { isAnonymizedUserEmail, removeStaffUser } from '../lib/user-remove.js'
+import {
+  assignUserFarmRole,
+  ensureFarmSystemRoles,
+} from '../lib/farm-roles.js'
+import { farmRoles } from '../db/schema.js'
 
 const employmentTypeEnum = z.enum(['permanent', 'temporary', 'casual', 'contract'])
 const employmentStatusEnum = z.enum(['employed', 'leave', 'ended'])
@@ -66,17 +73,23 @@ const staffProfileFields = {
   employmentStatus: optionalEmploymentStatus,
 }
 
-const createUserSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1).max(200),
-  role: z.enum(['supervisor', 'field_worker', 'sales']),
-  password: z.string().min(8).max(128),
-  ...staffProfileFields,
-})
+const createUserSchema = z
+  .object({
+    email: z.string().email(),
+    name: z.string().min(1).max(200),
+    role: z.enum(['supervisor', 'field_worker', 'sales']).optional(),
+    farmRoleId: z.string().uuid().optional(),
+    password: z.string().min(8).max(128),
+    ...staffProfileFields,
+  })
+  .refine((value) => Boolean(value.role || value.farmRoleId), {
+    message: 'role or farmRoleId is required',
+  })
 
 const updateUserSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   role: z.enum(['supervisor', 'field_worker', 'sales']).optional(),
+  farmRoleId: z.string().uuid().optional(),
   password: z.string().min(8).max(128).optional(),
   active: z.boolean().optional(),
   ...staffProfileFields,
@@ -87,6 +100,7 @@ const userSelect = {
   email: users.email,
   name: users.name,
   role: users.role,
+  farmRoleId: users.farmRoleId,
   phone: users.phone,
   monthlyWageNgn: users.monthlyWageNgn,
   monthlyWageEffectiveFrom: users.monthlyWageEffectiveFrom,
@@ -171,29 +185,33 @@ userRoutes.patch('/me', zValidator('json', updateMeSchema), async (c) => {
 
 userRoutes.get('/', async (c) => {
   const user = c.get('user')
-  try {
-    requireRole(user, 'owner', 'supervisor')
-  } catch {
+  if (!hasPermission(user, 'users.view') && !hasPermission(user, 'users.manage')) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
   const rows = await db
-    .select(userSelect)
+    .select({
+      ...userSelect,
+      farmRoleName: farmRoles.name,
+    })
     .from(users)
+    .leftJoin(farmRoles, eq(users.farmRoleId, farmRoles.id))
     .where(eq(users.farmId, user.farmId))
     .orderBy(users.name)
 
   // Soft-removed (anonymized) staff stay in DB for FKs but leave the admin roster.
   const visible = rows.filter((row) => !isAnonymizedUserEmail(row.email))
 
-  // Supervisors can assign tasks but should not see full employment/wage profile.
-  if (user.role === 'supervisor') {
+  // Without users.manage, return a redacted roster (task assignment helpers).
+  if (!hasPermission(user, 'users.manage')) {
     return c.json({
       users: visible.map((row) => ({
         id: row.id,
         name: row.name,
         email: row.email,
         role: row.role,
+        farmRoleId: row.farmRoleId,
+        farmRoleName: row.farmRoleName,
         active: row.active,
         phone: row.phone,
       })),
@@ -207,7 +225,7 @@ userRoutes.post(
   '/',
   async (c, next) => {
     try {
-      requireRole(c.get('user'), 'owner')
+      requirePermission(c.get('user'), 'users.manage')
     } catch {
       return c.json({ error: 'Forbidden' }, 403)
     }
@@ -235,13 +253,49 @@ userRoutes.post(
 
   const confirmWage = body.confirmMonthlyWage === true && body.monthlyWageNgn != null
 
+  await ensureFarmSystemRoles(user.farmId)
+
+  let role = body.role
+  let farmRoleId = body.farmRoleId
+  if (farmRoleId) {
+    const [chosen] = await db
+      .select()
+      .from(farmRoles)
+      .where(and(eq(farmRoles.id, farmRoleId), eq(farmRoles.farmId, user.farmId)))
+      .limit(1)
+    if (!chosen || chosen.clonedFrom === 'owner') {
+      return c.json({ error: 'Invalid farm role' }, 400)
+    }
+    if (chosen.clonedFrom === 'supervisor' || chosen.clonedFrom === 'sales' || chosen.clonedFrom === 'field_worker') {
+      role = chosen.clonedFrom
+    } else {
+      role = role ?? 'field_worker'
+    }
+  } else if (role) {
+    const [systemRole] = await db
+      .select({ id: farmRoles.id })
+      .from(farmRoles)
+      .where(
+        and(
+          eq(farmRoles.farmId, user.farmId),
+          eq(farmRoles.isSystem, true),
+          eq(farmRoles.clonedFrom, role),
+        ),
+      )
+      .limit(1)
+    farmRoleId = systemRole?.id
+  }
+
+  if (!role) return c.json({ error: 'role or farmRoleId is required' }, 400)
+
   const [created] = await db
     .insert(users)
     .values({
       farmId: user.farmId,
       email,
       name: body.name,
-      role: body.role,
+      role,
+      farmRoleId,
       passwordHash: await hashPassword(body.password),
       phone: emptyToNull(body.phone) ?? undefined,
       monthlyWageNgn: body.monthlyWageNgn ?? undefined,
@@ -270,6 +324,17 @@ userRoutes.post(
     entityId: created.id,
     metadata: { role: created.role },
   })
+  logSecurityEvent(
+    'staff_user_created',
+    withAccessMeta((name) => c.req.header(name), {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      targetUserId: created.id,
+      targetEmail: created.email,
+      role: created.role,
+      farmId: user.farmId,
+    }),
+  )
 
   return c.json({ user: created }, 201)
 })
@@ -277,7 +342,7 @@ userRoutes.post(
 userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'users.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -368,14 +433,87 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
     updates.mustChangePassword = true
   }
 
-  const [updated] = await db
-    .update(users)
-    .set(updates)
-    .where(eq(users.id, targetId))
-    .returning(userSelect)
+  let roleChanged = false
+  let farmRoleAlreadyRevoked = false
+  if (body.farmRoleId !== undefined && body.farmRoleId !== existing.farmRoleId) {
+    const assigned = await assignUserFarmRole(user.farmId, targetId, body.farmRoleId)
+    if (!assigned.ok) return c.json({ error: assigned.error }, assigned.status)
+    delete updates.role
+    delete updates.farmRoleId
+    roleChanged = true
+    farmRoleAlreadyRevoked = true
+  } else if (body.role !== undefined && body.role !== existing.role) {
+    await ensureFarmSystemRoles(user.farmId)
+    const [systemRole] = await db
+      .select({ id: farmRoles.id })
+      .from(farmRoles)
+      .where(
+        and(
+          eq(farmRoles.farmId, user.farmId),
+          eq(farmRoles.isSystem, true),
+          eq(farmRoles.clonedFrom, body.role),
+        ),
+      )
+      .limit(1)
+    if (systemRole) updates.farmRoleId = systemRole.id
+    roleChanged = true
+  }
 
-  if (body.password !== undefined || body.active === false) {
+  let updated =
+    Object.keys(updates).length > 0
+      ? (
+          await db
+            .update(users)
+            .set(updates)
+            .where(eq(users.id, targetId))
+            .returning(userSelect)
+        )[0]
+      : (
+          await db
+            .select(userSelect)
+            .from(users)
+            .where(eq(users.id, targetId))
+            .limit(1)
+        )[0]
+
+  if (!updated) return c.json({ error: 'Not found' }, 404)
+
+  if (
+    body.password !== undefined ||
+    body.active === false ||
+    (roleChanged && !farmRoleAlreadyRevoked)
+  ) {
     await revokeAllUserAccess(targetId)
+  }
+
+  const accessMeta = (extra: Record<string, unknown>) =>
+    withAccessMeta((name) => c.req.header(name), {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      targetUserId: targetId,
+      targetEmail: existing.email,
+      farmId: user.farmId,
+      ...extra,
+    })
+
+  if (roleChanged) {
+    logSecurityEvent(
+      'staff_role_changed',
+      accessMeta({
+        fromRole: existing.role,
+        toRole: updated.role,
+        fromFarmRoleId: existing.farmRoleId,
+        toFarmRoleId: updated.farmRoleId,
+      }),
+    )
+  }
+  if (body.active === false && existing.active) {
+    logSecurityEvent('staff_user_deactivated', accessMeta({}))
+  } else if (body.active === true && !existing.active) {
+    logSecurityEvent('staff_user_activated', accessMeta({}))
+  }
+  if (body.password !== undefined) {
+    logSecurityEvent('staff_password_reset', accessMeta({ mustChangePassword: true }))
   }
 
   await logAudit({
@@ -396,7 +534,7 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
 userRoutes.delete('/:id', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'users.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -425,6 +563,17 @@ userRoutes.delete('/:id', async (c) => {
 
   await removeStaffUser(targetId)
 
+  logSecurityEvent(
+    'staff_user_removed',
+    withAccessMeta((name) => c.req.header(name), {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      targetUserId: targetId,
+      targetEmail: existing.email,
+      previousRole: existing.role,
+      farmId: user.farmId,
+    }),
+  )
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -440,3 +589,169 @@ userRoutes.delete('/:id', async (c) => {
 
   return c.json({ ok: true })
 })
+
+const breakGlassAdminSchema = z.object({
+  password: z.string().min(8).max(128),
+  reason: z.string().trim().min(3).max(500),
+})
+
+async function countViableDailyOwners(farmId: string): Promise<number> {
+  const rows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      active: users.active,
+      role: users.role,
+    })
+    .from(users)
+    .where(and(eq(users.farmId, farmId), eq(users.role, 'owner'), eq(users.active, true)))
+  return rows.filter(
+    (r) => !isBreakGlassEmail(r.email) && !isAnonymizedUserEmail(r.email),
+  ).length
+}
+
+userRoutes.post(
+  '/:id/break-glass-deactivate',
+  zValidator('json', breakGlassAdminSchema),
+  async (c) => {
+    const user = c.get('user')
+    try {
+      requirePermission(user, 'breakglass.cleanup')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    if (!isBreakGlassEmail(user.email)) {
+      return c.json({ error: 'Only the break-glass account may use this action' }, 403)
+    }
+
+    const body = c.req.valid('json')
+    if (!verifyArmedBreakGlassPassword(body.password)) {
+      return c.json({ error: 'Armed break-glass password required' }, 403)
+    }
+
+    const targetId = c.req.param('id')
+    if (targetId === user.id) {
+      return c.json({ error: 'Cannot deactivate the break-glass account itself' }, 400)
+    }
+
+    const [existing] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, targetId), eq(users.farmId, user.farmId)))
+      .limit(1)
+    if (!existing) return c.json({ error: 'Not found' }, 404)
+    if (isBreakGlassEmail(existing.email)) {
+      return c.json({ error: 'Cannot deactivate the break-glass account' }, 400)
+    }
+    if (existing.role !== 'owner') {
+      return c.json(
+        { error: 'This endpoint is for Admin accounts only; use normal deactivate for staff' },
+        400,
+      )
+    }
+    if (!existing.active) {
+      return c.json({ error: 'Account is already inactive' }, 400)
+    }
+
+    const viableBefore = await countViableDailyOwners(user.farmId)
+    if (viableBefore <= 1) {
+      return c.json(
+        {
+          error:
+            'Cannot deactivate the last viable daily Admin. Activate or register another Admin first.',
+        },
+        400,
+      )
+    }
+
+    await db.update(users).set({ active: false }).where(eq(users.id, targetId))
+    await revokeAllUserAccess(targetId)
+
+    const viableAfter = await countViableDailyOwners(user.farmId)
+    if (viableAfter < 1) {
+      await db.update(users).set({ active: true }).where(eq(users.id, targetId))
+      return c.json(
+        { error: 'Cleanup aborted to avoid leaving the farm without a daily Admin' },
+        400,
+      )
+    }
+
+    logSecurityEvent(
+      'break_glass_admin_deactivated',
+      withAccessMeta((name) => c.req.header(name), {
+        actorUserId: user.id,
+        targetUserId: targetId,
+        targetEmail: existing.email,
+        reason: body.reason,
+        viableOwnersBefore: viableBefore,
+        viableOwnersAfter: viableAfter,
+        farmId: user.farmId,
+      }),
+    )
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'break_glass_admin_deactivated',
+      entityType: 'user',
+      entityId: targetId,
+      metadata: { reason: body.reason, previousEmail: existing.email },
+    })
+
+    return c.json({ ok: true, viableOwnersAfter: viableAfter })
+  },
+)
+
+userRoutes.post(
+  '/:id/break-glass-reactivate',
+  zValidator('json', breakGlassAdminSchema),
+  async (c) => {
+    const user = c.get('user')
+    try {
+      requirePermission(user, 'breakglass.cleanup')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    if (!isBreakGlassEmail(user.email)) {
+      return c.json({ error: 'Only the break-glass account may use this action' }, 403)
+    }
+    const body = c.req.valid('json')
+    if (!verifyArmedBreakGlassPassword(body.password)) {
+      return c.json({ error: 'Armed break-glass password required' }, 403)
+    }
+
+    const targetId = c.req.param('id')
+    const [existing] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, targetId), eq(users.farmId, user.farmId)))
+      .limit(1)
+    if (!existing) return c.json({ error: 'Not found' }, 404)
+    if (existing.role !== 'owner' || isBreakGlassEmail(existing.email)) {
+      return c.json({ error: 'Invalid target for admin reactivation' }, 400)
+    }
+    if (existing.active) return c.json({ error: 'Account is already active' }, 400)
+
+    await db.update(users).set({ active: true }).where(eq(users.id, targetId))
+
+    logSecurityEvent(
+      'break_glass_admin_reactivated',
+      withAccessMeta((name) => c.req.header(name), {
+        actorUserId: user.id,
+        targetUserId: targetId,
+        targetEmail: existing.email,
+        reason: body.reason,
+        farmId: user.farmId,
+      }),
+    )
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'break_glass_admin_reactivated',
+      entityType: 'user',
+      entityId: targetId,
+      metadata: { reason: body.reason },
+    })
+
+    return c.json({ ok: true })
+  },
+)

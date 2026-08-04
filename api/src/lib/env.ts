@@ -68,6 +68,12 @@ if (process.env.NODE_ENV === 'production') {
     )
   }
 
+  if (!process.env.VAULT_ENCRYPTION_KEY?.trim()) {
+    console.warn(
+      'VAULT_ENCRYPTION_KEY is unset — portal vault encrypt/decrypt will fail in production until it is set',
+    )
+  }
+
   const evidenceRoot = process.env.EVIDENCE_STORAGE_ROOT?.trim()
   if (!evidenceRoot || !isAbsolute(evidenceRoot)) {
     configurationErrors.push('EVIDENCE_STORAGE_ROOT must be an absolute persistent path in production')

@@ -22,6 +22,8 @@ import { paystackRoutes } from './routes/paystack.js'
 import { startTelegramPolling } from './lib/telegram-inbound.js'
 import { startCustomerTelegramPolling } from './lib/customer-telegram-inbound.js'
 import { userRoutes } from './routes/users.js'
+import { roleRoutes } from './routes/roles.js'
+import { vaultRoutes } from './routes/vault.js'
 import { eventRoutes } from './routes/events.js'
 import { publicRoutes } from './routes/public.js'
 import { templateRoutes } from './routes/templates.js'
@@ -113,6 +115,8 @@ app.route('/shop', customerShopRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/zones', zoneRoutes)
 app.route('/api/users', userRoutes)
+app.route('/api/roles', roleRoutes)
+app.route('/api/vault', vaultRoutes)
 app.route('/api/events', eventRoutes)
 app.route('/api/onboarding', onboardingRoutes)
 app.route('/api/billing', billingRoutes)
@@ -194,10 +198,18 @@ void ensureBreakGlassOwner()
       console.warn(
         'WARNING: BREAK_GLASS_ENABLED=true — env break-glass login is armed (single-factor until TOTP is enabled on that account). Disarm after use: unset BREAK_GLASS_ENABLED and restart.',
       )
+      logSecurityEvent('break_glass_armed', {
+        email: getBreakGlassEmail(),
+        source: 'api_boot',
+      })
     } else if (getBreakGlassPasswordFromEnv()) {
       console.log(
         'Break-glass env login is disarmed (BREAK_GLASS_ENABLED unset). Password is ready; set BREAK_GLASS_ENABLED=true only for emergency recovery.',
       )
+      logSecurityEvent('break_glass_disarmed', {
+        email: getBreakGlassEmail(),
+        source: 'api_boot',
+      })
     }
   })
   .catch((err) => {

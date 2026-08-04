@@ -20,6 +20,7 @@ import {
   verifyResendWebhook,
 } from '../lib/newsletter-resend.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
+import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
 type SubscriberStatus = 'pending' | 'confirmed' | 'unsubscribed' | 'suppressed'
@@ -456,7 +457,7 @@ publicNewsletterRoutes.post('/webhook', async (c) => {
 
 newsletterRoutes.get('/', zValidator('query', listQuerySchema), async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'newsletter.manage')) return c.json({ error: 'Forbidden' }, 403)
   const query = c.req.valid('query')
   const filters = [eq(newsletterSubscribers.farmId, user.farmId)]
   if (query.status) filters.push(eq(newsletterSubscribers.status, query.status))
@@ -520,7 +521,7 @@ newsletterRoutes.get('/', zValidator('query', listQuerySchema), async (c) => {
 
 newsletterRoutes.post('/:id/resend-confirmation', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'newsletter.manage')) return c.json({ error: 'Forbidden' }, 403)
   const [existing] = await db
     .select()
     .from(newsletterSubscribers)
@@ -561,7 +562,7 @@ newsletterRoutes.post('/:id/resend-confirmation', async (c) => {
 
 newsletterRoutes.post('/:id/sync', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'newsletter.manage')) return c.json({ error: 'Forbidden' }, 403)
   const [subscriber] = await db
     .select()
     .from(newsletterSubscribers)
@@ -588,7 +589,7 @@ newsletterRoutes.post('/:id/sync', async (c) => {
 
 newsletterRoutes.patch('/:id/status', zValidator('json', statusSchema), async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'newsletter.manage')) return c.json({ error: 'Forbidden' }, 403)
   const [existing] = await db
     .select()
     .from(newsletterSubscribers)

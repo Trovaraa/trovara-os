@@ -14,7 +14,7 @@ import {
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAssignTasks } from '../lib/rbac.js'
+import { canAssignTasks, hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import {
   purchaseOrderStatusAfterReceipt,
@@ -344,7 +344,7 @@ purchaseOrderRoutes.post('/', zValidator('json', createPurchaseOrderSchema), asy
 
 purchaseOrderRoutes.post('/:id/approve', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'purchase_orders.approve')) return c.json({ error: 'Forbidden' }, 403)
   const [order] = await db
     .update(purchaseOrders)
     .set({
@@ -390,7 +390,7 @@ purchaseOrderRoutes.post('/:id/send', async (c) => {
 
 purchaseOrderRoutes.post('/:id/cancel', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'purchase_orders.approve')) return c.json({ error: 'Forbidden' }, 403)
   const [order] = await db
     .update(purchaseOrders)
     .set({ status: 'cancelled', updatedAt: new Date() })

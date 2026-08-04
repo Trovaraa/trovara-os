@@ -18,7 +18,12 @@ import {
   zones,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAccessFinance, canAssignTasks, canManageOrders } from '../lib/rbac.js'
+import {
+  canAccessFinance,
+  canAssignTasks,
+  canManageOrders,
+  hasPermission,
+} from '../lib/rbac.js'
 import { buildBoxLabelHtml, findPrintableLotById } from '../lib/lot-print.js'
 import { logAudit } from '../lib/audit.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
@@ -207,8 +212,8 @@ export const traceabilityRoutes = new Hono<{ Variables: AppVariables }>()
 traceabilityRoutes.use('*', authMiddleware)
 
 /**
- * Timeline, certificate, and CSV export: ops (owner/supervisor via canAssignTasks)
- * or finance (owner/sales via canAccessFinance). Lot delete is owner-only separately.
+ * Timeline, certificate, and CSV export: ops (via canAssignTasks)
+ * or finance (via canAccessFinance). Lot delete requires traceability.export.
  */
 function requireTraceArtifactAccess(user: SessionUser): SessionUser | null {
   return canAssignTasks(user) || canAccessFinance(user) ? user : null
@@ -649,7 +654,7 @@ traceabilityRoutes.get('/:id/certificate.html', async (c) => {
 
 traceabilityRoutes.delete('/:id', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'traceability.export')) return c.json({ error: 'Forbidden' }, 403)
 
   const lotId = c.req.param('id')
 

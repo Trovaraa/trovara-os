@@ -1,20 +1,24 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import UsersCreateForm from '@/components/users/UsersCreateForm.vue'
 import UsersEditModal from '@/components/users/UsersEditModal.vue'
 import UsersTable from '@/components/users/UsersTable.vue'
 import { useUsers } from '@/composables/useUsers'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const canBreakGlassCleanup = computed(() => auth.user?.isBreakGlass === true)
 
 const {
   users,
   loading,
+  assignableRoles,
   newEmail,
   newName,
-  newRoleChoice,
-  newCustomRoleName,
+  newFarmRoleId,
   newPassword,
   newPhone,
   newMonthlyWageNgn,
@@ -34,8 +38,7 @@ const {
   deleteError,
   editing,
   editName,
-  editRoleChoice,
-  editCustomRoleName,
+  editFarmRoleId,
   editPhone,
   editMonthlyWageNgn,
   editMonthlyWageEffectiveFrom,
@@ -51,12 +54,11 @@ const {
   editEmploymentStatus,
   editSaving,
   editError,
-  newIsOther,
-  editIsOther,
   displayRole,
   createUser,
   toggleActive,
   deleteUser,
+  breakGlassToggleAdmin,
   openEdit,
   closeEdit,
   saveEdit,
@@ -73,8 +75,7 @@ const {
     <UsersCreateForm
       v-model:new-email="newEmail"
       v-model:new-name="newName"
-      v-model:new-role-choice="newRoleChoice"
-      v-model:new-custom-role-name="newCustomRoleName"
+      v-model:new-farm-role-id="newFarmRoleId"
       v-model:new-password="newPassword"
       v-model:new-phone="newPhone"
       v-model:new-employee-number="newEmployeeNumber"
@@ -87,7 +88,7 @@ const {
       v-model:new-next-of-kin-phone="newNextOfKinPhone"
       v-model:new-next-of-kin-relationship="newNextOfKinRelationship"
       v-model:new-confirm-monthly-wage="newConfirmMonthlyWage"
-      :new-is-other="newIsOther"
+      :assignable-roles="assignableRoles"
       :creating="creating"
       :create-error="createError"
       @submit="createUser"
@@ -102,16 +103,17 @@ const {
       :deleting="deleting"
       :delete-error="deleteError"
       :display-role="displayRole"
+      :can-break-glass-cleanup="canBreakGlassCleanup"
       @edit="openEdit"
       @toggle="toggleActive"
       @delete="deleteUser"
+      @break-glass-admin="breakGlassToggleAdmin"
     />
 
     <UsersEditModal
       v-if="editing"
       v-model:edit-name="editName"
-      v-model:edit-role-choice="editRoleChoice"
-      v-model:edit-custom-role-name="editCustomRoleName"
+      v-model:edit-farm-role-id="editFarmRoleId"
       v-model:edit-phone="editPhone"
       v-model:edit-employee-number="editEmployeeNumber"
       v-model:edit-job-title="editJobTitle"
@@ -126,7 +128,7 @@ const {
       v-model:edit-next-of-kin-relationship="editNextOfKinRelationship"
       v-model:edit-confirm-monthly-wage="editConfirmMonthlyWage"
       :editing="editing"
-      :edit-is-other="editIsOther"
+      :assignable-roles="assignableRoles"
       :edit-saving="editSaving"
       :edit-error="editError"
       @close="closeEdit"

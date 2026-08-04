@@ -1,17 +1,16 @@
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/lib/api'
 import { roleLabel } from '@/lib/roles'
 import type { UserRole } from '@/stores/auth'
-
-export type StaffRole = Exclude<UserRole, 'owner'>
-export type RoleChoice = StaffRole | 'other'
 
 export type FarmUser = {
   id: string
   email: string
   name: string
   role: UserRole
+  farmRoleId?: string | null
+  farmRoleName?: string | null
   active: boolean
   createdAt: string
   phone?: string | null
@@ -29,6 +28,13 @@ export type FarmUser = {
   employmentStatus?: string | null
 }
 
+export type AssignableFarmRole = {
+  id: string
+  name: string
+  isSystem: boolean
+  clonedFrom: string | null
+}
+
 /** Users list CRUD state for UsersView. */
 export function useUsers() {
   const { t } = useI18n()
@@ -38,9 +44,9 @@ export function useUsers() {
 
   const newEmail = ref('')
   const newName = ref('')
-  const newRoleChoice = ref<RoleChoice>('field_worker')
-  const newCustomRoleName = ref('')
+  const newFarmRoleId = ref('')
   const newPassword = ref('')
+  const assignableRoles = ref<AssignableFarmRole[]>([])
   const newPhone = ref('')
   const newMonthlyWageNgn = ref<number | ''>('')
   const newMonthlyWageEffectiveFrom = ref('')
@@ -61,8 +67,7 @@ export function useUsers() {
   const deleteError = ref<string | null>(null)
   const editing = ref<FarmUser | null>(null)
   const editName = ref('')
-  const editRoleChoice = ref<RoleChoice>('field_worker')
-  const editCustomRoleName = ref('')
+  const editFarmRoleId = ref('')
   const editPhone = ref('')
   const editMonthlyWageNgn = ref<number | ''>('')
   const editMonthlyWageEffectiveFrom = ref('')
@@ -79,30 +84,17 @@ export function useUsers() {
   const editSaving = ref(false)
   const editError = ref<string | null>(null)
 
-  const newIsOther = computed(() => newRoleChoice.value === 'other')
-  const editIsOther = computed(() => editRoleChoice.value === 'other')
-
   function displayRole(user: FarmUser): string {
+    const bundle = user.farmRoleName?.trim()
+    if (bundle && bundle !== roleLabel(user.role)) {
+      return user.jobTitle?.trim()
+        ? `${user.jobTitle.trim()} · ${bundle}`
+        : bundle
+    }
     if (user.jobTitle?.trim()) {
       return `${user.jobTitle.trim()} (${roleLabel(user.role)})`
     }
     return roleLabel(user.role)
-  }
-
-  /** Other always starts as field_worker; admin upgrades via Role (supervisor/sales). */
-  function rolePayload(choice: RoleChoice, customName: string, jobTitle: string) {
-    if (choice === 'other') {
-      return {
-        role: 'field_worker' as const,
-        jobTitle: customName.trim(),
-      }
-    }
-    // Keep custom name if admin upgrades Other → supervisor/sales without retyping job title
-    const title = jobTitle.trim() || customName.trim()
-    return {
-      role: choice,
-      jobTitle: title || undefined,
-    }
   }
 
   function optionalWageNgn(value: number | '' | null | undefined): number | null {
@@ -115,8 +107,18 @@ export function useUsers() {
   async function load() {
     loading.value = true
     try {
-      const data = await api<{ users: FarmUser[] }>('/api/users')
+      const [data, roles] = await Promise.all([
+        api<{ users: FarmUser[] }>('/api/users'),
+        api<{ roles: AssignableFarmRole[] }>('/api/roles/assignable').catch(() => ({
+          roles: [] as AssignableFarmRole[],
+        })),
+      ])
       users.value = data.users
+      assignableRoles.value = roles.roles
+      if (!newFarmRoleId.value && roles.roles.length) {
+        const field = roles.roles.find((r) => r.clonedFrom === 'field_worker')
+        newFarmRoleId.value = field?.id ?? roles.roles[0]!.id
+      }
     } finally {
       loading.value = false
     }
@@ -137,33 +139,28 @@ export function useUsers() {
     newNextOfKinRelationship.value = ''
     newEmployeeNumber.value = ''
     newJobTitle.value = ''
-    newCustomRoleName.value = ''
     newEmploymentType.value = ''
     newEmploymentStartDate.value = ''
     newEmploymentStatus.value = 'employed'
-    newRoleChoice.value = 'field_worker'
+    const field = assignableRoles.value.find((r) => r.clonedFrom === 'field_worker')
+    newFarmRoleId.value = field?.id ?? assignableRoles.value[0]?.id ?? ''
   }
 
   async function createUser() {
     if (!newEmail.value.trim() || !newName.value.trim() || !newPassword.value) return
-    if (newIsOther.value && !newCustomRoleName.value.trim()) {
-      createError.value = t('users.customRoleRequired')
+    if (!newFarmRoleId.value) {
+      createError.value = 'Select a role bundle'
       return
     }
     creating.value = true
     createError.value = null
     try {
-      const { role, jobTitle } = rolePayload(
-        newRoleChoice.value,
-        newCustomRoleName.value,
-        newJobTitle.value,
-      )
       await api('/api/users', {
         method: 'POST',
         body: JSON.stringify({
           email: newEmail.value.trim(),
           name: newName.value.trim(),
-          role,
+          farmRoleId: newFarmRoleId.value,
           password: newPassword.value,
           phone: newPhone.value.trim() || undefined,
           monthlyWageNgn: optionalWageNgn(newMonthlyWageNgn.value) ?? undefined,
@@ -173,7 +170,7 @@ export function useUsers() {
           nextOfKinPhone: newNextOfKinPhone.value.trim() || undefined,
           nextOfKinRelationship: newNextOfKinRelationship.value.trim() || undefined,
           employeeNumber: newEmployeeNumber.value.trim() || undefined,
-          jobTitle: jobTitle || undefined,
+          jobTitle: newJobTitle.value.trim() || undefined,
           employmentType: newEmploymentType.value || undefined,
           employmentStartDate: newEmploymentStartDate.value || undefined,
           employmentStatus: newEmploymentStatus.value || undefined,
@@ -221,19 +218,38 @@ export function useUsers() {
     }
   }
 
+  async function breakGlassToggleAdmin(user: FarmUser) {
+    if (user.role !== 'owner') return
+    const action = user.active ? 'deactivate' : 'reactivate'
+    const password = window.prompt(
+      `Armed break-glass password required to ${action} Admin ${user.email}`,
+    )
+    if (!password) return
+    const reason = window.prompt('Reason for this cleanup action (required)')?.trim()
+    if (!reason || reason.length < 3) {
+      deleteError.value = 'A reason of at least 3 characters is required'
+      return
+    }
+    deleting.value = user.id
+    deleteError.value = null
+    try {
+      await api(`/api/users/${user.id}/break-glass-${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ password, reason }),
+      })
+      await load()
+    } catch (e) {
+      deleteError.value = e instanceof Error ? e.message : `Failed to ${action} admin`
+    } finally {
+      deleting.value = null
+    }
+  }
+
   function openEdit(user: FarmUser) {
     editing.value = user
     editName.value = user.name
-    // Other = custom name + field_worker. Upgraded roles keep job title under their system role.
-    if (user.role === 'field_worker' && user.jobTitle?.trim()) {
-      editRoleChoice.value = 'other'
-      editCustomRoleName.value = user.jobTitle
-      editJobTitle.value = ''
-    } else {
-      editRoleChoice.value = user.role === 'owner' ? 'field_worker' : (user.role as StaffRole)
-      editCustomRoleName.value = ''
-      editJobTitle.value = user.jobTitle ?? ''
-    }
+    editFarmRoleId.value = user.farmRoleId ?? ''
+    editJobTitle.value = user.jobTitle ?? ''
     editPhone.value = user.phone ?? ''
     editMonthlyWageNgn.value = user.monthlyWageNgn ?? ''
     editMonthlyWageEffectiveFrom.value = user.monthlyWageEffectiveFrom ?? ''
@@ -256,10 +272,8 @@ export function useUsers() {
 
   async function saveEdit() {
     if (!editing.value) return
-    if (editing.value.role === 'owner') {
-      // Owners keep their role; only profile fields change
-    } else if (editIsOther.value && !editCustomRoleName.value.trim()) {
-      editError.value = t('users.customRoleRequired')
+    if (editing.value.role !== 'owner' && !editFarmRoleId.value) {
+      editError.value = 'Select a role bundle'
       return
     }
     editSaving.value = true
@@ -267,19 +281,12 @@ export function useUsers() {
     try {
       const wasConfirmed = !!editing.value.monthlyWageConfirmedAt
       const isOwner = editing.value.role === 'owner'
-      const { role, jobTitle } = isOwner
-        ? { role: undefined as StaffRole | undefined, jobTitle: editJobTitle.value.trim() || null }
-        : rolePayload(
-            editRoleChoice.value,
-            editCustomRoleName.value,
-            editJobTitle.value,
-          )
 
       await api(`/api/users/${editing.value.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           name: editName.value.trim(),
-          ...(isOwner ? {} : { role }),
+          ...(isOwner ? {} : { farmRoleId: editFarmRoleId.value }),
           phone: editPhone.value.trim() || null,
           monthlyWageNgn: optionalWageNgn(editMonthlyWageNgn.value),
           monthlyWageEffectiveFrom: editMonthlyWageEffectiveFrom.value || null,
@@ -292,7 +299,7 @@ export function useUsers() {
           nextOfKinPhone: editNextOfKinPhone.value.trim() || null,
           nextOfKinRelationship: editNextOfKinRelationship.value.trim() || null,
           employeeNumber: editEmployeeNumber.value.trim() || null,
-          jobTitle: jobTitle === undefined ? null : jobTitle || null,
+          jobTitle: editJobTitle.value.trim() || null,
           employmentType: editEmploymentType.value || null,
           employmentStartDate: editEmploymentStartDate.value || null,
           employmentEndDate: editEmploymentEndDate.value || null,
@@ -311,10 +318,10 @@ export function useUsers() {
   return {
     users,
     loading,
+    assignableRoles,
     newEmail,
     newName,
-    newRoleChoice,
-    newCustomRoleName,
+    newFarmRoleId,
     newPassword,
     newPhone,
     newMonthlyWageNgn,
@@ -335,8 +342,7 @@ export function useUsers() {
     deleteError,
     editing,
     editName,
-    editRoleChoice,
-    editCustomRoleName,
+    editFarmRoleId,
     editPhone,
     editMonthlyWageNgn,
     editMonthlyWageEffectiveFrom,
@@ -352,12 +358,11 @@ export function useUsers() {
     editEmploymentStatus,
     editSaving,
     editError,
-    newIsOther,
-    editIsOther,
     displayRole,
     createUser,
     toggleActive,
     deleteUser,
+    breakGlassToggleAdmin,
     openEdit,
     closeEdit,
     saveEdit,

@@ -204,13 +204,20 @@ async function deleteAllData(): Promise<void> {
 
 async function insertDemoContentForFarm(farmId: string): Promise<void> {
   const breakGlassPassword = process.env.BREAK_GLASS_PASSWORD
+  const ownerPassword = process.env.SEED_OWNER_PASSWORD
   const supervisorPassword = process.env.SEED_SUPERVISOR_PASSWORD
   const workerPassword = process.env.SEED_WORKER_PASSWORD
   const salesPassword = process.env.SEED_SALES_PASSWORD
 
-  if (!breakGlassPassword || !supervisorPassword || !workerPassword || !salesPassword) {
+  if (
+    !breakGlassPassword ||
+    !ownerPassword ||
+    !supervisorPassword ||
+    !workerPassword ||
+    !salesPassword
+  ) {
     throw new Error(
-      'Set BREAK_GLASS_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD in .env',
+      'Set BREAK_GLASS_PASSWORD, SEED_OWNER_PASSWORD, SEED_SUPERVISOR_PASSWORD, SEED_WORKER_PASSWORD, SEED_SALES_PASSWORD in .env',
     )
   }
 
@@ -220,7 +227,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   const seedMustChangePassword =
     process.env.SEED_SKIP_MUST_CHANGE_PASSWORD === 'true' ? false : true
 
-  const [owner, sup1, sup2, worker1, worker2, sales] = await db
+  const [owner, dailyAdmin, sup1, sup2, worker1, worker2, sales] = await db
     .insert(users)
     .values([
       {
@@ -232,6 +239,23 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         role: 'owner',
         active: true,
         mustChangePassword: false,
+      },
+      {
+        // Day-to-day Admin (not break-glass) — use for break-glass cleanup tests.
+        farmId,
+        email: 'admin@trovara.farm',
+        name: 'Day-to-day Admin',
+        phone: '2348100000005',
+        passwordHash: await hashPassword(ownerPassword),
+        role: 'owner',
+        employeeNumber: 'A-001',
+        jobTitle: 'Farm owner',
+        employmentType: 'permanent',
+        employmentStartDate: '2025-01-01',
+        employmentStatus: 'employed',
+        active: true,
+        mustChangePassword: seedMustChangePassword,
+        totpEnabled: false,
       },
       {
         farmId: farmId,
@@ -317,6 +341,58 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
       },
     ])
     .returning()
+
+  // Provision permission templates + a sample custom Auditor role for local RBAC testing.
+  const {
+    ensureFarmSystemRoles,
+    createCustomFarmRole,
+    listFarmRoles,
+    setFarmRolePermissions,
+    assignUserFarmRole,
+  } = await import('./farm-roles.js')
+  await ensureFarmSystemRoles(farmId)
+  const farmRoleList = await listFarmRoles(farmId)
+  const supervisorTemplate = farmRoleList.find((r) => r.clonedFrom === 'supervisor')
+  const auditorRole = await createCustomFarmRole(farmId, {
+    name: 'Auditor',
+    cloneFromRoleId: supervisorTemplate?.id,
+  })
+  await setFarmRolePermissions(
+    farmId,
+    auditorRole.id,
+    [
+      'users.view',
+      'sessions.revoke',
+      'reports.read',
+      'audit.export',
+      'finance.read',
+      'orders.read',
+      'orders.pii',
+      'inventory.read',
+      'integrations.view',
+      'vault.view',
+    ],
+    { revokeSessions: false },
+  )
+  const [auditorUser] = await db
+    .insert(users)
+    .values({
+      farmId,
+      email: 'auditor@trovara.farm',
+      name: 'Chioma Auditor',
+      phone: '2348100000006',
+      passwordHash: await hashPassword(supervisorPassword),
+      role: 'supervisor',
+      employeeNumber: 'AUD-001',
+      jobTitle: 'Farm auditor',
+      employmentType: 'contract',
+      employmentStartDate: '2026-01-15',
+      employmentStatus: 'employed',
+      active: true,
+      mustChangePassword: seedMustChangePassword,
+    })
+    .returning()
+  await assignUserFarmRole(farmId, auditorUser.id, auditorRole.id)
 
   const zoneRows = await db
     .insert(zones)

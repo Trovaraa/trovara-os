@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { RoleChoice } from '@/composables/useUsers'
+import type { AssignableFarmRole } from '@/composables/useUsers'
 
 const newEmail = defineModel<string>('newEmail', { required: true })
 const newName = defineModel<string>('newName', { required: true })
-const newRoleChoice = defineModel<RoleChoice>('newRoleChoice', { required: true })
-const newCustomRoleName = defineModel<string>('newCustomRoleName', { required: true })
+const newFarmRoleId = defineModel<string>('newFarmRoleId', { required: true })
 const newPassword = defineModel<string>('newPassword', { required: true })
 const newPhone = defineModel<string>('newPhone', { required: true })
 const newEmployeeNumber = defineModel<string>('newEmployeeNumber', { required: true })
@@ -20,9 +19,9 @@ const newNextOfKinRelationship = defineModel<string>('newNextOfKinRelationship',
 const newConfirmMonthlyWage = defineModel<boolean>('newConfirmMonthlyWage', { required: true })
 
 defineProps<{
-  newIsOther: boolean
   creating: boolean
   createError: string | null
+  assignableRoles: AssignableFarmRole[]
 }>()
 
 const emit = defineEmits<{ submit: [] }>()
@@ -60,26 +59,28 @@ const { t } = useI18n()
       <div>
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.role') }}</label>
         <select
-          v-model="newRoleChoice"
+          v-model="newFarmRoleId"
+          required
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         >
-          <option value="supervisor">{{ t('users.supervisor') }}</option>
-          <option value="sales">{{ t('users.sales') }}</option>
-          <option value="field_worker">{{ t('users.fieldWorker') }}</option>
-          <option value="other">{{ t('users.roleOther') }}</option>
+          <option disabled value="">Select role bundle</option>
+          <option v-for="role in assignableRoles" :key="role.id" :value="role.id">
+            {{ role.name }}{{ role.isSystem ? '' : ' (custom)' }}
+          </option>
         </select>
+        <p class="text-[11px] text-slate-500 mt-1">
+          Bundles come from Settings → Roles & permissions.
+        </p>
       </div>
-      <div v-if="newIsOther">
-        <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.customRoleName') }}</label>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.jobTitle') }}</label>
         <input
-          v-model="newCustomRoleName"
+          v-model="newJobTitle"
           type="text"
-          required
           maxlength="200"
-          :placeholder="t('users.customRolePlaceholder')"
+          :placeholder="t('users.jobTitle')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
         />
-        <p class="text-[11px] text-slate-500 mt-1">{{ t('users.otherRoleHint') }}</p>
       </div>
       <div>
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.password') }}</label>
@@ -105,14 +106,6 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employeeNumber') }}</label>
         <input
           v-model="newEmployeeNumber"
-          type="text"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
-        />
-      </div>
-      <div v-if="!newIsOther">
-        <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.jobTitle') }}</label>
-        <input
-          v-model="newJobTitle"
           type="text"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />

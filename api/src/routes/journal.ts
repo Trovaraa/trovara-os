@@ -12,6 +12,7 @@ import { readJournalMedia, storeJournalMedia } from '../lib/journal-media.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { requestAccessMeta } from '../lib/request-access-meta.js'
+import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
 // A marketing rebuild reads the list, each post body, and each cover image in
@@ -69,10 +70,6 @@ const mediaSchema = z.object({
   dataUrl: z.string().max(3_400_000),
 })
 
-function isOwner(user: { role: string }): boolean {
-  return user.role === 'owner'
-}
-
 function validCoverUrl(farmId: string, value: string | null | undefined): boolean {
   if (value == null) return true
   const prefix = `/public/journal/media/${farmId}/`
@@ -100,7 +97,7 @@ journalRoutes.use('*', authMiddleware)
 
 journalRoutes.get('/', async (c) => {
   const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
   const posts = await db
     .select()
     .from(journalPosts)
@@ -112,7 +109,7 @@ journalRoutes.get('/', async (c) => {
 /** Owner preview of covers (auth + /api proxy). Public marketing still uses /public/journal/media. */
 journalRoutes.get('/media/:filename', async (c) => {
   const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
   const filename = c.req.param('filename')
   try {
     const { buffer, contentType } = await readJournalMedia(user.farmId, filename)
@@ -131,7 +128,7 @@ journalRoutes.get('/media/:filename', async (c) => {
 
 journalRoutes.get('/:id', async (c) => {
   const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
   const [post] = await db
     .select()
     .from(journalPosts)
@@ -141,15 +138,15 @@ journalRoutes.get('/:id', async (c) => {
   return c.json({ post })
 })
 
-async function requireJournalOwner(c: Context<{ Variables: AppVariables }>, next: Next) {
-  // Owner before Zod so non-owners get 403, not a schema 400.
-  if (!isOwner(c.get('user'))) return c.json({ error: 'Forbidden' }, 403)
+async function requireJournalManage(c: Context<{ Variables: AppVariables }>, next: Next) {
+  // Permission before Zod so unauthorized callers get 403, not a schema 400.
+  if (!hasPermission(c.get('user'), 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
   await next()
 }
 
 journalRoutes.post(
   '/media',
-  requireJournalOwner,
+  requireJournalManage,
   zValidator('json', mediaSchema),
   async (c) => {
     const user = c.get('user')
@@ -189,7 +186,7 @@ journalRoutes.post(
 
 journalRoutes.post(
   '/',
-  requireJournalOwner,
+  requireJournalManage,
   zValidator('json', postFieldsSchema),
   async (c) => {
     const user = c.get('user')
@@ -233,7 +230,7 @@ journalRoutes.post(
 
 journalRoutes.patch(
   '/:id',
-  requireJournalOwner,
+  requireJournalManage,
   zValidator('json', patchPostSchema),
   async (c) => {
     const user = c.get('user')
@@ -300,7 +297,7 @@ journalRoutes.patch(
 
 journalRoutes.delete('/:id', async (c) => {
   const user = c.get('user')
-  if (!isOwner(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
   const postId = c.req.param('id')
   const [existing] = await db
     .select({

@@ -12,8 +12,10 @@ import SettingsOpsPanel from '@/components/settings/SettingsOpsPanel.vue'
 import SettingsPreferencesPanel from '@/components/settings/SettingsPreferencesPanel.vue'
 import SettingsPrivacyPanel from '@/components/settings/SettingsPrivacyPanel.vue'
 import SettingsRegistrationTokensPanel from '@/components/settings/SettingsRegistrationTokensPanel.vue'
+import SettingsRolesPanel from '@/components/settings/SettingsRolesPanel.vue'
 import SettingsSystemStatusPanel from '@/components/settings/SettingsSystemStatusPanel.vue'
 import SettingsTotpPanel from '@/components/settings/SettingsTotpPanel.vue'
+import SettingsVaultPanel from '@/components/settings/SettingsVaultPanel.vue'
 import { useSettingsAdmin } from '@/composables/useSettingsAdmin'
 import { useSettingsChannels } from '@/composables/useSettingsChannels'
 import { useSettingsFarm } from '@/composables/useSettingsFarm'
@@ -318,6 +320,9 @@ onMounted(load)
       />
 
       <SettingsOpsPanel v-if="auth.isOwner" :billing-status="billingStatus" />
+
+      <SettingsRolesPanel v-if="auth.isOwner" />
+      <SettingsVaultPanel v-if="auth.isOwner" />
 
       <SettingsPrivacyPanel
         v-if="auth.isOwner"

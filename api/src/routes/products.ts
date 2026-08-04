@@ -6,7 +6,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { inventoryItems, products } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canManageProducts, requireRole } from '../lib/rbac.js'
+import { canManageProducts, requirePermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 
 /** Suggested catalogue units (UI presets). Custom values are allowed. */
@@ -215,7 +215,7 @@ productRoutes.patch('/:id', zValidator('json', updateProductSchema), async (c) =
 productRoutes.delete('/:id', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'products.delete')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

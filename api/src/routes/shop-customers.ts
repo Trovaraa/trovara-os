@@ -4,7 +4,9 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { customerAccounts, customerContacts } from '../db/schema.js'
+import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
+import type { SessionUser } from '../lib/session.js'
 
 const listSchema = z.object({
   search: z.string().trim().max(200).optional(),
@@ -15,13 +17,13 @@ const listSchema = z.object({
 export const shopCustomerRoutes = new Hono<{ Variables: AppVariables }>()
 shopCustomerRoutes.use('*', authMiddleware)
 
-function canViewShopCustomers(role: string): boolean {
-  return role === 'owner' || role === 'sales'
+function canViewShopCustomers(user: SessionUser): boolean {
+  return hasPermission(user, 'orders.manage') || hasPermission(user, 'finance.read')
 }
 
 shopCustomerRoutes.get('/', zValidator('query', listSchema), async (c) => {
   const user = c.get('user')
-  if (!canViewShopCustomers(user.role)) return c.json({ error: 'Forbidden' }, 403)
+  if (!canViewShopCustomers(user)) return c.json({ error: 'Forbidden' }, 403)
 
   const query = c.req.valid('query')
   const filters = [eq(customerAccounts.farmId, user.farmId)]

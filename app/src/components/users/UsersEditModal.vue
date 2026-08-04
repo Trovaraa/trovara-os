@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { roleLabel } from '@/lib/roles'
-import type { FarmUser, RoleChoice } from '@/composables/useUsers'
+import type { AssignableFarmRole, FarmUser } from '@/composables/useUsers'
 
 const editName = defineModel<string>('editName', { required: true })
-const editRoleChoice = defineModel<RoleChoice>('editRoleChoice', { required: true })
-const editCustomRoleName = defineModel<string>('editCustomRoleName', { required: true })
+const editFarmRoleId = defineModel<string>('editFarmRoleId', { required: true })
 const editPhone = defineModel<string>('editPhone', { required: true })
 const editEmployeeNumber = defineModel<string>('editEmployeeNumber', { required: true })
 const editJobTitle = defineModel<string>('editJobTitle', { required: true })
@@ -22,9 +21,9 @@ const editConfirmMonthlyWage = defineModel<boolean>('editConfirmMonthlyWage', { 
 
 defineProps<{
   editing: FarmUser
-  editIsOther: boolean
   editSaving: boolean
   editError: string | null
+  assignableRoles: AssignableFarmRole[]
 }>()
 
 const emit = defineEmits<{
@@ -52,31 +51,20 @@ const { t } = useI18n()
         />
         <select
           v-if="editing.role !== 'owner'"
-          v-model="editRoleChoice"
+          v-model="editFarmRoleId"
+          required
           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
-          <option value="supervisor">{{ t('users.supervisor') }}</option>
-          <option value="sales">{{ t('users.sales') }}</option>
-          <option value="field_worker">{{ t('users.fieldWorker') }}</option>
-          <option value="other">{{ t('users.roleOther') }}</option>
+          <option v-for="role in assignableRoles" :key="role.id" :value="role.id">
+            {{ role.name }}{{ role.isSystem ? '' : ' (custom)' }}
+          </option>
         </select>
         <p
           v-else
           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
-          {{ roleLabel('owner') }}
+          {{ editing.farmRoleName || roleLabel('owner') }}
         </p>
-        <template v-if="editing.role !== 'owner' && editIsOther">
-          <input
-            v-model="editCustomRoleName"
-            type="text"
-            required
-            maxlength="200"
-            :placeholder="t('users.customRoleName')"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          />
-          <p class="text-[11px] text-slate-500 -mt-1">{{ t('users.otherRoleEditHint') }}</p>
-        </template>
         <input
           v-model="editPhone"
           type="tel"
@@ -90,7 +78,6 @@ const { t } = useI18n()
           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
-          v-if="editing.role === 'owner' || !editIsOther"
           v-model="editJobTitle"
           type="text"
           :placeholder="t('users.jobTitle')"

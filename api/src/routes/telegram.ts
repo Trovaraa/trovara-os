@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { getCookie } from 'hono/cookie'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
 import {
   deleteTelegramWebhook,
@@ -123,7 +123,7 @@ telegramRoutes.use('/set-webhook', authMiddleware)
 telegramRoutes.post('/set-webhook', zValidator('json', setWebhookSchema), async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'security.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -144,7 +144,7 @@ telegramRoutes.use('/delete-webhook', authMiddleware)
 telegramRoutes.post('/delete-webhook', zValidator('json', deleteWebhookSchema), async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'security.admin')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

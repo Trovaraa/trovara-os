@@ -51,6 +51,24 @@ export function hashIp(ip: string): string {
   return createHash('sha256').update(ip).digest('hex')
 }
 
+/**
+ * True when this user has prior sessions and none used this IP hash.
+ * First-ever login is not treated as unusual.
+ */
+export async function isUnusualLoginIp(
+  userId: string,
+  ipHash: string | undefined,
+): Promise<boolean> {
+  if (!ipHash) return false
+  const prior = await db
+    .select({ ipHash: sessions.ipHash })
+    .from(sessions)
+    .where(eq(sessions.userId, userId))
+    .limit(100)
+  if (prior.length === 0) return false
+  return !prior.some((row) => row.ipHash === ipHash)
+}
+
 export type CreateSessionOptions = {
   userAgent?: string
   ipHash?: string
@@ -171,6 +189,9 @@ export type SessionUser = {
   email: string
   name: string
   role: UserRole
+  farmRoleId?: string | null
+  /** Effective permission keys for this request (owner has all). */
+  permissions?: string[]
   mustChangePassword?: boolean
   totpEnabled?: boolean
   butlerTtsMode?: 'off' | 'voice_replies' | 'always'
@@ -187,6 +208,7 @@ export async function getUserFromSession(token: string | undefined): Promise<Ses
       email: users.email,
       name: users.name,
       role: users.role,
+      farmRoleId: users.farmRoleId,
       mustChangePassword: users.mustChangePassword,
       totpEnabled: users.totpEnabled,
       butlerTtsMode: users.butlerTtsMode,
@@ -206,6 +228,7 @@ export async function getUserFromSession(token: string | undefined): Promise<Ses
     email: row.email,
     name: row.name,
     role: row.role,
+    farmRoleId: row.farmRoleId,
     mustChangePassword: row.mustChangePassword,
     totpEnabled: row.totpEnabled,
     butlerTtsMode: row.butlerTtsMode,

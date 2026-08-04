@@ -3,7 +3,7 @@ import { count, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farms, taskTemplates, users, zones } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import { resetDemoData } from '../lib/seed-data.js'
 import { logAudit } from '../lib/audit.js'
 
@@ -50,7 +50,7 @@ onboardingRoutes.get('/status', async (c) => {
 onboardingRoutes.post('/go-live', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'farm.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -82,7 +82,7 @@ onboardingRoutes.post('/go-live', async (c) => {
 onboardingRoutes.post('/reset-demo', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'farm.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

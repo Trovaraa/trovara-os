@@ -3,7 +3,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { customerInquiries } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import { topQuestions } from '../lib/customer-inquiry.js'
 
 export const customerInsightsRoutes = new Hono<{ Variables: AppVariables }>()
@@ -17,7 +17,7 @@ customerInsightsRoutes.use('*', authMiddleware)
 customerInsightsRoutes.get('/', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner')
+    requirePermission(user, 'farm.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
