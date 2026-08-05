@@ -3,6 +3,7 @@ import {
   newsletterConfirmEmailContent,
   newsletterWelcomeEmailContent,
 } from './email-template.js'
+import { normalizeMarketingOrigin } from './public-app-url.js'
 
 export type NewsletterContact = {
   id: string
@@ -32,7 +33,7 @@ function requiredConfig(name: string): string {
 }
 
 function marketingUrl(): string {
-  return requiredConfig('PUBLIC_MARKETING_URL').replace(/\/+$/, '')
+  return normalizeMarketingOrigin(requiredConfig('PUBLIC_MARKETING_URL'))
 }
 
 function firstAndLastName(fullName: string): { firstName: string; lastName?: string } {

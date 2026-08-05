@@ -33,7 +33,7 @@ import {
 } from '../lib/customer-orders.js'
 import { orderReference } from '../lib/customer-cart.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
-import { publicLotPageUrl } from '../lib/public-app-url.js'
+import { publicLotPageUrl, publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
 import { getDummyPasswordHash, hashPassword, verifyPassword } from '../lib/session.js'
 import { emailProviderReady, sendEmail } from '../lib/notifications.js'
 import {
@@ -111,9 +111,8 @@ function requireLiveShopEmail(): boolean {
 }
 
 function marketingUrl(): string {
-  const url = process.env.PUBLIC_MARKETING_URL?.trim()
-  if (!url) return 'https://trovara.farm'
-  return url.replace(/\/+$/, '')
+  // Prefer www: apex 301s there, and the marketing PWA is registered on www.
+  return publicMarketingUrlOrDefault()
 }
 
 /** Local/dev only: print the link so inbox delivery is not required to test. */

@@ -19,6 +19,7 @@ import {
   upsertResendContact,
   verifyResendWebhook,
 } from '../lib/newsletter-resend.js'
+import { publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
@@ -252,7 +253,7 @@ publicNewsletterRoutes.post('/subscribe', zValidator('json', subscribeSchema), a
   // Local/dev: confirmation link is logged so inbox delivery is not required.
   if (!(await deliverConfirmation(subscriber, confirmationToken))) {
     if (process.env.NODE_ENV !== 'production') {
-      const confirmUrl = `${(process.env.PUBLIC_MARKETING_URL?.trim() || 'https://trovara.farm').replace(/\/+$/, '')}/newsletter/confirm?token=${encodeURIComponent(confirmationToken)}`
+      const confirmUrl = `${publicMarketingUrlOrDefault()}/newsletter/confirm?token=${encodeURIComponent(confirmationToken)}`
       console.info(`[newsletter-email:confirm] to=${email} link=${confirmUrl}`)
     }
   }

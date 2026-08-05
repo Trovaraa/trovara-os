@@ -10,13 +10,29 @@ export function publicAppBaseUrl(): string {
 }
 
 /**
+ * Canonical browser origin for the marketing site.
+ * Apex `trovara.farm` is normalized to `www` (Netlify primary + PWA scope).
+ */
+export function normalizeMarketingOrigin(url: string): string {
+  return url
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/^https?:\/\/trovara\.farm$/i, 'https://www.trovara.farm')
+}
+
+/**
  * Marketing site origin (trovara.farm) when configured.
  * Used for shop account links and branded public lot pages.
  */
 export function publicMarketingBaseUrl(): string | null {
   const configured = process.env.PUBLIC_MARKETING_URL?.trim()
   if (!configured) return null
-  return configured.replace(/\/+$/, '')
+  return normalizeMarketingOrigin(configured)
+}
+
+/** Shop / newsletter email links — configured origin or www marketing default. */
+export function publicMarketingUrlOrDefault(): string {
+  return publicMarketingBaseUrl() ?? 'https://www.trovara.farm'
 }
 
 /**
