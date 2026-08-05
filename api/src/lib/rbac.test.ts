@@ -4,12 +4,17 @@ import {
   canApproveTasks,
   canAssignTasks,
   canViewAttendanceRoster,
+  hasPermission,
   hasRole,
+  requirePermission,
   requireRole,
 } from './rbac.js'
 import type { SessionUser } from './session.js'
 
-function user(role: SessionUser['role']): SessionUser {
+function user(
+  role: SessionUser['role'],
+  permissions?: string[],
+): SessionUser {
   return {
     id: '1',
     farmId: 'farm-1',
@@ -17,6 +22,7 @@ function user(role: SessionUser['role']): SessionUser {
     name: 'Test User',
     role,
     mustChangePassword: false,
+    ...(permissions !== undefined ? { permissions } : {}),
   }
 }
 
@@ -74,5 +80,35 @@ describe('canViewAttendanceRoster', () => {
     expect(canViewAttendanceRoster(user('supervisor'))).toBe(true)
     expect(canViewAttendanceRoster(user('sales'))).toBe(false)
     expect(canViewAttendanceRoster(user('field_worker'))).toBe(false)
+  })
+})
+
+describe('hasPermission fail-closed', () => {
+  it('denies when permissions resolved to empty (non-owner)', () => {
+    expect(hasPermission(user('field_worker', []), 'vault.view')).toBe(false)
+    expect(hasPermission(user('supervisor', []), 'vault.view')).toBe(false)
+    expect(hasPermission(user('sales', []), 'orders.read')).toBe(false)
+  })
+
+  it('owners still pass when permissions empty', () => {
+    expect(hasPermission(user('owner', []), 'vault.reveal')).toBe(true)
+  })
+
+  it('uses explicit grants when permissions are loaded', () => {
+    expect(hasPermission(user('sales', ['vault.view']), 'vault.view')).toBe(true)
+    expect(hasPermission(user('sales', ['vault.view']), 'vault.manage')).toBe(false)
+  })
+
+  it('legacy fallback never grants vault.view to field workers', () => {
+    // permissions undefined → legacy path (tests / pre-middleware)
+    expect(hasPermission(user('field_worker'), 'vault.view')).toBe(false)
+    expect(hasPermission(user('sales'), 'vault.view')).toBe(true)
+    expect(hasPermission(user('supervisor'), 'vault.view')).toBe(true)
+  })
+})
+
+describe('requirePermission', () => {
+  it('throws FORBIDDEN when grant missing', () => {
+    expect(() => requirePermission(user('field_worker', []), 'vault.view')).toThrow('FORBIDDEN')
   })
 })

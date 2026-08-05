@@ -30,3 +30,4 @@ api/data/evidence/
 *.canvas.tsx
 CONTEXT.md
 
+/tmp

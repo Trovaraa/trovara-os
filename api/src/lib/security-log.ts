@@ -45,6 +45,7 @@ export type SecurityEventType =
   | 'vault_entry_deleted'
   | 'vault_password_revealed'
   | 'vault_reveal_failed'
+  | 'permission_resolution_failed'
   | 'break_glass_admin_deactivated'
   | 'break_glass_admin_reactivated'
   | 'csrf_failure'

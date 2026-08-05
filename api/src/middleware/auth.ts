@@ -36,8 +36,21 @@ export async function authMiddleware(c: Context<{ Variables: AppVariables }>, ne
       farmId: user.farmId,
       farmRoleId: user.farmRoleId,
     })
-  } catch {
-    // Keep request usable with legacy role fallbacks if role tables are unavailable.
+  } catch (err) {
+    // Fail closed for non-owners: empty grants deny permission checks instead of
+    // falling through to overly-broad legacy defaults (e.g. vault.view).
+    logSecurityEvent(
+      'permission_resolution_failed',
+      withAccessMeta((name) => c.req.header(name), {
+        path: c.req.path,
+        method: c.req.method,
+        userId: user.id,
+        farmId: user.farmId,
+        role: user.role,
+        error: err instanceof Error ? err.message : 'unknown',
+      }),
+    )
+    user.permissions = []
   }
 
   c.set('user', user)

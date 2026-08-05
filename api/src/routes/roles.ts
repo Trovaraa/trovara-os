@@ -175,5 +175,13 @@ roleRoutes.delete('/:id', async (c) => {
       farmId: user.farmId,
     }),
   )
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'delete',
+    entityType: 'farm_role',
+    entityId: roleId,
+    metadata: { name: role.name, clonedFrom: role.clonedFrom },
+  })
   return c.json({ ok: true })
 })

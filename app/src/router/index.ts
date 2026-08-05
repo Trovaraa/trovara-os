@@ -239,6 +239,12 @@ const router = createRouter({
       meta: { requiresAuth: true, ownerOnly: true },
     },
     {
+      path: '/settings/audit',
+      name: 'settings-audit',
+      component: () => import('@/views/AuditView.vue'),
+      meta: { requiresAuth: true, auditAccess: true },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
@@ -282,6 +288,9 @@ router.beforeEach(async (to) => {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
+    return defaultHome(auth.user?.role)
+  }
+  if (to.meta.auditAccess && !auth.hasPermission('audit.export')) {
     return defaultHome(auth.user?.role)
   }
   if (to.meta.financeAccess && !auth.canAccessFinance) {

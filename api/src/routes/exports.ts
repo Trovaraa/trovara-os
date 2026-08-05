@@ -12,7 +12,7 @@ import {
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAccessFinance } from '../lib/rbac.js'
+import { canAccessFinance, hasPermission } from '../lib/rbac.js'
 import {
   exportJsonMeta,
   exportWatermarkComment,
@@ -169,7 +169,9 @@ exportRoutes.get('/expenses.csv', async (c) => {
 
 exportRoutes.get('/audit.csv', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'audit.export') && !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const reason = parseExportReason(c)
 
   const rows = await db

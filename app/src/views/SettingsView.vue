@@ -219,9 +219,16 @@ onMounted(load)
       <RouterLink
         v-if="auth.isOwner"
         to="/settings/security"
-        class="inline-flex mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
+        class="inline-flex mt-3 mr-2 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
       >
         {{ t('settings.securityDashboard') }}
+      </RouterLink>
+      <RouterLink
+        v-if="auth.hasPermission('audit.export')"
+        to="/settings/audit"
+        class="inline-flex mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
+      >
+        {{ t('settings.auditDashboard') }}
       </RouterLink>
     </div>
 

@@ -29,6 +29,13 @@ export function shopEmailAddrRateKey(email: string): string {
   return hashedRateKey('shop:email:addr', email.trim().toLowerCase())
 }
 
+/** Vault password reveal step-up (TOTP / break-glass) — per user. */
+export const VAULT_REVEAL_MAX_ATTEMPTS = 5
+
+export function vaultRevealRateKey(userId: string): string {
+  return hashedRateKey('vault:reveal', userId.trim() || 'unknown')
+}
+
 /**
  * Atomically record an attempt for `rateKey`.
  * Returns false when the key has exhausted its window.

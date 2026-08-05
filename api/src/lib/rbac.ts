@@ -21,8 +21,9 @@ export function requireRole(user: SessionUser, ...roles: UserRole[]): void {
 
 export function hasPermission(user: SessionUser, key: PermissionKey): boolean {
   if (user.role === 'owner') return true
-  if (user.permissions?.length) return user.permissions.includes(key)
-  // Fallback when permissions not loaded yet (legacy callers)
+  // Defined (even empty) means auth resolved grants — do not fall through to
+  // legacy defaults (empty = deny). Undefined is for tests / pre-auth callers.
+  if (user.permissions !== undefined) return user.permissions.includes(key)
   return legacyPermission(user, key)
 }
 
@@ -72,15 +73,19 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'orders.pii':
     case 'products.manage':
       return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
-    case 'inventory.read':
     case 'inventory.count':
     case 'tasks.work_own':
     case 'sessions.revoke':
     case 'reports.read':
+      // Broad staff defaults — match field-worker template minimums.
+      return true
+    case 'inventory.read':
     case 'users.view':
+      return user.role === 'owner' || user.role === 'supervisor'
     case 'vault.view':
     case 'integrations.view':
-      return true
+      // Never grant vault/integrations metadata to field workers via legacy.
+      return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
     case 'audit.export':
     case 'traceability.export':
       return user.role === 'owner' || user.role === 'sales'

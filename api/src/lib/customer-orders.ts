@@ -11,6 +11,7 @@ import {
   products,
 } from '../db/schema.js'
 import { recordFarmEvent } from './farm-events.js'
+import { logAudit } from './audit.js'
 import { notifyStaffNewOrder } from './order-fulfillment.js'
 import {
   answerCustomerInquiry,
@@ -481,6 +482,22 @@ async function createOrderFromCart(params: {
       lotCode,
     },
     metadata: { source: params.channel, itemCount: items.length, totalKobo, lotCode },
+  })
+
+  await logAudit({
+    farmId: params.farmId,
+    action: 'create',
+    entityType: 'order',
+    entityId: order.id,
+    metadata: {
+      channel: params.channel,
+      reference,
+      contactId: params.contactId,
+      itemCount: items.length,
+      totalKobo,
+      lotCode,
+      status: 'pending',
+    },
   })
 
   // Best-effort alert to owner + supervisor + sales (Telegram + WhatsApp).

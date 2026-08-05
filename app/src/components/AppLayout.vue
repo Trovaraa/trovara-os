@@ -323,7 +323,7 @@ const activeNavLabel = computed(() => {
 })
 
 const guidePageTitle = computed(() => {
-  if (route.path === '/settings/security') return t('nav.settings')
+  if (route.path === '/settings/security' || route.path === '/settings/audit') return t('nav.settings')
   const page = guidePages.value.find((item) => item.to === route.path)
   return page ? t(page.labelKey) : activeNavLabel.value
 })

@@ -69,8 +69,8 @@ if (process.env.NODE_ENV === 'production') {
   }
 
   if (!process.env.VAULT_ENCRYPTION_KEY?.trim()) {
-    console.warn(
-      'VAULT_ENCRYPTION_KEY is unset — portal vault encrypt/decrypt will fail in production until it is set',
+    configurationErrors.push(
+      'VAULT_ENCRYPTION_KEY (32-byte hex/base64) is required in production for the portal vault',
     )
   }
 

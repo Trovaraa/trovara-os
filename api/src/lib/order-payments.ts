@@ -24,6 +24,7 @@ import {
 } from './farm-notify.js'
 import type { ReplyLocale } from './reply-locale.js'
 import { initializeTransaction, isPaystackConfigured, refundTransaction } from './paystack.js'
+import { logAudit } from './audit.js'
 
 const CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -435,6 +436,22 @@ export async function applySuccessfulPayment(params: {
     } catch (err) {
       console.error('Payment staff-notify failed:', err instanceof Error ? err.message : err)
     }
+
+    await logAudit({
+      farmId: attempt.farmId,
+      action: 'payment_succeeded',
+      entityType: 'payment_attempt',
+      entityId: attempt.id,
+      metadata: {
+        orderId: attempt.orderId,
+        reference: attempt.providerReference,
+        amountKobo: attempt.amountKobo,
+        currency: attempt.currency,
+        invoiceId,
+        receiptId,
+        via: 'paystack_webhook',
+      },
+    })
   }
 
   return {

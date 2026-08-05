@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { getCookie } from 'hono/cookie'
-import { sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
+import { auditEvents, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { hasPermission, requirePermission } from '../lib/rbac.js'
 import { SESSION_COOKIE, getUserFromSession } from '../lib/session.js'
@@ -11,6 +12,12 @@ import { isWhatsAppConfigured } from '../lib/whatsapp-meta.js'
 import { getLastBackupInfo } from '../lib/backup-status.js'
 import { enrichAccessLocation } from '../lib/ip-location.js'
 import { selectSecurityDashboardEvents } from '../lib/security-log.js'
+import {
+  AUDIT_DOMAIN_LABELS,
+  type AuditDomain,
+  auditDomainForEntityType,
+  entityTypesForAuditDomain,
+} from '../lib/audit-catalog.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -144,4 +151,96 @@ systemRoutes.get('/api/system/security-events', authMiddleware, async (c) => {
   }))
 
   return c.json({ events })
+})
+
+const AUDIT_DOMAINS = Object.keys(AUDIT_DOMAIN_LABELS) as AuditDomain[]
+
+/** Farm audit trail (Postgres) — parallel to the security JSONL dashboard. */
+systemRoutes.get('/api/system/audit-events', authMiddleware, async (c) => {
+  const user = c.get('user')
+  try {
+    requirePermission(user, 'audit.export')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const domainRaw = (c.req.query('domain') || 'all').trim().toLowerCase()
+  const domain =
+    domainRaw === 'all' || AUDIT_DOMAINS.includes(domainRaw as AuditDomain)
+      ? domainRaw
+      : 'all'
+  const action = (c.req.query('action') || '').trim().toLowerCase()
+  const actorUserId = (c.req.query('actorUserId') || '').trim()
+  const fromRaw = c.req.query('from')
+  const toRaw = c.req.query('to')
+  const limitRaw = Number(c.req.query('limit') || '100')
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 100
+
+  const filters = [eq(auditEvents.farmId, user.farmId)]
+
+  if (domain !== 'all') {
+    const types = entityTypesForAuditDomain(domain as AuditDomain | 'all')
+    if (domain === 'other' && types) {
+      filters.push(notInArray(auditEvents.entityType, types))
+    } else if (types?.length) {
+      filters.push(inArray(auditEvents.entityType, types))
+    }
+  }
+
+  if (action) {
+    filters.push(sql`lower(${auditEvents.action}) = ${action}`)
+  }
+  if (actorUserId) {
+    filters.push(eq(auditEvents.userId, actorUserId))
+  }
+  if (fromRaw) {
+    const from = new Date(fromRaw)
+    if (!Number.isNaN(from.getTime())) filters.push(gte(auditEvents.createdAt, from))
+  }
+  if (toRaw) {
+    const to = new Date(toRaw)
+    if (!Number.isNaN(to.getTime())) filters.push(lte(auditEvents.createdAt, to))
+  }
+
+  const rows = await db
+    .select({
+      id: auditEvents.id,
+      action: auditEvents.action,
+      entityType: auditEvents.entityType,
+      entityId: auditEvents.entityId,
+      metadata: auditEvents.metadata,
+      createdAt: auditEvents.createdAt,
+      userId: auditEvents.userId,
+      userName: users.name,
+      userEmail: users.email,
+    })
+    .from(auditEvents)
+    .leftJoin(users, eq(auditEvents.userId, users.id))
+    .where(and(...filters))
+    .orderBy(desc(auditEvents.createdAt))
+    .limit(limit)
+
+  const events = rows.map((row) => {
+    const metadata =
+      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? enrichAccessLocation(row.metadata as Record<string, unknown>)
+        : {}
+    return {
+      id: row.id,
+      ts: row.createdAt.toISOString(),
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      domain: auditDomainForEntityType(row.entityType),
+      actor: row.userId
+        ? { id: row.userId, name: row.userName, email: row.userEmail }
+        : null,
+      metadata,
+    }
+  })
+
+  return c.json({
+    events,
+    domains: AUDIT_DOMAINS.map((key) => ({ key, label: AUDIT_DOMAIN_LABELS[key] })),
+  })
 })

@@ -22,11 +22,13 @@ export {
   shopLoginRateKey,
   shopEmailIpRateKey,
   shopEmailAddrRateKey,
+  vaultRevealRateKey,
   hashedRateKey,
   purgeExpiredLoginRateLimits,
   LOGIN_RATE_MAX_ATTEMPTS,
   SHOP_EMAIL_IP_MAX_ATTEMPTS,
   SHOP_EMAIL_ADDR_MAX_ATTEMPTS,
+  VAULT_REVEAL_MAX_ATTEMPTS,
   LOGIN_RATE_WINDOW_MS,
 } from '../lib/login-rate-limit.js'
 

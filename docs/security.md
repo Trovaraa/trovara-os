@@ -33,6 +33,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Telegram webhook: `secret_token` verification (`TELEGRAM_WEBHOOK_SECRET`)
 - Request bodies capped at 12 MB (413)
 - Security event log: `logs/security.log` (failed logins, CSRF, 403s, invalid webhooks)
+- Audit trail: Postgres `audit_events` (who changed farm data / money / config). Catalog and domain map: `api/src/lib/audit-catalog.ts`. UI: Settings → Audit dashboard (`audit.export`). Dual-write privileged admin with security.log; auth noise stays security-only.
 - API error log: `logs/api.log` (5xx responses, unhandled errors)
 - Encrypted backups: `scripts/backup-db-encrypted.sh` (GPG symmetric)
 - Negative security tests: RBAC deny, CSRF, rate limits (29 tests in CI)
@@ -61,7 +62,7 @@ Per-route roles: [`API.md`](./API.md). Do not maintain a third matrix here.
 
 ## Still manual / ops (production is live)
 
-- Confirm all secrets rotated on the server (OpenAI, Telegram, SESSION_SECRET, POSTGRES_PASSWORD)
+- Confirm all secrets rotated on the server (OpenAI, Telegram, `TOTP_ENCRYPTION_KEY`, `VAULT_ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, provider tokens). Sessions are opaque DB-backed tokens — there is no live `SESSION_SECRET`.
 - Confirm HTTPS is enabled for `os.trovara.farm`
 - Configure off-server encrypted backups + logrotate for `logs/*.log` ([`backup-runbook.md`](./backup-runbook.md), [`logrotate-trovara-os.conf.example`](./logrotate-trovara-os.conf.example))
 - Set `META_APP_SECRET` when WhatsApp goes live
@@ -77,7 +78,8 @@ Use this as a release gate before internet-facing deployment (or each production
 ### V1. Authentication & Session
 
 - [ ] Default/dev passwords rotated; no shared credentials remain.
-- [ ] `SESSION_SECRET` and DB credentials rotated from any previously exposed values.
+- [ ] DB credentials and encryption keys (`TOTP_ENCRYPTION_KEY`, `VAULT_ENCRYPTION_KEY`) rotated from any previously exposed values. (`SESSION_SECRET` is unused — do not set.)
+- [ ] Portal vault: `VAULT_ENCRYPTION_KEY` set in production; reveal is TOTP/break-glass gated and rate-limited.
 - [ ] Disabled users cannot keep active sessions.
 - [ ] Login failures are rate-limited and recorded in `logs/security.log`.
 

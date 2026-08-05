@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { portalVaultEntries, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requirePermission } from '../lib/rbac.js'
+import { requirePermission, hasPermission } from '../lib/rbac.js'
 import { encryptVaultSecret, decryptVaultSecret } from '../lib/vault-box.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
@@ -13,6 +13,12 @@ import { withAccessMeta } from '../lib/request-access-meta.js'
 import { isBreakGlassEmail, verifyArmedBreakGlassPassword } from '../lib/registration.js'
 import { verifyTokenForUser } from '../lib/totp.js'
 import { decryptSecretForVerify } from '../lib/secret-box.js'
+import {
+  checkDurableRateLimit,
+  resetDurableRateLimit,
+  vaultRevealRateKey,
+  VAULT_REVEAL_MAX_ATTEMPTS,
+} from '../middleware/security.js'
 
 export const vaultRoutes = new Hono<{ Variables: AppVariables }>()
 vaultRoutes.use('*', authMiddleware)
@@ -26,14 +32,18 @@ const entrySchema = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
 })
 
-function metadataRow(row: typeof portalVaultEntries.$inferSelect) {
+function metadataRow(
+  row: typeof portalVaultEntries.$inferSelect,
+  options: { includeNotes: boolean },
+) {
   return {
     id: row.id,
     label: row.label,
     category: row.category,
     loginUrl: row.loginUrl,
     loginEmail: row.loginEmail,
-    notes: row.notes,
+    // Notes often hold recovery codes / secondary secrets — manage-only.
+    notes: options.includeNotes ? row.notes : null,
     lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -48,13 +58,14 @@ vaultRoutes.get('/', async (c) => {
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
+  const includeNotes = hasPermission(user, 'vault.manage')
   const rows = await db
     .select()
     .from(portalVaultEntries)
     .where(eq(portalVaultEntries.farmId, user.farmId))
   return c.json({
     entries: rows
-      .map(metadataRow)
+      .map((row) => metadataRow(row, { includeNotes }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   })
 })
@@ -102,7 +113,7 @@ vaultRoutes.post('/', zValidator('json', entrySchema), async (c) => {
     metadata: { label: created.label, category: created.category },
   })
 
-  return c.json({ entry: metadataRow(created) }, 201)
+  return c.json({ entry: metadataRow(created, { includeNotes: true }) }, 201)
 })
 
 vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) => {
@@ -147,7 +158,19 @@ vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) =
       farmId: user.farmId,
     }),
   )
-  return c.json({ entry: metadataRow(updated) })
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'portal_vault_entry',
+    entityId: id,
+    metadata: {
+      label: updated.label,
+      category: updated.category,
+      passwordRotated: body.password !== undefined,
+    },
+  })
+  return c.json({ entry: metadataRow(updated, { includeNotes: true }) })
 })
 
 vaultRoutes.delete('/:id', async (c) => {
@@ -175,6 +198,14 @@ vaultRoutes.delete('/:id', async (c) => {
       farmId: user.farmId,
     }),
   )
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'delete',
+    entityType: 'portal_vault_entry',
+    entityId: id,
+    metadata: { label: existing.label },
+  })
   return c.json({ ok: true })
 })
 
@@ -189,6 +220,19 @@ vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
     requirePermission(user, 'vault.reveal')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const revealKey = vaultRevealRateKey(user.id)
+  if (!(await checkDurableRateLimit(revealKey, VAULT_REVEAL_MAX_ATTEMPTS))) {
+    logSecurityEvent(
+      'vault_reveal_failed',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: 'rate_limited',
+        userId: user.id,
+        farmId: user.farmId,
+      }),
+    )
+    return c.json({ error: 'Too many reveal attempts. Try again later.' }, 429)
   }
 
   const id = c.req.param('id')
@@ -249,6 +293,8 @@ vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
   } catch {
     return c.json({ error: 'Could not decrypt vault entry' }, 500)
   }
+
+  await resetDurableRateLimit(revealKey)
 
   logSecurityEvent(
     'vault_password_revealed',
