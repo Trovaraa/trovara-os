@@ -5,7 +5,6 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   auditEvents,
-  cropCycles,
   inventoryItems,
   inventoryMovements,
   plots,

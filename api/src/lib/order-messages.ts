@@ -1,4 +1,3 @@
-import type { PreferredLocale } from '../db/schema.js'
 import { normalizeLocaleHint, type ReplyLocale } from './reply-locale.js'
 
 export type StaffLocale = ReplyLocale

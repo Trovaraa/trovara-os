@@ -1,0 +1,22 @@
+# Gitleaks config for Trovara OS CI.
+# Extends defaults; allowlists known false positives (not real secrets).
+
+title = "trovara-os"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "False positives: advisory rule keys, PWA localStorage keys, docs placeholders, test fixtures"
+paths = [
+  '''(^|/)docs/''',
+  '''\.test\.ts$''',
+  '''\.test\.js$''',
+  '''advisory-playbooks\.ts$''',
+  '''useInstallPrompt\.ts$''',
+]
+regexes = [
+  '''YOUR_CSRF''',
+  '''a2hs-dismissed''',
+  '''ruleKey:\s*'[a-z0-9._-]+'''',
+]

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { getEvidenceStorageRoot } from './evidence-store.js'
 
 const MAX_DECODED_BYTES = 2_500_000

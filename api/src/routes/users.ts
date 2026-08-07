@@ -459,7 +459,7 @@ userRoutes.patch('/:id', zValidator('json', updateUserSchema), async (c) => {
     roleChanged = true
   }
 
-  let updated =
+  const updated =
     Object.keys(updates).length > 0
       ? (
           await db

@@ -39,6 +39,21 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Negative security tests: RBAC deny, CSRF, rate limits (29 tests in CI)
 - Login rate limits (5 / 15 min per IP) are stored in Postgres (`login_rate_limits`) as SHA-256 keys (`staff:login` / `shop:login` scopes) so API restarts cannot clear a lockout and staff/shop counters stay separate; expired windows are purged by the retention cron.
 
+## CI security scanning
+
+GitHub Actions workflow [`.github/workflows/security.yml`](../.github/workflows/security.yml) (push/`main` + PRs), in parallel with existing [`ci.yml`](../.github/workflows/ci.yml):
+
+| Scan | Tool | Gate |
+|------|------|------|
+| SAST | CodeQL (`javascript-typescript`) | SARIF → GitHub Code Scanning |
+| Secrets | gitleaks (CLI in CI) | Fails on findings |
+| Vulnerabilities | OSV-Scanner on `package-lock.json` + `npm audit --audit-level=high` in `ci.yml` | Fails on known vulns / high+ |
+| Code quality | ESLint (`npm run lint`) + typecheck/tests in `ci.yml` | Fails on lint errors |
+
+Dependabot already opens weekly npm + Actions PRs (`.github/dependabot.yml`).
+
+**Manual (repo Settings → Code security):** enable Dependabot alerts, Code scanning (CodeQL results appear after the workflow runs), and Secret scanning + push protection when available for the org/plan. The marketing site (`trovera`) uses the same scanner stack in its own `security.yml`.
+
 ## Role access
 
 Product-facing access by area: [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md).  

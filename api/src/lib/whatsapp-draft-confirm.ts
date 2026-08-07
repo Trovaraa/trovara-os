@@ -1,6 +1,3 @@
-import { eq } from 'drizzle-orm'
-import { db } from '../db/index.js'
-import { actionDrafts } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { sendWhatsAppText } from './whatsapp-meta.js'
 import { recordChatMessage } from './butler-core.js'

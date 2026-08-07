@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { farms, harvestLots, orders, plots, users } from '../db/schema.js'
+import { farms, harvestLots, orders, plots } from '../db/schema.js'
 import { orderReference } from './customer-cart.js'
 import {
   allocateLotCode,
