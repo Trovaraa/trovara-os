@@ -40,6 +40,8 @@ export function sanitizeForLlm(text: string): string {
  */
 export function sanitizeFarmDataField(text: string): string {
   const stripped = (text ?? '')
+    // Intentionally strips ASCII control chars from free-text farm fields.
+    // eslint-disable-next-line no-control-regex -- control-char scrubbing is the point
     .replace(/[\x00-\x1f\x7f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

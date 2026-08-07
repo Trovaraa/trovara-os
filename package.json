@@ -29,17 +29,34 @@
     "backup:restore-test": "bash scripts/restore-test-isolated.sh",
     "restore:db": "bash scripts/restore-db.sh",
     "audit": "npm audit --workspaces --audit-level=high",
+    "lint": "eslint api/src app/src",
     "test": "npm test -w api && npm test -w app",
     "typecheck": "npx tsc --noEmit -p api && npx vue-tsc --noEmit -p app"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "concurrently": "^9.1.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-vue": "^10.10.0",
     "glob": "13.0.6",
-    "happy-dom": "^20.11.1"
+    "globals": "^16.5.0",
+    "happy-dom": "^20.11.1",
+    "typescript-eslint": "^8.66.0",
+    "vue-eslint-parser": "^10.4.1"
   },
   "overrides": {
     "fast-uri": "3.1.5",
     "brace-expansion": "5.0.9",
+    "@eslint/config-array": {
+      "minimatch": {
+        "brace-expansion": "2.1.4"
+      }
+    },
+    "@eslint/eslintrc": {
+      "minimatch": {
+        "brace-expansion": "2.1.4"
+      }
+    },
     "glob": "$glob",
     "happy-dom": "^20.11.1",
     "ip-address": "10.4.0",

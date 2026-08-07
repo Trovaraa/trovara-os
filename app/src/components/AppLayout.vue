@@ -9,7 +9,7 @@ import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { onlineStatus, pendingSyncCount, lastSyncedAt, syncStatus, retrySync } from '@/lib/offline-api'
 
-const props = defineProps<{ workerMode?: boolean }>()
+defineProps<{ workerMode?: boolean }>()
 
 const auth = useAuthStore()
 const route = useRoute()

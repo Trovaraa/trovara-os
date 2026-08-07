@@ -243,7 +243,7 @@ export async function offerCropCycleDraft(
   // The crop type is exact-matched against the lifecycle and advisory playbook
   // keys, so it goes through the lexicon, never the translator: a merely-correct
   // translation ("coconut palm") would match no key and fail silently.
-  const stored = await storeActionDraft({
+  await storeActionDraft({
     userId: user.id,
     farmId: user.farmId,
     actionType: 'create_crop_cycle',

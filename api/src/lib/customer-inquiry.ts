@@ -11,7 +11,7 @@
  * Every question is logged so Founders can see what customers ask most, and the
  * bot can suggest popular questions back to new customers.
  */
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { customerInquiries } from '../db/schema.js'
 import { PROMPT_INJECTION_RULES } from './ai-advisor.js'

@@ -470,7 +470,7 @@ export async function requestCustomerCancel(params: {
   orderIdOrRef: string
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const raw = params.orderIdOrRef.trim()
-  let order =
+  const order =
     (await findOrderById(params.farmId, raw)) ??
     (await findOrderByReference(params.farmId, raw))
 

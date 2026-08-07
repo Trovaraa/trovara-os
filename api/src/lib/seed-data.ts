@@ -227,7 +227,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
   const seedMustChangePassword =
     process.env.SEED_SKIP_MUST_CHANGE_PASSWORD === 'true' ? false : true
 
-  const [owner, dailyAdmin, sup1, sup2, worker1, worker2, sales] = await db
+  const [owner, _dailyAdmin, sup1, sup2, worker1, worker2, _sales] = await db
     .insert(users)
     .values([
       {

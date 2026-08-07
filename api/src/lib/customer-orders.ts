@@ -21,7 +21,6 @@ import {
 import { publicLotPageUrl, publicMarketingBaseUrl } from './public-app-url.js'
 import {
   addToCart,
-  cartTotalKobo,
   firstMissingDetailStep,
   formatCart,
   formatCatalog,
@@ -799,7 +798,7 @@ async function advanceOrderConversation(params: {
     return `Your ${channelName} is now linked to ${linked.accountName}'s Trovara account. Your orders will stay together across the website and chat.\n\nType "2" to see your orders.`
   }
 
-  const supportMatch = text.match(/^(?:4|complaint|support|problem|issue)(?:\s*[:\-]?\s*(.*))?$/i)
+  const supportMatch = text.match(/^(?:4|complaint|support|problem|issue)(?:\s*[:-]?\s*(.*))?$/i)
   if (state.step === 'idle' && supportMatch) {
     const description = supportMatch[1]?.trim()
     if (!description) {

@@ -10,7 +10,6 @@
  *   npm run reg-token -w api -- --ttl=2 --label="initial founder"
  */
 import '../lib/env.js'
-import { db } from '../db/index.js'
 import { createRegistrationToken } from '../lib/registration-tokens.js'
 
 function parseArgs(argv: string[]): { ttlHours?: number; label?: string } {
