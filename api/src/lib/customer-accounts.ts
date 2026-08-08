@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
@@ -71,9 +71,8 @@ export async function getCustomerFromSession(token?: string) {
 }
 
 function generateLinkCode(): string {
-  const bytes = randomBytes(8)
   let code = ''
-  for (let i = 0; i < 8; i++) code += LINK_ALPHABET[bytes[i]! % LINK_ALPHABET.length]
+  for (let i = 0; i < 8; i++) code += LINK_ALPHABET[randomInt(LINK_ALPHABET.length)]!
   return `TRV-${code}`
 }
 

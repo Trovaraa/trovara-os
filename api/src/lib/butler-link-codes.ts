@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomInt } from 'node:crypto'
 import { and, desc, eq, gt, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farmEvents, users } from '../db/schema.js'
@@ -18,10 +18,9 @@ type LinkCodeValue = {
 }
 
 function randomCode(): string {
-  const bytes = randomBytes(8)
   let code = ''
   for (let i = 0; i < 8; i += 1) {
-    code += CODE_ALPHABET[bytes[i]! % CODE_ALPHABET.length]
+    code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]!
   }
   return code
 }
