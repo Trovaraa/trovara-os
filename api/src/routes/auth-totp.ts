@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { randomBytes, createHash } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { setCookie, getCookie } from 'hono/cookie'
 import QRCode from 'qrcode'
@@ -68,7 +68,7 @@ function hashRecoveryCode(code: string): string {
 
 function generateRecoveryCode(): string {
   const part = () =>
-    Array.from({ length: 4 }, () => RECOVERY_CODE_CHARS[randomBytes(1)[0]! % RECOVERY_CODE_CHARS.length]).join('')
+    Array.from({ length: 4 }, () => RECOVERY_CODE_CHARS[randomInt(RECOVERY_CODE_CHARS.length)]!).join('')
   return `${part()}-${part()}`
 }
 
