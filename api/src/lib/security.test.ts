@@ -5,7 +5,7 @@ process.env.DATABASE_URL ??= 'postgresql://test:test@127.0.0.1:5432/test'
 import type { SessionUser } from './session.js'
 import { hasRole, requireRole } from './rbac.js'
 import { generateCsrfToken, isCsrfExemptPath } from './csrf.js'
-import { secureCompare } from './secure-compare.js'
+import { secureCompare, secureCompareSecret } from './secure-compare.js'
 import { isPasswordChangeExemptPath } from '../middleware/auth.js'
 import { checkRateLimit, resetRateLimitBucket } from './rate-limit.js'
 import {
@@ -96,6 +96,18 @@ describe('secureCompare', () => {
 
   it('returns false for same-length mismatches', () => {
     expect(secureCompare('abc123', 'abc124')).toBe(false)
+  })
+})
+
+describe('secureCompareSecret', () => {
+  it('returns true for equal secrets of any length', () => {
+    expect(secureCompareSecret('short', 'short')).toBe(true)
+    expect(secureCompareSecret('longer-break-glass', 'longer-break-glass')).toBe(true)
+  })
+
+  it('returns false when values or lengths differ', () => {
+    expect(secureCompareSecret('short', 'longer-value')).toBe(false)
+    expect(secureCompareSecret('abc123', 'abc124')).toBe(false)
   })
 })
 

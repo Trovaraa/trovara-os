@@ -7,9 +7,15 @@ export function validateEvidenceDataUrl(url: string): boolean {
   if (url.length > MAX_LENGTH) return false
 
   const prefix = url.slice(0, 32).toLowerCase()
-  if (prefix.startsWith('javascript:') || prefix.startsWith('data:text/html')) {
+  if (
+    prefix.startsWith('javascript:') ||
+    prefix.startsWith('vbscript:') ||
+    prefix.startsWith('data:text/html')
+  ) {
     return false
   }
+  // Only allowlisted media data: URLs; reject every other scheme (including other data: subtypes).
+  if (!prefix.startsWith('data:')) return false
 
   return ALLOWED.test(url)
 }
