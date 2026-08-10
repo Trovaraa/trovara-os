@@ -48,10 +48,14 @@ const {
   farmLatitude,
   farmLongitude,
   farmTimezone,
+  healthSlaAlertsEnabled,
   savingFarm,
+  savingHealthSla,
   farmMessage,
+  healthSlaMessage,
   loadFarm,
   saveFarmLocation,
+  saveHealthSlaAlerts,
 } = useSettingsFarm(() => auth.isOwner)
 
 const {
@@ -315,15 +319,19 @@ onMounted(load)
         v-model:tts-mode="ttsMode"
         v-model:order-alerts-subscribed="orderAlertsSubscribed"
         v-model:worker-alerts-subscribed="workerAlertsSubscribed"
+        v-model:health-sla-alerts-enabled="healthSlaAlertsEnabled"
         :saving-order-alerts="savingOrderAlerts"
         :saving-worker-alerts="savingWorkerAlerts"
+        :saving-health-sla="savingHealthSla"
         :order-alerts-message="orderAlertsMessage"
         :worker-alerts-message="workerAlertsMessage"
+        :health-sla-message="healthSlaMessage"
         :saving-tts-mode="savingTtsMode"
         :tts-message="ttsMessage"
         @save-tts="saveButlerTtsMode"
         @save-order-alerts="saveOrderAlertsPreference"
         @save-worker-alerts="saveWorkerAlertsPreference"
+        @save-health-sla="saveHealthSlaAlerts"
       />
 
       <SettingsOpsPanel v-if="auth.isOwner" :billing-status="billingStatus" />

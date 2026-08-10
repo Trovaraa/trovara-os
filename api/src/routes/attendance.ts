@@ -8,8 +8,10 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import {
   clockIn,
   clockOut,
+  listHoursSummary,
   listToday,
   supervisorCorrect,
+  type HoursSummaryRange,
 } from '../lib/attendance-service.js'
 import { authorLocaleHint, toViewerLocaleMany } from '../lib/content-locale.js'
 import { canApproveTasks } from '../lib/rbac.js'
@@ -32,6 +34,11 @@ const correctionSchema = allocationSchema
     monthlyWageSnapshotNgn: z.number().int().min(0).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'At least one correction is required')
+
+const summaryQuerySchema = z.object({
+  range: z.enum(['day', 'week', 'month', 'ytd']).default('week'),
+  userId: z.string().uuid().optional(),
+})
 
 export const attendanceRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -77,6 +84,21 @@ attendanceRoutes.get('/today', async (c) => {
   const user = c.get('user')
   const sessions = await listToday(user)
   return c.json({ sessions: await localizeNotes(sessions, user) })
+})
+
+attendanceRoutes.get('/summary', zValidator('query', summaryQuerySchema), async (c) => {
+  const user = c.get('user')
+  const query = c.req.valid('query')
+  try {
+    const summary = await listHoursSummary(
+      user,
+      query.range as HoursSummaryRange,
+      query.userId,
+    )
+    return c.json(summary)
+  } catch (error) {
+    return attendanceError(c, error)
+  }
 })
 
 attendanceRoutes.post('/clock-in', zValidator('json', allocationSchema), async (c) => {

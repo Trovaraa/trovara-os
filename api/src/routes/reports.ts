@@ -4,6 +4,8 @@ import { db } from '../db/index.js'
 import {
   auditEvents,
   cropCycles,
+  expenseLabelLinks,
+  expenseLabels,
   expenses,
   inventoryItems,
   inventoryMovements,
@@ -19,6 +21,7 @@ import { gatherExceptions } from '../lib/exceptions.js'
 import { computePlotProfitability } from '../lib/plot-profitability.js'
 import { computeInventoryShrinkReport } from '../lib/inventory-stock.js'
 import { canAccessFinance, canApproveTasks } from '../lib/rbac.js'
+import { filterAndGroupExpensesByLabel } from '../lib/expense-label-report.js'
 
 export const reportRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -27,6 +30,7 @@ reportRoutes.use('*', authMiddleware)
 reportRoutes.get('/owner', async (c) => {
   const user = c.get('user')
   if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  const labelFilter = c.req.query('labelId')
 
   const now = new Date()
   const startOfDay = new Date(now)
@@ -43,6 +47,7 @@ reportRoutes.get('/owner', async (c) => {
     recentLivestockLogs,
     allOrders,
     allExpenses,
+    expenseLabelAllocations,
     incidentLogs,
     recentAudit,
   ] = await Promise.all([
@@ -114,6 +119,17 @@ reportRoutes.get('/owner', async (c) => {
     db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
     db
       .select({
+        expenseId: expenseLabelLinks.expenseId,
+        labelId: expenseLabels.id,
+        labelName: expenseLabels.name,
+        labelSlug: expenseLabels.slug,
+      })
+      .from(expenseLabelLinks)
+      .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
+      .innerJoin(expenses, eq(expenseLabelLinks.expenseId, expenses.id))
+      .where(and(eq(expenses.farmId, user.farmId), eq(expenseLabels.farmId, user.farmId))),
+    db
+      .select({
         id: livestockLogs.id,
         headCount: livestockLogs.headCount,
         notes: livestockLogs.notes,
@@ -158,9 +174,15 @@ reportRoutes.get('/owner', async (c) => {
     .filter((o) => o.status === 'delivered' || o.status === 'confirmed' || o.status === 'dispatched')
     .reduce((sum, o) => sum + o.totalAmount, 0)
 
-  const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0)
+  const { expenses: filteredExpenses, expensesByLabel } = filterAndGroupExpensesByLabel(
+    allExpenses,
+    expenseLabelAllocations,
+    labelFilter,
+  )
 
-  const expensesByCategory = allExpenses.reduce<Record<string, number>>((acc, e) => {
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+  const expensesByCategory = filteredExpenses.reduce<Record<string, number>>((acc, e) => {
     acc[e.category] = (acc[e.category] ?? 0) + e.amount
     return acc
   }, {})
@@ -264,12 +286,13 @@ reportRoutes.get('/owner', async (c) => {
         })),
       },
       pnl: {
-        phase: allOrders.length || allExpenses.length ? 'active' : 'placeholder',
-        currency: allOrders[0]?.currency ?? allExpenses[0]?.currency ?? 'NGN',
+        phase: allOrders.length || filteredExpenses.length ? 'active' : 'placeholder',
+        currency: allOrders[0]?.currency ?? filteredExpenses[0]?.currency ?? 'NGN',
         revenue,
         expenses: totalExpenses,
         net: revenue - totalExpenses,
         expensesByCategory,
+        expensesByLabel,
       },
       incidents: {
         phase: incidentLogs.length ? 'active' : 'placeholder',

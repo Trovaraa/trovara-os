@@ -18,7 +18,7 @@ const correctionClockOut = defineModel<string>('correctionClockOut', { required:
 const correctionNotes = defineModel<string>('correctionNotes', { required: true })
 
 defineProps<{
-  isWorker: boolean
+  canManageAttendance: boolean
   attendance: AttendanceSession[]
   openAttendance: AttendanceSession | null
   plots: PlotOption[]
@@ -59,11 +59,14 @@ function formatTime(iso: string) {
       <div>
         <h3 class="font-bold text-white">{{ t('today.attendance') }}</h3>
         <p class="text-xs text-slate-400 mt-1">
-          {{ isWorker ? t('today.attendanceWorkerSubtitle') : t('today.attendanceManagerSubtitle') }}
+          {{
+            canManageAttendance
+              ? t('today.attendanceManagerSubtitle')
+              : t('today.attendanceWorkerSubtitle')
+          }}
         </p>
       </div>
       <span
-        v-if="isWorker"
         class="rounded-full px-3 py-1 text-xs font-bold"
         :class="openAttendance ? 'bg-farm-green/15 text-farm-green' : 'bg-slate-800 text-slate-400'"
       >
@@ -73,7 +76,7 @@ function formatTime(iso: string) {
 
     <p v-if="attendanceError" class="mt-3 text-sm text-red-400">{{ attendanceError }}</p>
 
-    <div v-if="isWorker" class="mt-4">
+    <div class="mt-4">
       <div v-if="openAttendance" class="space-y-3">
         <p class="text-sm text-slate-300">
           {{ t('today.since') }} {{ formatTime(openAttendance.clockInAt) }}
@@ -160,7 +163,8 @@ function formatTime(iso: string) {
       </div>
     </div>
 
-    <div v-if="!isWorker" class="mt-4">
+    <div v-if="canManageAttendance" class="mt-6 border-t border-slate-800 pt-4">
+      <h4 class="text-sm font-bold text-slate-300 mb-3">{{ t('today.teamAttendance') }}</h4>
       <p v-if="!attendance.length" class="text-sm text-slate-500">{{ t('today.noAttendanceToday') }}</p>
       <ul v-else class="space-y-3">
         <li

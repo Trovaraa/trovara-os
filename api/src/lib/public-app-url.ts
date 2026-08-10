@@ -48,3 +48,8 @@ export function publicLotPageBaseUrl(): string {
 export function publicLotPageUrl(farmSlug: string | null | undefined, publicToken: string): string {
   return `${publicLotPageBaseUrl()}/lot/${farmSlug ?? 'farm'}/${publicToken}`
 }
+
+/** Absolute public brand pack page URL (`/brand/:token`). */
+export function publicBrandPackUrl(shareToken: string): string {
+  return `${publicMarketingUrlOrDefault()}/brand/${shareToken}`
+}

@@ -42,10 +42,13 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/public/newsletter/confirm',
   '/public/newsletter/unsubscribe',
   '/public/newsletter/webhook',
+  '/public/finance/inbound',
   // Public marketing forms carry no staff session cookie. They are protected
   // with per-IP limits, strict validation, and honeypots.
   '/public/leads/contact',
   '/public/leads/waitlist',
+  // Public Moments gallery upload (protected by rate-limit + honeypot)
+  '/public/moments',
   '/health',
   '/api/whatsapp/webhook',
   '/api/telegram/webhook',
@@ -54,12 +57,15 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/api/system/run-retention',
   '/api/alerts/run-proactive',
   '/api/alerts/evening-digest',
+  '/api/alerts/run-health-sla',
 ])
 
 export function isCsrfExemptPath(path: string): boolean {
   const normalized =
     path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
-  return CSRF_EXEMPT_PATHS.has(normalized)
+  if (CSRF_EXEMPT_PATHS.has(normalized)) return true
+  // Brand pack unlock is authorized by share token + optional password (no session).
+  return /^\/public\/brand\/[^/]+\/unlock$/.test(normalized)
 }
 
 /** Internet scanners; still reject the request, but don't flood the security dashboard. */

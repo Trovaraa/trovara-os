@@ -30,6 +30,7 @@
     "postgres": "^3.4.7",
     "qrcode": "^1.5.4",
     "resend": "^6.18.1",
+    "unpdf": "^1.8.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {

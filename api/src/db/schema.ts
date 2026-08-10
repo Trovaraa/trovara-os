@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   index,
   check,
+  primaryKey,
 } from 'drizzle-orm/pg-core'
 
 export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker', 'sales'])
@@ -150,6 +151,8 @@ export const farms = pgTable('farms', {
   timezone: text('timezone').default('Africa/Lagos'),
   liveMode: boolean('live_mode').default(false).notNull(),
   liveStartedAt: timestamp('live_started_at', { withTimezone: true }),
+  /** Daily OS + marketing health/SLA Telegram report to owners and supervisors. */
+  healthSlaAlertsEnabled: boolean('health_sla_alerts_enabled').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -278,6 +281,91 @@ export const portalVaultEntries = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('portal_vault_entries_farm_idx').on(t.farmId)],
+)
+
+export const brandAssets = pgTable(
+  'brand_assets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** Final stored file once status is ready; null while processing. */
+    filename: text('filename'),
+    originalName: text('original_name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    byteSize: integer('byte_size'),
+    width: integer('width'),
+    height: integer('height'),
+    mediaKind: text('media_kind').default('image').notNull(),
+    status: text('status').default('ready').notNull(),
+    processingError: text('processing_error'),
+    sourceMimeType: text('source_mime_type'),
+    durationSeconds: integer('duration_seconds'),
+    posterFilename: text('poster_filename'),
+    pendingSourcePath: text('pending_source_path'),
+    pendingOriginalName: text('pending_original_name'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('brand_assets_farm_idx').on(t.farmId),
+    uniqueIndex('brand_assets_farm_filename_uq').on(t.farmId, t.filename),
+    index('brand_assets_status_idx').on(t.farmId, t.status),
+    check('brand_assets_media_kind_check', sql`${t.mediaKind} in ('image', 'video')`),
+    check(
+      'brand_assets_status_check',
+      sql`${t.status} in ('uploading', 'processing', 'ready', 'failed')`,
+    ),
+    check(
+      'brand_assets_duration_check',
+      sql`${t.durationSeconds} is null or ${t.durationSeconds} >= 0`,
+    ),
+  ],
+)
+
+export const brandPacks = pgTable(
+  'brand_packs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    notes: text('notes'),
+    shareToken: text('share_token').notNull(),
+    passwordHash: text('password_hash'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    viewCount: integer('view_count').default(0).notNull(),
+    downloadCount: integer('download_count').default(0).notNull(),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('brand_packs_share_token_uq').on(t.shareToken),
+    index('brand_packs_farm_idx').on(t.farmId),
+  ],
+)
+
+export const brandPackAssets = pgTable(
+  'brand_pack_assets',
+  {
+    packId: uuid('pack_id')
+      .references(() => brandPacks.id, { onDelete: 'cascade' })
+      .notNull(),
+    assetId: uuid('asset_id')
+      .references(() => brandAssets.id, { onDelete: 'cascade' })
+      .notNull(),
+    position: integer('position').default(0).notNull(),
+  },
+  (t) => [
+    uniqueIndex('brand_pack_assets_pk').on(t.packId, t.assetId),
+    index('brand_pack_assets_asset_idx').on(t.assetId),
+  ],
 )
 
 export const journalPosts = pgTable(
@@ -1546,6 +1634,13 @@ export const expenses = pgTable('expenses', {
   currency: text('currency').default('NGN').notNull(),
   vendor: text('vendor'),
   receiptRef: text('receipt_ref'),
+  source: text('source').default('manual').notNull(),
+  inboundMessageId: text('inbound_message_id'),
+  attachmentFilename: text('attachment_filename'),
+  attachmentStorageKey: text('attachment_storage_key'),
+  attachmentMimeType: text('attachment_mime_type'),
+  extractionMethod: text('extraction_method'),
+  extractionStatus: text('extraction_status'),
   sourceLocale: text('source_locale'),
   translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
   translationAttempts: integer('translation_attempts').default(0).notNull(),
@@ -1554,6 +1649,109 @@ export const expenses = pgTable('expenses', {
   expenseDate: timestamp('expense_date', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const expenseLabels = pgTable(
+  'expense_labels',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id)
+      .notNull(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('expense_labels_farm_slug_uq').on(t.farmId, t.slug)],
+)
+
+export const expenseLabelLinks = pgTable(
+  'expense_label_links',
+  {
+    expenseId: uuid('expense_id')
+      .references(() => expenses.id, { onDelete: 'cascade' })
+      .notNull(),
+    labelId: uuid('label_id')
+      .references(() => expenseLabels.id, { onDelete: 'cascade' })
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.expenseId, t.labelId] })],
+)
+
+export const financeInboundEvents = pgTable('finance_inbound_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  svixId: text('svix_id').notNull().unique(),
+  resendEmailId: text('resend_email_id'),
+  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow().notNull(),
+  expenseId: uuid('expense_id').references(() => expenses.id, { onDelete: 'set null' }),
+  status: text('status').default('processed').notNull(),
+  detail: text('detail'),
+})
+
+export const momentSubmissions = pgTable(
+  'moment_submissions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id)
+      .notNull(),
+    status: text('status').default('pending').notNull(),
+    submitterName: text('submitter_name'),
+    submitterEmail: text('submitter_email'),
+    consent: boolean('consent').default(false).notNull(),
+    mediaKind: text('media_kind').default('image').notNull(),
+    mimeType: text('mime_type').notNull(),
+    originalFilename: text('original_filename'),
+    storageKey: text('storage_key').notNull(),
+    posterStorageKey: text('poster_storage_key'),
+    byteSize: integer('byte_size').default(0).notNull(),
+    durationSeconds: integer('duration_seconds'),
+    reviewNote: text('review_note'),
+    reviewedById: uuid('reviewed_by_id').references(() => users.id),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('moment_submissions_farm_status_idx').on(t.farmId, t.status, t.createdAt)],
+)
+
+export const careerPosts = pgTable(
+  'career_posts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    slug: text('slug').notNull(),
+    title: text('title').notNull(),
+    department: text('department'),
+    location: text('location'),
+    employmentType: text('employment_type').default('full_time').notNull(),
+    summary: text('summary').notNull(),
+    bodyMarkdown: text('body_markdown').notNull(),
+    applyEmail: text('apply_email').default('hello@trovara.farm').notNull(),
+    published: boolean('published').default(false).notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdById: uuid('created_by_id')
+      .references(() => users.id, { onDelete: 'restrict' })
+      .notNull(),
+    updatedById: uuid('updated_by_id')
+      .references(() => users.id, { onDelete: 'restrict' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('career_posts_farm_slug_uq').on(t.farmId, t.slug),
+    index('career_posts_farm_created_idx').on(t.farmId, t.createdAt),
+    index('career_posts_public_idx')
+      .on(t.farmId, t.publishedAt)
+      .where(sql`${t.published} = true`),
+    check('career_posts_slug_format', sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+    check(
+      'career_posts_published_at_consistent',
+      sql`(${t.published} = false) or (${t.publishedAt} is not null)`,
+    ),
+  ],
+)
 
 export const cropCensusSurveys = pgTable('crop_census_surveys', {
   id: uuid('id').defaultRandom().primaryKey(),

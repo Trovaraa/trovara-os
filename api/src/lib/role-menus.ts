@@ -30,6 +30,8 @@ export function telegramCommandsForRole(role: UserRole): TelegramBotCommand[] {
   if (role === 'sales') {
     return [
       ...common,
+      { command: 'clockin', description: 'Clock in' },
+      { command: 'clockout', description: 'Clock out' },
       { command: 'orders', description: 'Order commands' },
       { command: 'confirm', description: 'Confirm a pending order' },
       { command: 'dispatch', description: 'Mark order dispatched' },
@@ -42,6 +44,8 @@ export function telegramCommandsForRole(role: UserRole): TelegramBotCommand[] {
 
   return [
     ...common,
+    { command: 'clockin', description: 'Clock in' },
+    { command: 'clockout', description: 'Clock out' },
     { command: 'approve', description: 'Approve a waiting task' },
     { command: 'reject', description: 'Reject a waiting task' },
     { command: 'orders', description: 'Order commands' },
@@ -125,6 +129,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
     return msg(locale, {
       en: [
         'Your commands (sales):',
+        '/clockin · /clockout',
         '/orders — order help',
         '/confirm · /dispatch · /delivered · /cancel TRV-ORD-…',
         '/lots · pack LOT-… · /printqr [LOT] — box labels',
@@ -138,6 +143,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
       ].join('\n'),
       fr: [
         'Vos commandes (ventes) :',
+        '/clockin · /clockout',
         '/orders — aide commandes',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr — étiquettes',
@@ -148,6 +154,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
       ].join('\n'),
       yo: [
         'Àwọn àṣẹ rẹ (títà):',
+        '/clockin · /clockout',
         '/orders — ìrànlọ́wọ́ àṣẹ',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
@@ -158,6 +165,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
       ].join('\n'),
       pcm: [
         'Your commands (sales):',
+        '/clockin · /clockout',
         '/orders — order help',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
@@ -188,6 +196,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
     title,
     msg(locale, {
       en: [
+        '/clockin · /clockout',
         '/approve · /reject — tasks awaiting approval',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr [LOT]',
@@ -211,6 +220,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — change reply language',
       ].join('\n'),
       fr: [
+        '/clockin · /clockout',
         '/approve · /reject — tâches en attente',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
@@ -228,6 +238,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — langue',
       ].join('\n'),
       yo: [
+        '/clockin · /clockout',
         '/approve · /reject — iṣẹ́ tó ń dúró',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack · /printqr',
@@ -242,6 +253,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — èdè',
       ].join('\n'),
       pcm: [
+        '/clockin · /clockout',
         '/approve · /reject — tasks wey dey wait',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack · /printqr',

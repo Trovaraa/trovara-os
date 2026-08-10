@@ -55,9 +55,12 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'farm.manage':
     case 'newsletter.manage':
     case 'journal.manage':
+    case 'brand.manage':
+    case 'careers.manage':
     case 'products.delete':
     case 'whatsapp.configure':
       return user.role === 'owner'
+    case 'moments.manage':
     case 'tasks.assign':
     case 'tasks.approve':
     case 'attendance.roster':

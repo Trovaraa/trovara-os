@@ -37,7 +37,10 @@ export const PERMISSION_CATALOG = [
   { key: 'whatsapp.send', category: 'comms', description: 'Send WhatsApp messages' },
   { key: 'newsletter.manage', category: 'comms', description: 'Manage newsletter' },
   { key: 'integrations.view', category: 'comms', description: 'View integration status' },
-  { key: 'journal.manage', category: 'comms', description: 'Manage journal posts' },
+  { key: 'journal.manage', category: 'comms', description: 'Manage blog posts' },
+  { key: 'brand.manage', category: 'comms', description: 'Manage brand kit assets and press packs' },
+  { key: 'moments.manage', category: 'comms', description: 'Review public Moments gallery submissions' },
+  { key: 'careers.manage', category: 'comms', description: 'Manage careers listings for the marketing site' },
   { key: 'privacy.admin', category: 'people', description: 'Privacy export and retention' },
   { key: 'farm.manage', category: 'people', description: 'Edit farm profile, go-live, and demo reset' },
 ] as const
@@ -88,6 +91,7 @@ export const SYSTEM_ROLE_TEMPLATES: Record<UserRole, { name: string; permissions
       'integrations.view',
       'vault.view',
       'purchase_orders.approve',
+      'moments.manage',
     ],
   },
   sales: {

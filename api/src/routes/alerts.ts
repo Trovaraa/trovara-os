@@ -18,10 +18,16 @@ import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import {
   notifyOwner,
   notifyOwnerTelegram,
+  notifyRolesTelegram,
   notifySupervisors,
   notifySupervisorsTelegram,
   type NotifyLocaleContext,
 } from '../lib/farm-notify.js'
+import {
+  collectHealthSlaReport,
+  healthSlaEnvEnabled,
+  renderHealthSlaTelegram,
+} from '../lib/health-sla.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 import { deliverCriticalAlert } from '../lib/notifications.js'
@@ -272,5 +278,58 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
     farmId: auth.user.farmId,
     summary,
     notified: { telegram: tg.notified, whatsapp: wa.notified },
+  })
+})
+
+/**
+ * Daily OS + marketing health/SLA report. Independent from farm ops proactive
+ * alerts. Sends to owners and supervisors on Telegram when enabled.
+ */
+alertsRoutes.post('/run-health-sla', zValidator('json', cronSchema), async (c) => {
+  const body = c.req.valid('json')
+  const auth = await resolveAlertActor(c, body.farmId)
+  if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+  if (!healthSlaEnvEnabled()) {
+    return c.json({
+      ok: true,
+      farmId: auth.user.farmId,
+      skipped: true,
+      reason: 'env_disabled',
+      notified: { telegram: 0 },
+    })
+  }
+
+  const [farm] = await db
+    .select({
+      healthSlaAlertsEnabled: farms.healthSlaAlertsEnabled,
+    })
+    .from(farms)
+    .where(eq(farms.id, auth.user.farmId))
+    .limit(1)
+
+  if (farm && !farm.healthSlaAlertsEnabled) {
+    return c.json({
+      ok: true,
+      farmId: auth.user.farmId,
+      skipped: true,
+      reason: 'farm_disabled',
+      notified: { telegram: 0 },
+    })
+  }
+
+  const report = await collectHealthSlaReport()
+  const message = renderHealthSlaTelegram(report)
+  const tg = await notifyRolesTelegram(auth.user.farmId, ['owner', 'supervisor'], message, {
+    actorUserId: auth.user.id,
+    reason: auth.usedCronSecret ? 'cron_health_sla' : 'manual_health_sla',
+    kind: 'health_sla',
+  })
+
+  return c.json({
+    ok: true,
+    farmId: auth.user.farmId,
+    report,
+    notified: { telegram: tg.notified },
   })
 })

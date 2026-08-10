@@ -209,12 +209,15 @@ Task status state machine: `pending → in_progress → awaiting_approval → co
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/attendance/today` | Yes | all (worker: own) | - | `{ sessions[] }` |
+| GET | `/api/attendance/today` | Yes | all (Sales/worker: own) | - | `{ sessions[] }` |
+| GET | `/api/attendance/summary` | Yes | all (Sales/worker: own; Admin/Supervisor: farm-wide or `userId`) | `?range=day\|week\|month\|ytd&userId?=` | `{ range, people[] }` |
 | POST | `/api/attendance/clock-in` | Yes | all | `{ plotId?, taskId?, notes? }` | attendance session |
 | POST | `/api/attendance/clock-out` | Yes | all | `{ workSummary?: string \| null }` | attendance session |
 | PATCH | `/api/attendance/:id` | Yes | owner, supervisor | attendance correction | `{ session }` |
 
 `workSummary` is optional and limited to 2,000 characters. The clock-out still succeeds when it is omitted.
+Hours summary ranges use the farm timezone. Open shifts accrue through the
+current time; sessions are grouped by staff member and ordered by total minutes.
 
 ---
 
@@ -564,6 +567,27 @@ Customer WhatsApp/Telegram order conversations also accept `4`, `complaint`,
 | POST | `/api/finance/` | Yes | owner | `{ expense }` |
 | PATCH | `/api/finance/:id` | Yes | owner | `{ expense }` |
 | DELETE | `/api/finance/:id` | Yes | owner | `{ ok: true }` |
+
+### Resend finance inbound (`/public/finance/inbound`)
+
+`POST /public/finance/inbound` is an unauthenticated, rate-limited Resend
+Receiving webhook. It requires the raw request body plus `svix-id`,
+`svix-timestamp`, and `svix-signature`; the signature is verified with the
+separate `RESEND_INBOUND_WEBHOOK_SECRET`. Missing or invalid signature headers
+return `401`, and missing `RESEND_API_KEY` or webhook secret returns `503`.
+
+Only `email.received` events addressed to `FINANCE_INBOUND_RECIPIENTS` create a
+pending expense. The setting is a comma-separated address allowlist and defaults
+to `finance@trovara.farm`. The same local part on a subdomain of an allowed
+domain is also accepted for Receiving/forwarding hosts (for example,
+`finance@inbound.trovara.farm`); unrelated recipients are acknowledged and
+ignored.
+
+Successful responses contain `{ received: true, ok: true, expenseId? }` and may
+include `duplicate: true` or `ignored: true`. Events are deduplicated by
+`svix-id`, then by Resend `email_id`. The first PDF, JPEG, PNG, or WebP
+attachment up to 25 MB is stored under the private evidence root and linked to
+the draft expense.
 
 ---
 

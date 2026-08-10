@@ -144,12 +144,24 @@ export async function upsertResendContact(subscriber: NewsletterContact): Promis
 export function verifyResendWebhook(
   payload: string,
   headers: { id: string; timestamp: string; signature: string },
+  options?: { webhookSecret?: string },
 ): WebhookEventPayload {
   const verifier = client ?? new Resend(process.env.RESEND_API_KEY?.trim())
   return verifier.webhooks.verify({
     payload,
     headers,
-    webhookSecret: requiredConfig('RESEND_WEBHOOK_SECRET'),
+    webhookSecret: options?.webhookSecret?.trim() || requiredConfig('RESEND_WEBHOOK_SECRET'),
   })
+}
+
+/** Svix secret for the separate `email.received` finance inbound webhook. */
+export function resendInboundWebhookSecret(): string {
+  return requiredConfig('RESEND_INBOUND_WEBHOOK_SECRET')
+}
+
+export function inboundWebhookConfigMissing(): string[] {
+  return ['RESEND_API_KEY', 'RESEND_INBOUND_WEBHOOK_SECRET'].filter(
+    (name) => !process.env[name]?.trim(),
+  )
 }
 

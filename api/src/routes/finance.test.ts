@@ -20,6 +20,10 @@ const selectLog: string[] = []
 const inserted: { table: string; values: Row }[] = []
 const updates: { table: string; patch: Row }[] = []
 let updatedRow: Row = {}
+const { extractInvoiceFields, readFile } = vi.hoisted(() => ({
+  extractInvoiceFields: vi.fn(),
+  readFile: vi.fn(),
+}))
 
 function queueSelect(table: string, rows: Row[]) {
   const queued = selectQueue.get(table) ?? []
@@ -43,6 +47,7 @@ vi.mock('../db/index.js', () => {
       innerJoin: same,
       where: same,
       orderBy: same,
+      groupBy: same,
       limit: same,
       then: (resolve: (value: Row[]) => unknown, reject?: (reason: unknown) => unknown) =>
         Promise.resolve(rows).then(resolve, reject),
@@ -120,6 +125,14 @@ vi.mock('../middleware/auth.js', () => ({
 }))
 
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
+vi.mock('../lib/invoice-extract.js', () => ({ extractInvoiceFields }))
+vi.mock('../lib/evidence-store.js', () => ({
+  getEvidenceStorageRoot: () => '/tmp/trovara-evidence-test',
+}))
+vi.mock('node:fs/promises', () => ({
+  access: vi.fn(),
+  readFile,
+}))
 
 const FRENCH_TO_ENGLISH: Record<string, string> = {
   'Carburant pour le générateur pendant la panne': 'Fuel for the generator during the outage',
@@ -209,6 +222,14 @@ beforeEach(() => {
   completeChat.mockImplementation(async (system: string, text: string) => {
     const table = /into English/i.test(system) ? FRENCH_TO_ENGLISH : ENGLISH_TO_FRENCH
     return { text: table[text] ?? `[${text}]`, model: 'test' }
+  })
+  readFile.mockResolvedValue(Buffer.from('%PDF-1.4'))
+  extractInvoiceFields.mockResolvedValue({
+    amount: 4500,
+    currency: 'USD',
+    vendor: 'Resend',
+    expenseDate: new Date('2026-08-10T12:00:00.000Z'),
+    method: 'pdf_text',
   })
   sessionUser = {
     id: 'user-owner',
@@ -378,6 +399,86 @@ describe('PATCH /finance/:id - canonical English on write', () => {
   })
 })
 
+describe('POST /finance/:id/retry-extraction', () => {
+  const inboundExpense = () =>
+    expenseRow({
+      source: 'inbound_email',
+      approvalStatus: 'pending',
+      attachmentStorageKey: 'finance-inbound/farm-1/invoice.pdf',
+      attachmentMimeType: 'application/pdf',
+      attachmentFilename: 'invoice.pdf',
+    })
+
+  it('updates useful extracted fields while preserving pending review', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+    const body = (await res.json()) as Row
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({
+      extractionMethod: 'pdf_text',
+      extractionStatus: 'success',
+      updatedFields: ['amount', 'currency', 'vendor', 'expenseDate'],
+    })
+    expect(updates[0].patch).toMatchObject({
+      amount: 4500,
+      currency: 'USD',
+      vendor: 'Resend',
+      expenseDate: new Date('2026-08-10T12:00:00.000Z'),
+      extractionMethod: 'pdf_text',
+      extractionStatus: 'success',
+    })
+    expect(updates[0].patch).not.toHaveProperty('approvalStatus')
+    expect((body.expense as Row).approvalStatus).toBe('pending')
+  })
+
+  it('rejects roles other than owner or supervisor', async () => {
+    sessionUser = { ...sessionUser, role: 'sales' }
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+
+    expect(res.status).toBe(403)
+    expect(extractInvoiceFields).not.toHaveBeenCalled()
+  })
+
+  it('records extraction failure without changing existing expense fields', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+    extractInvoiceFields.mockRejectedValueOnce(new Error('PDF parser unavailable'))
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+    const body = (await res.json()) as Row
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({
+      extractionMethod: 'none',
+      extractionStatus: 'failed',
+      updatedFields: [],
+    })
+    expect(updates[0].patch).toEqual({
+      extractionMethod: 'none',
+      extractionStatus: 'failed',
+    })
+  })
+
+  it('is safe to repeat and does not create another expense', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+
+    const first = await post('/finance/expense-1/retry-extraction', {})
+    const second = await post('/finance/expense-1/retry-extraction', {})
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(updates.map((entry) => entry.patch)).toHaveLength(2)
+    expect(updates[1].patch).toEqual(updates[0].patch)
+    expect(inserted.filter((entry) => entry.table === 'expenses')).toHaveLength(0)
+  })
+})
+
 describe('GET /finance - viewer locale on read', () => {
   it('translates every description in one batched call', async () => {
     queueSelect('expenses', [
@@ -451,7 +552,7 @@ describe('GET /finance/summary - money only', () => {
     queueSelect('orders', [{ totalAmount: 12000 }])
     queueSelect('payment_refunds', [])
     queueSelect('invoices', [{ total: 3 }])
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueSelect('expense_label_links', [])
 
     const res = await (await app()).request('/finance/summary')
     const body = (await res.json()) as { summary: Row }
@@ -464,6 +565,52 @@ describe('GET /finance/summary - money only', () => {
       revenue: 45000,
       totalExpenses: 125000,
       expensesByCategory: { utilities: 125000 },
+    })
+  })
+
+  it('applies the label filter to totals, categories, and label groups', async () => {
+    queueSelect('orders', [])
+    queueSelect('expenses', [
+      expenseRow({ id: 'expense-capex', amount: 100000, category: 'equipment' }),
+      expenseRow({ id: 'expense-opex', amount: 25000, category: 'utilities' }),
+    ])
+    queueSelect('payment_attempts', [])
+    queueSelect('orders', [])
+    queueSelect('payment_refunds', [])
+    queueSelect('invoices', [])
+    queueSelect('expense_label_links', [
+      {
+        expenseId: 'expense-capex',
+        labelId: 'label-capex',
+        labelName: 'Capex',
+        labelSlug: 'capex',
+      },
+      {
+        expenseId: 'expense-capex',
+        labelId: 'label-recurring',
+        labelName: 'Recurring',
+        labelSlug: 'recurring',
+      },
+      {
+        expenseId: 'expense-opex',
+        labelId: 'label-recurring',
+        labelName: 'Recurring',
+        labelSlug: 'recurring',
+      },
+    ])
+
+    const res = await (await app()).request('/finance/summary?labelId=label-capex')
+    const body = (await res.json()) as { summary: Row }
+
+    expect(res.status).toBe(200)
+    expect(body.summary).toMatchObject({
+      totalExpenses: 100000,
+      expenseCount: 1,
+      expensesByCategory: { equipment: 100000 },
+      expensesByLabel: {
+        'label-capex': { name: 'Capex', slug: 'capex', total: 100000 },
+        'label-recurring': { name: 'Recurring', slug: 'recurring', total: 100000 },
+      },
     })
   })
 })

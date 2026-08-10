@@ -3,7 +3,16 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { expenses, invoices, orders, paymentAttempts, paymentRefunds, users } from '../db/schema.js'
+import {
+  expenseLabelLinks,
+  expenseLabels,
+  expenses,
+  invoices,
+  orders,
+  paymentAttempts,
+  paymentRefunds,
+  users,
+} from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canAccessFinance, hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
@@ -15,32 +24,48 @@ import {
   toViewerLocaleMany,
 } from '../lib/content-locale.js'
 import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import { createReadStream } from 'node:fs'
+import { access, readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { getEvidenceStorageRoot } from '../lib/evidence-store.js'
+import { filterAndGroupExpensesByLabel } from '../lib/expense-label-report.js'
+import { extractInvoiceFields } from '../lib/invoice-extract.js'
+
+const EXPENSE_CATEGORIES = [
+  'inputs',
+  'labour',
+  'equipment',
+  'transport',
+  'utilities',
+  'feed',
+  'medicine',
+  'other',
+] as const
 
 const createExpenseSchema = z.object({
-  category: z.enum(['inputs', 'labour', 'equipment', 'transport', 'utilities', 'feed', 'medicine', 'other']),
+  category: z.enum(EXPENSE_CATEGORIES),
   description: z.string().min(1).max(500),
-  amount: z.number().int().min(1),
+  amount: z.number().int().min(0),
   currency: z.string().max(10).optional(),
-  vendor: z.string().max(200).optional(),
-  receiptRef: z.string().max(200).optional(),
+  vendor: z.string().max(200).optional().nullable(),
+  receiptRef: z.string().max(200).optional().nullable(),
   expenseDate: z.string().datetime(),
+  labelIds: z.array(z.string().uuid()).max(20).optional(),
+  approvalStatus: z.enum(['pending', 'approved', 'rejected']).optional(),
 })
 
 const updateExpenseSchema = createExpenseSchema.partial()
 
-/**
- * The only prose on an expense, and the one column its `translation_status`
- * covers. `vendor` is a supplier's name, `receiptRef` is the identifier printed
- * on the paper receipt an auditor matches the row against, `category` is an
- * enum the client renders, and `amount` / `currency` are money — none of them
- * ever reach a translator.
- */
 const EXPENSE_TEXT_FIELDS = ['description'] as const
 
-/**
- * The viewer's language. A failed lookup degrades to English rather than
- * failing the request it only decorates.
- */
+const DEFAULT_LABELS = [
+  { name: 'Salary', slug: 'salary' },
+  { name: 'Consultant', slug: 'consultant' },
+  { name: 'Capex', slug: 'capex' },
+  { name: 'Opex', slug: 'opex' },
+  { name: 'Recurring', slug: 'recurring' },
+] as const
+
 async function preferredLocaleForUser(userId: string): Promise<string | null> {
   try {
     const [row] = await db
@@ -54,13 +79,6 @@ async function preferredLocaleForUser(userId: string): Promise<string | null> {
   }
 }
 
-/**
- * Render expense prose in the viewer's language with ONE batched translation
- * call per response: every string across every row is collected first,
- * translated together (the service deduplicates and reads its cache in a single
- * query), then mapped back by position. An English viewer short-circuits before
- * any of this work.
- */
 async function localizeRows<T extends object>(
   rows: T[],
   fields: readonly (keyof T & string)[],
@@ -95,23 +113,11 @@ async function localizeRows<T extends object>(
 }
 
 type CanonicalDescription = {
-  /** English text to store; absent when there was nothing to normalize. */
   english?: string
   sourceLocale: string | null
   translationStatus: 'done' | 'pending'
 }
 
-/**
- * Normalize an expense description to English for storage.
- *
- * A translation failure stores the author's own words at 'pending' so recording
- * a cost never fails on a translator, and `lib/translation-retry.ts` repairs the
- * row later.
- *
- * `source_locale` stays null on that path rather than falling back to 'en': it is
- * the hint the retry job feeds back into `toCanonicalEnglish`, and an 'en' hint
- * short-circuits there, which would mark the row 'done' still holding French.
- */
 async function canonicalDescription(
   text: string | null | undefined,
   farmId: string,
@@ -132,6 +138,52 @@ async function canonicalDescription(
   }
 }
 
+async function ensureDefaultLabels(farmId: string) {
+  for (const label of DEFAULT_LABELS) {
+    await db
+      .insert(expenseLabels)
+      .values({ farmId, name: label.name, slug: label.slug })
+      .onConflictDoNothing()
+  }
+}
+
+async function labelsForExpenses(expenseIds: string[]) {
+  if (expenseIds.length === 0) return new Map<string, Array<{ id: string; name: string; slug: string }>>()
+  const rows = await db
+    .select({
+      expenseId: expenseLabelLinks.expenseId,
+      id: expenseLabels.id,
+      name: expenseLabels.name,
+      slug: expenseLabels.slug,
+    })
+    .from(expenseLabelLinks)
+    .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
+    .where(inArray(expenseLabelLinks.expenseId, expenseIds))
+
+  const map = new Map<string, Array<{ id: string; name: string; slug: string }>>()
+  for (const row of rows) {
+    const list = map.get(row.expenseId) ?? []
+    list.push({ id: row.id, name: row.name, slug: row.slug })
+    map.set(row.expenseId, list)
+  }
+  return map
+}
+
+async function setExpenseLabels(farmId: string, expenseId: string, labelIds: string[]) {
+  const unique = [...new Set(labelIds)]
+  if (unique.length) {
+    const valid = await db
+      .select({ id: expenseLabels.id })
+      .from(expenseLabels)
+      .where(and(eq(expenseLabels.farmId, farmId), inArray(expenseLabels.id, unique)))
+    if (valid.length !== unique.length) throw new Error('INVALID_LABEL')
+  }
+  await db.delete(expenseLabelLinks).where(eq(expenseLabelLinks.expenseId, expenseId))
+  if (unique.length) {
+    await db.insert(expenseLabelLinks).values(unique.map((labelId) => ({ expenseId, labelId })))
+  }
+}
+
 export const financeRoutes = new Hono<{ Variables: AppVariables }>()
 
 financeRoutes.use('*', authMiddleware)
@@ -140,29 +192,107 @@ function requireFinanceAccess(user: SessionUser): SessionUser | null {
   return canAccessFinance(user) ? user : null
 }
 
+financeRoutes.get('/labels', async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user) return c.json({ error: 'Forbidden' }, 403)
+  await ensureDefaultLabels(user.farmId)
+  const labels = await db
+    .select()
+    .from(expenseLabels)
+    .where(eq(expenseLabels.farmId, user.farmId))
+    .orderBy(expenseLabels.name)
+  return c.json({ labels })
+})
+
+financeRoutes.post(
+  '/labels',
+  zValidator(
+    'json',
+    z.object({
+      name: z.string().trim().min(1).max(80),
+      slug: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+        .optional(),
+    }),
+  ),
+  async (c) => {
+    const user = requireFinanceAccess(c.get('user'))
+    if (!user) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
+    const body = c.req.valid('json')
+    const slug =
+      body.slug ??
+      body.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+    const [label] = await db
+      .insert(expenseLabels)
+      .values({ farmId: user.farmId, name: body.name, slug })
+      .onConflictDoNothing()
+      .returning()
+    if (!label) {
+      const [existing] = await db
+        .select()
+        .from(expenseLabels)
+        .where(and(eq(expenseLabels.farmId, user.farmId), eq(expenseLabels.slug, slug)))
+        .limit(1)
+      return c.json({ label: existing }, 200)
+    }
+    return c.json({ label }, 201)
+  },
+)
+
 financeRoutes.get('/', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
+  const labelFilter = c.req.query('labelId')
+  let expenseIdsFilter: string[] | null = null
+  if (labelFilter) {
+    const links = await db
+      .select({ expenseId: expenseLabelLinks.expenseId })
+      .from(expenseLabelLinks)
+      .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
+      .where(and(eq(expenseLabels.farmId, user.farmId), eq(expenseLabelLinks.labelId, labelFilter)))
+    expenseIdsFilter = links.map((row) => row.expenseId)
+    if (expenseIdsFilter.length === 0) return c.json({ expenses: [] })
+  }
+
   const rows = await db
     .select()
     .from(expenses)
-    .where(eq(expenses.farmId, user.farmId))
+    .where(
+      expenseIdsFilter
+        ? and(eq(expenses.farmId, user.farmId), inArray(expenses.id, expenseIdsFilter))
+        : eq(expenses.farmId, user.farmId),
+    )
     .orderBy(desc(expenses.expenseDate))
 
   const viewerLocale = await preferredLocaleForUser(user.id)
   const localized = await localizeRows(rows, EXPENSE_TEXT_FIELDS, user.farmId, viewerLocale)
+  const labelMap = await labelsForExpenses(localized.map((row) => row.id))
 
-  return c.json({ expenses: localized })
+  return c.json({
+    expenses: localized.map((row) => ({
+      ...row,
+      labels: labelMap.get(row.id) ?? [],
+      hasAttachment: Boolean(row.attachmentStorageKey),
+    })),
+  })
 })
 
-// Money, counts and category enums only — no prose leaves this endpoint, so
-// nothing on it is localized.
 financeRoutes.get('/summary', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
-  const [orderRows, expenseRows, paidAttempts, unpaidOrders, refundRows, invoiceCountRow] =
+  const labelFilter = c.req.query('labelId')
+
+  const [orderRows, expenseRows, paidAttempts, unpaidOrders, refundRows, invoiceCountRow, labelAgg] =
     await Promise.all([
       db
         .select()
@@ -199,12 +329,29 @@ financeRoutes.get('/summary', async (c) => {
         .select({ total: sql<number>`count(*)::int` })
         .from(invoices)
         .where(eq(invoices.farmId, user.farmId)),
+      db
+        .select({
+          expenseId: expenseLabelLinks.expenseId,
+          labelId: expenseLabels.id,
+          labelName: expenseLabels.name,
+          labelSlug: expenseLabels.slug,
+        })
+        .from(expenseLabelLinks)
+        .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
+        .innerJoin(expenses, eq(expenseLabelLinks.expenseId, expenses.id))
+        .where(and(eq(expenses.farmId, user.farmId), eq(expenseLabels.farmId, user.farmId))),
     ])
 
-  const revenue = orderRows.reduce((sum, o) => sum + o.totalAmount, 0)
-  const totalExpenses = expenseRows.reduce((sum, e) => sum + e.amount, 0)
+  const { expenses: filteredExpenses, expensesByLabel } = filterAndGroupExpensesByLabel(
+    expenseRows,
+    labelAgg,
+    labelFilter,
+  )
 
-  const expensesByCategory = expenseRows.reduce<Record<string, number>>((acc, e) => {
+  const revenue = orderRows.reduce((sum, o) => sum + o.totalAmount, 0)
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+  const expensesByCategory = filteredExpenses.reduce<Record<string, number>>((acc, e) => {
     acc[e.category] = (acc[e.category] ?? 0) + e.amount
     return acc
   }, {})
@@ -213,7 +360,6 @@ financeRoutes.get('/summary', async (c) => {
     .filter((o) => o.status === 'delivered')
     .reduce((sum, o) => sum + o.totalAmount, 0)
 
-  // Payment metrics are independent of fulfilment revenue (kobo → Naira major units).
   const paidRevenue = Math.round(Number(paidAttempts[0]?.totalKobo ?? 0) / 100)
   const outstandingInvoices = unpaidOrders.reduce((sum, o) => sum + o.totalAmount, 0)
   const refunds = Math.round(
@@ -241,15 +387,136 @@ financeRoutes.get('/summary', async (c) => {
       totalExpenses,
       netProfit: revenue - totalExpenses,
       orderCount: orderRows.length,
-      expenseCount: expenseRows.length,
+      expenseCount: filteredExpenses.length,
       expensesByCategory,
+      expensesByLabel,
     },
+  })
+})
+
+financeRoutes.get('/:id/attachment', async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user) return c.json({ error: 'Forbidden' }, 403)
+  const expenseId = c.req.param('id')
+  const [expense] = await db
+    .select()
+    .from(expenses)
+    .where(and(eq(expenses.id, expenseId), eq(expenses.farmId, user.farmId)))
+    .limit(1)
+  if (!expense?.attachmentStorageKey) return c.json({ error: 'Not found' }, 404)
+
+  const root = getEvidenceStorageRoot()
+  const filePath = path.resolve(root, expense.attachmentStorageKey)
+  if (!filePath.startsWith(path.resolve(root) + path.sep) && filePath !== path.resolve(root)) {
+    return c.json({ error: 'Not found' }, 404)
+  }
+  try {
+    await access(filePath)
+  } catch {
+    return c.json({ error: 'Not found' }, 404)
+  }
+
+  c.header('Content-Type', expense.attachmentMimeType ?? 'application/octet-stream')
+  c.header(
+    'Content-Disposition',
+    `inline; filename="${(expense.attachmentFilename ?? 'attachment').replace(/"/g, '')}"`,
+  )
+  return c.body(createReadStream(filePath) as unknown as ReadableStream)
+})
+
+financeRoutes.post('/:id/retry-extraction', async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'owner' && user.role !== 'supervisor') {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const expenseId = c.req.param('id')
+  const [existing] = await db
+    .select()
+    .from(expenses)
+    .where(and(eq(expenses.id, expenseId), eq(expenses.farmId, user.farmId)))
+    .limit(1)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  if (
+    existing.source !== 'inbound_email' ||
+    !existing.attachmentStorageKey ||
+    !existing.attachmentMimeType
+  ) {
+    return c.json({ error: 'Inbound expense attachment not found' }, 409)
+  }
+
+  const root = path.resolve(getEvidenceStorageRoot())
+  const filePath = path.resolve(root, existing.attachmentStorageKey)
+  if (!filePath.startsWith(root + path.sep)) return c.json({ error: 'Not found' }, 404)
+
+  let method: 'heuristic' | 'pdf_text' | 'llm_text' | 'llm_vision' | 'none' = 'none'
+  let status: 'success' | 'failed' = 'failed'
+  const updates: Partial<typeof existing> = {
+    extractionMethod: method,
+    extractionStatus: status,
+  }
+  const updatedFields: string[] = []
+
+  try {
+    const buffer = await readFile(filePath)
+    const extracted = await extractInvoiceFields({
+      farmId: user.farmId,
+      subject: existing.description,
+      bodyText: '',
+      fromVendorHint: null,
+      mime: existing.attachmentMimeType,
+      buffer,
+    })
+    method = extracted.method
+    status = method === 'none' ? 'failed' : 'success'
+    updates.extractionMethod = method
+    updates.extractionStatus = status
+
+    if (extracted.amount >= 1) {
+      updates.amount = extracted.amount
+      updates.currency = extracted.currency
+      updatedFields.push('amount', 'currency')
+    }
+    if (method !== 'none' && extracted.vendor?.trim()) {
+      updates.vendor = extracted.vendor.trim().slice(0, 200)
+      updatedFields.push('vendor')
+    }
+    if (method !== 'none' && extracted.expenseDate) {
+      updates.expenseDate = extracted.expenseDate
+      updatedFields.push('expenseDate')
+    }
+  } catch {
+    // A retry is an operator action, not a new expense write. Record the failed
+    // attempt without disturbing the draft values or pending-review state.
+  }
+
+  const [expense] = await db
+    .update(expenses)
+    .set(updates)
+    .where(and(eq(expenses.id, expenseId), eq(expenses.farmId, user.farmId)))
+    .returning()
+
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'retry_extraction',
+    entityType: 'expense',
+    entityId: expenseId,
+    metadata: { method, status, updatedFields },
+  })
+
+  return c.json({
+    expense,
+    extractionMethod: method,
+    extractionStatus: status,
+    updatedFields,
   })
 })
 
 financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
 
   const body = c.req.valid('json')
 
@@ -269,12 +536,20 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
       translationStatus: canonical.translationStatus,
       amount: body.amount,
       currency: body.currency,
-      vendor: body.vendor,
-      receiptRef: body.receiptRef,
+      vendor: body.vendor ?? null,
+      receiptRef: body.receiptRef ?? null,
       recordedById: user.id,
       expenseDate: new Date(body.expenseDate),
+      approvalStatus: body.approvalStatus ?? 'approved',
+      source: 'manual',
     })
     .returning()
+
+  try {
+    if (body.labelIds?.length) await setExpenseLabels(user.farmId, expense.id, body.labelIds)
+  } catch {
+    return c.json({ error: 'Invalid label' }, 400)
+  }
 
   await logAudit({
     farmId: user.farmId,
@@ -285,13 +560,24 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
     metadata: { category: expense.category, amount: expense.amount },
   })
 
-  // The author reads back their own words; the row holds the English.
-  return c.json({ expense: { ...expense, description: body.description } }, 201)
+  const labelMap = await labelsForExpenses([expense.id])
+  return c.json(
+    {
+      expense: {
+        ...expense,
+        description: body.description,
+        labels: labelMap.get(expense.id) ?? [],
+        hasAttachment: false,
+      },
+    },
+    201,
+  )
 })
 
 financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
 
   const expenseId = c.req.param('id')
   const body = c.req.valid('json')
@@ -314,14 +600,12 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
   if (body.vendor !== undefined) updates.vendor = body.vendor
   if (body.receiptRef !== undefined) updates.receiptRef = body.receiptRef
   if (body.expenseDate !== undefined) updates.expenseDate = new Date(body.expenseDate)
+  if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus
 
   if (body.description !== undefined) {
     const canonical = await canonicalDescription(body.description, user.farmId, authorLocale)
     updates.description = canonical.english ?? body.description
     if (canonical.english !== undefined) {
-      // Never downgrade a row the retry job still owes work on, and keep it
-      // labelled with the locale of the text that failed: `source_locale` is the
-      // hint that retry uses.
       if (existing.translationStatus === 'done' || canonical.translationStatus === 'pending') {
         updates.sourceLocale = canonical.sourceLocale ?? existing.sourceLocale
       }
@@ -335,6 +619,14 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
     .where(eq(expenses.id, expenseId))
     .returning()
 
+  if (body.labelIds !== undefined) {
+    try {
+      await setExpenseLabels(user.farmId, expenseId, body.labelIds)
+    } catch {
+      return c.json({ error: 'Invalid label' }, 400)
+    }
+  }
+
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -343,24 +635,30 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
     entityId: expenseId,
   })
 
-  // A description this author just wrote is echoed in their own words; one they
-  // did not touch is the stored English, rendered for the viewer.
+  const labelMap = await labelsForExpenses([expense.id])
   if (body.description !== undefined) {
-    return c.json({ expense: { ...expense, description: body.description } })
+    return c.json({
+      expense: {
+        ...expense,
+        description: body.description,
+        labels: labelMap.get(expense.id) ?? [],
+        hasAttachment: Boolean(expense.attachmentStorageKey),
+      },
+    })
   }
-  const [localized] = await localizeRows(
-    [expense],
-    EXPENSE_TEXT_FIELDS,
-    user.farmId,
-    viewerLocale,
-  )
-  return c.json({ expense: localized })
+  const [localized] = await localizeRows([expense], EXPENSE_TEXT_FIELDS, user.farmId, viewerLocale)
+  return c.json({
+    expense: {
+      ...localized,
+      labels: labelMap.get(expense.id) ?? [],
+      hasAttachment: Boolean(expense.attachmentStorageKey),
+    },
+  })
 })
 
 financeRoutes.delete('/:id', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user) return c.json({ error: 'Forbidden' }, 403)
-  // Destructive money ops require finance.delete; sales may create/update expenses.
   if (!hasPermission(user, 'finance.delete')) return c.json({ error: 'Forbidden' }, 403)
 
   const expenseId = c.req.param('id')

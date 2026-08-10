@@ -150,6 +150,7 @@ const {
   correctionClockOut,
   correctionNotes,
   showAttendance,
+  canManageAttendance,
   openAttendance,
   loadAttendance,
   clockInNow,
@@ -157,7 +158,10 @@ const {
   startCorrection,
   saveCorrection,
   formatMinutes,
-} = useTodayAttendance(() => auth.user?.role)
+} = useTodayAttendance(
+  () => auth.user?.role,
+  () => auth.user?.id,
+)
 
 const {
   dayClose,
@@ -352,7 +356,7 @@ function formatTime(iso: string) {
         v-model:correction-clock-in="correctionClockIn"
         v-model:correction-clock-out="correctionClockOut"
         v-model:correction-notes="correctionNotes"
-        :is-worker="isWorker"
+        :can-manage-attendance="canManageAttendance"
         :attendance="attendance"
         :open-attendance="openAttendance"
         :plots="plots"

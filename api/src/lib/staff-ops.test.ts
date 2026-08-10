@@ -40,6 +40,13 @@ vi.mock('./farm-notify.js', () => ({
   notifyTaskRejected: vi.fn(async () => undefined),
 }))
 
+const clockIn = vi.fn()
+const clockOut = vi.fn()
+vi.mock('./attendance-service.js', () => ({
+  clockIn: (...args: unknown[]) => clockIn(...args),
+  clockOut: (...args: unknown[]) => clockOut(...args),
+}))
+
 const TASK_ID = '11111111-1111-1111-1111-111111111111'
 
 function task(overrides: Record<string, unknown> = {}) {
@@ -76,6 +83,8 @@ const supervisor = {
 beforeEach(() => {
   taskRows.length = 0
   taskUpdates.length = 0
+  clockIn.mockReset()
+  clockOut.mockReset()
 })
 
 describe('parseStaffOpsCommand', () => {
@@ -91,6 +100,44 @@ describe('parseStaffOpsCommand', () => {
     })
     expect(parseStaffOpsCommand('/approve')).toEqual({ action: 'approve' })
     expect(parseStaffOpsCommand('/start')).toEqual({ action: 'help' })
+  })
+})
+
+describe('clock commands for non-field staff', () => {
+  it('clocks in supervisors via staff ops', async () => {
+    clockIn.mockResolvedValueOnce({ idempotent: false, session: { id: 's1' } })
+    const result = await tryHandleStaffOpsCommand({
+      actor: supervisor,
+      text: '/clockin',
+    })
+    expect(result.handled).toBe(true)
+    expect(result.reply).toContain('Clocked in')
+    expect(clockIn).toHaveBeenCalledOnce()
+  })
+
+  it('clocks out owners via staff ops', async () => {
+    clockOut.mockResolvedValueOnce({ idempotent: false, session: { id: 's1' } })
+    const result = await tryHandleStaffOpsCommand({
+      actor: { ...supervisor, role: 'owner', name: 'Owner' },
+      text: '/clockout',
+    })
+    expect(result.handled).toBe(true)
+    expect(result.reply).toContain('Clocked out')
+    expect(clockOut).toHaveBeenCalledOnce()
+  })
+
+  it('clocks sales staff in and out via staff ops', async () => {
+    const sales = { ...supervisor, role: 'sales' as const, name: 'Sales' }
+    clockIn.mockResolvedValueOnce({ idempotent: false, session: { id: 's1' } })
+    clockOut.mockResolvedValueOnce({ idempotent: false, session: { id: 's1' } })
+
+    const clockedIn = await tryHandleStaffOpsCommand({ actor: sales, text: '/clockin' })
+    const clockedOut = await tryHandleStaffOpsCommand({ actor: sales, text: '/clockout' })
+
+    expect(clockedIn.reply).toContain('Clocked in')
+    expect(clockedOut.reply).toContain('Clocked out')
+    expect(clockIn).toHaveBeenCalledWith(expect.objectContaining({ role: 'sales' }))
+    expect(clockOut).toHaveBeenCalledWith(expect.objectContaining({ role: 'sales' }))
   })
 })
 

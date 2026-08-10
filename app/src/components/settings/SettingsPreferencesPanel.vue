@@ -6,8 +6,10 @@ defineProps<{
   isOwner: boolean
   savingOrderAlerts: boolean
   savingWorkerAlerts: boolean
+  savingHealthSla: boolean
   orderAlertsMessage: string | null
   workerAlertsMessage: string | null
+  healthSlaMessage: string | null
   savingTtsMode: boolean
   ttsMessage: string | null
 }>()
@@ -15,11 +17,13 @@ defineProps<{
 const ttsMode = defineModel<'off' | 'voice_replies' | 'always'>('ttsMode', { required: true })
 const orderAlertsSubscribed = defineModel<boolean>('orderAlertsSubscribed', { required: true })
 const workerAlertsSubscribed = defineModel<boolean>('workerAlertsSubscribed', { required: true })
+const healthSlaAlertsEnabled = defineModel<boolean>('healthSlaAlertsEnabled', { required: true })
 
 const emit = defineEmits<{
   'save-tts': []
   'save-order-alerts': []
   'save-worker-alerts': []
+  'save-health-sla': []
 }>()
 
 const { t } = useI18n()
@@ -108,6 +112,39 @@ const { t } = useI18n()
           <span
             class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
             :class="workerAlertsSubscribed ? 'translate-x-5' : 'translate-x-0'"
+          />
+        </button>
+      </div>
+
+      <div class="flex items-start justify-between gap-4 pt-4 border-t border-slate-800">
+        <div class="min-w-0">
+          <p class="text-sm text-slate-200">{{ t('settings.healthSlaSubscribe') }}</p>
+          <p class="text-xs text-slate-500 mt-1">{{ t('settings.healthSlaHint') }}</p>
+          <p v-if="savingHealthSla" class="text-xs text-slate-500 mt-2">{{ t('settings.saving') }}</p>
+          <p
+            v-else-if="healthSlaMessage"
+            class="text-xs mt-2"
+            :class="healthSlaMessage.toLowerCase().includes('fail') ? 'text-red-300' : 'text-farm-green'"
+          >
+            {{ healthSlaMessage }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="healthSlaAlertsEnabled"
+          :aria-label="t('settings.healthSlaSubscribe')"
+          :disabled="savingHealthSla"
+          class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+          :class="healthSlaAlertsEnabled ? 'bg-farm-green' : 'bg-slate-700'"
+          @click="
+            healthSlaAlertsEnabled = !healthSlaAlertsEnabled;
+            emit('save-health-sla')
+          "
+        >
+          <span
+            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+            :class="healthSlaAlertsEnabled ? 'translate-x-5' : 'translate-x-0'"
           />
         </button>
       </div>

@@ -279,7 +279,7 @@ export async function deliverCriticalAlert(
     headline: subject,
     intro: 'Immediate attention may be required.',
     body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65;white-space:pre-wrap">${escapeEmailHtml(message)}</p>`,
-    footer: 'Sent by Trovara OS monitoring. Review the farm dashboard when you can.',
+    footerVariant: 'staff',
   })
   for (const recipient of recipients) {
     deliveries.push(sendEmail({ to: recipient.email, subject, text: message, html }))

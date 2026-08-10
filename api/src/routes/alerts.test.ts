@@ -22,7 +22,7 @@ let telegramLinkRows: Row[] = []
 function rowsFor(columns?: Record<string, unknown>): Row[] {
   const keys = Object.keys(columns ?? {})
   if (keys.length === 0) return telegramLinkRows
-  if (keys.includes('name')) {
+  if (keys.includes('name') || keys.includes('healthSlaAlertsEnabled')) {
     if (farmLookupError) throw farmLookupError
     return farmRows
   }
@@ -90,6 +90,23 @@ vi.mock('../lib/exceptions.js', () => ({
   gatherExceptions: vi.fn(),
 }))
 
+vi.mock('../lib/health-sla.js', () => ({
+  healthSlaEnvEnabled: vi.fn(() => true),
+  collectHealthSlaReport: vi.fn(async () => ({
+    checkedAt: '2026-08-10T12:00:00.000Z',
+    osBaseUrl: 'https://os.trovara.farm',
+    marketingBaseUrl: 'https://www.trovara.farm',
+    probes: [],
+    okCount: 8,
+    totalCount: 8,
+    successRate: 100,
+    status: 'healthy' as const,
+  })),
+  renderHealthSlaTelegram: vi.fn(
+    () => '✅ Trovara daily health — 2026-08-10\nSLA: 8/8 probes OK (100%) · HEALTHY',
+  ),
+}))
+
 vi.mock('../lib/notifications.js', () => ({
   deliverCriticalAlert: vi.fn(async () => [
     { channel: 'email', status: 'delivered', required: false },
@@ -122,10 +139,15 @@ vi.mock('../lib/content-locale.js', () => ({
 const { checkProactiveAlerts } = await import('../lib/proactive-alerts.js')
 const { deliverCriticalAlert } = await import('../lib/notifications.js')
 const { gatherExceptions } = await import('../lib/exceptions.js')
+const { healthSlaEnvEnabled, collectHealthSlaReport, renderHealthSlaTelegram } =
+  await import('../lib/health-sla.js')
 
 const mockCheckAlerts = vi.mocked(checkProactiveAlerts)
 const mockDeliverCritical = vi.mocked(deliverCriticalAlert)
 const mockGatherExceptions = vi.mocked(gatherExceptions)
+const mockHealthSlaEnvEnabled = vi.mocked(healthSlaEnvEnabled)
+const mockCollectHealthSlaReport = vi.mocked(collectHealthSlaReport)
+const mockRenderHealthSlaTelegram = vi.mocked(renderHealthSlaTelegram)
 
 const EMPTY_SUMMARY = {
   overdueTasks: 0,
@@ -181,6 +203,11 @@ function sentBodies(): string[] {
   return sendWhatsAppText.mock.calls.map(([, body]) => body)
 }
 
+/** Telegram bodies pushed via role fan-out, in send order. */
+function sentTelegramBodies(): string[] {
+  return sendTelegramMessage.mock.calls.map(([, text]) => String(text))
+}
+
 function criticalSubjects(): string[] {
   return mockDeliverCritical.mock.calls.map(([, subject]) => subject)
 }
@@ -210,7 +237,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.CRON_SECRET
   sessionUser = { id: 'user-owner', farmId: FARM_ID, role: 'owner', email: 'o@t.farm' }
-  farmRows = [{ name: FARM_NAME }]
+  farmRows = [{ name: FARM_NAME, healthSlaAlertsEnabled: true }]
   farmLookupError = null
   notifyRecipientRows = owners('en')
   criticalRecipientRows = []
@@ -225,6 +252,20 @@ beforeEach(() => {
     { channel: 'email', status: 'delivered', required: false },
     { channel: 'sms', status: 'delivered', required: false },
   ])
+  mockHealthSlaEnvEnabled.mockReturnValue(true)
+  mockCollectHealthSlaReport.mockResolvedValue({
+    checkedAt: '2026-08-10T12:00:00.000Z',
+    osBaseUrl: 'https://os.trovara.farm',
+    marketingBaseUrl: 'https://www.trovara.farm',
+    probes: [],
+    okCount: 8,
+    totalCount: 8,
+    successRate: 100,
+    status: 'healthy',
+  })
+  mockRenderHealthSlaTelegram.mockReturnValue(
+    '✅ Trovara daily health — 2026-08-10\nSLA: 8/8 probes OK (100%) · HEALTHY',
+  )
 })
 
 describe('POST /alerts/run-proactive - farm name, not farm id', () => {
@@ -445,5 +486,60 @@ describe('POST /alerts/evening-digest - farm name and per-recipient locale', () 
     expect(body.notified?.whatsapp).toBe(1)
     expect(sentBodies()[0]).toContain('🌙 Trovara evening digest — Trovara')
     expect(sentBodies()[0]).not.toContain(FARM_ID)
+  })
+})
+
+async function runHealthSla(): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { alertsRoutes } = await import('./alerts.js')
+  const app = new Hono()
+  app.route('/alerts', alertsRoutes)
+  const res = await app.request('/alerts/run-health-sla', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+}
+
+describe('POST /alerts/run-health-sla', () => {
+  it('sends the daily SLA report to linked owners and supervisors on Telegram', async () => {
+    notifyRecipientRows = [
+      { id: 'owner-1', phone: '+2348000000001', preferredLocale: 'en' },
+      { id: 'sup-1', phone: '+2348000000002', preferredLocale: 'en' },
+    ]
+    telegramLinkRows = [
+      { afterValue: { userId: 'owner-1', chatId: 111 } },
+      { afterValue: { userId: 'sup-1', chatId: 222 } },
+    ]
+
+    const { status, body } = await runHealthSla()
+
+    expect(status).toBe(200)
+    expect(body.skipped).toBeUndefined()
+    expect(body.notified).toEqual({ telegram: 2 })
+    expect(sentTelegramBodies()).toEqual([
+      '✅ Trovara daily health — 2026-08-10\nSLA: 8/8 probes OK (100%) · HEALTHY',
+      '✅ Trovara daily health — 2026-08-10\nSLA: 8/8 probes OK (100%) · HEALTHY',
+    ])
+  })
+
+  it('skips when the farm toggle is off', async () => {
+    farmRows = [{ name: FARM_NAME, healthSlaAlertsEnabled: false }]
+
+    const { status, body } = await runHealthSla()
+
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ skipped: true, reason: 'farm_disabled' })
+    expect(sendTelegramMessage).not.toHaveBeenCalled()
+  })
+
+  it('skips when the env kill-switch is off', async () => {
+    mockHealthSlaEnvEnabled.mockReturnValue(false)
+
+    const { status, body } = await runHealthSla()
+
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ skipped: true, reason: 'env_disabled' })
+    expect(mockCollectHealthSlaReport).not.toHaveBeenCalled()
   })
 })

@@ -59,7 +59,7 @@ Whatever field workers and supervisors do day-to-day in the app for **attendance
 
 | Command | Who | Effect |
 | --- | --- |
-| `/clockin` · `/clockout` | Field | Attendance clock in / out |
+| `/clockin` · `/clockout` | All staff | Attendance clock in / out |
 | `/tasks` | Field | List my open tasks (`TSK-……`) |
 | `/taskstart` | Field | Start a task (inline pick list) |
 | `/done` · `/done TSK-… note` | Field | Submit for approval (pick list or ref + note) |
@@ -77,8 +77,9 @@ Telegram also supports draft-and-confirm flows (Admin / Supervisor / Sales as no
 (`Feed` / `Vaccinate` / `Mortality`).
 
 **Role-scoped menus:** After you link, typing `/` or `help` shows only commands for
-your role (field workers see clock-in; admins do not). Telegram also sets a
-per-chat slash menu for your role.
+your role. Every staff role (Admin, Supervisor, Sales, and Field worker) sees
+clock-in and clock-out; other commands remain role-specific. Telegram also sets
+a per-chat slash menu for your role.
 
 ## Next build plan (staff butler parity)
 

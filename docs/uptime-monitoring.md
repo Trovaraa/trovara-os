@@ -46,6 +46,28 @@ alert reliably when that VM is unavailable. Configure:
 After setup, deliberately pause the API during an agreed maintenance window
 and confirm that failure and recovery alerts reach the selected contacts.
 
+## Daily Telegram health / SLA report
+
+In addition to external monitors, Trovara can run a once-daily probe of OS and
+marketing endpoints and post a compact SLA summary to **owners and supervisors**
+who have linked Telegram chats:
+
+```bash
+npm run send-health-sla
+# POST /api/alerts/run-health-sla (CRON_SECRET + CRON_FARM_ID)
+```
+
+Default probes:
+
+| Group | Paths |
+|-------|-------|
+| OS | `/health`, `/ready`, `/public/moments`, `/public/careers` |
+| Marketing | `/`, `/moments`, `/careers`, `/privacy` |
+
+Toggle off from **Settings → Daily health / SLA report**, or set
+`HEALTH_SLA_TELEGRAM_ENABLED=false` on the API host. This does **not** replace
+farm ops proactive alerts (`send-proactive-alerts`).
+
 ## Owner dashboard
 
 Owners and supervisors can also review backup recency via

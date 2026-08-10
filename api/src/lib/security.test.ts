@@ -125,6 +125,7 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/api/system/run-retention')).toBe(true)
     expect(isCsrfExemptPath('/api/alerts/run-proactive')).toBe(true)
     expect(isCsrfExemptPath('/api/alerts/evening-digest')).toBe(true)
+    expect(isCsrfExemptPath('/api/alerts/run-health-sla')).toBe(true)
   })
 
   it('exempts staff and customer Telegram webhooks', () => {
@@ -162,6 +163,18 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/shop/orders')).toBe(false)
     expect(isCsrfExemptPath('/shop/logout')).toBe(false)
     expect(isCsrfExemptPath('/shop/me')).toBe(false)
+  })
+
+  it('exempts brand pack unlock paths authorized by share token', () => {
+    expect(isCsrfExemptPath('/public/brand/abc123/unlock')).toBe(true)
+    expect(isCsrfExemptPath('/public/brand/abc123/items')).toBe(false)
+  })
+
+  it('does not CSRF-exempt brand kit upload paths', () => {
+    expect(isCsrfExemptPath('/api/brand/assets/upload')).toBe(false)
+    expect(
+      isCsrfExemptPath('/api/brand/assets/upload/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+    ).toBe(false)
   })
 
   it('does not exempt protected API routes', () => {

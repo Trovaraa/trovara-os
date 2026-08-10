@@ -2,6 +2,12 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/lib/api'
 
+export type ExpenseLabel = {
+  id: string
+  name: string
+  slug: string
+}
+
 export type OwnerReports = {
   generatedAt: string
   reports: {
@@ -98,6 +104,7 @@ export type OwnerReports = {
       expenses: number
       net: number
       expensesByCategory: Record<string, number>
+      expensesByLabel: Record<string, { name: string; slug: string; total: number }>
     }
     incidents: {
       phase: string
@@ -230,8 +237,12 @@ export function useReportsData() {
   const inventoryShrink = ref<InventoryShrinkReport | null>(null)
   const actionList = ref<ActionListReport | null>(null)
   const plotProfitability = ref<PlotProfitabilityReport | null>(null)
+  const expenseLabels = ref<ExpenseLabel[]>([])
+  const expenseLabelFilter = ref('')
   const loading = ref(true)
+  const refreshingExpenses = ref(false)
   const error = ref<string | null>(null)
+  const expenseFilterError = ref<string | null>(null)
 
   onMounted(async () => {
     // Ops and finance are authorized differently (supervisor can approve but not
@@ -246,6 +257,7 @@ export function useReportsData() {
       Promise.allSettled([
         api<OwnerReports>('/api/reports/owner'),
         api<PlotProfitabilityReport>('/api/reports/plot-profitability'),
+        api<{ labels: ExpenseLabel[] }>('/api/finance/labels'),
       ]),
     ])
 
@@ -255,9 +267,10 @@ export function useReportsData() {
     if (shrinkRes.status === 'fulfilled') inventoryShrink.value = shrinkRes.value
     if (actionListRes.status === 'fulfilled') actionList.value = actionListRes.value
 
-    const [ownerRes, plotPnlRes] = financeSettled
+    const [ownerRes, plotPnlRes, labelsRes] = financeSettled
     if (ownerRes.status === 'fulfilled') data.value = ownerRes.value
     if (plotPnlRes.status === 'fulfilled') plotProfitability.value = plotPnlRes.value
+    if (labelsRes.status === 'fulfilled') expenseLabels.value = labelsRes.value.labels
 
     const hasAny =
       !!data.value ||
@@ -278,6 +291,22 @@ export function useReportsData() {
     loading.value = false
   })
 
+  async function refreshExpenseReport() {
+    refreshingExpenses.value = true
+    expenseFilterError.value = null
+    const query = expenseLabelFilter.value
+      ? `?labelId=${encodeURIComponent(expenseLabelFilter.value)}`
+      : ''
+    try {
+      data.value = await api<OwnerReports>(`/api/reports/owner${query}`)
+    } catch (cause) {
+      expenseFilterError.value =
+        cause instanceof Error ? cause.message : t('reports.loadFailed')
+    } finally {
+      refreshingExpenses.value = false
+    }
+  }
+
   function formatMoney(amount: number, currency: string) {
     return new Intl.NumberFormat('en-NG', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
   }
@@ -293,8 +322,13 @@ export function useReportsData() {
     inventoryShrink,
     actionList,
     plotProfitability,
+    expenseLabels,
+    expenseLabelFilter,
     loading,
+    refreshingExpenses,
     error,
+    expenseFilterError,
+    refreshExpenseReport,
     formatMoney,
     formatDate,
   }

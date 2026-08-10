@@ -31,7 +31,7 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - All queries scoped by `farm_id`
 - WhatsApp webhook: `X-Hub-Signature-256` HMAC verification (`META_APP_SECRET`)
 - Telegram webhook: `secret_token` verification (`TELEGRAM_WEBHOOK_SECRET`)
-- Request bodies capped at 12 MB (413)
+- Request bodies capped at 12 MB (413), except Brand Kit streamed uploads at 500 MB on `/api/brand/assets/upload` and `/api/brand/assets/:id/upload`
 - Security event log: `logs/security.log` (failed logins, CSRF, 403s, invalid webhooks)
 - Audit trail: Postgres `audit_events` (who changed farm data / money / config). Catalog and domain map: `api/src/lib/audit-catalog.ts`. UI: Settings → Audit dashboard (`audit.export`). Dual-write privileged admin with security.log; auth noise stays security-only.
 - API error log: `logs/api.log` (5xx responses, unhandled errors)
@@ -95,6 +95,7 @@ Use this as a release gate before internet-facing deployment (or each production
 - [ ] Default/dev passwords rotated; no shared credentials remain.
 - [ ] DB credentials and encryption keys (`TOTP_ENCRYPTION_KEY`, `VAULT_ENCRYPTION_KEY`) rotated from any previously exposed values. (`SESSION_SECRET` is unused — do not set.)
 - [ ] Portal vault: `VAULT_ENCRYPTION_KEY` set in production; reveal is TOTP/break-glass gated and rate-limited.
+- [ ] Brand packs: share links are unlisted tokens; optional pack passwords use argon2; unlock cookies are HMAC-signed (`BRAND_PACK_SESSION_SECRET` or derived from `TOTP_ENCRYPTION_KEY`); unlock attempts are rate-limited. Photo/video uploads require host `ffmpeg`/`ffprobe` (H.264/AAC + HEIC/HEVC); nginx upload routes allow 520m with `proxy_request_buffering off`.
 - [ ] Disabled users cannot keep active sessions.
 - [ ] Login failures are rate-limited and recorded in `logs/security.log`.
 

@@ -97,19 +97,37 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <button
-    v-if="!disabled && !open"
-    type="button"
-    class="fixed right-3 md:right-6 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border border-farm-gold/40 bg-[var(--os-shell)] px-4 py-3 text-sm font-black text-farm-gold shadow-2xl shadow-black/30 transition hover:-translate-y-0.5 hover:border-farm-gold focus:outline-none focus:ring-2 focus:ring-farm-gold"
-    :class="role === 'field_worker' ? 'bottom-[5.25rem] md:bottom-6' : 'bottom-4 md:bottom-6'"
-    :aria-label="copy.help"
-    @click="showPageHelp"
-  >
-    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
-    </svg>
-    <span>{{ copy.help }}</span>
-  </button>
+  <Teleport to="#mobile-guide-trigger">
+    <button
+      v-if="!disabled && !open"
+      type="button"
+      class="grid h-9 w-9 place-items-center rounded-lg border border-farm-gold/35 bg-farm-gold/10 text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:hidden"
+      :aria-label="copy.help"
+      :title="copy.help"
+      data-testid="mobile-help-trigger"
+      @click="showPageHelp"
+    >
+      <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
+      </svg>
+    </button>
+  </Teleport>
+
+  <Teleport to="#desktop-guide-trigger">
+    <button
+      v-if="!disabled && !open"
+      type="button"
+      class="hidden h-9 w-9 place-items-center rounded-xl border border-farm-gold/30 bg-farm-gold/10 text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:grid"
+      :aria-label="copy.help"
+      :title="copy.help"
+      data-testid="desktop-help-trigger"
+      @click="showPageHelp"
+    >
+      <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
+      </svg>
+    </button>
+  </Teleport>
 
   <Teleport to="body">
     <div

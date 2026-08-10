@@ -324,17 +324,6 @@ export async function tryHandleStaffOpsCommand(params: {
   }
 
   if (parsed.action === 'clock_in') {
-    if (params.actor.role !== 'field_worker') {
-      return {
-        handled: true,
-        reply: msg(locale, {
-          en: 'Clock-in is for field workers.',
-          fr: 'Le pointage est réservé aux ouvriers.',
-          yo: 'Clock-in jẹ́ ti àwọn òṣìṣẹ́ oko.',
-          pcm: 'Clock-in na for field workers.',
-        }),
-      }
-    }
     try {
       const result = await clockIn(toSession(params.actor))
       return {
@@ -376,17 +365,6 @@ export async function tryHandleStaffOpsCommand(params: {
   }
 
   if (parsed.action === 'clock_out') {
-    if (params.actor.role !== 'field_worker') {
-      return {
-        handled: true,
-        reply: msg(locale, {
-          en: 'Clock-out is for field workers.',
-          fr: 'Le départ est réservé aux ouvriers.',
-          yo: 'Clock-out jẹ́ ti àwọn òṣìṣẹ́ oko.',
-          pcm: 'Clock-out na for field workers.',
-        }),
-      }
-    }
     try {
       const result = await clockOut(toSession(params.actor))
       return {

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 const workerAllowedNames = new Set([
   'change-password',
   'today',
+  'hours',
   'worker',
   'assets',
   'traceability',
@@ -16,6 +17,7 @@ const workerAllowedNames = new Set([
 const salesAllowedNames = new Set([
   'change-password',
   'today',
+  'hours',
   'dashboard',
   'sales',
   'products',
@@ -179,6 +181,12 @@ const router = createRouter({
       meta: { requiresAuth: true, financeAccess: true },
     },
     {
+      path: '/hours',
+      name: 'hours',
+      component: () => import('@/views/HoursView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/traceability',
       name: 'traceability',
       component: () => import('@/views/TraceabilityView.vue'),
@@ -203,6 +211,12 @@ const router = createRouter({
       meta: { requiresAuth: true, ownerOnly: true },
     },
     {
+      path: '/brand-kits',
+      name: 'brand-kits',
+      component: () => import('@/views/BrandKitsView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
+    },
+    {
       path: '/newsletter',
       name: 'newsletter',
       component: () => import('@/views/NewsletterView.vue'),
@@ -219,6 +233,18 @@ const router = createRouter({
       name: 'shop-customers',
       component: () => import('@/views/ShopCustomersView.vue'),
       meta: { requiresAuth: true, marketingStaffOnly: true },
+    },
+    {
+      path: '/moments',
+      name: 'moments',
+      component: () => import('@/views/MomentsView.vue'),
+      meta: { requiresAuth: true, managerOnly: true },
+    },
+    {
+      path: '/careers',
+      name: 'careers',
+      component: () => import('@/views/CareersView.vue'),
+      meta: { requiresAuth: true, ownerOnly: true },
     },
     {
       path: '/templates',

@@ -23,7 +23,10 @@ export type AttendanceSession = {
 export type PlotOption = { id: string; name: string; active: boolean }
 
 /** Clock-in/out and correction state for Today's attendance panel. */
-export function useTodayAttendance(getRole: () => string | undefined) {
+export function useTodayAttendance(
+  getRole: () => string | undefined,
+  getUserId: () => string | undefined = () => undefined,
+) {
   const { t } = useI18n()
 
   const attendance = ref<AttendanceSession[]>([])
@@ -39,12 +42,25 @@ export function useTodayAttendance(getRole: () => string | undefined) {
   const correctionClockOut = ref('')
   const correctionNotes = ref('')
 
-  // Clocking is a field-worker workflow. Owner, supervisor and sales use Today
-  // for oversight, approvals, orders and day close—not personal attendance.
-  const showAttendance = computed(() => getRole() === 'field_worker')
-  const openAttendance = computed(
-    () => attendance.value.find((session) => session.clockOutAt === null) ?? null,
-  )
+  // Clocking is available to every authenticated staff role.
+  const showAttendance = computed(() => {
+    const role = getRole()
+    return role === 'field_worker' || role === 'owner' || role === 'supervisor' || role === 'sales'
+  })
+  const canManageAttendance = computed(() => {
+    const role = getRole()
+    return role === 'owner' || role === 'supervisor'
+  })
+  // Managers load farm-wide sessions; personal clock state must stay scoped to self.
+  const openAttendance = computed(() => {
+    const userId = getUserId()
+    return (
+      attendance.value.find(
+        (session) =>
+          session.clockOutAt === null && (userId ? session.userId === userId : true),
+      ) ?? null
+    )
+  })
 
   async function refresh() {
     const result = await api<{ sessions: AttendanceSession[] }>('/api/attendance/today')
@@ -57,10 +73,8 @@ export function useTodayAttendance(getRole: () => string | undefined) {
       return
     }
     await refresh()
-    if (getRole() === 'field_worker') {
-      const plotData = await api<{ plots: PlotOption[] }>('/api/zones/plots')
-      plots.value = plotData.plots.filter((plot) => plot.active)
-    }
+    const plotData = await api<{ plots: PlotOption[] }>('/api/zones/plots')
+    plots.value = plotData.plots.filter((plot) => plot.active)
   }
 
   async function clockInNow() {
@@ -156,6 +170,7 @@ export function useTodayAttendance(getRole: () => string | undefined) {
     correctionClockOut,
     correctionNotes,
     showAttendance,
+    canManageAttendance,
     openAttendance,
     loadAttendance,
     refresh,

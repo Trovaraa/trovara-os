@@ -1,6 +1,6 @@
 const base = import.meta.env.VITE_API_URL ?? ''
 
-function getCsrfToken(): string | undefined {
+export function getCsrfToken(): string | undefined {
   const match = document.cookie.match(/(?:^|;\s*)trovara_csrf=([^;]+)/)
   return match?.[1]
 }

@@ -9,7 +9,7 @@ For HTTP route roles see [`API.md`](./API.md). Security controls (not a second m
 | Farm setup, users and security | Full control | No administrative changes | No access | No access |
 | Today dashboard | Farm-wide view and exceptions | Farm-wide view and exceptions | Own tasks and attendance | Sales and order day-close |
 | Tasks | Create, assign, approve and reopen | Create, assign and approve | Start and submit own tasks | No access |
-| Attendance | View roster and correct records | View roster and correct records | Clock in/out, optionally add a daily summary, and view own record | No access |
+| Attendance and hours | Clock in/out; view farm-wide hours and correct records | Clock in/out; view farm-wide hours and correct records | Clock in/out, optionally add a daily summary, and view own hours | Clock in/out and view own hours |
 | Crops, livestock, zones and templates | Manage | Manage | No management access | No access |
 | Advisory and field reports | View, log and resolve | View, log and resolve | View advice and submit observations, incidents and photo evidence | No access |
 | Inventory | Manage SKUs, product links, stock, movements, counts, tolerances, reconciliation and shrink/leakage alerts | Same as Admin | **No Inventory screen.** Cannot change stock. May submit task-linked count sessions via API/Telegram handover when tasked; supervisor verifies before stock posts. No dedicated worker count UI in the PWA | **No inventory screen.** Cannot change stock or submit counts. Order dispatch may still decrement linked finished-goods stock as a system side-effect of fulfilment |

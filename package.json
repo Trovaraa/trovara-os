@@ -19,6 +19,7 @@
     "sync-catalog": "npm run sync-catalog -w api",
     "generate-tasks": "bash scripts/generate-recurring-tasks.sh",
     "send-proactive-alerts": "bash scripts/send-proactive-alerts.sh",
+    "send-health-sla": "bash scripts/send-health-sla.sh",
     "send-evening-digest": "bash scripts/send-evening-digest.sh",
     "run-data-retention": "bash scripts/run-data-retention.sh",
     "retry-translations": "bash scripts/retry-translations.sh",

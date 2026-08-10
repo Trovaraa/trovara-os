@@ -34,13 +34,36 @@ export {
 
 // Photo/voice uploads arrive as base64 JSON (~8 MB worst case); anything bigger
 // is abuse. A reverse proxy (Caddy/nginx) should enforce the same cap in front.
+// Brand Kit streaming uploads use a dedicated higher limit (see isBrandUploadPath).
 export const MAX_BODY_BYTES = 12 * 1024 * 1024
+export const BRAND_UPLOAD_BODY_BYTES = Number(
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
+)
+
+/** Authenticated Brand Kit binary upload / replace paths — streamed, not JSON. */
+export function isBrandUploadPath(pathname: string): boolean {
+  const path = pathname.split('?')[0] ?? pathname
+  return (
+    path === '/api/brand/assets/upload' ||
+    /^\/api\/brand\/assets\/upload\/[^/]+$/.test(path)
+  )
+}
 
 async function bodySizeLimit(c: Context, next: Next) {
+  const path = new URL(c.req.url).pathname
+  const brandUpload = isBrandUploadPath(path)
+  const maxBytes = brandUpload ? BRAND_UPLOAD_BODY_BYTES : MAX_BODY_BYTES
+
   const lenHeader = c.req.header('content-length')
   const len = Number(lenHeader)
-  if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+  if (Number.isFinite(len) && len > maxBytes) {
     return c.json({ error: 'Payload too large' }, 413)
+  }
+
+  // Brand uploads stream to disk in the route — do not buffer here.
+  if (brandUpload) {
+    await next()
+    return
   }
 
   // Chunked uploads without Content-Length: stream with a hard byte cap and
@@ -58,7 +81,7 @@ async function bodySizeLimit(c: Context, next: Next) {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel().catch(() => undefined)
         return c.json({ error: 'Payload too large' }, 413)
       }
