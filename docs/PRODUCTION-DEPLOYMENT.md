@@ -381,7 +381,8 @@ RELEASE_REF=<full-commit-sha-or-tag> ./deploy.sh
 The deploy script selects Node 22 and runs `npm ci --include=dev` (the VM has
 `NODE_ENV=production`, but test/build tools are dev dependencies), tests, the blocking
 high-severity audit, production build, encrypted database/evidence backup,
-required remote delivery and freshness verification, migrations, frontend
+freshness verification (remote rclone delivery optional when Mac pulls are the
+second copy), migrations, frontend
 release, service restart, and health/readiness checks on the VM. It embeds
 `RELEASE.json` at the release root and web root and includes `docs/` in the
 deployed artifact. It refuses uncommitted or untracked source.

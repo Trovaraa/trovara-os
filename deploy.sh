@@ -276,7 +276,7 @@ npm run build
 cp RELEASE.json app/dist/RELEASE.json
 
 if [[ "$SKIP_BACKUP" -eq 0 ]]; then
-  echo "==> [vm] production backup (encrypt, verify, manifest, required remote delivery)"
+  echo "==> [vm] production backup (encrypt, verify, manifest; remote delivery optional)"
   npm run backup:production
   npm run backup:freshness
 else

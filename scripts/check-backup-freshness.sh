@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Gate production operations on a recent, successful, remotely delivered backup.
+# Gate production operations on a recent, successful encrypted backup.
+# Remote rclone delivery is optional; when enabled in the report it must have
+# succeeded. When disabled, local verified artifacts (+ Mac deploy pulls) are
+# enough.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,9 +29,16 @@ const safeName = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9._-]+$/.test(value) ? value : null
 
 if (report.status !== 'success') throw new Error('latest backup report is not successful')
-if (report.remoteDelivery?.enabled !== true || report.remoteDelivery?.status !== 'delivered') {
-  throw new Error('latest backup was not delivered off-server')
+
+const remote = report.remoteDelivery ?? {}
+const remoteEnabled = remote.enabled === true
+if (remoteEnabled && remote.status !== 'delivered') {
+  throw new Error('latest backup was not delivered off-server (remote delivery enabled)')
 }
+if (!remoteEnabled && remote.status && remote.status !== 'disabled') {
+  throw new Error(`latest backup remoteDelivery status is unexpected: ${remote.status}`)
+}
+
 const completed = Date.parse(report.completedAt)
 if (!Number.isFinite(completed)) throw new Error('latest backup has an invalid completedAt')
 const ageHours = (Date.now() - completed) / 3_600_000
@@ -41,5 +51,6 @@ for (const key of ['databaseBackup', 'evidenceBackup', 'manifest']) {
     throw new Error(`latest backup report has missing/unsafe ${key}`)
   }
 }
-console.log(`Backup freshness gate passed (${ageHours.toFixed(1)}h old, remote delivered)`)
+const remoteNote = remoteEnabled ? 'remote delivered' : 'local only (remote optional)'
+console.log(`Backup freshness gate passed (${ageHours.toFixed(1)}h old, ${remoteNote})`)
 NODE
