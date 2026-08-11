@@ -52,7 +52,7 @@ const CATEGORY_OPTIONS = ['ppe', 'tool', 'vehicle', 'irrigation', 'other']
 const CONDITION_OPTIONS = ['good', 'fair', 'damaged']
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.canApprove)
+const canManage = computed(() => auth.hasPermission('inventory.write'))
 
 const assets = ref<Asset[]>([])
 const loading = ref(true)

@@ -49,7 +49,7 @@ async function crc32File(path: string): Promise<number> {
 export function createStoredZipStream(entries: StreamingZipEntry[]): Readable {
   const queue = [...entries]
   let phase: 'meta' | 'files' | 'central' | 'done' = 'meta'
-  let prepared: Array<{
+  const prepared: Array<{
     name: Buffer
     path: string
     size: number

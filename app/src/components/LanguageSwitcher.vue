@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { type AppLocale } from '@/i18n'
 import { applyLocale, useAuthStore } from '@/stores/auth'
 
-defineProps<{ compact?: boolean }>()
+const props = defineProps<{ compact?: boolean; toggleOnly?: boolean }>()
 
 const { locale } = useI18n()
 const auth = useAuthStore()
@@ -22,10 +22,16 @@ function setLocale(code: AppLocale) {
   // Best-effort: signed-out, offline, or a rejected write must not revert the switch.
   auth.savePreferredLocale(code).catch(() => undefined)
 }
+
+function cycleLocale() {
+  const index = options.findIndex((option) => option.code === locale.value)
+  setLocale(options[(index + 1) % options.length].code)
+}
 </script>
 
 <template>
   <div
+    v-if="!props.toggleOnly"
     class="inline-flex rounded-lg bg-slate-800/80 border border-slate-700 p-0.5 shrink-0"
     role="group"
     :aria-label="$t('common.language')"
@@ -49,4 +55,14 @@ function setLocale(code: AppLocale) {
       {{ opt.label }}
     </button>
   </div>
+  <button
+    v-else
+    type="button"
+    class="min-h-9 min-w-9 rounded-lg border border-slate-700 bg-slate-800/80 text-[10px] font-bold text-slate-200"
+    :aria-label="$t('common.language')"
+    :title="$t('common.language')"
+    @click="cycleLocale"
+  >
+    {{ String(locale).toUpperCase() }}
+  </button>
 </template>

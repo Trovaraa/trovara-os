@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the daily OS + marketing health/SLA probes and notifies owners/supervisors.
+# Runs the daily OS + marketing point-in-time health/uptime snapshot.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

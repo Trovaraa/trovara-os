@@ -2,10 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
-import { api } from '@/lib/api'
+import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const auth = useAuthStore()
 
 type ExpenseLabel = { id: string; name: string; slug: string }
@@ -21,10 +21,17 @@ type Expense = {
   receiptRef?: string | null
   approvalStatus?: string
   source?: string
+  inboundSenderEmail?: string | null
+  inboundSenderName?: string | null
+  inboundAckSentAt?: string | null
   labels?: ExpenseLabel[]
   hasAttachment?: boolean
   extractionMethod?: string | null
   extractionStatus?: string | null
+  originalAmount?: number | string | null
+  originalCurrency?: string | null
+  fxRate?: string | null
+  fxConvertedAt?: string | null
 }
 
 type Summary = {
@@ -41,6 +48,9 @@ type Summary = {
   netProfit: number
   orderCount: number
   expenseCount: number
+  pendingExpenseCount?: number
+  rejectedExpenseCount?: number
+  unconvertedForeignCount?: number
   expensesByCategory: Record<string, number>
   expensesByLabel?: Record<string, { name: string; slug: string; total: number }>
 }
@@ -66,6 +76,16 @@ const labelFilter = ref('')
 const editingId = ref<string | null>(null)
 const showForm = ref(false)
 const retryingExtractionIds = ref<Set<string>>(new Set())
+const updatingIds = ref<Set<string>>(new Set())
+const newLabelName = ref('')
+const addingLabel = ref(false)
+const page = ref(1)
+const PAGE_SIZE = 25
+let loadRequestId = 0
+const pageCount = computed(() => Math.max(1, Math.ceil(expenses.value.length / PAGE_SIZE)))
+const visibleExpenses = computed(() =>
+  expenses.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+)
 
 const form = ref({
   category: 'other' as (typeof CATEGORIES)[number],
@@ -78,18 +98,24 @@ const form = ref({
   approvalStatus: 'approved' as 'pending' | 'approved' | 'rejected',
 })
 
-const canWrite = computed(() => auth.user?.role === 'owner' || auth.user?.role === 'sales')
+const canWrite = computed(() => auth.hasPermission('finance.write'))
+const canDelete = computed(() => auth.hasPermission('finance.delete'))
 const canRetryExtraction = computed(
   () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
 )
-const hasExpenseActions = computed(() => canWrite.value || canRetryExtraction.value)
+const editingExpense = computed(() =>
+  editingId.value ? expenses.value.find((row) => row.id === editingId.value) ?? null : null,
+)
+const hasExpenseActions = computed(
+  () => canWrite.value || canDelete.value || canRetryExtraction.value,
+)
 
 function formatAmount(amount: number, currency = 'NGN') {
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency }).format(amount)
+  return new Intl.NumberFormat(locale?.value ?? 'en', { style: 'currency', currency }).format(amount)
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString()
+  return new Date(value).toLocaleDateString(locale?.value ?? 'en')
 }
 
 function statusClasses(status?: string) {
@@ -135,6 +161,57 @@ async function retryExtraction(expense: Expense) {
   }
 }
 
+async function updateStatus(expense: Expense, approvalStatus: 'approved' | 'rejected') {
+  if (!canWrite.value) return
+  updatingIds.value = new Set(updatingIds.value).add(expense.id)
+  error.value = null
+  try {
+    await api(`/api/finance/${expense.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approvalStatus }),
+    })
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('finance.statusUpdateFailed')
+  } finally {
+    const next = new Set(updatingIds.value)
+    next.delete(expense.id)
+    updatingIds.value = next
+  }
+}
+
+async function convertCurrency(expense: Expense) {
+  if (!canWrite.value || expense.currency === 'NGN') return
+  updatingIds.value = new Set(updatingIds.value).add(expense.id)
+  error.value = null
+  try {
+    await api(`/api/finance/${expense.id}/convert-currency`, { method: 'POST' })
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('finance.currencyConversionFailed')
+  } finally {
+    const next = new Set(updatingIds.value)
+    next.delete(expense.id)
+    updatingIds.value = next
+  }
+}
+
+async function deleteExpense(expense: Expense) {
+  if (!canDelete.value || !window.confirm(t('finance.deleteConfirm'))) return
+  updatingIds.value = new Set(updatingIds.value).add(expense.id)
+  error.value = null
+  try {
+    await api(`/api/finance/${expense.id}`, { method: 'DELETE' })
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('finance.deleteFailed')
+  } finally {
+    const next = new Set(updatingIds.value)
+    next.delete(expense.id)
+    updatingIds.value = next
+  }
+}
+
 function resetForm() {
   editingId.value = null
   form.value = {
@@ -172,6 +249,7 @@ function startEdit(expense: Expense) {
 }
 
 async function load() {
+  const requestId = ++loadRequestId
   loading.value = true
   error.value = null
   try {
@@ -181,13 +259,16 @@ async function load() {
       api<{ summary: Summary }>(`/api/finance/summary${query}`),
       api<{ labels: ExpenseLabel[] }>('/api/finance/labels'),
     ])
+    if (requestId !== loadRequestId) return
     expenses.value = expenseData.expenses
+    page.value = 1
     summary.value = summaryData.summary
     labels.value = labelData.labels
   } catch (e) {
+    if (requestId !== loadRequestId) return
     error.value = e instanceof Error ? e.message : t('finance.loadFailed')
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) loading.value = false
   }
 }
 
@@ -236,6 +317,30 @@ function toggleLabel(id: string) {
   form.value.labelIds = [...set]
 }
 
+async function addLabel() {
+  const name = newLabelName.value.trim()
+  if (!canWrite.value || !name || addingLabel.value) return
+  addingLabel.value = true
+  error.value = null
+  try {
+    const result = await api<{ label: ExpenseLabel }>('/api/finance/labels', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })
+    if (!labels.value.some((label) => label.id === result.label.id)) {
+      labels.value = [...labels.value, result.label].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    if (!form.value.labelIds.includes(result.label.id)) {
+      form.value.labelIds = [...form.value.labelIds, result.label.id]
+    }
+    newLabelName.value = ''
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('finance.addLabelFailed')
+  } finally {
+    addingLabel.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -266,10 +371,10 @@ onMounted(load)
       </div>
     </div>
 
-    <p v-if="error" class="mt-4 text-sm text-red-400">{{ error }}</p>
-    <div v-if="loading" class="mt-8 text-slate-400">{{ t('finance.loading') }}</div>
+    <p v-if="error && !loading" class="mt-4 text-sm text-red-400" role="alert">{{ error }}</p>
+    <div v-else-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('finance.loading') }}</div>
 
-    <template v-else>
+    <template v-else-if="!error">
       <div
         v-if="showForm && canWrite"
         class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4"
@@ -281,7 +386,7 @@ onMounted(load)
           <label class="text-sm text-slate-400 space-y-1">
             <span>{{ t('finance.category') }}</span>
             <select v-model="form.category" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100">
-              <option v-for="category in CATEGORIES" :key="category" :value="category">{{ category }}</option>
+              <option v-for="category in CATEGORIES" :key="category" :value="category">{{ t(`finance.categories.${category}`) }}</option>
             </select>
           </label>
           <label class="text-sm text-slate-400 space-y-1">
@@ -318,13 +423,44 @@ onMounted(load)
               class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
             />
           </label>
+          <div
+            v-if="editingId && editingExpense?.source === 'inbound_email'"
+            class="text-sm text-slate-400 space-y-1 sm:col-span-2"
+          >
+            <span>{{ t('finance.inboundSender') }}</span>
+            <p class="rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100">
+              <template v-if="editingExpense.inboundSenderEmail">
+                <span v-if="editingExpense.inboundSenderName" class="font-semibold">
+                  {{ editingExpense.inboundSenderName }}
+                  ·
+                </span>
+                <a
+                  class="text-farm-green font-semibold"
+                  :href="`mailto:${editingExpense.inboundSenderEmail}`"
+                >{{ editingExpense.inboundSenderEmail }}</a>
+              </template>
+              <span v-else class="text-slate-500">{{ t('finance.inboundSenderUnknown') }}</span>
+            </p>
+            <span
+              v-if="editingExpense.inboundAckSentAt"
+              class="block text-xs text-slate-500"
+            >{{ t('finance.inboundAckSent') }}</span>
+          </div>
           <label class="text-sm text-slate-400 space-y-1">
-            <span>{{ t('finance.receiptRef') }}</span>
+            <span>{{
+              editingExpense?.source === 'inbound_email'
+                ? t('finance.emailMessageId')
+                : t('finance.receiptRef')
+            }}</span>
             <input
               v-model="form.receiptRef"
               type="text"
               class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
             />
+            <span
+              v-if="editingExpense?.source === 'inbound_email'"
+              class="block text-xs text-slate-500"
+            >{{ t('finance.emailMessageIdHelp') }}</span>
           </label>
           <label class="text-sm text-slate-400 space-y-1">
             <span>{{ t('finance.approvalStatus') }}</span>
@@ -332,10 +468,11 @@ onMounted(load)
               v-model="form.approvalStatus"
               class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
             >
-              <option value="pending">pending</option>
-              <option value="approved">approved</option>
-              <option value="rejected">rejected</option>
+              <option value="pending">{{ t('finance.status.pending') }}</option>
+              <option value="approved">{{ t('finance.status.approved') }}</option>
+              <option value="rejected">{{ t('finance.status.rejected') }}</option>
             </select>
+            <span class="block text-xs text-slate-500">{{ t('finance.statusHelp') }}</span>
           </label>
         </div>
         <div>
@@ -354,6 +491,24 @@ onMounted(load)
               @click="toggleLabel(label.id)"
             >
               {{ label.name }}
+            </button>
+          </div>
+          <div class="mt-3 flex max-w-md gap-2">
+            <input
+              v-model="newLabelName"
+              type="text"
+              maxlength="80"
+              :placeholder="t('finance.newLabelPlaceholder')"
+              class="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+              @keyup.enter.prevent="addLabel"
+            />
+            <button
+              type="button"
+              class="rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
+              :disabled="addingLabel || !newLabelName.trim()"
+              @click="addLabel"
+            >
+              {{ addingLabel ? t('finance.addingLabel') : t('finance.addLabel') }}
             </button>
           </div>
         </div>
@@ -448,7 +603,7 @@ onMounted(load)
             :key="category"
             class="text-xs bg-slate-800 px-3 py-1.5 rounded-lg text-slate-300 capitalize"
           >
-            {{ category }}: {{ formatAmount(amount, summary.currency) }}
+            {{ t(`finance.categories.${category}`) }}: {{ formatAmount(amount, summary.currency) }}
           </span>
         </div>
       </div>
@@ -466,31 +621,58 @@ onMounted(load)
         </span>
       </div>
 
+      <p
+        v-if="summary && ((summary.pendingExpenseCount ?? 0) > 0 || (summary.unconvertedForeignCount ?? 0) > 0)"
+        class="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+      >
+        {{ t('finance.summaryExcludesDrafts', {
+          pending: summary.pendingExpenseCount ?? 0,
+          foreign: summary.unconvertedForeignCount ?? 0,
+        }) }}
+      </p>
+
       <section class="mt-8" aria-labelledby="expenses-heading">
         <h3 id="expenses-heading" class="font-bold text-white mb-4">{{ t('finance.expenses') }}</h3>
 
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
-            v-for="expense in expenses"
+            v-for="expense in visibleExpenses"
             :key="expense.id"
             class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {{ formatDate(expense.expenseDate) }} · {{ expense.category }}
+                  {{ formatDate(expense.expenseDate) }} · {{ t(`finance.categories.${expense.category}`) }}
                 </p>
                 <h4 class="mt-1 break-words font-bold text-white">{{ expense.description }}</h4>
               </div>
-              <p class="shrink-0 font-mono text-sm font-bold text-red-300">
-                {{ formatAmount(expense.amount, expense.currency) }}
-              </p>
+              <div class="shrink-0 text-right">
+                <p class="font-mono text-sm font-bold text-red-300">
+                  {{ formatAmount(expense.amount, expense.currency) }}
+                </p>
+                <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
+                  {{ t('finance.convertedFrom', {
+                    amount: formatAmount(Number(expense.originalAmount), expense.originalCurrency),
+                  }) }}
+                </p>
+              </div>
             </div>
 
             <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <div>
                 <dt class="text-xs text-slate-500">{{ t('finance.vendor') }}</dt>
                 <dd class="mt-1 break-words text-slate-300">{{ expense.vendor ?? '—' }}</dd>
+              </div>
+              <div v-if="expense.source === 'inbound_email'" class="col-span-2">
+                <dt class="text-xs text-slate-500">{{ t('finance.inboundSender') }}</dt>
+                <dd class="mt-1 break-words text-slate-300">
+                  <template v-if="expense.inboundSenderEmail">
+                    <span v-if="expense.inboundSenderName">{{ expense.inboundSenderName }} · </span>
+                    {{ expense.inboundSenderEmail }}
+                  </template>
+                  <span v-else class="text-slate-500">{{ t('finance.inboundSenderUnknown') }}</span>
+                </dd>
               </div>
               <div>
                 <dt class="text-xs text-slate-500">{{ t('finance.approvalStatus') }}</dt>
@@ -535,7 +717,7 @@ onMounted(load)
             >
               <a
                 v-if="expense.hasAttachment"
-                :href="`/api/finance/${expense.id}/attachment`"
+                :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
                 target="_blank"
                 rel="noopener"
                 class="min-h-9 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-farm-green"
@@ -552,12 +734,48 @@ onMounted(load)
                 {{ retryingExtractionIds.has(expense.id) ? t('finance.retryingExtraction') : t('finance.retryExtraction') }}
               </button>
               <button
+                v-if="canWrite && expense.currency !== 'NGN'"
+                type="button"
+                class="min-h-9 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300 disabled:opacity-50"
+                :disabled="updatingIds.has(expense.id)"
+                @click="convertCurrency(expense)"
+              >
+                {{ t('finance.convertToNgn') }}
+              </button>
+              <button
+                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN'"
+                type="button"
+                class="min-h-9 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green disabled:opacity-50"
+                :disabled="updatingIds.has(expense.id)"
+                @click="updateStatus(expense, 'approved')"
+              >
+                {{ t('finance.approve') }}
+              </button>
+              <button
+                v-if="canWrite && expense.approvalStatus === 'pending'"
+                type="button"
+                class="min-h-9 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-50"
+                :disabled="updatingIds.has(expense.id)"
+                @click="updateStatus(expense, 'rejected')"
+              >
+                {{ t('finance.reject') }}
+              </button>
+              <button
                 v-if="canWrite"
                 type="button"
                 class="min-h-9 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green"
                 @click="startEdit(expense)"
               >
                 {{ t('finance.edit') }}
+              </button>
+              <button
+                v-if="canDelete"
+                type="button"
+                class="min-h-9 rounded-lg px-3 py-2 text-xs font-bold text-red-400 disabled:opacity-50"
+                :disabled="updatingIds.has(expense.id)"
+                @click="deleteExpense(expense)"
+              >
+                {{ t('finance.delete') }}
               </button>
             </div>
           </article>
@@ -580,19 +798,19 @@ onMounted(load)
           </thead>
           <tbody>
             <tr
-              v-for="expense in expenses"
+              v-for="expense in visibleExpenses"
               :key="expense.id"
               class="border-b border-slate-800/50"
             >
               <td class="whitespace-nowrap px-4 py-4 text-slate-400">
                 {{ formatDate(expense.expenseDate) }}
               </td>
-              <td class="whitespace-nowrap px-4 py-4 text-slate-300 capitalize">{{ expense.category }}</td>
+              <td class="whitespace-nowrap px-4 py-4 text-slate-300">{{ t(`finance.categories.${expense.category}`) }}</td>
               <td class="px-4 py-4 text-white">
                 {{ expense.description }}
                 <a
                   v-if="expense.hasAttachment"
-                  :href="`/api/finance/${expense.id}/attachment`"
+                  :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
                   target="_blank"
                   rel="noopener"
                   class="ml-2 text-xs text-farm-green hover:underline"
@@ -610,7 +828,15 @@ onMounted(load)
                   {{ label.name }}
                 </span>
               </td>
-              <td class="px-4 py-4 text-slate-400">{{ expense.vendor ?? '—' }}</td>
+              <td class="px-4 py-4 text-slate-400">
+                <div>{{ expense.vendor ?? '—' }}</div>
+                <div
+                  v-if="expense.source === 'inbound_email' && expense.inboundSenderEmail"
+                  class="mt-1 text-xs text-slate-500"
+                >
+                  {{ expense.inboundSenderName ? `${expense.inboundSenderName} · ` : '' }}{{ expense.inboundSenderEmail }}
+                </div>
+              </td>
               <td class="px-4 py-4">
                 <span
                   class="inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold"
@@ -626,8 +852,13 @@ onMounted(load)
                 </div>
                 <span v-else class="text-slate-600">—</span>
               </td>
-              <td class="whitespace-nowrap px-4 py-4 font-mono text-red-300 text-right">
-                {{ formatAmount(expense.amount, expense.currency) }}
+              <td class="whitespace-nowrap px-4 py-4 text-right">
+                <p class="font-mono text-red-300">{{ formatAmount(expense.amount, expense.currency) }}</p>
+                <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
+                  {{ t('finance.convertedFrom', {
+                    amount: formatAmount(Number(expense.originalAmount), expense.originalCurrency),
+                  }) }}
+                </p>
               </td>
               <td v-if="hasExpenseActions" class="whitespace-nowrap px-4 py-4 text-right">
                 <button
@@ -639,15 +870,56 @@ onMounted(load)
                 >
                   {{ retryingExtractionIds.has(expense.id) ? t('finance.retryingExtraction') : t('finance.retryExtraction') }}
                 </button>
+                <button
+                  v-if="canWrite && expense.currency !== 'NGN'"
+                  type="button"
+                  class="mr-3 text-xs text-blue-300 hover:underline disabled:opacity-50"
+                  :disabled="updatingIds.has(expense.id)"
+                  @click="convertCurrency(expense)"
+                >
+                  {{ t('finance.convertToNgn') }}
+                </button>
+                <button
+                  v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN'"
+                  type="button"
+                  class="mr-3 text-xs text-emerald-300 hover:underline disabled:opacity-50"
+                  :disabled="updatingIds.has(expense.id)"
+                  @click="updateStatus(expense, 'approved')"
+                >
+                  {{ t('finance.approve') }}
+                </button>
+                <button
+                  v-if="canWrite && expense.approvalStatus === 'pending'"
+                  type="button"
+                  class="mr-3 text-xs text-red-300 hover:underline disabled:opacity-50"
+                  :disabled="updatingIds.has(expense.id)"
+                  @click="updateStatus(expense, 'rejected')"
+                >
+                  {{ t('finance.reject') }}
+                </button>
                 <button v-if="canWrite" type="button" class="text-xs text-farm-green hover:underline" @click="startEdit(expense)">
                   {{ t('finance.edit') }}
+                </button>
+                <button
+                  v-if="canDelete"
+                  type="button"
+                  class="ml-3 text-xs text-red-400 hover:underline disabled:opacity-50"
+                  :disabled="updatingIds.has(expense.id)"
+                  @click="deleteExpense(expense)"
+                >
+                  {{ t('finance.delete') }}
                 </button>
               </td>
             </tr>
           </tbody>
         </table>
         </div>
-        <p v-else class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
+        <nav v-if="pageCount > 1" class="mt-5 flex items-center justify-center gap-3 text-sm text-slate-400" :aria-label="t('finance.pagination')">
+          <button type="button" class="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-50" :disabled="page === 1" @click="page--">{{ t('finance.previous') }}</button>
+          <span>{{ t('finance.page', { current: page, total: pageCount }) }}</span>
+          <button type="button" class="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-50" :disabled="page === pageCount" @click="page++">{{ t('finance.next') }}</button>
+        </nav>
+        <p v-if="!expenses.length" class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
       </section>
     </template>
   </AppLayout>

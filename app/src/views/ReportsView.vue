@@ -107,7 +107,7 @@ function auditLocation(metadata: unknown): string {
         </span>
       </div>
 
-      <template v-if="auth.canApprove">
+      <template v-if="auth.hasPermission('reports.read')">
         <!-- Exception Digest -->
         <ReportsDigestPanel v-if="digest" :digest="digest" />
 

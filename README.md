@@ -94,3 +94,14 @@ Integrations index: `docs/INTEGRATIONS.md`
 Staff messaging: `docs/TELEGRAM-COPILOT.md`, `docs/WHATSAPP-COPILOT.md`  
 Customer payments: `docs/PAYSTACK.md` (production activation still in progress)  
 Product roadmap: `../ROADMAP.md` · active OS backlog: `../next-steps-trovara-os.md`
+
+## Release and brand operations
+
+- Production environment: `docs/PRODUCTION-ENVIRONMENT.md`
+- OS-first coordinated release: `docs/RELEASE-CHECKLIST.md`
+- Expand-contract migrations: `docs/EXPAND-CONTRACT-MIGRATIONS.md`
+- Request IDs and log drains: `docs/LOGGING-AND-REQUEST-IDS.md`
+- Canonical brand assets: `../brand/assets`, described by
+  `brand-assets.manifest.json`. Run `npm run brand:check` to detect drift or
+  `npm run brand:sync` to copy verified assets to the OS and marketing public
+  trees. The sync script checks SVG dimensions and SHA-256 before copying.

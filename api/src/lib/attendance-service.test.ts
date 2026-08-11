@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { attendanceLabourCostNgn, payableMinutes } from './attendance-calculations.js'
+import {
+  attendanceLabourCostNgn,
+  payableMinutes,
+  payableMinutesWithinBounds,
+} from './attendance-calculations.js'
 
 describe('attendance payable calculations', () => {
   it('uses only whole nonnegative payable minutes', () => {
@@ -16,5 +20,26 @@ describe('attendance payable calculations', () => {
   it('does not produce negative labour costs', () => {
     expect(attendanceLabourCostNgn(-1, 60)).toBe(0)
     expect(attendanceLabourCostNgn(100_000, -60)).toBe(0)
+  })
+
+  it('clips sessions to the requested bounds', () => {
+    const start = new Date('2026-07-17T08:00:00.000Z')
+    const end = new Date('2026-07-17T16:00:00.000Z')
+    expect(
+      payableMinutesWithinBounds(
+        new Date('2026-07-17T07:00:00.000Z'),
+        new Date('2026-07-17T10:00:00.000Z'),
+        start,
+        end,
+      ),
+    ).toBe(120)
+    expect(
+      payableMinutesWithinBounds(
+        new Date('2026-07-17T15:00:00.000Z'),
+        new Date('2026-07-17T18:00:00.000Z'),
+        start,
+        end,
+      ),
+    ).toBe(60)
   })
 })

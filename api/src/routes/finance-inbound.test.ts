@@ -2,14 +2,19 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const processFinanceInboundWebhook = vi.fn()
+const markFinanceInboundFailed = vi.fn(async () => undefined)
 const missingConfig: string[] = []
 
-vi.mock('../lib/finance-inbound.js', () => ({ processFinanceInboundWebhook }))
+vi.mock('../lib/finance-inbound.js', () => ({
+  processFinanceInboundWebhook,
+  markFinanceInboundFailed,
+}))
 vi.mock('../lib/newsletter-resend.js', () => ({
   inboundWebhookConfigMissing: () => missingConfig,
 }))
 vi.mock('../lib/rate-limit.js', () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSec: 0 }),
+  checkDurableRateLimit: async () => ({ allowed: true, retryAfterSec: 0 }),
 }))
 vi.mock('../lib/client-ip.js', () => ({
   clientIpFromHeaders: () => '127.0.0.1',

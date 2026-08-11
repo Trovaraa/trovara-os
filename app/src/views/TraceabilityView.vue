@@ -16,7 +16,7 @@ type ProductOption = { id: string; sku: string; name: string; unit: string; acti
 
 const auth = useAuthStore()
 const isOwner = computed(() => auth.isOwner)
-const canManage = computed(() => auth.canApprove)
+const canManage = computed(() => auth.hasPermission('inventory.write'))
 const canPrintQr = computed(() => auth.canManageOrders)
 const verifyingId = ref<string | null>(null)
 

@@ -52,6 +52,7 @@ Group=$SERVICE_GROUP
 WorkingDirectory=$ROOT_DIR
 EnvironmentFile=$ROOT_DIR/.env
 ExecStart=/usr/bin/bash $ROOT_DIR/scripts/backup-production.sh
+ExecStartPost=/usr/bin/bash $ROOT_DIR/scripts/check-backup-freshness.sh
 PrivateTmp=true
 NoNewPrivileges=true
 UMask=0077

@@ -5,6 +5,7 @@ import {
   uuid,
   text,
   timestamp,
+  date,
   integer,
   numeric,
   pgEnum,
@@ -14,6 +15,7 @@ import {
   index,
   check,
   primaryKey,
+  foreignKey,
 } from 'drizzle-orm/pg-core'
 
 export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker', 'sales'])
@@ -305,6 +307,8 @@ export const brandAssets = pgTable(
     posterFilename: text('poster_filename'),
     pendingSourcePath: text('pending_source_path'),
     pendingOriginalName: text('pending_original_name'),
+    processingLeaseToken: text('processing_lease_token'),
+    processingLeaseExpiresAt: timestamp('processing_lease_expires_at', { withTimezone: true }),
     createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -312,7 +316,9 @@ export const brandAssets = pgTable(
   (t) => [
     index('brand_assets_farm_idx').on(t.farmId),
     uniqueIndex('brand_assets_farm_filename_uq').on(t.farmId, t.filename),
+    uniqueIndex('brand_assets_farm_id_uq').on(t.farmId, t.id),
     index('brand_assets_status_idx').on(t.farmId, t.status),
+    index('brand_assets_processing_lease_idx').on(t.status, t.processingLeaseExpiresAt),
     check('brand_assets_media_kind_check', sql`${t.mediaKind} in ('image', 'video')`),
     check(
       'brand_assets_status_check',
@@ -347,6 +353,7 @@ export const brandPacks = pgTable(
   },
   (t) => [
     uniqueIndex('brand_packs_share_token_uq').on(t.shareToken),
+    uniqueIndex('brand_packs_farm_id_uq').on(t.farmId, t.id),
     index('brand_packs_farm_idx').on(t.farmId),
   ],
 )
@@ -354,6 +361,9 @@ export const brandPacks = pgTable(
 export const brandPackAssets = pgTable(
   'brand_pack_assets',
   {
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
     packId: uuid('pack_id')
       .references(() => brandPacks.id, { onDelete: 'cascade' })
       .notNull(),
@@ -365,6 +375,16 @@ export const brandPackAssets = pgTable(
   (t) => [
     uniqueIndex('brand_pack_assets_pk').on(t.packId, t.assetId),
     index('brand_pack_assets_asset_idx').on(t.assetId),
+    foreignKey({
+      name: 'brand_pack_assets_pack_farm_fk',
+      columns: [t.farmId, t.packId],
+      foreignColumns: [brandPacks.farmId, brandPacks.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'brand_pack_assets_asset_farm_fk',
+      columns: [t.farmId, t.assetId],
+      foreignColumns: [brandAssets.farmId, brandAssets.id],
+    }).onDelete('cascade'),
   ],
 )
 
@@ -572,6 +592,103 @@ export const loginRateLimits = pgTable('login_rate_limits', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+export const rateLimitBuckets = pgTable('rate_limit_buckets', {
+  rateKey: text('rate_key').primaryKey(),
+  attemptCount: integer('attempt_count').default(0).notNull(),
+  windowStartsAt: timestamp('window_starts_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const totpChallenges = pgTable(
+  'totp_challenges',
+  {
+    challengeHash: text('challenge_hash').primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    failedAttempts: integer('failed_attempts').default(0).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('totp_challenges_user_expiry_idx').on(t.userId, t.expiresAt)],
+)
+
+export const totpRecoveryCodes = pgTable(
+  'totp_recovery_codes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    codeHash: text('code_hash').notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('totp_recovery_codes_user_code_uq').on(t.userId, t.codeHash)],
+)
+
+export const totpReplaySteps = pgTable(
+  'totp_replay_steps',
+  {
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    step: integer('step').notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.step] })],
+)
+
+export const whatsappProcessedMessages = pgTable(
+  'whatsapp_processed_messages',
+  {
+    phoneNumberId: text('phone_number_id').notNull(),
+    messageId: text('message_id').notNull(),
+    status: text('status').default('processing').notNull(),
+    lastError: text('last_error'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.phoneNumberId, t.messageId] }),
+    check(
+      'whatsapp_processed_messages_status_check',
+      sql`${t.status} in ('processing', 'processed', 'failed')`,
+    ),
+  ],
+)
+
+export const alertRuns = pgTable(
+  'alert_runs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    jobType: text('job_type').notNull(),
+    periodKey: text('period_key').notNull(),
+    status: text('status').default('processing').notNull(),
+    lastError: text('last_error'),
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('alert_runs_farm_job_period_uq').on(t.farmId, t.jobType, t.periodKey),
+    check('alert_runs_status_check', sql`${t.status} in ('processing', 'completed', 'failed')`),
+  ],
+)
+
+export const storageCleanupJobs = pgTable(
+  'storage_cleanup_jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    storageRoot: text('storage_root').notNull(),
+    storageKey: text('storage_key').notNull(),
+    status: text('status').default('pending').notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('storage_cleanup_jobs_root_key_uq').on(t.storageRoot, t.storageKey),
+    index('storage_cleanup_jobs_status_idx').on(t.status, t.createdAt),
+  ],
+)
+
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
@@ -586,6 +703,7 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
 // successful /register and cannot be reused. Only the sha256 hash is stored.
 export const registrationTokens = pgTable('registration_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
   tokenHash: text('token_hash').notNull().unique(),
   label: text('label'),
   // Null when minted by the bootstrap CLI (no owner exists yet).
@@ -1393,7 +1511,7 @@ export const paymentAttempts = pgTable(
     accessCode: text('access_code'),
     amountKobo: integer('amount_kobo').notNull(),
     currency: text('currency').default('NGN').notNull(),
-    // initiated | success | failed | abandoned
+    // initializing | initiated | initialization_unknown | success | failed | abandoned
     status: text('status').default('initiated').notNull(),
     providerEventId: text('provider_event_id'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
@@ -1401,7 +1519,16 @@ export const paymentAttempts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   },
-  (t) => [index('payment_attempts_order_id_idx').on(t.orderId)],
+  (t) => [
+    index('payment_attempts_order_id_idx').on(t.orderId),
+    uniqueIndex('payment_attempts_provider_event_uq')
+      .on(t.providerEventId)
+      .where(sql`${t.providerEventId} is not null`),
+    check(
+      'payment_attempts_status_check',
+      sql`${t.status} in ('initializing', 'initiated', 'initialization_unknown', 'success', 'failed', 'abandoned')`,
+    ),
+  ],
 )
 
 // Immutable invoice snapshot for an order (printable / public link).
@@ -1418,21 +1545,31 @@ export const invoices = pgTable(
     publicToken: text('public_token').notNull().unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('invoices_order_id_idx').on(t.orderId)],
+  (t) => [
+    uniqueIndex('invoices_order_id_uq').on(t.orderId),
+    uniqueIndex('invoices_farm_number_uq').on(t.farmId, t.invoiceNumber),
+  ],
 )
 
 // One receipt per successful payment attempt, linked to its invoice.
-export const paymentReceipts = pgTable('payment_receipts', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
-  paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id).notNull(),
-  receiptNumber: text('receipt_number').notNull(),
-  amountKobo: integer('amount_kobo').notNull(),
-  paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
-  publicToken: text('public_token').notNull().unique(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const paymentReceipts = pgTable(
+  'payment_receipts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+    paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id).notNull(),
+    receiptNumber: text('receipt_number').notNull(),
+    amountKobo: integer('amount_kobo').notNull(),
+    paidAt: timestamp('paid_at', { withTimezone: true }).notNull(),
+    publicToken: text('public_token').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('payment_receipts_attempt_uq').on(t.paymentAttemptId),
+    uniqueIndex('payment_receipts_farm_number_uq').on(t.farmId, t.receiptNumber),
+  ],
+)
 
 export const paymentRefunds = pgTable(
   'payment_refunds',
@@ -1443,16 +1580,29 @@ export const paymentRefunds = pgTable(
     orderId: uuid('order_id').references(() => orders.id).notNull(),
     amountKobo: integer('amount_kobo').notNull(),
     providerRefundId: text('provider_refund_id'),
-    // pending | success | failed
+    // pending | submitting | unknown | success | failed
     status: text('status').default('pending').notNull(),
     reason: text('reason'),
+    idempotencyKey: text('idempotency_key'),
+    lastError: text('last_error'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     sourceLocale: text('source_locale'),
     translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
     translationAttempts: integer('translation_attempts').default(0).notNull(),
     createdById: uuid('created_by_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('payment_refunds_order_id_idx').on(t.orderId)],
+  (t) => [
+    index('payment_refunds_order_id_idx').on(t.orderId),
+    uniqueIndex('payment_refunds_idempotency_uq').on(t.paymentAttemptId, t.idempotencyKey),
+    uniqueIndex('payment_refunds_provider_id_uq')
+      .on(t.providerRefundId)
+      .where(sql`${t.providerRefundId} is not null`),
+    check(
+      'payment_refunds_status_check',
+      sql`${t.status} in ('pending', 'submitting', 'unknown', 'success', 'failed')`,
+    ),
+  ],
 )
 
 // Ephemeral shopping-cart / conversation state for a customer chat. One row per
@@ -1625,30 +1775,84 @@ export const customerInquiries = pgTable('customer_inquiries', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
-export const expenses = pgTable('expenses', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  category: expenseCategoryEnum('category').notNull(),
-  description: text('description').notNull(),
-  amount: integer('amount').notNull(),
-  currency: text('currency').default('NGN').notNull(),
-  vendor: text('vendor'),
-  receiptRef: text('receipt_ref'),
-  source: text('source').default('manual').notNull(),
-  inboundMessageId: text('inbound_message_id'),
-  attachmentFilename: text('attachment_filename'),
-  attachmentStorageKey: text('attachment_storage_key'),
-  attachmentMimeType: text('attachment_mime_type'),
-  extractionMethod: text('extraction_method'),
-  extractionStatus: text('extraction_status'),
-  sourceLocale: text('source_locale'),
-  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
-  translationAttempts: integer('translation_attempts').default(0).notNull(),
-  approvalStatus: text('approval_status').default('approved').notNull(),
-  recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
-  expenseDate: timestamp('expense_date', { withTimezone: true }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const expenses = pgTable(
+  'expenses',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    category: expenseCategoryEnum('category').notNull(),
+    description: text('description').notNull(),
+    amount: integer('amount').notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    originalAmount: numeric('original_amount', { precision: 18, scale: 2 }),
+    originalCurrency: text('original_currency'),
+    fxRate: numeric('fx_rate', { precision: 18, scale: 6 }),
+    fxConvertedAt: timestamp('fx_converted_at', { withTimezone: true }),
+    fxRateDate: date('fx_rate_date'),
+    fxRateSource: text('fx_rate_source'),
+    vendor: text('vendor'),
+    receiptRef: text('receipt_ref'),
+    source: text('source').default('manual').notNull(),
+    inboundMessageId: text('inbound_message_id'),
+    /** Parsed From: address for inbound_email drafts (ack goes here on approve). */
+    inboundSenderEmail: text('inbound_sender_email'),
+    /** Display name from From: header when present. */
+    inboundSenderName: text('inbound_sender_name'),
+    /** When we emailed the sender that Finance approved/received their invoice. */
+    inboundAckSentAt: timestamp('inbound_ack_sent_at', { withTimezone: true }),
+    attachmentFilename: text('attachment_filename'),
+    attachmentStorageKey: text('attachment_storage_key'),
+    attachmentMimeType: text('attachment_mime_type'),
+    extractionMethod: text('extraction_method'),
+    extractionStatus: text('extraction_status'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    approvalStatus: text('approval_status').default('approved').notNull(),
+    recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
+    expenseDate: timestamp('expense_date', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('expenses_farm_id_uq').on(t.farmId, t.id),
+    uniqueIndex('expenses_inbound_message_uq')
+      .on(t.farmId, t.inboundMessageId)
+      .where(sql`${t.inboundMessageId} is not null`),
+    check('expenses_source_check', sql`${t.source} in ('manual', 'inbound_email')`),
+    check(
+      'expenses_extraction_method_check',
+      sql`${t.extractionMethod} is null or ${t.extractionMethod} in ('heuristic', 'pdf_text', 'llm_text', 'llm_vision', 'none')`,
+    ),
+    check(
+      'expenses_extraction_status_check',
+      sql`${t.extractionStatus} is null or ${t.extractionStatus} in ('success', 'failed')`,
+    ),
+    check(
+      'expenses_fx_metadata_check',
+      sql`(
+        (${t.originalAmount} is null and ${t.originalCurrency} is null and ${t.fxRate} is null and ${t.fxConvertedAt} is null)
+        or
+        (
+          ${t.originalAmount} is not null and ${t.originalAmount} >= 0
+          and ${t.originalCurrency} is not null and ${t.originalCurrency} <> 'NGN'
+          and (
+            (${t.fxRate} is null and ${t.fxConvertedAt} is null and ${t.currency} = ${t.originalCurrency})
+            or
+            (${t.fxRate} is not null and ${t.fxRate} > 0 and ${t.fxConvertedAt} is not null and ${t.currency} = 'NGN')
+          )
+        )
+      )`,
+    ),
+    check(
+      'expenses_fx_provenance_check',
+      sql`(
+        (${t.fxRate} is null and ${t.fxRateDate} is null and ${t.fxRateSource} is null)
+        or
+        (${t.fxRate} is not null and ${t.fxRateDate} is not null and ${t.fxRateSource} is not null)
+      )`,
+    ),
+  ],
+)
 
 export const expenseLabels = pgTable(
   'expense_labels',
@@ -1661,12 +1865,18 @@ export const expenseLabels = pgTable(
     slug: text('slug').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex('expense_labels_farm_slug_uq').on(t.farmId, t.slug)],
+  (t) => [
+    uniqueIndex('expense_labels_farm_slug_uq').on(t.farmId, t.slug),
+    uniqueIndex('expense_labels_farm_id_uq').on(t.farmId, t.id),
+  ],
 )
 
 export const expenseLabelLinks = pgTable(
   'expense_label_links',
   {
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
     expenseId: uuid('expense_id')
       .references(() => expenses.id, { onDelete: 'cascade' })
       .notNull(),
@@ -1674,18 +1884,44 @@ export const expenseLabelLinks = pgTable(
       .references(() => expenseLabels.id, { onDelete: 'cascade' })
       .notNull(),
   },
-  (t) => [primaryKey({ columns: [t.expenseId, t.labelId] })],
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.labelId] }),
+    foreignKey({
+      name: 'expense_label_links_expense_farm_fk',
+      columns: [t.farmId, t.expenseId],
+      foreignColumns: [expenses.farmId, expenses.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'expense_label_links_label_farm_fk',
+      columns: [t.farmId, t.labelId],
+      foreignColumns: [expenseLabels.farmId, expenseLabels.id],
+    }).onDelete('cascade'),
+  ],
 )
 
-export const financeInboundEvents = pgTable('finance_inbound_events', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  svixId: text('svix_id').notNull().unique(),
-  resendEmailId: text('resend_email_id'),
-  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow().notNull(),
-  expenseId: uuid('expense_id').references(() => expenses.id, { onDelete: 'set null' }),
-  status: text('status').default('processed').notNull(),
-  detail: text('detail'),
-})
+export const financeInboundEvents = pgTable(
+  'finance_inbound_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    svixId: text('svix_id').notNull().unique(),
+    resendEmailId: text('resend_email_id'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    expenseId: uuid('expense_id').references(() => expenses.id, { onDelete: 'set null' }),
+    status: text('status').default('received').notNull(),
+    detail: text('detail'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    lockExpiresAt: timestamp('lock_expires_at', { withTimezone: true }),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    lastError: text('last_error'),
+  },
+  (t) => [
+    index('finance_inbound_events_reclaim_idx').on(t.status, t.lockExpiresAt),
+    check(
+      'finance_inbound_events_status_check',
+      sql`${t.status} in ('received', 'processing', 'processed', 'failed', 'duplicate', 'ignored')`,
+    ),
+  ],
+)
 
 export const momentSubmissions = pgTable(
   'moment_submissions',
@@ -1698,6 +1934,9 @@ export const momentSubmissions = pgTable(
     submitterName: text('submitter_name'),
     submitterEmail: text('submitter_email'),
     consent: boolean('consent').default(false).notNull(),
+    consentVersion: text('consent_version'),
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    description: text('description'),
     mediaKind: text('media_kind').default('image').notNull(),
     mimeType: text('mime_type').notNull(),
     originalFilename: text('original_filename'),
@@ -1708,9 +1947,26 @@ export const momentSubmissions = pgTable(
     reviewNote: text('review_note'),
     reviewedById: uuid('reviewed_by_id').references(() => users.id),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('moment_submissions_farm_status_idx').on(t.farmId, t.status, t.createdAt)],
+  (t) => [
+    index('moment_submissions_farm_status_idx').on(t.farmId, t.status, t.createdAt),
+    index('moment_submissions_retention_idx').on(t.status, t.retentionExpiresAt),
+    check(
+      'moment_submissions_status_check',
+      sql`${t.status} in ('pending', 'approved', 'rejected')`,
+    ),
+    check('moment_submissions_media_kind_check', sql`${t.mediaKind} in ('image', 'video')`),
+    check(
+      'moment_submissions_duration_check',
+      sql`${t.durationSeconds} is null or ${t.durationSeconds} >= 0`,
+    ),
+    check(
+      'moment_submissions_consent_check',
+      sql`${t.consent} = false or (${t.consentVersion} is not null and ${t.consentAt} is not null)`,
+    ),
+  ],
 )
 
 export const careerPosts = pgTable(

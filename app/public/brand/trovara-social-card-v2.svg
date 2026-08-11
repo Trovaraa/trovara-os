@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
   <title id="title">Trovara</title>
-  <desc id="desc">Trovara social share card: Better food starts with better soil.</desc>
+  <desc id="desc">Trovara social share card: Food you can trust from a farm built for tomorrow.</desc>
   <rect width="1200" height="630" fill="#28382F"/>
   <path d="M0 486c204-91 407-93 610-6s399 91 590 14v136H0Z" fill="#31483C"/>
   <path d="M0 530c211-70 412-64 603 17s390 81 597 5" fill="none" stroke="#889058" stroke-width="6" opacity=".65"/>
@@ -13,7 +13,8 @@
     <path d="M179 100c-31 23-56 57-69 94" fill="none" stroke="#FAF9F5" stroke-width="5" stroke-linecap="round"/>
   </g>
   <text x="220" y="126" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="850" letter-spacing="5">TROVARA</text>
-  <text x="76" y="300" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="74" font-weight="850">Better food starts</text>
-  <text x="76" y="382" fill="#B8C27A" font-family="Inter, Arial, sans-serif" font-size="74" font-weight="850">with better soil.</text>
-  <text x="78" y="454" fill="#E5E7DF" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="500">Regenerative food · Farm intelligence · Abeokuta, Nigeria</text>
+  <text x="76" y="270" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="68" font-weight="850">Food you can trust</text>
+  <text x="76" y="346" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="68" font-weight="850">from a farm built</text>
+  <text x="76" y="422" fill="#B8C27A" font-family="Inter, Arial, sans-serif" font-size="68" font-weight="850">for tomorrow.</text>
+  <text x="78" y="472" fill="#E5E7DF" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="500">Regenerative food · Farm intelligence · Abeokuta, Nigeria</text>
 </svg>

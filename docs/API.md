@@ -2,6 +2,12 @@
 
 Base URL (local dev): `http://127.0.0.1:3000`
 
+Production runtime environment and feature-conditional variables are documented
+in [`PRODUCTION-ENVIRONMENT.md`](./PRODUCTION-ENVIRONMENT.md). Database
+migrations currently run through
+`20260811173000_0054_payment_status_idempotency`; use the
+[expand-contract policy](./EXPAND-CONTRACT-MIGRATIONS.md) for future changes.
+
 All authenticated routes require the `trovara_session` httpOnly cookie. Mutating requests (`POST`, `PATCH`, `DELETE`) also require the double-submit CSRF token: cookie `trovara_csrf` must match header `X-CSRF-Token`. The CSRF cookie is set on successful login.
 
 Errors return JSON: `{ "error": "message" }` with appropriate HTTP status.
@@ -91,6 +97,15 @@ mailboxes; otherwise active Owner/Sales users are used, excluding break-glass.
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
 | GET | `/health` | No | - | `{ status, service }` |
+| GET | `/ready` | No | - | `200` when the database is reachable; otherwise `503` |
+
+The deployed frontend also serves `/RELEASE.json` with the immutable Git SHA,
+optional exact tag, and release timestamp. It is deployment metadata, not an API
+route.
+
+Authenticated owners can read `GET /system-status`. Its sanitized operations
+fields include backup report/delivery state and restore-test status, age, and
+freshness; it does not expose artifact paths or credentials.
 
 ---
 

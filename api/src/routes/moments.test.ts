@@ -1,8 +1,11 @@
 import { Hono } from 'hono'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Row = Record<string, unknown>
 let selectedRows: Row[] = []
+const whereConditions: SQL[] = []
 
 vi.mock('../db/index.js', () => ({
   db: {
@@ -11,7 +14,10 @@ vi.mock('../db/index.js', () => ({
       const same = () => chain
       Object.assign(chain, {
         from: same,
-        where: same,
+        where: (condition: SQL) => {
+          whereConditions.push(condition)
+          return chain
+        },
         orderBy: same,
         groupBy: same,
         limit: same,
@@ -28,6 +34,7 @@ vi.mock('../lib/customer-orders.js', () => ({
 }))
 vi.mock('../lib/rate-limit.js', () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSec: 0 }),
+  checkDurableRateLimit: async () => ({ allowed: true, retryAfterSec: 0 }),
 }))
 vi.mock('../lib/evidence-store.js', () => ({
   getEvidenceStorageRoot: () => '/tmp/trovara-moments-test',
@@ -49,6 +56,7 @@ async function publicApp() {
 describe('public Moments media', () => {
   beforeEach(() => {
     selectedRows = []
+    whereConditions.length = 0
   })
 
   it.each(['pending', 'rejected'])('does not serve %s submissions', async (status) => {
@@ -63,5 +71,15 @@ describe('public Moments media', () => {
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+  })
+
+  it('scopes an approved media lookup to the public farm', async () => {
+    await (await publicApp()).request('/moment-from-another-farm/media')
+
+    expect(whereConditions).toHaveLength(1)
+    const query = new PgDialect().sqlToQuery(whereConditions[0]!)
+    expect(query.params).toContain('moment-from-another-farm')
+    expect(query.params).toContain('farm-1')
+    expect(query.params).toContain('approved')
   })
 })

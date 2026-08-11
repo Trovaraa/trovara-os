@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { BillingStatus } from '@/composables/useSettingsOnboarding'
+import { resolveApiUrl } from '@/lib/api'
 
 defineProps<{
   billingStatus: BillingStatus | null
@@ -27,25 +28,25 @@ const { t } = useI18n()
       <p class="text-xs text-slate-500 mt-1">{{ t('settings.csvDesc') }}</p>
       <div class="mt-4 flex flex-wrap gap-2">
         <a
-          href="/api/exports/tasks.csv"
+          :href="resolveApiUrl('/api/exports/tasks.csv')"
           class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
         >
           {{ t('settings.exportTasksCsv') }}
         </a>
         <a
-          href="/api/exports/inventory.csv"
+          :href="resolveApiUrl('/api/exports/inventory.csv')"
           class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
         >
           {{ t('settings.exportInventoryCsv') }}
         </a>
         <a
-          href="/api/exports/expenses.csv"
+          :href="resolveApiUrl('/api/exports/expenses.csv')"
           class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
         >
           {{ t('settings.exportExpensesCsv') }}
         </a>
         <a
-          href="/api/exports/audit.csv"
+          :href="resolveApiUrl('/api/exports/audit.csv')"
           class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
         >
           {{ t('settings.exportAuditCsv') }}

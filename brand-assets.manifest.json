@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "source": "../brand/assets",
+  "destinations": [
+    "app/public/brand",
+    "../trovera/public/brand"
+  ],
+  "assets": [
+    { "file": "trovara-email-finance-avatar.svg", "width": 1024, "height": 1024, "sha256": "50bdd7254d74f23cdb8631e3bea1cb81f94fc14799c36a61353249d82afd248d" },
+    { "file": "trovara-email-hello-avatar.svg", "width": 1024, "height": 1024, "sha256": "f5c3e2a2f3fccdaac9d6661ef40c85d908f6d48f663718f1d13050497128ca1b" },
+    { "file": "trovara-email-signature-banner.png", "width": 1200, "height": 280, "sha256": "48e5c1eb6b3c48153f54d5b1556ed350254a25d1af565291f1bbbbb4d9abef58" },
+    { "file": "trovara-email-signature-banner.svg", "width": 600, "height": 140, "sha256": "bdb4ab923463db3d7b1eedf1ee77dd69190305074caef41c3b7e5757299f5d3e" },
+    { "file": "trovara-linkedin-page-banner.svg", "width": 4200, "height": 700, "sha256": "c4e175a8fd67d48db651691f4fc2d96bba652eeae970cad239bb7aa5d25afd85" },
+    { "file": "trovara-linkedin-profile-banner.svg", "width": 1584, "height": 396, "sha256": "2ec242254be0558aa3c366365f34b779ab45d26bd36352ed0ea85d36fbfb2b37" },
+    { "file": "trovara-lockup-dark.svg", "width": 640, "height": 180, "sha256": "93e0e4f1154077a8937484b0645721a7a916400738567137ac2df4c14932634f" },
+    { "file": "trovara-lockup-light.svg", "width": 640, "height": 180, "sha256": "0fa855a6772555403969fac38fde6596d14bda5b747f7026c76e0f35ba0cfdd7" },
+    { "file": "trovara-mark.svg", "width": 128, "height": 128, "sha256": "745ace1fb1767fc629b5b4815ba434c3790a795f213c161258637f8608929649" },
+    { "file": "trovara-monogram-tile-v1.svg", "width": 128, "height": 128, "sha256": "745ace1fb1767fc629b5b4815ba434c3790a795f213c161258637f8608929649" },
+    { "file": "trovara-monogram.svg", "width": 220, "height": 260, "sha256": "661d89a489f120a603a3f85754ba9c102bea9389de90fc89540b067a8d10febe" },
+    { "file": "trovara-profile.svg", "width": 1024, "height": 1024, "sha256": "f406137a27c9a1f124e98b2b0331280ab326ad4018d9ff97629bf3353e2b0548" },
+    { "file": "trovara-social-avatar.svg", "width": 1080, "height": 1080, "sha256": "ff60761233fc7d6f9bc05d544a3560d0c5fb3f4b04c02a61ab7f483941f26ded" },
+    { "file": "trovara-social-card-v2.svg", "width": 1200, "height": 630, "sha256": "92325b20f73bb08d2e484019daefadca7c090adc32264298ace6554fb21f34d9" },
+    { "file": "trovara-social-card.svg", "width": 1200, "height": 630, "sha256": "92325b20f73bb08d2e484019daefadca7c090adc32264298ace6554fb21f34d9" },
+    { "file": "trovara-telegram-bot-dev.svg", "width": 640, "height": 360, "sha256": "7b934364e568a8c7cd3c65c0cf1f01af5ec3fcf53e63ec58e3cece6114b75cb1" },
+    { "file": "trovara-telegram-bot.svg", "width": 640, "height": 360, "sha256": "841b58aca886bae3de1136178de58e135110dfacbe50f4f2debdb96704ba193f" }
+  ]
+}

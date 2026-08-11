@@ -29,9 +29,10 @@ const toCanonicalEnglish = vi.fn(
 const selectWhere = vi.fn()
 const selectFrom = vi.fn(() => ({ where: selectWhere }))
 const select = vi.fn(() => ({ from: selectFrom }))
+const execute = vi.fn(async () => [{ message_id: 'claimed' }])
 
 vi.mock('../db/index.js', () => ({
-  db: { select },
+  db: { select, execute },
 }))
 
 vi.mock('./whatsapp-meta.js', () => ({
@@ -225,6 +226,7 @@ describe('handleInboundWhatsApp', () => {
     parseCreateTaskIntent.mockReturnValue(null)
     transcribeVoice.mockResolvedValue(null)
     attachPhotoToLotEnrichDraft.mockResolvedValue({ ok: false })
+    execute.mockResolvedValue([{ message_id: 'claimed' }])
     toCanonicalEnglish.mockImplementation(async ({ text }: CanonicalArgs) => ({
       english: text,
       sourceLocale: 'en',
@@ -268,6 +270,20 @@ describe('handleInboundWhatsApp', () => {
     const { handleInboundWhatsApp } = await import('./whatsapp-inbound.js')
     await expect(handleInboundWhatsApp({})).resolves.toEqual({ handled: 0 })
     await expect(handleInboundWhatsApp({ entry: [] })).resolves.toEqual({ handled: 0 })
+  })
+
+  it('claims a message once before side effects and ignores redelivery', async () => {
+    selectWhere.mockResolvedValue([linkedUser])
+    execute
+      .mockResolvedValueOnce([{ message_id: 'wamid.1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    const { handleInboundWhatsApp } = await import('./whatsapp-inbound.js')
+    const payload = textPayload('2348012345678', 'hello')
+
+    await expect(handleInboundWhatsApp(payload)).resolves.toEqual({ handled: 1 })
+    await expect(handleInboundWhatsApp(payload)).resolves.toEqual({ handled: 0 })
+    expect(answerText).toHaveBeenCalledTimes(1)
   })
 
   it('skips unknown phones without counting as handled', async () => {

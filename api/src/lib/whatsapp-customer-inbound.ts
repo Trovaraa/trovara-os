@@ -12,6 +12,11 @@ import {
   OWNER_TOTP_REQUIRED_CUSTOMER_MSG,
 } from './owner-totp-gate.js'
 import { sendWhatsAppText } from './whatsapp-meta.js'
+import {
+  claimInboundWhatsAppMessage,
+  completeInboundWhatsAppMessage,
+  failInboundWhatsAppMessage,
+} from './whatsapp-message-claim.js'
 
 const RATE_LIMIT_MSG = 'Too many messages - please wait a moment and try again.'
 
@@ -36,6 +41,7 @@ export async function handleInboundCustomerWhatsApp(
       changes?: {
         value?: {
           messages?: InboundMessage[]
+          metadata?: { phone_number_id?: string }
         }
       }[]
     }[]
@@ -49,10 +55,13 @@ export async function handleInboundCustomerWhatsApp(
       if (!value?.messages?.length) continue
 
       for (const msg of value.messages) {
+        const phoneNumberId = value.metadata?.phone_number_id ?? 'unknown'
+        if (!(await claimInboundWhatsAppMessage(phoneNumberId, msg))) continue
         const phone = normalizePhone(msg.from)
 
         if (!checkButlerChatRateLimit(`wa-customer:${phone}`)) {
           await sendWhatsAppText(phone, RATE_LIMIT_MSG, { kind: 'customer' }).catch(() => undefined)
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
           continue
         }
 
@@ -63,6 +72,7 @@ export async function handleInboundCustomerWhatsApp(
             'Online ordering is not available yet. Please check back soon.',
             { kind: 'customer' },
           ).catch(() => undefined)
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
           continue
         }
 
@@ -77,6 +87,7 @@ export async function handleInboundCustomerWhatsApp(
           await sendWhatsAppText(phone, OWNER_TOTP_REQUIRED_CUSTOMER_MSG, {
             kind: 'customer',
           }).catch(() => undefined)
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
           continue
         }
 
@@ -87,6 +98,7 @@ export async function handleInboundCustomerWhatsApp(
             'Please send a text message. Reply "hi" to begin.',
             { kind: 'customer' },
           ).catch(() => undefined)
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
           continue
         }
 
@@ -108,6 +120,7 @@ export async function handleInboundCustomerWhatsApp(
                 kind: 'customer',
               }).catch(() => undefined)
               handled++
+              await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
               continue
             }
           }
@@ -124,6 +137,7 @@ export async function handleInboundCustomerWhatsApp(
           })
           await sendWhatsAppText(phone, reply, { kind: 'customer' })
           handled++
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
         } catch (err) {
           console.error(
             'Customer WhatsApp order flow error:',
@@ -134,6 +148,8 @@ export async function handleInboundCustomerWhatsApp(
             'Sorry, something went wrong. Please try again shortly.',
             { kind: 'customer' },
           ).catch(() => undefined)
+          await failInboundWhatsAppMessage(phoneNumberId, msg.id, err)
+          throw err
         }
       }
     }

@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { externalFetch } from './external-http.js'
 
 const templatesPath = join(dirname(fileURLToPath(import.meta.url)), '../../../whatsapp/templates.json')
 
@@ -109,7 +110,7 @@ export async function sendWhatsAppText(
   const normalizedTo = to.replace(/\D/g, '')
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
 
-  const res = await fetch(url, {
+  const res = await externalFetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.accessToken}`,
@@ -146,7 +147,7 @@ export async function sendWhatsAppImage(
   const normalizedTo = to.replace(/\D/g, '')
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
 
-  const res = await fetch(url, {
+  const res = await externalFetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.accessToken}`,
@@ -187,7 +188,7 @@ export async function uploadWhatsAppMedia(
   form.append('messaging_product', 'whatsapp')
   form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename)
 
-  const res = await fetch(url, {
+  const res = await externalFetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.accessToken}` },
     body: form,
@@ -227,7 +228,7 @@ export async function sendWhatsAppAudio(
   const { mediaId } = await uploadWhatsAppMedia(audioBuffer, mimeType, filename, { kind })
   const url = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`
 
-  const res = await fetch(url, {
+  const res = await externalFetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.accessToken}`,
@@ -265,7 +266,7 @@ export async function downloadWhatsAppMedia(
   const config = configOrThrow(kind)
 
   // Step 1: resolve the temporary download URL for this media ID
-  const metaRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
+  const metaRes = await externalFetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
   })
   if (!metaRes.ok) {
@@ -278,7 +279,7 @@ export async function downloadWhatsAppMedia(
   }
 
   // Step 2: download the actual bytes (also needs the bearer token)
-  const fileRes = await fetch(meta.url, {
+  const fileRes = await externalFetch(meta.url, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
   })
   if (!fileRes.ok) {
@@ -300,7 +301,7 @@ export async function downloadWhatsAppMediaBuffer(
   const kind = opts?.kind ?? 'staff'
   const config = configOrThrow(kind)
 
-  const metaRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
+  const metaRes = await externalFetch(`https://graph.facebook.com/${config.apiVersion}/${mediaId}`, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
   })
   if (!metaRes.ok) throw new Error(`Media lookup failed (${metaRes.status})`)
@@ -310,7 +311,7 @@ export async function downloadWhatsAppMediaBuffer(
     throw new Error('WhatsApp media file too large')
   }
 
-  const fileRes = await fetch(meta.url, {
+  const fileRes = await externalFetch(meta.url, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
   })
   if (!fileRes.ok) throw new Error(`Media download failed (${fileRes.status})`)

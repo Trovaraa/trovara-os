@@ -453,9 +453,20 @@ describe('PATCH /sales/:id - canonical English on write', () => {
 
 describe('POST /sales/:id/refund - canonical English on write', () => {
   const FRENCH_REFUND = {
+    idempotencyKey: '11111111-1111-4111-8111-111111111111',
     amountKobo: 45000,
     reason: 'Le client a reçu des tubercules abîmés',
   }
+
+  it('requires an idempotency key before any refund work starts', async () => {
+    const res = await post('/sales/order-1/refund', {
+      amountKobo: 45000,
+      reason: 'Duplicate-safe refund',
+    })
+
+    expect(res.status).toBe(400)
+    expect(initiateRefund).not.toHaveBeenCalled()
+  })
 
   it('sends Paystack and the refund row the English, with the amount untouched', async () => {
     queueSelect('orders', [orderRow()])
@@ -535,6 +546,7 @@ describe('POST /sales/:id/refund - canonical English on write', () => {
     queueSelect('orders', [orderRow()])
 
     const res = await post('/sales/order-1/refund', {
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
       amountKobo: 45000,
       reason: 'The customer received damaged tubers',
     })

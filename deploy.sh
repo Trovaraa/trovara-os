@@ -30,13 +30,23 @@
 #   APP_USER=ubuntu                      # optional; defaults to systemd service User
 #   VITE_API_URL=https://os.trovara.farm # optional
 #   VITE_PUBLIC_APP_URL=https://os.trovara.farm  # optional
+#   VITE_PUBLIC_MARKETING_URL=https://trovara.farm  # optional
 #   REMOTE_BACKUP_DIR=/var/backups/trovara-os     # optional
 #   LOCAL_BACKUP_DIR="$HOME/Trovara Backups/production"  # optional
+#   RELEASE_REF=v1.2.3                  # optional immutable commit/tag; defaults HEAD
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+  echo "ERROR: local nvm is required to select Node 22" >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source "$NVM_DIR/nvm.sh"
+nvm use 22 >/dev/null
 
 # --- Load config -------------------------------------------------------------
 if [[ -f "$SCRIPT_DIR/.env.deploy" ]]; then
@@ -50,6 +60,7 @@ SERVICE="${SERVICE:-trovara-api}"
 APP_USER="${APP_USER:-}"
 VITE_API_URL="${VITE_API_URL:-https://os.trovara.farm}"
 VITE_PUBLIC_APP_URL="${VITE_PUBLIC_APP_URL:-https://os.trovara.farm}"
+VITE_PUBLIC_MARKETING_URL="${VITE_PUBLIC_MARKETING_URL:-https://trovara.farm}"
 SSH_PORT="${SSH_PORT:-22}"
 SSH_KEY="${SSH_KEY:-}"
 REMOTE_BACKUP_DIR="${REMOTE_BACKUP_DIR:-/var/backups/trovara-os}"
@@ -70,6 +81,12 @@ Create a gitignored .env.deploy next to deploy.sh, e.g.:
 
 ...or run once inline:  VM_HOST=ubuntu@your.vm.ip ./deploy.sh
 MSG
+  exit 1
+fi
+
+if [[ -z "$VITE_API_URL" || -z "$VITE_PUBLIC_APP_URL" ||
+      -z "$VITE_PUBLIC_MARKETING_URL" ]]; then
+  echo "ERROR: all VITE public production URLs must be non-empty" >&2
   exit 1
 fi
 
@@ -99,6 +116,37 @@ if [[ "$PULL_BACKUPS" -eq 1 && "$SKIP_BACKUP" -eq 1 ]]; then
   echo "NOTE: --skip-backup also skips local backup pull (use scripts/pull-production-backups.sh to copy existing artifacts)."
   PULL_BACKUPS=0
 fi
+if [[ "$SKIP_BACKUP" -eq 1 && "${ALLOW_UNSAFE_DEPLOY_WITHOUT_BACKUP:-0}" != "1" ]]; then
+  echo "ERROR: production deploys require a verified off-host backup." >&2
+  echo "Set ALLOW_UNSAFE_DEPLOY_WITHOUT_BACKUP=1 only for a disposable environment." >&2
+  exit 1
+fi
+
+# Production releases are built from a clean, immutable Git object, never from
+# an uncommitted working tree or a mutable branch name.
+GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "ERROR: deploy.sh must run from a Git working tree" >&2
+  exit 1
+}
+if [[ -n "$(git -C "$GIT_ROOT" status --porcelain --untracked-files=normal)" ]]; then
+  echo "ERROR: working tree is dirty; commit or stash every change before deploying" >&2
+  exit 1
+fi
+RELEASE_REF="${RELEASE_REF:-HEAD}"
+RELEASE_SHA="$(git -C "$GIT_ROOT" rev-parse --verify "${RELEASE_REF}^{commit}")" || {
+  echo "ERROR: RELEASE_REF is not a commit or tag: $RELEASE_REF" >&2
+  exit 1
+}
+if [[ "$RELEASE_REF" == "HEAD" && "$RELEASE_SHA" != "$(git -C "$GIT_ROOT" rev-parse HEAD)" ]]; then
+  echo "ERROR: unable to resolve local HEAD deterministically" >&2
+  exit 1
+fi
+RELEASE_TAG="$(git -C "$GIT_ROOT" describe --tags --exact-match "$RELEASE_SHA" 2>/dev/null || true)"
+RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPO_PREFIX="${SCRIPT_DIR#"$GIT_ROOT"/}"
+if [[ "$REPO_PREFIX" == "$SCRIPT_DIR" ]]; then
+  REPO_PREFIX="."
+fi
 
 SSH="ssh -p $SSH_PORT"
 SCP="scp -P $SSH_PORT"
@@ -115,7 +163,27 @@ fi
 echo "==> Deploying to $VM_HOST:$REMOTE_DIR"
 
 # --- 1. Sync source (excludes protect prod state) ----------------------------
-echo "==> Syncing source (prod .env is never touched)…"
+RELEASE_STAGE="$(mktemp -d -t trovara-release.XXXXXX)"
+REMOTE_RUNNER=""
+cleanup() {
+  rm -rf "$RELEASE_STAGE"
+  [[ -z "$REMOTE_RUNNER" ]] || rm -f "$REMOTE_RUNNER"
+}
+trap cleanup EXIT
+git -C "$GIT_ROOT" archive "$RELEASE_SHA" -- "$REPO_PREFIX" | tar -x -C "$RELEASE_STAGE"
+STAGED_SOURCE="$RELEASE_STAGE/$REPO_PREFIX"
+node - "$STAGED_SOURCE/RELEASE.json" "$RELEASE_SHA" "$RELEASE_TAG" "$RELEASED_AT" <<'NODE'
+const fs = require('node:fs')
+const [file, sha, tag, releasedAt] = process.argv.slice(2)
+fs.writeFileSync(file, `${JSON.stringify({
+  schemaVersion: 1,
+  sha,
+  tag: tag || null,
+  releasedAt,
+}, null, 2)}\n`, { mode: 0o644 })
+NODE
+
+echo "==> Syncing immutable release $RELEASE_SHA (prod .env is never touched)…"
 rsync -az --delete \
   -e "$SSH" \
   --exclude '.git/' \
@@ -133,17 +201,14 @@ rsync -az --delete \
   --exclude '*.log' \
   --exclude '.DS_Store' \
   --exclude '.cursor/' \
-  --exclude 'docs/' \
-  --exclude '**/docs/' \
   --exclude 'CONTEXT.md' \
   --exclude 'context.md' \
-  "$SCRIPT_DIR/" "$VM_HOST:$REMOTE_DIR/"
+  "$STAGED_SOURCE/" "$VM_HOST:$REMOTE_DIR/"
 
 # --- 2-4. Remote build + release --------------------------------------------
 # Generate the remote runner, copy it over, then execute with a TTY so sudo can
 # prompt if the VM requires a password.
 REMOTE_RUNNER="$(mktemp -t trovara-deploy.XXXXXX.sh)"
-trap 'rm -f "$REMOTE_RUNNER"' EXIT
 
 cat >"$REMOTE_RUNNER" <<REMOTE
 #!/usr/bin/env bash
@@ -169,21 +234,8 @@ set -a
 source .env
 set +a
 
-: "\${NODE_ENV:?Set NODE_ENV=production in production .env}"
-if [[ "\$NODE_ENV" != "production" ]]; then
-  echo "ERROR: NODE_ENV must be production on the VM" >&2
-  exit 1
-fi
-: "\${CRON_SECRET:?Set CRON_SECRET in production .env}"
-if [[ -z "\${TOTP_ENCRYPTION_KEY:-}" && -z "\${TOTP_KEY_DERIVATION_SECRET:-}" ]]; then
-  echo "ERROR: set TOTP_ENCRYPTION_KEY in production .env" >&2
-  exit 1
-fi
-: "\${EVIDENCE_STORAGE_ROOT:?Set EVIDENCE_STORAGE_ROOT to an absolute persistent path}"
-if [[ "\$EVIDENCE_STORAGE_ROOT" != /* ]]; then
-  echo "ERROR: EVIDENCE_STORAGE_ROOT must be absolute" >&2
-  exit 1
-fi
+echo "==> [vm] validating the complete production environment"
+bash scripts/check-production-env.sh
 
 SERVICE_USER="$APP_USER"
 if [[ -z "\$SERVICE_USER" ]]; then
@@ -217,12 +269,16 @@ echo "==> [vm] dependency audit (high+ blocks deploy)"
 npm audit --workspaces --audit-level=high
 
 echo "==> [vm] production build (VITE_API_URL=$VITE_API_URL)"
-VITE_API_URL="$VITE_API_URL" VITE_PUBLIC_APP_URL="$VITE_PUBLIC_APP_URL" npm run build
+VITE_API_URL="$VITE_API_URL" \
+VITE_PUBLIC_APP_URL="$VITE_PUBLIC_APP_URL" \
+VITE_PUBLIC_MARKETING_URL="$VITE_PUBLIC_MARKETING_URL" \
+npm run build
+cp RELEASE.json app/dist/RELEASE.json
 
 if [[ "$SKIP_BACKUP" -eq 0 ]]; then
-  : "\${BACKUP_GPG_PASSPHRASE:?Set BACKUP_GPG_PASSPHRASE in production .env}"
-  echo "==> [vm] production backup (encrypt, verify, manifest, optional rclone)"
-  REQUIRE_EVIDENCE_BACKUP=1 npm run backup:production
+  echo "==> [vm] production backup (encrypt, verify, manifest, required remote delivery)"
+  npm run backup:production
+  npm run backup:freshness
 else
   echo "==> [vm] WARNING: skipping backup (disposable/demo database only)"
 fi

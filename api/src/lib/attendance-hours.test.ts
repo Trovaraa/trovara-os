@@ -15,6 +15,8 @@ type Row = {
   taskTitle: string | null
   notes: string | null
   workSummary: string | null
+  rangeStart: Date
+  rangeEnd: Date
 }
 
 let rows: Row[] = []
@@ -71,6 +73,8 @@ function session(overrides: Partial<Row> = {}): Row {
     taskTitle: 'Weeding',
     notes: null,
     workSummary: 'Completed rows 1–4',
+    rangeStart: new Date('2026-08-04T00:00:00.000Z'),
+    rangeEnd: new Date('2026-08-11T00:00:00.000Z'),
     ...overrides,
   }
 }
@@ -120,6 +124,18 @@ describe('hours summary role visibility', () => {
     )
 
     expect(renderedWhere().params).toContain('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('restricts a supervisor without attendance.roster to their own hours', async () => {
+    const actor = { ...user('supervisor'), permissions: [] }
+    await listHoursSummary(actor, 'week')
+    expect(renderedWhere().params).toContain(actor.id)
+  })
+
+  it('allows a custom role grant for attendance.roster', async () => {
+    const actor = { ...user('field_worker'), permissions: ['attendance.roster' as const] }
+    await listHoursSummary(actor, 'week')
+    expect(renderedWhere().params).not.toContain(actor.id)
   })
 })
 
@@ -177,5 +193,17 @@ describe('hours summary aggregation and ranges', () => {
 
     expect(result.people[0]).toMatchObject({ totalMinutes: 195, sessionCount: 1 })
     expect(result.people[0]!.sessions[0]!.payableMinutes).toBe(195)
+  })
+
+  it('counts only the overlap with the requested range', async () => {
+    rows = [
+      session({
+        clockInAt: new Date('2026-08-03T22:00:00.000Z'),
+        clockOutAt: new Date('2026-08-04T02:00:00.000Z'),
+      }),
+    ]
+
+    const result = await listHoursSummary(user('owner'), 'week')
+    expect(result.people[0]).toMatchObject({ totalMinutes: 120 })
   })
 })

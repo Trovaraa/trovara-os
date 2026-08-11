@@ -5,6 +5,11 @@ const api = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   api: (...args: unknown[]) => api(...args),
+  resolveMediaUrl: (url: string) => url,
+}))
+
+vi.mock('@/components/AccessibleDialog.vue', () => ({
+  default: { template: '<div><slot /></div>' },
 }))
 
 vi.mock('@/components/AppLayout.vue', () => ({

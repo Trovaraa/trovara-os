@@ -113,6 +113,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </button>
   </Teleport>
 
+  <Teleport defer to="#mobile-drawer-guide-trigger">
+    <button
+      v-if="!disabled && !open"
+      type="button"
+      class="inline-flex min-h-11 items-center gap-2 rounded-xl border border-farm-gold/35 bg-farm-gold/10 px-3 py-2 text-sm font-bold text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:hidden"
+      :aria-label="copy.help"
+      data-testid="mobile-drawer-help-trigger"
+      @click="showPageHelp"
+    >
+      <svg class="h-[1.125rem] w-[1.125rem] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
+      </svg>
+      {{ copy.help }}
+    </button>
+  </Teleport>
+
   <Teleport to="#desktop-guide-trigger">
     <button
       v-if="!disabled && !open"

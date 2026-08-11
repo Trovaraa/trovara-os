@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
-import { applySuccessfulPayment } from '../lib/order-payments.js'
+import { applySuccessfulPayment, reconcileRefund } from '../lib/order-payments.js'
 import { isPaystackConfigured, verifyWebhookSignature } from '../lib/paystack.js'
 
 export const paystackRoutes = new Hono()
@@ -14,6 +14,9 @@ type PaystackWebhookBody = {
     amount?: number
     currency?: string
     status?: string
+    metadata?: Record<string, unknown>
+    transaction?: { reference?: string } | string
+    transaction_reference?: string
   }
 }
 
@@ -71,6 +74,29 @@ paystackRoutes.post('/webhook', async (c) => {
       alreadyApplied: result.alreadyApplied,
       orderId: result.orderId,
     })
+  }
+
+  if (body.event?.startsWith('refund.')) {
+    const data = body.data
+    const providerRefundId = data?.id != null ? String(data.id) : ''
+    const transactionReference =
+      typeof data?.transaction === 'object'
+        ? data.transaction.reference?.trim()
+        : data?.transaction?.trim() || data?.transaction_reference?.trim()
+    if (!providerRefundId || !transactionReference || data?.amount == null) {
+      return c.json({ error: 'Missing refund reconciliation fields' }, 400)
+    }
+    const result = await reconcileRefund({
+      providerRefundId,
+      transactionReference,
+      amountKobo: Math.round(Number(data.amount)),
+      providerStatus: data.status ?? body.event.slice('refund.'.length),
+    })
+    if (!result.ok) {
+      console.error('Paystack refund reconciliation failed:', result.error)
+      return c.json({ ok: false, error: result.error }, 200)
+    }
+    return c.json({ ok: true, refundId: result.refundId })
   }
 
   // Acknowledge other events without error so Paystack does not retry forever.

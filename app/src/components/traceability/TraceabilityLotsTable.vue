@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { TraceabilityLot } from '@/components/traceability/types'
+import { resolveApiUrl } from '@/lib/api'
 
 defineProps<{
   lots: TraceabilityLot[]
@@ -160,7 +161,7 @@ function plotLabel(lot: TraceabilityLot) {
           </button>
           <a
             v-if="canPrintQr"
-            :href="`/api/traceability/${lot.id}/label.html?autoprint=1`"
+            :href="resolveApiUrl(`/api/traceability/${lot.id}/label.html?autoprint=1`)"
             target="_blank"
             rel="noopener noreferrer"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -178,7 +179,7 @@ function plotLabel(lot: TraceabilityLot) {
           </button>
           <a
             v-if="isOwner"
-            :href="`/api/traceability/${lot.id}/certificate.html`"
+            :href="resolveApiUrl(`/api/traceability/${lot.id}/certificate.html`)"
             target="_blank"
             rel="noopener noreferrer"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"

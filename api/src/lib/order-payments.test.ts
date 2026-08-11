@@ -4,6 +4,7 @@ import {
   makePayReference,
   renderCustomerCancelRefund,
   renderPaymentReceived,
+  webhookPaymentMatchesOrder,
 } from './order-payments.js'
 import type { ReplyLocale } from './reply-locale.js'
 
@@ -24,6 +25,31 @@ describe('makePayReference', () => {
     const a = makePayReference(ORDER_ID)
     const b = makePayReference(ORDER_ID)
     expect(a).not.toBe(b)
+  })
+})
+
+describe('webhookPaymentMatchesOrder', () => {
+  const valid = {
+    metadataFarmId: 'farm-a',
+    metadataOrderId: ORDER_ID,
+    orderFarmId: 'farm-a',
+    orderId: ORDER_ID,
+    webhookAmountKobo: 4_000_000,
+    orderAmountKobo: 4_000_000,
+    currency: 'NGN',
+  }
+
+  it('accepts matching signed-webhook metadata', () => {
+    expect(webhookPaymentMatchesOrder(valid)).toBe(true)
+  })
+
+  it('rejects a cross-tenant order claim even when order and amount match', () => {
+    expect(webhookPaymentMatchesOrder({ ...valid, metadataFarmId: 'farm-b' })).toBe(false)
+  })
+
+  it('rejects amount and currency mismatches', () => {
+    expect(webhookPaymentMatchesOrder({ ...valid, webhookAmountKobo: 3_999_999 })).toBe(false)
+    expect(webhookPaymentMatchesOrder({ ...valid, currency: 'USD' })).toBe(false)
   })
 })
 

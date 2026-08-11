@@ -21,20 +21,10 @@ import {
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execSync } from 'node:child_process'
+import { deploymentSha } from '../lib/deployment.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = resolve(__dirname, '../../..')
-
-function getGitCommit(): string {
-  try {
-    return execSync('git rev-parse --short HEAD', { cwd: rootDir, timeout: 2000 })
-      .toString()
-      .trim()
-  } catch {
-    return 'unknown'
-  }
-}
 
 async function checkDbConnection(): Promise<{ ok: boolean; latencyMs: number }> {
   const start = Date.now()
@@ -61,7 +51,12 @@ async function canViewIntegrationsInProduction(c: Context): Promise<boolean> {
 
 // Public: basic liveness probe
 systemRoutes.get('/health', (c) => {
-  return c.json({ status: 'ok', service: 'trovara-os-api', ts: new Date().toISOString() })
+  return c.json({
+    status: 'ok',
+    service: 'trovara-os-api',
+    deploymentSha: deploymentSha(rootDir),
+    ts: new Date().toISOString(),
+  })
 })
 
 // Public: readiness probe (needs DB)
@@ -70,7 +65,12 @@ systemRoutes.get('/ready', async (c) => {
   if (!db_.ok) {
     return c.json({ status: 'not_ready', db: 'error' }, 503)
   }
-  return c.json({ status: 'ready', db: 'ok', latencyMs: db_.latencyMs })
+  return c.json({
+    status: 'ready',
+    db: 'ok',
+    latencyMs: db_.latencyMs,
+    deploymentSha: deploymentSha(rootDir),
+  })
 })
 
 // Public: version info (minimal in production unless integrations.view)
@@ -88,7 +88,8 @@ systemRoutes.get('/version', async (c) => {
   }
   return c.json({
     version,
-    commit: getGitCommit(),
+    commit: deploymentSha(rootDir),
+    deploymentSha: deploymentSha(rootDir),
     env: process.env.NODE_ENV ?? 'development',
   })
 })
@@ -121,9 +122,14 @@ systemRoutes.get('/system-status', authMiddleware, async (c) => {
     backupEvidence: backup.backupEvidence,
     backupReportStatus: backup.backupReportStatus,
     remoteDeliveryStatus: backup.remoteDeliveryStatus,
+    lastRestoreTest: backup.lastRestoreTest,
+    restoreTestStatus: backup.restoreTestStatus,
+    restoreTestAgeHours: backup.restoreTestAgeHours,
+    restoreTestFresh: backup.restoreTestFresh,
     whatsappConfigured,
     aiMode,
-    commit: getGitCommit(),
+    commit: deploymentSha(rootDir),
+    deploymentSha: deploymentSha(rootDir),
     env: process.env.NODE_ENV ?? 'development',
     ts: new Date().toISOString(),
   })

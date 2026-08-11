@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
-import { api } from '@/lib/api'
+import { api, resolveApiUrl } from '@/lib/api'
 
 const { t, te } = useI18n()
 
@@ -359,7 +359,7 @@ function closeCustomer() {
             </p>
             <a
               v-if="order.lotId && auth.canManageOrders"
-              :href="`/api/traceability/${order.lotId}/label.html?autoprint=1`"
+              :href="resolveApiUrl(`/api/traceability/${order.lotId}/label.html?autoprint=1`)"
               target="_blank"
               rel="noopener noreferrer"
               class="inline-block mt-2 text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
@@ -426,7 +426,7 @@ function closeCustomer() {
           </button>
           <a
             v-if="order.hasInvoice"
-            :href="`/api/sales/${order.id}/invoice`"
+            :href="resolveApiUrl(`/api/sales/${order.id}/invoice`)"
             target="_blank"
             rel="noopener noreferrer"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -435,7 +435,7 @@ function closeCustomer() {
           </a>
           <a
             v-if="order.hasInvoice"
-            :href="`/api/sales/${order.id}/invoice/pdf`"
+            :href="resolveApiUrl(`/api/sales/${order.id}/invoice/pdf`)"
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
           >
             {{ t('sales.downloadPdf') }}

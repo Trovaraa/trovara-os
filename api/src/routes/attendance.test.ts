@@ -153,6 +153,8 @@ function sessionRow(overrides: Row = {}): Row {
     correctedById: null,
     correctedAt: null,
     createdAt: new Date('2026-07-20T07:00:00Z'),
+    rangeStart: new Date('2026-07-20T00:00:00Z'),
+    rangeEnd: new Date('2026-07-21T00:00:00Z'),
     ...overrides,
   }
 }

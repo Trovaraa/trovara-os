@@ -9,6 +9,7 @@ import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import router from '@/router'
 import { api } from '@/lib/api'
 import type { ConsentStatus } from '@/lib/consent'
+import { defaultHome } from '@/lib/navigation'
 
 const auth = useAuthStore()
 const { t } = useI18n()
@@ -86,7 +87,7 @@ async function submitLogin() {
       await router.push('/change-password')
       return
     }
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     const disarmed =
       e instanceof Error &&
@@ -130,7 +131,7 @@ async function submitTotp() {
       return
     }
 
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     auth.error = e instanceof Error ? e.message : 'Invalid authentication code'
   } finally {
@@ -179,7 +180,7 @@ async function applyForcedPasswordChange() {
     forceChangeOpen.value = false
     forceNewPassword.value = ''
     forceConfirmPassword.value = ''
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     forceError.value = e instanceof Error ? e.message : 'Could not change password.'
   } finally {

@@ -18,6 +18,7 @@ type EmailMessage = {
   text: string
   html?: string
   replyTo?: string
+  headers?: Record<string, string>
 }
 
 type SmsMessage = {
@@ -97,6 +98,9 @@ async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
         text: message.text,
         html,
         ...(message.replyTo ? { reply_to: message.replyTo } : {}),
+        ...(message.headers && Object.keys(message.headers).length
+          ? { headers: message.headers }
+          : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     })

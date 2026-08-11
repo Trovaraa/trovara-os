@@ -6,6 +6,7 @@ import AppLayout from '@/components/AppLayout.vue'
 import TaskStatusBadge from '@/components/TaskStatusBadge.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
 
 type Task = {
   id: string
@@ -33,6 +34,7 @@ const plots = ref<PlotOption[]>([])
 const staff = ref<UserOption[]>([])
 const templates = ref<TemplateOption[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 
 const newTitle = ref('')
 const newDescription = ref('')
@@ -79,16 +81,19 @@ function gpsLabel(task: Task): string {
 
 async function load() {
   loading.value = true
+  loadError.value = null
   try {
     const data = await api<{ tasks: Task[] }>('/api/tasks')
     tasks.value = data.tasks
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : t('tasks.loadFailed')
   } finally {
     loading.value = false
   }
 }
 
 async function loadCreateOptions() {
-  if (!auth.canApprove) return
+  if (!auth.hasPermission('tasks.assign')) return
   try {
     const [plotData, userData, tplData] = await Promise.all([
       api<{ plots: PlotOption[] }>('/api/zones/plots'),
@@ -106,7 +111,7 @@ async function loadCreateOptions() {
 }
 
 async function loadHandoverProgress() {
-  if (!auth.canApprove) return
+  if (!auth.hasPermission('tasks.assign')) return
   try {
     const data = await api<{ progress: HandoverProgress }>('/api/handover/progress')
     handoverProgress.value = data.progress
@@ -116,7 +121,7 @@ async function loadHandoverProgress() {
 }
 
 async function generateHandoverTasks() {
-  if (!auth.canApprove) return
+  if (!auth.hasPermission('tasks.assign')) return
   generatingHandover.value = true
   handoverMessage.value = null
   try {
@@ -229,7 +234,7 @@ async function rejectTaskWithReason() {
       <h2 class="text-2xl font-black text-os-fg">{{ t('tasks.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('tasks.subtitle') }}</p>
       <RouterLink
-        v-if="auth.isOwner"
+        v-if="auth.hasPermission('tasks.approve')"
         to="/tasks/post-approval"
         class="mt-2 inline-flex text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
       >
@@ -238,7 +243,7 @@ async function rejectTaskWithReason() {
     </div>
 
     <div
-      v-if="auth.canApprove"
+      v-if="auth.hasPermission('tasks.assign')"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -282,7 +287,7 @@ async function rejectTaskWithReason() {
     </div>
 
     <form
-      v-if="auth.canApprove"
+      v-if="auth.hasPermission('tasks.assign')"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="createTask"
     >
@@ -360,7 +365,11 @@ async function rejectTaskWithReason() {
       </div>
     </form>
 
-    <div v-if="loading" class="mt-8 text-slate-400">{{ t('tasks.loading') }}</div>
+    <div v-if="loadError && !loading" class="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300" role="alert">
+      <p>{{ loadError }}</p>
+      <button type="button" class="mt-3 underline" @click="load">{{ t('tasks.tryAgain') }}</button>
+    </div>
+    <div v-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('tasks.loading') }}</div>
 
     <div v-else class="mt-6 space-y-3 w-full max-w-full">
       <div
@@ -470,13 +479,9 @@ async function rejectTaskWithReason() {
       </div>
     </div>
 
-    <div
-      v-if="rejectModalTask"
-      class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center"
-      @click.self="closeRejectModal"
-    >
+    <AccessibleDialog :open="!!rejectModalTask" title-id="reject-task-title" :close-label="t('dialog.close')" @close="closeRejectModal">
       <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Reject task</h3>
+        <h3 id="reject-task-title" class="text-white font-bold text-lg">Reject task</h3>
         <p class="text-xs text-slate-500 mt-1">A rejection reason is required (minimum 5 characters).</p>
         <textarea
           v-model="rejectReason"
@@ -504,6 +509,6 @@ async function rejectTaskWithReason() {
           </button>
         </div>
       </div>
-    </div>
+    </AccessibleDialog>
   </AppLayout>
 </template>

@@ -10,7 +10,7 @@ Index of integration setup. Channel- and payment-specific runbooks live in dedic
 | Production deploy / secrets | [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) |
 | One-time clean go-live (wipe demo) | [`../../GO-LIVE.md`](../../GO-LIVE.md) |
 | Encrypted backup / restore | [`backup-runbook.md`](./backup-runbook.md) |
-| External health probes | [`uptime-monitoring.md`](./uptime-monitoring.md) |
+| Health probes and uptime snapshots | [`uptime-monitoring.md`](./uptime-monitoring.md) |
 | API contracts | [`API.md`](./API.md) |
 | Product RBAC | [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md) |
 | Security controls + release gate | [`security.md`](./security.md) |
@@ -47,7 +47,11 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
    newsletter `RESEND_WEBHOOK_SECRET`.
 4. Draft expenses prefill amount/vendor/date/currency from the attachment when
    possible (PDF text layer first; LLM text/vision fallback when the farm LLM
-   budget allows). Staff still review pending drafts before approval.
+   budget allows). Foreign amounts are converted to NGN using open.er-api.com;
+   configure `FX_FALLBACK_RATES` (for example `USD:1550,EUR:1700`) for an
+   offline fallback. The original amount, currency, rate, and conversion time
+   remain attached to the expense. Staff still review pending drafts before
+   approval, and only approved NGN expenses count in P&L.
 5. Keep `FINANCE_INBOUND_RECIPIENTS=finance@trovara.farm`, or comma-separate
    additional intended finance aliases. When unset, it defaults to
    `finance@trovara.farm`.
@@ -75,7 +79,11 @@ Staff alerts fan out on Telegram and WhatsApp. Ownership of the subscription tab
 
 Stage/weather rules create recommendations (now → next → safe inputs → notify roles). Product links use SerpAPI when `MARKETPLACE_SEARCH_API_KEY` is set; otherwise the LLM suggests local product types (no invented URLs). Cron `POST /api/alerts/run-proactive` also runs the advisory engine; or call `POST /api/advisory/run`.
 
-Daily **health/SLA** Telegram reports (`POST /api/alerts/run-health-sla`, `npm run send-health-sla`) are separate: they probe OS + marketing endpoints and notify linked **owners and supervisors**. Toggle in Settings or via `HEALTH_SLA_TELEGRAM_ENABLED`. See [`uptime-monitoring.md`](./uptime-monitoring.md).
+Daily **health/uptime snapshots** (`POST /api/alerts/run-health-sla`,
+`npm run send-health-snapshot`) are separate: they probe OS + marketing
+endpoints and notify linked **owners and supervisors**. The legacy route/env
+identifier remains for compatibility. Toggle in Settings or via
+`HEALTH_SLA_TELEGRAM_ENABLED`. See [`uptime-monitoring.md`](./uptime-monitoring.md).
 
 ---
 
@@ -391,7 +399,7 @@ When migrating from demo: export anything you need (`/api/traceability/export`, 
 | WhatsApp status | GET | `/api/whatsapp/status` | No |
 | Paystack webhook | POST | `/api/paystack/webhook` | No (HMAC) |
 | Resend finance inbound | POST | `/public/finance/inbound` | No (Svix signature) |
-| Daily health/SLA report | POST | `/api/alerts/run-health-sla` | Cron secret or owner/supervisor |
+| Daily health/uptime snapshot | POST | `/api/alerts/run-health-sla` | Cron secret or owner/supervisor |
 | Public invoice | GET | `/public/invoices/:token` | No |
 | Public invoice PDF | GET | `/public/invoices/:token/pdf` | No |
 | AI briefing | GET | `/api/ai/briefing` | owner, supervisor |

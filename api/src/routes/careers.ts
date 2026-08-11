@@ -7,7 +7,7 @@ import { db } from '../db/index.js'
 import { careerPosts } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
@@ -75,12 +75,12 @@ async function slugExists(farmId: string, slug: string, exceptId?: string): Prom
   return Boolean(row && row.id !== exceptId)
 }
 
-function publicRateLimit(c: {
+async function publicRateLimit(c: {
   req: { header: (name: string) => string | undefined }
   header: (name: string, value: string) => void
-}): boolean {
+}): Promise<boolean> {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`careers:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs)
+  const result = await checkDurableRateLimit(`careers:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
@@ -255,7 +255,7 @@ careersRoutes.delete('/:id', requireCareersManage, async (c) => {
 })
 
 publicCareersRoutes.get('/', async (c) => {
-  if (!publicRateLimit(c)) return c.json({ error: 'Too many requests' }, 429)
+  if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests' }, 429)
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ posts: [] })
 
@@ -275,7 +275,7 @@ publicCareersRoutes.get('/', async (c) => {
 })
 
 publicCareersRoutes.get('/:slug', async (c) => {
-  if (!publicRateLimit(c)) return c.json({ error: 'Too many requests' }, 429)
+  if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests' }, 429)
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ error: 'Not found' }, 404)
 

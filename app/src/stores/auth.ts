@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { clearSensitiveClientData } from '@/lib/client-cleanup'
 import i18n, { persistLocale, type AppLocale } from '@/i18n'
 import router from '@/router'
+import { defaultHome } from '@/lib/navigation'
 
 export type UserRole = 'owner' | 'supervisor' | 'field_worker' | 'sales'
 
@@ -56,27 +57,11 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value?.role === 'owner') return true
     return user.value?.permissions?.includes(key) ?? false
   }
-  const canApprove = computed(
-    () =>
-      hasPermission('tasks.approve') ||
-      user.value?.role === 'owner' ||
-      user.value?.role === 'supervisor',
-  )
-  const canManageOrders = computed(
-    () =>
-      hasPermission('orders.manage') ||
-      user.value?.role === 'owner' ||
-      user.value?.role === 'supervisor' ||
-      user.value?.role === 'sales',
-  )
-  const canManageProducts = computed(() => canManageOrders.value)
+  const canApprove = computed(() => hasPermission('tasks.approve'))
+  const canManageOrders = computed(() => hasPermission('orders.manage'))
+  const canManageProducts = computed(() => hasPermission('products.manage'))
   const isSales = computed(() => user.value?.role === 'sales')
-  const canAccessFinance = computed(
-    () =>
-      hasPermission('finance.read') ||
-      user.value?.role === 'owner' ||
-      user.value?.role === 'sales',
-  )
+  const canAccessFinance = computed(() => hasPermission('finance.read'))
 
   // The profile is the cross-device source of truth for language: it also drives
   // AI content and Telegram/WhatsApp messages, so the chrome follows it on login
@@ -134,7 +119,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = data.user
         await fetchMe()
         if (!options?.skipRedirect && user.value) {
-          await router.push(user.value.role === 'field_worker' ? '/today' : user.value.role === 'sales' ? '/sales' : '/dashboard')
+          await router.push(defaultHome(user.value.role))
         }
       }
       return data

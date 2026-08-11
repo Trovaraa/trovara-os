@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { uploadBrandAsset, type BrandAssetDto } from '@/lib/brand-upload'
+import { resolveMediaUrl } from '@/lib/api'
 
 type BrandAsset = BrandAssetDto
 
@@ -22,6 +24,7 @@ type BrandPack = {
 }
 
 const loading = ref(true)
+const { t, locale } = useI18n()
 const uploading = ref(false)
 const uploadProgress = ref<string | null>(null)
 const replacingAssetId = ref<string | null>(null)
@@ -34,6 +37,11 @@ const editingPackId = ref<string | null>(null)
 /** Assets uploaded while composing a new pack — create mode hides the farm library. */
 const sessionAssetIds = ref<string[]>([])
 const clearPassword = ref(false)
+const packFormSection = ref<HTMLElement | null>(null)
+const actionIds = ref<Set<string>>(new Set())
+const assetPage = ref(1)
+const packPage = ref(1)
+const PAGE_SIZE = 24
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const packForm = ref({
@@ -52,6 +60,14 @@ const visibleAssets = computed(() => {
   return assets.value.filter((asset) => session.has(asset.id))
 })
 const readyAssets = computed(() => visibleAssets.value.filter((asset) => asset.status === 'ready'))
+const assetPageCount = computed(() => Math.max(1, Math.ceil(visibleAssets.value.length / PAGE_SIZE)))
+const packPageCount = computed(() => Math.max(1, Math.ceil(packs.value.length / PAGE_SIZE)))
+const pagedAssets = computed(() =>
+  visibleAssets.value.slice((assetPage.value - 1) * PAGE_SIZE, assetPage.value * PAGE_SIZE),
+)
+const pagedPacks = computed(() =>
+  packs.value.slice((packPage.value - 1) * PAGE_SIZE, packPage.value * PAGE_SIZE),
+)
 const hasProcessing = computed(() =>
   visibleAssets.value.some(
     (asset) => asset.status === 'processing' || asset.status === 'uploading',
@@ -72,7 +88,7 @@ async function load() {
     assets.value = assetData.assets
     packs.value = packData.packs
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load brand kit'
+    error.value = e instanceof Error ? e.message : t('brandKits.loadFailed')
   } finally {
     loading.value = false
   }
@@ -96,8 +112,16 @@ async function onUpload(event: Event) {
   message.value = null
   const uploadedIds: string[] = []
   try {
-    for (const [index, file] of files.entries()) {
-      uploadProgress.value = `Uploading ${index + 1} of ${files.length}: ${file.name}`
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(3, files.length) }, async () => {
+      while (cursor < files.length) {
+        const index = cursor++
+        const file = files[index]
+        uploadProgress.value = t('brandKits.uploadProgress', {
+          current: index + 1,
+          total: files.length,
+          name: file.name,
+        })
       const asset = await uploadBrandAsset(file, {
         onProgress: (progress) => {
           uploadProgress.value = `${file.name}: ${progress.message}`
@@ -105,17 +129,9 @@ async function onUpload(event: Event) {
       })
       uploadedIds.push(asset.id)
       sessionAssetIds.value = [...new Set([...sessionAssetIds.value, asset.id])]
-      await load()
-    }
-    packForm.value.assetIds = [
-      ...new Set([
-        ...packForm.value.assetIds,
-        ...uploadedIds.filter((id) =>
-          assets.value.some((asset) => asset.id === id && asset.status === 'ready'),
-        ),
-      ]),
-    ]
-    // Also select any that finished ready after last load
+      }
+    })
+    await Promise.all(workers)
     await load()
     const readyUploaded = uploadedIds.filter((id) =>
       assets.value.some((asset) => asset.id === id && asset.status === 'ready'),
@@ -123,10 +139,10 @@ async function onUpload(event: Event) {
     packForm.value.assetIds = [...new Set([...packForm.value.assetIds, ...readyUploaded])]
     message.value =
       files.length === 1
-        ? 'Asset uploaded and selected for this pack'
-        : `${files.length} assets uploaded`
+        ? t('brandKits.uploadedOne')
+        : t('brandKits.uploadedMany', { count: files.length })
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Upload failed'
+    error.value = e instanceof Error ? e.message : t('brandKits.uploadFailed')
     await load()
   } finally {
     uploading.value = false
@@ -206,9 +222,9 @@ function startEditPack(pack: BrandPack) {
     expiresAt: toDatetimeLocalValue(pack.expiresAt),
     assetIds: [...pack.assetIds],
   }
-  message.value = `Editing “${pack.title}” — update fields or selection, then save`
+  message.value = `${t('brandKits.editPack')}: ${pack.title}`
   error.value = null
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  packFormSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 async function savePack() {
@@ -231,18 +247,18 @@ async function savePack() {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
-      message.value = 'Pack updated'
+      message.value = t('brandKits.packUpdated')
     } else {
       await api('/api/brand/packs', {
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      message.value = 'Pack created — copy the share link below'
+      message.value = t('brandKits.packCreated')
     }
     resetPackForm()
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Could not save pack'
+    error.value = e instanceof Error ? e.message : t('brandKits.saveFailed')
   } finally {
     savingPack.value = false
   }
@@ -251,40 +267,63 @@ async function savePack() {
 async function copyLink(url: string) {
   try {
     await navigator.clipboard.writeText(url)
-    message.value = 'Share link copied'
+    message.value = t('brandKits.copied')
   } catch {
     message.value = url
   }
 }
 
 async function revokePack(id: string) {
-  if (!window.confirm('Revoke this pack? The share link will stop working.')) return
-  await api(`/api/brand/packs/${id}/revoke`, { method: 'POST', body: '{}' })
-  message.value = 'Pack revoked'
-  if (editingPackId.value === id) resetPackForm()
-  await load()
+  if (!window.confirm(t('brandKits.revokeConfirm'))) return
+  await runAction(`revoke:${id}`, async () => {
+    await api(`/api/brand/packs/${id}/revoke`, { method: 'POST', body: '{}' })
+    message.value = t('brandKits.revoked')
+    if (editingPackId.value === id) resetPackForm()
+    await load()
+  })
 }
 
 async function regenerateToken(id: string) {
-  if (!window.confirm('Generate a new link? The old link will stop working.')) return
-  await api(`/api/brand/packs/${id}/regenerate-token`, { method: 'POST', body: '{}' })
-  message.value = 'New share link generated'
-  await load()
+  if (!window.confirm(t('brandKits.regenerateConfirm'))) return
+  await runAction(`token:${id}`, async () => {
+    await api(`/api/brand/packs/${id}/regenerate-token`, { method: 'POST', body: '{}' })
+    message.value = t('brandKits.linkGenerated')
+    await load()
+  })
 }
 
 async function deleteAsset(id: string) {
-  if (!window.confirm('Delete this asset from the library?')) return
-  await api(`/api/brand/assets/${id}`, { method: 'DELETE' })
-  packForm.value.assetIds = packForm.value.assetIds.filter((assetId) => assetId !== id)
-  sessionAssetIds.value = sessionAssetIds.value.filter((assetId) => assetId !== id)
-  await load()
+  if (!window.confirm(t('brandKits.deleteAssetConfirm'))) return
+  await runAction(`asset:${id}`, async () => {
+    await api(`/api/brand/assets/${id}`, { method: 'DELETE' })
+    packForm.value.assetIds = packForm.value.assetIds.filter((assetId) => assetId !== id)
+    sessionAssetIds.value = sessionAssetIds.value.filter((assetId) => assetId !== id)
+    await load()
+  })
 }
 
 async function deletePack(id: string) {
-  if (!window.confirm('Delete this pack permanently?')) return
-  await api(`/api/brand/packs/${id}`, { method: 'DELETE' })
-  if (editingPackId.value === id) resetPackForm()
-  await load()
+  if (!window.confirm(t('brandKits.deletePackConfirm'))) return
+  await runAction(`pack:${id}`, async () => {
+    await api(`/api/brand/packs/${id}`, { method: 'DELETE' })
+    if (editingPackId.value === id) resetPackForm()
+    await load()
+  })
+}
+
+async function runAction(id: string, action: () => Promise<void>) {
+  actionIds.value = new Set(actionIds.value).add(id)
+  error.value = null
+  message.value = null
+  try {
+    await action()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('brandKits.actionFailed')
+  } finally {
+    const next = new Set(actionIds.value)
+    next.delete(id)
+    actionIds.value = next
+  }
 }
 
 function formatBytes(n: number | null) {
@@ -304,7 +343,7 @@ function formatDuration(seconds: number | null) {
 function cacheBust(url: string | null, asset: BrandAsset) {
   if (!url) return ''
   const stamp = asset.updatedAt || asset.createdAt
-  return `${url}?v=${encodeURIComponent(stamp)}`
+  return `${resolveMediaUrl(url)}?v=${encodeURIComponent(stamp)}`
 }
 
 function startPolling() {
@@ -346,26 +385,22 @@ onUnmounted(stopPolling)
   <AppLayout>
     <section class="page">
       <header class="hero">
-        <p class="eyebrow">Brand</p>
-        <h1>Brand kit</h1>
-        <p class="lede">
-          Upload branded photos and videos (including iPhone HEIC/MOV), assemble press packs, and
-          share an unlisted link with optional password. Videos are converted to H.264 MP4 at the
-          original resolution.
-        </p>
+        <p class="eyebrow">{{ t('brandKits.eyebrow') }}</p>
+        <h1>{{ t('brandKits.title') }}</h1>
+        <p class="lede">{{ t('brandKits.subtitle') }}</p>
       </header>
 
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <p v-if="message" class="ok" role="status">{{ message }}</p>
       <p v-if="uploadProgress" class="muted" role="status">{{ uploadProgress }}</p>
-      <p v-if="loading" class="muted">Loading…</p>
+      <p v-if="loading" class="muted" role="status" aria-live="polite">{{ t('brandKits.loading') }}</p>
 
       <template v-else>
         <section class="panel">
           <div class="panel-head">
-            <h2>{{ isEditingPack ? 'Library' : 'Pack media' }}</h2>
+            <h2>{{ isEditingPack ? t('brandKits.library') : t('brandKits.packMedia') }}</h2>
             <label class="btn">
-              {{ uploading ? 'Uploading…' : 'Upload photos / video' }}
+              {{ uploading ? t('brandKits.uploading') : t('brandKits.upload') }}
               <input
                 type="file"
                 :accept="ACCEPT"
@@ -376,38 +411,22 @@ onUnmounted(stopPolling)
               />
             </label>
           </div>
-          <p v-if="isEditingPack" class="muted">
-            Farm library — select assets for this pack, or upload more. Existing pack files stay
-            available here while you edit.
-          </p>
-          <p v-else class="muted">
-            Upload media for this new pack. The farm library (assets already used in other packs)
-            only appears when you edit a pack.
-          </p>
-          <p v-if="!visibleAssets.length" class="muted">
-            <template v-if="isEditingPack">
-              No assets yet. Upload JPEG, PNG, WebP, SVG, HEIC, MP4, or MOV (max 500&nbsp;MB /
-              10&nbsp;min).
-            </template>
-            <template v-else>
-              Nothing selected yet. Upload JPEG, PNG, WebP, SVG, HEIC, MP4, or MOV (max 500&nbsp;MB
-              / 10&nbsp;min).
-            </template>
-          </p>
+          <p class="muted">{{ t('brandKits.subtitle') }}</p>
+          <p v-if="!visibleAssets.length" class="muted">{{ t('brandKits.noAssets') }}</p>
           <template v-else>
             <div class="library-actions">
-              <button type="button" class="link" @click="selectAllAssets">Select all ready</button>
+              <button type="button" class="link" @click="selectAllAssets">{{ t('brandKits.selectAll') }}</button>
               <button
                 type="button"
                 class="link"
                 :disabled="!packForm.assetIds.length"
                 @click="clearAssetSelection"
               >
-                Clear selection
+                {{ t('brandKits.clearSelection') }}
               </button>
             </div>
             <ul class="asset-grid">
-              <li v-for="asset in visibleAssets" :key="asset.id" class="asset-card">
+              <li v-for="asset in pagedAssets" :key="asset.id" class="asset-card">
                 <button
                   type="button"
                   class="thumb"
@@ -417,17 +436,18 @@ onUnmounted(stopPolling)
                   }"
                   :title="asset.originalName"
                   :disabled="asset.status !== 'ready'"
+                  :aria-pressed="selectedAssetIds.has(asset.id)"
                   @click="toggleAsset(asset.id)"
                 >
                   <span v-if="asset.status === 'processing' || asset.status === 'uploading'" class="badge">
-                    Processing…
+                    {{ t('brandKits.processing') }}
                   </span>
-                  <span v-else-if="asset.status === 'failed'" class="badge fail">Failed</span>
+                  <span v-else-if="asset.status === 'failed'" class="badge fail">{{ t('brandKits.failed') }}</span>
                   <template v-else-if="asset.mediaKind === 'video'">
                     <video
                       muted
                       playsinline
-                      preload="metadata"
+                      preload="none"
                       :poster="cacheBust(asset.posterUrl, asset) || undefined"
                       :src="cacheBust(asset.previewUrl, asset)"
                     />
@@ -450,7 +470,7 @@ onUnmounted(stopPolling)
                 </div>
                 <div class="asset-actions">
                   <label class="link">
-                    {{ replacingAssetId === asset.id ? 'Replacing…' : 'Replace' }}
+                    {{ replacingAssetId === asset.id ? t('brandKits.replacing') : t('brandKits.replace') }}
                     <input
                       type="file"
                       :accept="
@@ -468,51 +488,47 @@ onUnmounted(stopPolling)
                       @change="onReplaceAsset(asset.id, $event)"
                     />
                   </label>
-                  <button type="button" class="link danger" @click="deleteAsset(asset.id)">Delete</button>
+                  <button type="button" class="link danger" :disabled="actionIds.has(`asset:${asset.id}`)" @click="deleteAsset(asset.id)">{{ t('brandKits.delete') }}</button>
                 </div>
               </li>
             </ul>
+            <div v-if="assetPageCount > 1" class="pagination">
+              <button type="button" class="link" :disabled="assetPage === 1" @click="assetPage--">{{ t('brandKits.previous') }}</button>
+              <span>{{ t('brandKits.page', { current: assetPage, total: assetPageCount }) }}</span>
+              <button type="button" class="link" :disabled="assetPage === assetPageCount" @click="assetPage++">{{ t('brandKits.next') }}</button>
+            </div>
           </template>
         </section>
 
-        <section class="panel">
+        <section ref="packFormSection" class="panel">
           <div class="panel-head">
-            <h2>{{ isEditingPack ? 'Edit pack' : 'New pack' }}</h2>
+            <h2>{{ isEditingPack ? t('brandKits.editPack') : t('brandKits.newPack') }}</h2>
             <button v-if="isEditingPack" type="button" class="link" @click="resetPackForm">
-              Cancel edit
+              {{ t('brandKits.cancelEdit') }}
             </button>
           </div>
-          <p class="muted">
-            <template v-if="isEditingPack">
-              Click library thumbnails to add/remove, or upload more. Only ready assets can join a
-              pack.
-            </template>
-            <template v-else>
-              Upload media above (ready files are selected automatically). Only ready assets can
-              join a pack.
-            </template>
-          </p>
+          <p class="muted">{{ t('brandKits.subtitle') }}</p>
           <form class="form" @submit.prevent="savePack">
             <label>
-              Title
+              {{ t('brandKits.titleLabel') }}
               <input
                 v-model="packForm.title"
                 required
                 maxlength="160"
-                placeholder="Creator press pack — Aug 2026"
+                :placeholder="t('brandKits.titleLabel')"
               />
             </label>
             <label>
-              Notes (shown on the share page)
+              {{ t('brandKits.notesLabel') }}
               <textarea
                 v-model="packForm.notes"
                 rows="2"
                 maxlength="2000"
-                placeholder="Optional guidance for the recipient"
+                :placeholder="t('brandKits.notesLabel')"
               />
             </label>
             <label>
-              {{ isEditingPack ? 'New password (optional)' : 'Password (optional)' }}
+              {{ isEditingPack ? t('brandKits.newPassword') : t('brandKits.password') }}
               <input
                 v-model="packForm.password"
                 type="password"
@@ -523,13 +539,13 @@ onUnmounted(stopPolling)
             </label>
             <label v-if="isEditingPack" class="check">
               <input v-model="clearPassword" type="checkbox" />
-              Remove existing password
+              {{ t('brandKits.removePassword') }}
             </label>
             <label>
-              Expires (optional)
+              {{ t('brandKits.expires') }}
               <input v-model="packForm.expiresAt" type="datetime-local" />
             </label>
-            <p class="muted">{{ packForm.assetIds.length }} asset(s) selected</p>
+            <p class="muted">{{ t('brandKits.selectedCount', { count: packForm.assetIds.length }) }}</p>
             <button
               type="submit"
               class="btn primary"
@@ -537,42 +553,41 @@ onUnmounted(stopPolling)
             >
               {{
                 savingPack
-                  ? 'Saving…'
+                  ? t('brandKits.saving')
                   : isEditingPack
-                    ? 'Save pack changes'
-                    : 'Create pack'
+                    ? t('brandKits.saveChanges')
+                    : t('brandKits.createPack')
               }}
             </button>
           </form>
         </section>
 
         <section class="panel">
-          <h2>Packs</h2>
-          <p v-if="!packs.length" class="muted">No packs yet.</p>
+          <h2>{{ t('brandKits.packs') }}</h2>
+          <p v-if="!packs.length" class="muted">{{ t('brandKits.noPacks') }}</p>
           <ul v-else class="pack-list">
-            <li v-for="pack in packs" :key="pack.id" class="pack-card">
+            <li v-for="pack in pagedPacks" :key="pack.id" class="pack-card">
               <div class="pack-top">
                 <div>
                   <h3>{{ pack.title }}</h3>
                   <p class="muted">
-                    {{ pack.assetIds.length }} files · {{ pack.viewCount }} views ·
-                    {{ pack.downloadCount }} downloads
-                    <template v-if="pack.passwordRequired"> · password</template>
+                    {{ t('brandKits.statusSummary', { files: pack.assetIds.length, views: pack.viewCount, downloads: pack.downloadCount }) }}
+                    <template v-if="pack.passwordRequired"> · {{ t('brandKits.passwordProtected') }}</template>
                     <template v-if="pack.expiresAt">
-                      · expires {{ new Date(pack.expiresAt).toLocaleString() }}
+                      · {{ t('brandKits.expiresAt', { date: new Date(pack.expiresAt).toLocaleString(locale) }) }}
                     </template>
-                    <template v-if="pack.revokedAt"> · revoked</template>
+                    <template v-if="pack.revokedAt"> · {{ t('brandKits.revokedStatus') }}</template>
                   </p>
                 </div>
                 <div class="actions">
-                  <button type="button" class="link" @click="startEditPack(pack)">Edit</button>
+                  <button type="button" class="link" @click="startEditPack(pack)">{{ t('brandKits.edit') }}</button>
                   <button
                     type="button"
                     class="link"
                     :disabled="!!pack.revokedAt"
                     @click="copyLink(pack.shareUrl)"
                   >
-                    Copy link
+                    {{ t('brandKits.copyLink') }}
                   </button>
                   <button
                     type="button"
@@ -580,7 +595,7 @@ onUnmounted(stopPolling)
                     :disabled="!!pack.revokedAt"
                     @click="regenerateToken(pack.id)"
                   >
-                    New link
+                    {{ t('brandKits.newLink') }}
                   </button>
                   <button
                     type="button"
@@ -588,14 +603,19 @@ onUnmounted(stopPolling)
                     :disabled="!!pack.revokedAt"
                     @click="revokePack(pack.id)"
                   >
-                    Revoke
+                    {{ t('brandKits.revoke') }}
                   </button>
-                  <button type="button" class="link danger" @click="deletePack(pack.id)">Delete</button>
+                  <button type="button" class="link danger" :disabled="actionIds.has(`pack:${pack.id}`)" @click="deletePack(pack.id)">{{ t('brandKits.delete') }}</button>
                 </div>
               </div>
               <code class="share-url">{{ pack.shareUrl }}</code>
             </li>
           </ul>
+          <div v-if="packPageCount > 1" class="pagination">
+            <button type="button" class="link" :disabled="packPage === 1" @click="packPage--">{{ t('brandKits.previous') }}</button>
+            <span>{{ t('brandKits.page', { current: packPage, total: packPageCount }) }}</span>
+            <button type="button" class="link" :disabled="packPage === packPageCount" @click="packPage++">{{ t('brandKits.next') }}</button>
+          </div>
         </section>
       </template>
     </section>

@@ -67,6 +67,7 @@ const updateOrderSchema = z.object({
 })
 
 const refundSchema = z.object({
+  idempotencyKey: z.string().uuid(),
   amountKobo: z.number().int().positive().optional(),
   reason: z.string().min(1).max(2000),
 })
@@ -714,6 +715,7 @@ salesRoutes.post('/:id/refund', zValidator('json', refundSchema), async (c) => {
     amountKobo,
     reason: canonical.english ?? body.reason,
     userId: user.id,
+    idempotencyKey: body.idempotencyKey,
   })
   if (!result.ok) return c.json({ error: result.error }, 400)
 

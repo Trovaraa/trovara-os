@@ -18,6 +18,7 @@ const {
   resendAttachmentList,
   mkdir,
   writeFile,
+  convertToNgn,
 } = vi.hoisted(() => ({
   eventData: {
     email_id: 'email-1' as string | undefined,
@@ -35,6 +36,7 @@ const {
   resendAttachmentList: vi.fn(),
   mkdir: vi.fn(),
   writeFile: vi.fn(),
+  convertToNgn: vi.fn(),
 }))
 
 vi.mock('./newsletter-resend.js', () => ({
@@ -59,7 +61,11 @@ vi.mock('../db/index.js', () => ({
     update: () => ({
       set: (values: Row) => {
         updates.push(values)
-        return { where: vi.fn(async () => undefined) }
+        return {
+          where: vi.fn(() => ({
+            returning: async () => [{ id: 'evt-1', svixId: 'msg_1', ...values }],
+          })),
+        }
       },
     }),
     select: () => {
@@ -90,6 +96,7 @@ vi.mock('./evidence-store.js', () => ({
 }))
 
 vi.mock('./audit.js', () => ({ logAudit: vi.fn(async () => undefined) }))
+vi.mock('./currency-fx.js', () => ({ convertToNgn }))
 
 vi.mock('node:fs/promises', () => ({ mkdir, writeFile }))
 
@@ -111,6 +118,7 @@ describe('processFinanceInboundWebhook', () => {
     vi.clearAllMocks()
     process.env.RESEND_API_KEY = 're_test'
     process.env.RESEND_INBOUND_WEBHOOK_SECRET = 'whsec_inbound_test'
+    process.env.FINANCE_INBOUND_FARM_ID = 'farm-1'
     delete process.env.FINANCE_INBOUND_RECIPIENTS
     eventData.email_id = 'email-1'
     eventData.to = ['finance@trovara.farm']
@@ -124,6 +132,25 @@ describe('processFinanceInboundWebhook', () => {
         amount: 12500,
       },
     ])
+    convertToNgn.mockImplementation(async (amount: number, currency: string) =>
+      currency === 'NGN'
+        ? {
+            amount,
+            currency: 'NGN',
+            originalAmount: null,
+            originalCurrency: null,
+            fxRate: null,
+            fxConvertedAt: null,
+          }
+        : {
+            amount: Math.round(amount * 1550),
+            currency: 'NGN',
+            originalAmount: String(amount),
+            originalCurrency: currency,
+            fxRate: '1550',
+            fxConvertedAt: new Date('2026-08-10T12:01:00.000Z'),
+          },
+    )
     vi.mocked(verifyResendWebhook).mockImplementation(() => ({
       type: 'email.received',
       data: { ...eventData, to: [...eventData.to] },
@@ -172,6 +199,9 @@ describe('processFinanceInboundWebhook', () => {
       amount: 12500,
       source: 'inbound_email',
       inboundMessageId: 'email-1',
+      inboundSenderEmail: 'bills@vendor.test',
+      inboundSenderName: 'Vendor Co',
+      receiptRef: '<msg-1>',
       approvalStatus: 'pending',
     })
     expect(verifyResendWebhook).toHaveBeenCalledWith(
@@ -179,6 +209,40 @@ describe('processFinanceInboundWebhook', () => {
       { id: 'msg_1', timestamp: '1', signature: 'v1,sig' },
       { webhookSecret: 'whsec_inbound_test' },
     )
+  })
+
+  it('stores foreign invoices in NGN while preserving the original amount and rate', async () => {
+    resendGet.mockResolvedValueOnce({
+      data: {
+        subject: 'Resend invoice USD 20.00',
+        from: 'Resend <billing@resend.com>',
+        text: 'Total due: USD 20.00',
+        created_at: '2026-08-10T12:00:00.000Z',
+      },
+      error: null,
+    })
+
+    const result = await processFinanceInboundWebhook({
+      rawBody: '{}',
+      svixId: 'msg_usd',
+      svixTimestamp: '1',
+      svixSignature: 'v1,sig',
+    })
+
+    expect(result.expenseId).toBe('exp-1')
+    expect(convertToNgn).toHaveBeenCalledWith(
+      20,
+      'USD',
+      new Date('2026-08-10T12:00:00.000Z'),
+    )
+    expect(insertedValues[1]).toMatchObject({
+      amount: 31000,
+      currency: 'NGN',
+      originalAmount: '20',
+      originalCurrency: 'USD',
+      fxRate: '1550',
+      approvalStatus: 'pending',
+    })
   })
 
   it('rejects an invalid signature before recording an event', async () => {
@@ -200,6 +264,8 @@ describe('processFinanceInboundWebhook', () => {
 
   it('returns idempotently for a repeated Svix event', async () => {
     insertReturning.mockResolvedValueOnce([])
+    selectQueue.length = 0
+    selectQueue.push([{ id: 'evt-existing', status: 'processed', expenseId: null }])
 
     const result = await processFinanceInboundWebhook({
       rawBody: '{}',

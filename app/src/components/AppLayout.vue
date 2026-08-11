@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
+import { canAccessRoute } from '@/lib/navigation'
 import { onlineStatus, pendingSyncCount, lastSyncedAt, syncStatus, retrySync } from '@/lib/offline-api'
 
 defineProps<{ workerMode?: boolean }>()
 
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const menuOpen = ref(false)
+const workerMoreOpen = ref(false)
 const retrying = ref(false)
 const mainEl = ref<HTMLElement | null>(null)
 
@@ -39,6 +43,7 @@ watch(
   async () => {
     await nextTick()
     mainEl.value?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    openActiveGroup()
   },
 )
 
@@ -134,7 +139,7 @@ const userInitials = computed(() =>
     .join(''),
 )
 
-type NavItem = { to: string; labelKey: string; ownerOnly?: boolean; orderStaff?: boolean; financeAccess?: boolean; marketingStaff?: boolean }
+type NavItem = { to: string; labelKey: string }
 type NavGroup = { titleKey: string | null; items: NavItem[] }
 
 // Grouped sidebar. Field workers keep their flat two-item nav; sales get a
@@ -215,11 +220,21 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { to: '/sales', labelKey: 'nav.sales' },
         { to: '/support', labelKey: 'nav.support' },
-        { to: '/products', labelKey: 'nav.products', orderStaff: true },
-        { to: '/customer-insights', labelKey: 'nav.customerInsights', ownerOnly: true },
-        { to: '/marketing-leads', labelKey: 'nav.marketingLeads', marketingStaff: true },
-        { to: '/shop-customers', labelKey: 'nav.shopCustomers', marketingStaff: true },
+        { to: '/products', labelKey: 'nav.products' },
+        { to: '/customer-insights', labelKey: 'nav.customerInsights' },
+        { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
         { to: '/whatsapp', labelKey: 'nav.whatsapp' },
+      ],
+    },
+    {
+      titleKey: 'nav.grpContent',
+      items: [
+        { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
+        { to: '/journal', labelKey: 'nav.journal' },
+        { to: '/brand-kits', labelKey: 'nav.brandKits' },
+        { to: '/moments', labelKey: 'nav.moments' },
+        { to: '/careers', labelKey: 'nav.careers' },
+        { to: '/newsletter', labelKey: 'nav.newsletter' },
       ],
     },
     {
@@ -229,12 +244,8 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/events', labelKey: 'nav.events' },
         { to: '/ai', labelKey: 'nav.ai' },
         { to: '/reports', labelKey: 'nav.reports' },
-        { to: '/journal', labelKey: 'nav.journal', ownerOnly: true },
-        { to: '/brand-kits', labelKey: 'nav.brandKits', ownerOnly: true },
-        { to: '/moments', labelKey: 'nav.moments' },
-        { to: '/careers', labelKey: 'nav.careers', ownerOnly: true },
-        { to: '/newsletter', labelKey: 'nav.newsletter', ownerOnly: true },
-        { to: '/finance', labelKey: 'nav.finance', financeAccess: true },
+        { to: '/finance', labelKey: 'nav.finance' },
+        { to: '/tasks/post-approval', labelKey: 'nav.postApproval' },
       ],
     },
     {
@@ -242,8 +253,7 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { to: '/templates', labelKey: 'nav.templates' },
         { to: '/zones', labelKey: 'nav.zones' },
-        { to: '/users', labelKey: 'nav.users', ownerOnly: true },
-        { to: '/tasks/post-approval', labelKey: 'nav.postApproval' },
+        { to: '/users', labelKey: 'nav.users' },
         { to: '/settings', labelKey: 'nav.settings' },
       ],
     },
@@ -253,17 +263,18 @@ const navGroups = computed<NavGroup[]>(() => {
     .map((g) => ({
       ...g,
       items: g.items.filter((i) => {
-        if (i.ownerOnly && !auth.isOwner) return false
-        if (i.financeAccess && !auth.canAccessFinance) return false
-        if (i.orderStaff && !auth.canManageProducts) return false
-        if (i.marketingStaff && !auth.isOwner && !auth.isSales) return false
-        return true
+        return canAccessRoute(auth.user, router.resolve(i.to).meta)
       }),
     }))
     .filter((g) => g.items.length > 0)
 })
 
 const flatNavItems = computed(() => navGroups.value.flatMap((group) => group.items))
+const workerMoreItems = computed(() =>
+  flatNavItems.value.filter((item) =>
+    ['/hours', '/advisory', '/inventory', '/settings', '/traceability'].includes(item.to),
+  ),
+)
 
 const guidePages = computed(() => {
   const pages = flatNavItems.value.map(({ to, labelKey }) => ({ to, labelKey }))
@@ -289,9 +300,8 @@ function isExpanded(titleKey: string | null): boolean {
 }
 
 function toggleGroup(titleKey: string) {
-  const next = new Set(expandedGroups.value)
-  if (next.has(titleKey)) next.delete(titleKey)
-  else next.add(titleKey)
+  // Accordion behavior keeps a long owner menu scannable: one section at a time.
+  const next = expandedGroups.value.has(titleKey) ? new Set<string>() : new Set([titleKey])
   expandedGroups.value = next
   try {
     localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify([...next]))
@@ -300,29 +310,53 @@ function toggleGroup(titleKey: string) {
   }
 }
 
+function groupForPath(path: string): string | null {
+  const exact = navGroups.value.find((group) => group.items.some((item) => path === item.to))
+  if (exact?.titleKey) return exact.titleKey
+
+  const prefixes = navGroups.value.flatMap((group) =>
+    group.items.map((item) => ({ titleKey: group.titleKey, to: item.to })),
+  )
+  prefixes.sort((a, b) => b.to.length - a.to.length)
+  return prefixes.find((item) => path.startsWith(`${item.to}/`))?.titleKey ?? null
+}
+
+function openActiveGroup() {
+  const activeGroup = groupForPath(route.path)
+  if (!activeGroup || expandedGroups.value.has(activeGroup)) return
+  expandedGroups.value = new Set([activeGroup])
+  try {
+    localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify([activeGroup]))
+  } catch {
+    // Ignore storage failures (private mode, quota) - state stays in memory.
+  }
+}
+
 function initExpandedGroups() {
-  let stored: string[] | null = null
+  let stored: string[] = []
   try {
     const raw = localStorage.getItem(NAV_STORAGE_KEY)
     if (raw) stored = JSON.parse(raw)
   } catch {
-    stored = null
+    stored = []
   }
 
-  if (stored) {
-    expandedGroups.value = new Set(stored)
+  const activeGroup = groupForPath(route.path)
+  if (activeGroup) {
+    expandedGroups.value = new Set([activeGroup])
     return
   }
 
-  // The desktop product is easier to learn when its full information
-  // architecture is visible. People can still collapse sections they do not use.
-  expandedGroups.value = new Set(
+  const validKeys = new Set(
     navGroups.value.map((group) => group.titleKey).filter((key): key is string => Boolean(key)),
   )
+  const storedGroup = stored.find((key) => validKeys.has(key))
+  expandedGroups.value = storedGroup ? new Set([storedGroup]) : new Set()
 }
 
 function closeMenu() {
   menuOpen.value = false
+  workerMoreOpen.value = false
 }
 
 function isActive(path: string) {
@@ -419,14 +453,16 @@ async function handleRetry() {
     </header>
 
     <!-- Mobile drawer -->
-    <div
-      v-if="menuOpen && !isFieldWorker"
-      class="md:hidden fixed inset-0 z-50"
+    <AccessibleDialog
+      :open="menuOpen && !isFieldWorker"
+      title-id="mobile-nav-title"
+      :close-label="t('common.close')"
+      variant="drawer"
+      @close="closeMenu"
     >
-      <div class="absolute inset-0 bg-black/60" @click="closeMenu" />
-      <aside class="absolute left-0 top-0 bottom-0 w-72 bg-[var(--os-shell)] border-r border-[color:var(--os-border)] p-6 flex flex-col shadow-2xl">
+      <aside class="h-full w-72 bg-[var(--os-shell)] border-r border-[color:var(--os-border)] p-6 flex flex-col shadow-2xl">
         <div class="mb-6 flex items-center justify-between gap-2">
-          <TrovaraLogo />
+          <div id="mobile-nav-title"><TrovaraLogo /></div>
           <div class="flex items-center gap-1">
             <ThemeSwitcher compact />
             <button type="button" class="text-slate-400 hover:text-white p-2" :aria-label="t('common.close')" @click="closeMenu">
@@ -472,20 +508,21 @@ async function handleRetry() {
             </div>
           </div>
         </nav>
-        <div class="pt-4 border-t border-slate-800">
+        <div class="pt-4 border-t border-slate-800 space-y-3">
+          <div id="mobile-drawer-guide-trigger" class="flex" />
           <p class="text-sm font-semibold text-white">{{ auth.user?.name }}</p>
           <button
-            class="mt-3 text-sm text-slate-400 hover:text-red-400 transition-colors min-h-[2.75rem]"
+            class="text-sm text-slate-400 hover:text-red-400 transition-colors min-h-[2.75rem]"
             @click="auth.logout()"
           >
             {{ t('common.signOut') }}
           </button>
-          <p class="mt-4 text-[10px] text-slate-600 tracking-wide">
+          <p class="text-[10px] text-slate-600 tracking-wide">
             {{ t('common.craftedBy') }} <span class="text-farm-gold font-semibold">{{ t('brand.name') }}</span>
           </p>
         </div>
       </aside>
-    </div>
+    </AccessibleDialog>
 
     <!-- Desktop sidebar (collapsible) -->
     <aside
@@ -657,6 +694,7 @@ async function handleRetry() {
         class="mb-3 flex flex-col items-center gap-2"
       >
         <ThemeSwitcher compact toggle-only />
+        <LanguageSwitcher compact toggle-only />
       </div>
       <div
         id="desktop-guide-trigger"
@@ -755,18 +793,45 @@ async function handleRetry() {
           </svg>
           {{ t('nav.assets') }}
         </RouterLink>
-        <RouterLink
-          to="/traceability"
+        <button
+          type="button"
           class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[11px] font-semibold transition-colors"
-          :class="isActive('/traceability') ? 'text-farm-green' : 'text-slate-400'"
+          :class="workerMoreItems.some((item) => isActive(item.to)) ? 'text-farm-green' : 'text-slate-400'"
+          :aria-expanded="workerMoreOpen"
+          @click="workerMoreOpen = true"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h3m-3 3h3m-3 3h3" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h.01M12 12h.01M19 12h.01" />
           </svg>
-          {{ t('nav.harvest') }}
-        </RouterLink>
+          {{ t('nav.more') }}
+        </button>
       </div>
     </nav>
+
+    <AccessibleDialog
+      :open="workerMoreOpen"
+      title-id="worker-more-title"
+      :close-label="t('common.close')"
+      @close="workerMoreOpen = false"
+    >
+      <div class="p-5">
+        <div class="flex items-center justify-between gap-3">
+          <h2 id="worker-more-title" class="text-lg font-bold text-white">{{ t('nav.more') }}</h2>
+          <button type="button" class="rounded-lg p-2 text-slate-400" :aria-label="t('common.close')" @click="workerMoreOpen = false">✕</button>
+        </div>
+        <nav class="mt-4 grid gap-2">
+          <RouterLink
+            v-for="item in workerMoreItems"
+            :key="item.to"
+            :to="item.to"
+            class="rounded-xl border border-slate-700 px-4 py-3 font-semibold text-slate-200"
+            @click="workerMoreOpen = false"
+          >
+            {{ t(item.labelKey) }}
+          </RouterLink>
+        </nav>
+      </div>
+    </AccessibleDialog>
   </div>
 </template>
 

@@ -1,3 +1,8 @@
+import { sql } from 'drizzle-orm'
+import { db } from '../db/index.js'
+import { rateLimitBuckets } from '../db/schema.js'
+import { eq } from 'drizzle-orm'
+
 type Bucket = { count: number; resetAt: number }
 
 const buckets = new Map<string, Bucket>()
@@ -39,4 +44,66 @@ export function resetRateLimitBucket(key?: string) {
     return
   }
   buckets.clear()
+}
+
+export type RateLimitResult = { allowed: boolean; retryAfterSec: number }
+
+/**
+ * PostgreSQL fixed-window limiter for public and cross-instance request limits.
+ * The upsert is atomic, so concurrent API instances cannot overspend a bucket.
+ *
+ * Backed by rateLimitBuckets from the shared schema.
+ */
+export async function checkDurableRateLimit(
+  key: string,
+  max: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const bucketKey = key.trim() || 'unknown'
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + windowMs)
+  const [row] = await db
+    .insert(rateLimitBuckets)
+    .values({
+      rateKey: bucketKey,
+      attemptCount: 1,
+      windowStartsAt: now,
+      expiresAt,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: rateLimitBuckets.rateKey,
+      set: {
+        attemptCount: sql`CASE
+          WHEN ${rateLimitBuckets.expiresAt} <= now() THEN 1
+          ELSE ${rateLimitBuckets.attemptCount} + 1
+        END`,
+        windowStartsAt: sql`CASE
+          WHEN ${rateLimitBuckets.expiresAt} <= now() THEN now()
+          ELSE ${rateLimitBuckets.windowStartsAt}
+        END`,
+        expiresAt: sql`CASE
+          WHEN ${rateLimitBuckets.expiresAt} <= now()
+          THEN now() + (${windowMs} * interval '1 millisecond')
+          ELSE ${rateLimitBuckets.expiresAt}
+        END`,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning({
+      attemptCount: rateLimitBuckets.attemptCount,
+      expiresAt: rateLimitBuckets.expiresAt,
+    })
+  const count = row?.attemptCount ?? 1
+  return {
+    allowed: count <= max,
+    retryAfterSec:
+      count <= max
+        ? 0
+        : Math.max(1, Math.ceil(((row?.expiresAt.getTime() ?? expiresAt.getTime()) - Date.now()) / 1000)),
+  }
+}
+
+export async function resetDurableRateLimitBucket(key: string): Promise<void> {
+  await db.delete(rateLimitBuckets).where(eq(rateLimitBuckets.rateKey, key))
 }

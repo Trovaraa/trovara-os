@@ -1,4 +1,4 @@
-# Trovara OS - Uptime Monitoring
+# Trovara OS health and uptime snapshots
 
 Use these HTTP probes against the public API base URL (via nginx or direct
 `127.0.0.1:3000` on the host).
@@ -46,14 +46,14 @@ alert reliably when that VM is unavailable. Configure:
 After setup, deliberately pause the API during an agreed maintenance window
 and confirm that failure and recovery alerts reach the selected contacts.
 
-## Daily Telegram health / SLA report
+## Daily Telegram health / uptime snapshot
 
 In addition to external monitors, Trovara can run a once-daily probe of OS and
-marketing endpoints and post a compact SLA summary to **owners and supervisors**
+marketing endpoints and post a compact point-in-time health summary to **owners and supervisors**
 who have linked Telegram chats:
 
 ```bash
-npm run send-health-sla
+npm run send-health-snapshot
 # POST /api/alerts/run-health-sla (CRON_SECRET + CRON_FARM_ID)
 ```
 
@@ -64,7 +64,9 @@ Default probes:
 | OS | `/health`, `/ready`, `/public/moments`, `/public/careers` |
 | Marketing | `/`, `/moments`, `/careers`, `/privacy` |
 
-Toggle off from **Settings → Daily health / SLA report**, or set
+The route and `HEALTH_SLA_*` environment names are retained for API
+compatibility; the result is a snapshot, not a contractual SLA calculation.
+Toggle off from **Settings → Daily health snapshot**, or set
 `HEALTH_SLA_TELEGRAM_ENABLED=false` on the API host. This does **not** replace
 farm ops proactive alerts (`send-proactive-alerts`).
 
@@ -73,8 +75,10 @@ farm ops proactive alerts (`send-proactive-alerts`).
 Owners and supervisors can also review backup recency via
 `GET /system-status` (session auth). The endpoint honors `BACKUP_DIR` and
 reports `lastBackup`, `backupCount`, `backupEvidence`, `backupReportStatus`,
-and `remoteDeliveryStatus`. External monitoring should additionally alert on
-failed systemd backup/restore-test units and stale reports.
+`remoteDeliveryStatus`, `restoreTestStatus`, `restoreTestAgeHours`, and
+`restoreTestFresh`. These are sanitized status fields; report paths and secrets
+are not exposed. External monitoring should additionally alert on failed
+systemd backup/restore-test units and stale reports.
 
 ## Related ops docs
 

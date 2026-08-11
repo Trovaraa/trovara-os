@@ -71,14 +71,15 @@ import { logApiEvent } from './lib/api-log.js'
 import { ensureBreakGlassOwner } from './lib/break-glass.js'
 import { getBreakGlassEmail, getBreakGlassPasswordFromEnv } from './lib/registration.js'
 import { clientIpFromHeaders } from './lib/client-ip.js'
+import { deploymentSha } from './lib/deployment.js'
 
 const app = new Hono()
 
 app.use('*', ...securityMiddleware())
+app.use('*', requestLogger)
 app.use('/auth/*', authMutationRateLimit)
 app.use('/api/*', apiMutationRateLimit)
 app.use('/shop/*', apiMutationRateLimit)
-app.use('*', requestLogger)
 
 app.route('/auth', authRoutes)
 app.route('/api/dashboard', dashboardRoutes)
@@ -154,10 +155,12 @@ app.onError((err, c) => {
   const message = err instanceof Error ? err.message : String(err)
   console.error('Unhandled error:', message)
   logApiEvent('unhandled_error', {
+    requestId: c.res.headers.get('x-request-id') ?? c.req.header('x-request-id') ?? 'unknown',
     path: c.req.path,
     method: c.req.method,
     status: c.res.status,
     message,
+    deploymentSha: deploymentSha(),
   })
   if (process.env.NODE_ENV === 'development' && err instanceof Error && err.stack) {
     console.error(err.stack)

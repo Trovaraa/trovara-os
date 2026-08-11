@@ -21,6 +21,7 @@ function probe(
 describe('healthSlaEnvEnabled', () => {
   afterEach(() => {
     delete process.env.HEALTH_SLA_TELEGRAM_ENABLED
+    delete process.env.HEALTH_SNAPSHOT_TELEGRAM_ENABLED
   })
 
   it('defaults to enabled', () => {
@@ -69,7 +70,7 @@ describe('summarizeHealthProbes', () => {
 })
 
 describe('renderHealthSlaTelegram', () => {
-  it('renders a compact SLA summary', () => {
+  it('renders a compact point-in-time health snapshot', () => {
     const text = renderHealthSlaTelegram({
       checkedAt: '2026-08-10T12:00:00.000Z',
       osBaseUrl: 'https://os.trovara.farm',
@@ -97,7 +98,7 @@ describe('renderHealthSlaTelegram', () => {
     })
 
     expect(text).toContain('⚠️ Trovara daily health — 2026-08-10')
-    expect(text).toContain('SLA: 1/2 probes OK (50%) · DEGRADED')
+    expect(text).toContain('Health snapshot: 1/2 probes OK (50%) · DEGRADED')
     expect(text).toContain('✅ OS liveness')
     expect(text).toContain('❌ Marketing home')
   })

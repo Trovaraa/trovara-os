@@ -1,11 +1,7 @@
 import { zValidator } from '@hono/zod-validator'
-import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { createReadStream } from 'node:fs'
-import { stat, writeFile, mkdir } from 'node:fs/promises'
-import { join, extname } from 'node:path'
-import { randomBytes } from 'node:crypto'
 import { db } from '../db/index.js'
 import { momentSubmissions, users } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
@@ -18,91 +14,32 @@ import {
   emailButton,
 } from '../lib/email-template.js'
 import { sendEmail } from '../lib/notifications.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { getBreakGlassEmail } from '../lib/registration.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { notifyRolesTelegram } from '../lib/farm-notify.js'
-import { getEvidenceStorageRoot } from '../lib/evidence-store.js'
 import type { SessionUser } from '../lib/session.js'
+import {
+  deleteMomentMedia,
+  hasMomentMediaSignature,
+  MOMENTS_MAX_UPLOAD_BYTES,
+  momentMediaKind,
+  momentMediaResponse,
+  normalizeMomentMediaMime,
+  storeMomentMedia,
+} from '../lib/moments-media.js'
 
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024 // 50MB
-
-const ALLOWED_IMAGE_MIMES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-])
-
-const ALLOWED_VIDEO_MIMES = new Set([
-  'video/mp4',
-  'video/quicktime',
-])
-
-const MIME_TO_EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/quicktime': 'mov',
-}
-
-const EXT_TO_MIME: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  mp4: 'video/mp4',
-  mov: 'video/quicktime',
-}
-
-function normalizeMediaMime(mime: string | undefined, filename?: string): string | null {
-  const lower = mime?.trim().toLowerCase()
-  if (!lower) {
-    if (!filename) return null
-    const ext = extname(filename).slice(1).toLowerCase()
-    return EXT_TO_MIME[ext] || null
-  }
-  if (ALLOWED_IMAGE_MIMES.has(lower) || ALLOWED_VIDEO_MIMES.has(lower)) {
-    return lower
-  }
-  return null
-}
-
-function mediaKindForMime(mime: string): 'image' | 'video' | null {
-  if (ALLOWED_IMAGE_MIMES.has(mime)) return 'image'
-  if (ALLOWED_VIDEO_MIMES.has(mime)) return 'video'
-  return null
-}
-
-function momentsStoragePath(farmId: string): string {
-  return join(getEvidenceStorageRoot(), 'moments', farmId)
-}
-
-async function storeMomentMedia(
-  farmId: string,
-  buffer: Buffer,
-  mime: string,
-): Promise<{ storageKey: string; byteSize: number }> {
-  const ext = MIME_TO_EXT[mime]
-  if (!ext) throw new Error('Unsupported media type')
-  
-  const filename = `${randomBytes(16).toString('base64url')}.${ext}`
-  const dir = momentsStoragePath(farmId)
-  await mkdir(dir, { recursive: true })
-  const path = join(dir, filename)
-  await writeFile(path, buffer)
-  
-  return {
-    storageKey: `moments/${farmId}/${filename}`,
-    byteSize: buffer.length,
-  }
-}
+const MOMENTS_PENDING_MAX_COUNT = 500
+const MOMENTS_PENDING_MAX_BYTES = 512 * 1024 * 1024
+const MOMENTS_CONSENT_VERSION = process.env.MOMENTS_CONSENT_VERSION?.trim() || '2026-08-11'
 
 const uploadSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   email: z.string().trim().email().max(320).optional(),
+  description: z.string().trim().min(1).max(300),
   consent: z.literal(true),
+  consentVersion: z.string().trim().min(1).max(40),
   honey: z.string().max(500).optional(),
 }).strict()
 
@@ -123,9 +60,9 @@ export const publicMomentsRoutes = new Hono()
 export const momentsRoutes = new Hono<{ Variables: AppVariables }>()
 momentsRoutes.use('*', authMiddleware)
 
-function publicRateLimit(c: { req: { header: (name: string) => string | undefined }; header: (name: string, value: string) => void }, action: string): boolean {
+async function publicRateLimit(c: { req: { header: (name: string) => string | undefined }; header: (name: string, value: string) => void }, action: string, max = 5): Promise<boolean> {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`moments:${action}:${ip}`, 5, 60_000)
+  const result = await checkDurableRateLimit(`moments:${action}:${ip}`, max, 60_000)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
@@ -207,6 +144,7 @@ publicMomentsRoutes.get('/', async (c) => {
       mimeType: momentSubmissions.mimeType,
       storageKey: momentSubmissions.storageKey,
       durationSeconds: momentSubmissions.durationSeconds,
+      description: momentSubmissions.description,
       createdAt: momentSubmissions.createdAt,
     })
     .from(momentSubmissions)
@@ -225,6 +163,7 @@ publicMomentsRoutes.get('/', async (c) => {
       mediaKind: m.mediaKind,
       mimeType: m.mimeType,
       durationSeconds: m.durationSeconds,
+      description: m.description,
       mediaUrl: `/public/moments/${m.id}/media`,
       createdAt: m.createdAt.toISOString(),
     })),
@@ -232,12 +171,19 @@ publicMomentsRoutes.get('/', async (c) => {
 })
 
 publicMomentsRoutes.get('/:id/media', async (c) => {
+  if (!(await publicRateLimit(c, 'media', 120))) {
+    return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  }
+  const farm = await resolveCustomerFarm()
+  if (!farm) return c.json({ error: 'Not found' }, 404)
+
   const [moment] = await db
     .select()
     .from(momentSubmissions)
     .where(
       and(
         eq(momentSubmissions.id, c.req.param('id')),
+        eq(momentSubmissions.farmId, farm.id),
         eq(momentSubmissions.status, 'approved')
       )
     )
@@ -247,17 +193,13 @@ publicMomentsRoutes.get('/:id/media', async (c) => {
     return c.json({ error: 'Not found' }, 404)
   }
 
-  const filePath = join(getEvidenceStorageRoot(), moment.storageKey)
   try {
-    const stats = await stat(filePath)
-    const stream = createReadStream(filePath)
-    return new Response(stream as any, {
-      headers: {
-        'Content-Type': moment.mimeType,
-        'Content-Length': String(stats.size),
-        'Cache-Control': 'public, max-age=86400',
-        'X-Content-Type-Options': 'nosniff',
-      },
+    return await momentMediaResponse({
+      farmId: farm.id,
+      storageKey: moment.storageKey,
+      mimeType: moment.mimeType,
+      rangeHeader: c.req.header('range'),
+      cacheControl: 'public, max-age=86400',
     })
   } catch {
     return c.json({ error: 'Not found' }, 404)
@@ -265,12 +207,16 @@ publicMomentsRoutes.get('/:id/media', async (c) => {
 })
 
 publicMomentsRoutes.post('/', async (c) => {
-  if (!publicRateLimit(c, 'upload')) {
+  if (!(await publicRateLimit(c, 'upload'))) {
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   }
 
   const contentType = c.req.header('content-type')
   const isMultipart = contentType?.includes('multipart/form-data')
+  const requestLength = Number(c.req.header('content-length'))
+  if (Number.isFinite(requestLength) && requestLength > MOMENTS_MAX_UPLOAD_BYTES) {
+    return c.json({ error: 'Payload too large (max 12MB)' }, 413)
+  }
 
   let parsedBody: z.infer<typeof uploadSchema>
   let fileBuffer: Buffer | null = null
@@ -282,7 +228,9 @@ publicMomentsRoutes.post('/', async (c) => {
     const fields = {
       name: formData.get('name') as string | null,
       email: formData.get('email') as string | null,
+      description: formData.get('description') as string | null,
       consent: formData.get('consent') === 'true',
+      consentVersion: formData.get('consentVersion') as string | null,
       honey: formData.get('honey') as string | null,
     }
     
@@ -290,11 +238,11 @@ publicMomentsRoutes.post('/', async (c) => {
     if (!file) return c.json({ error: 'File is required' }, 400)
     
     originalFilename = file.name
-    fileMime = normalizeMediaMime(file.type, originalFilename)
+    fileMime = normalizeMomentMediaMime(file.type, originalFilename)
     if (!fileMime) return c.json({ error: 'Unsupported file type' }, 415)
     
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return c.json({ error: 'File too large (max 50MB)' }, 413)
+    if (file.size > MOMENTS_MAX_UPLOAD_BYTES) {
+      return c.json({ error: 'File too large (max 12MB)' }, 413)
     }
     
     fileBuffer = Buffer.from(await file.arrayBuffer())
@@ -302,7 +250,9 @@ publicMomentsRoutes.post('/', async (c) => {
     const validation = uploadSchema.safeParse({
       name: fields.name || undefined,
       email: fields.email || undefined,
+      description: fields.description || '',
       consent: fields.consent,
+      consentVersion: fields.consentVersion || '',
       honey: fields.honey || undefined,
     })
     
@@ -315,6 +265,9 @@ publicMomentsRoutes.post('/', async (c) => {
   }
 
   if (parsedBody.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)
+  if (parsedBody.consentVersion !== MOMENTS_CONSENT_VERSION) {
+    return c.json({ error: 'The privacy notice changed. Refresh and consent again.' }, 409)
+  }
 
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ error: 'Form service is temporarily unavailable.' }, 503)
@@ -323,11 +276,34 @@ publicMomentsRoutes.post('/', async (c) => {
     return c.json({ error: 'Invalid file upload' }, 400)
   }
 
-  const mediaKind = mediaKindForMime(fileMime)
+  if (!hasMomentMediaSignature(fileMime, fileBuffer)) {
+    return c.json({ error: 'File content does not match its media type' }, 415)
+  }
+  const mediaKind = momentMediaKind(fileMime)
   if (!mediaKind) return c.json({ error: 'Unsupported media type' }, 415)
 
+  const [quota] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      bytes: sql<number>`coalesce(sum(${momentSubmissions.byteSize}), 0)::bigint`,
+    })
+    .from(momentSubmissions)
+    .where(
+      and(
+        eq(momentSubmissions.farmId, farm.id),
+        inArray(momentSubmissions.status, ['pending', 'rejected']),
+      ),
+    )
+  if (
+    Number(quota?.count ?? 0) >= MOMENTS_PENDING_MAX_COUNT ||
+    Number(quota?.bytes ?? 0) + fileBuffer.length > MOMENTS_PENDING_MAX_BYTES
+  ) {
+    return c.json({ error: 'Moment submission storage quota reached' }, 429)
+  }
+
+  let stored: Awaited<ReturnType<typeof storeMomentMedia>> | null = null
   try {
-    const stored = await storeMomentMedia(farm.id, fileBuffer, fileMime)
+    stored = await storeMomentMedia(farm.id, fileBuffer, fileMime)
     
     const [moment] = await db.insert(momentSubmissions).values({
       farmId: farm.id,
@@ -335,11 +311,16 @@ publicMomentsRoutes.post('/', async (c) => {
       submitterName: parsedBody.name || null,
       submitterEmail: parsedBody.email || null,
       consent: parsedBody.consent,
-      mediaKind,
-      mimeType: fileMime,
+      consentVersion: parsedBody.consentVersion,
+      consentAt: new Date(),
+      description: parsedBody.description,
+      mediaKind: stored.mediaKind,
+      mimeType: stored.mimeType,
       originalFilename,
       storageKey: stored.storageKey,
       byteSize: stored.byteSize,
+      durationSeconds: stored.durationSeconds,
+      retentionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     }).returning()
 
     void notifyMomentSubmission(moment).catch((error) => {
@@ -348,6 +329,9 @@ publicMomentsRoutes.post('/', async (c) => {
 
     return c.json(PUBLIC_ACCEPTED, 202)
   } catch (error) {
+    if (stored) {
+      await deleteMomentMedia(farm.id, stored.storageKey).catch(() => undefined)
+    }
     console.error('Moment upload failed:', safeError(error))
     return c.json({ error: 'Upload failed' }, 500)
   }
@@ -395,6 +379,9 @@ momentsRoutes.get('/', zValidator('query', statusSchema), async (c) => {
       status: m.status,
       submitterName: m.submitterName,
       submitterEmail: m.submitterEmail,
+      description: m.description,
+      consentVersion: m.consentVersion,
+      consentAt: m.consentAt?.toISOString() ?? null,
       mediaKind: m.mediaKind,
       mimeType: m.mimeType,
       originalFilename: m.originalFilename,
@@ -434,6 +421,8 @@ momentsRoutes.patch('/:id', zValidator('json', reviewSchema), async (c) => {
       reviewNote: body.reviewNote || null,
       reviewedById: user.id,
       reviewedAt: new Date(),
+      retentionExpiresAt:
+        body.status === 'approved' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     })
     .where(
       and(
@@ -475,17 +464,13 @@ momentsRoutes.get('/:id/media', async (c) => {
 
   if (!moment?.storageKey) return c.json({ error: 'Not found' }, 404)
 
-  const filePath = join(getEvidenceStorageRoot(), moment.storageKey)
   try {
-    const stats = await stat(filePath)
-    const stream = createReadStream(filePath)
-    return new Response(stream as any, {
-      headers: {
-        'Content-Type': moment.mimeType,
-        'Content-Length': String(stats.size),
-        'Cache-Control': 'private, max-age=3600',
-        'X-Content-Type-Options': 'nosniff',
-      },
+    return await momentMediaResponse({
+      farmId: user.farmId,
+      storageKey: moment.storageKey,
+      mimeType: moment.mimeType,
+      rangeHeader: c.req.header('range'),
+      cacheControl: 'private, max-age=3600',
     })
   } catch {
     return c.json({ error: 'Not found' }, 404)

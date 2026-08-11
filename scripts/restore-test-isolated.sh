@@ -81,10 +81,21 @@ else
 fi
 
 docker run --detach --rm --name "$container" \
+  --network none \
+  --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=2g \
+  --label "com.trovara.purpose=isolated-restore-test" \
+  --label "com.trovara.production-target=forbidden" \
   --env "POSTGRES_USER=$test_user" \
   --env "POSTGRES_PASSWORD=$test_password" \
   --env "POSTGRES_DB=$test_database" \
   "$image" >/dev/null
+
+network_mode="$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")"
+mount_count="$(docker inspect --format '{{len .Mounts}}' "$container")"
+if [[ "$network_mode" != "none" || "$mount_count" != "0" ]]; then
+  echo "Restore isolation invariant failed: network=$network_mode mounts=$mount_count" >&2
+  exit 1
+fi
 
 ready=0
 for _ in {1..30}; do
@@ -114,6 +125,37 @@ if [[ ! "$table_count" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+critical_tables="$(docker exec "$container" psql \
+  --username "$test_user" --dbname "$test_database" --tuples-only --no-align \
+  -c "SELECT count(*) FROM (VALUES ('farms'), ('users'), ('audit_events')) AS required(name)
+      WHERE to_regclass('public.' || required.name) IS NOT NULL;")"
+if [[ "$critical_tables" != "3" ]]; then
+  echo "Restore test failed: one or more critical tables are missing" >&2
+  exit 1
+fi
+
+expected_migrations="$(
+  shopt -s nullglob
+  migration_files=("$ROOT_DIR"/api/drizzle/*/migration.sql)
+  echo "${#migration_files[@]}"
+)"
+restored_migrations="$(docker exec "$container" psql \
+  --username "$test_user" --dbname "$test_database" --tuples-only --no-align \
+  -c "SELECT count(*) FROM drizzle.__drizzle_migrations;")"
+if [[ "$restored_migrations" != "$expected_migrations" ]]; then
+  echo "Restore test failed: migration journal has $restored_migrations entries; expected $expected_migrations" >&2
+  exit 1
+fi
+
+farm_count="$(docker exec "$container" psql \
+  --username "$test_user" --dbname "$test_database" --tuples-only --no-align \
+  -c "SELECT count(*) FROM farms;")"
+if [[ "${RESTORE_TEST_REQUIRE_DATA:-1}" == "1" &&
+      ! "$farm_count" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Restore test failed: production backup contains no farm rows" >&2
+  exit 1
+fi
+
 mkdir -p "$REPORT_DIR"
 chmod 700 "$REPORT_DIR" 2>/dev/null || true
 report="$REPORT_DIR/latest-restore-test.json"
@@ -127,6 +169,10 @@ printf '%s\n' \
   "  \"completedAt\": \"$completed_at\"," \
   "  \"backup\": \"$backup_name\"," \
   "  \"publicTableCount\": $table_count," \
+  "  \"migrationCount\": $restored_migrations," \
+  "  \"farmCount\": $farm_count," \
+  '  "networkMode": "none",' \
+  '  "mountCount": 0,' \
   '  "target": "ephemeral-container"' \
   '}' > "$report_partial"
 chmod 600 "$report_partial" 2>/dev/null || true

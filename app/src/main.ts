@@ -7,6 +7,7 @@ import i18n from './i18n'
 import { startOfflineSyncListener } from '@/lib/offline-api'
 import { applyTheme, readStoredTheme } from '@/lib/theme'
 import './style.css'
+import { announceSwUpdate } from '@/lib/sw-update'
 
 // Re-apply after module load (index.html already set class to avoid FOUC).
 applyTheme(readStoredTheme())
@@ -18,22 +19,7 @@ if (import.meta.env.PROD) {
   import('virtual:pwa-register').then(({ registerSW }) => {
     const updateSW = registerSW({
       onNeedRefresh() {
-        const banner = document.createElement('div')
-        banner.id = 'sw-update-banner'
-        banner.style.cssText = [
-          'position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%)',
-          'background:#1f6b42;color:#fff;padding:0.75rem 1.25rem',
-          'border-radius:0.75rem;font-size:0.85rem;font-weight:600',
-          'box-shadow:0 4px 24px rgba(0,0,0,0.5);z-index:9999',
-          'display:flex;align-items:center;gap:0.75rem;white-space:nowrap',
-        ].join(';')
-        banner.innerHTML =
-          'New version available - <button id="sw-update-btn" style="background:#fff;color:#1f6b42;border:none;border-radius:0.5rem;padding:0.25rem 0.75rem;font-weight:700;cursor:pointer">Update now</button>'
-        document.body.appendChild(banner)
-        document.getElementById('sw-update-btn')?.addEventListener('click', () => {
-          void updateSW(true)
-          banner.remove()
-        })
+        announceSwUpdate(() => updateSW(true))
       },
       onOfflineReady() {
         console.log('[Trovara OS] App shell cached - ready for offline use')

@@ -14,11 +14,13 @@ export function hashRegistrationToken(raw: string): string {
 
 export type GeneratedRegistrationToken = {
   id: string
+  farmId: string
   token: string
   expiresAt: Date
 }
 
 export async function createRegistrationToken(params: {
+  farmId: string
   createdByUserId?: string | null
   label?: string | null
   ttlHours?: number
@@ -31,6 +33,7 @@ export async function createRegistrationToken(params: {
   const [row] = await db
     .insert(registrationTokens)
     .values({
+      farmId: params.farmId,
       tokenHash: hashRegistrationToken(token),
       label: params.label?.trim() || null,
       createdByUserId: params.createdByUserId ?? null,
@@ -38,7 +41,7 @@ export async function createRegistrationToken(params: {
     })
     .returning({ id: registrationTokens.id })
 
-  return { id: row.id, token, expiresAt }
+  return { id: row.id, farmId: params.farmId, token, expiresAt }
 }
 
 export type RegistrationTokenStatus = 'valid' | 'used' | 'expired' | 'revoked' | 'not_found'
@@ -58,7 +61,7 @@ export function computeRegistrationTokenStatus(
 }
 
 export type InspectResult =
-  | { status: 'valid'; id: string }
+  | { status: 'valid'; id: string; farmId: string }
   | { status: Exclude<RegistrationTokenStatus, 'valid'> }
 
 /** Non-mutating validity check used to decide the registration flow. */
@@ -71,7 +74,7 @@ export async function inspectRegistrationToken(rawToken: string): Promise<Inspec
 
   if (!row) return { status: 'not_found' }
   const status = computeRegistrationTokenStatus(row)
-  return status === 'valid' ? { status: 'valid', id: row.id } : { status }
+  return status === 'valid' ? { status: 'valid', id: row.id, farmId: row.farmId } : { status }
 }
 
 /**
@@ -79,7 +82,9 @@ export async function inspectRegistrationToken(rawToken: string): Promise<Inspec
  * `used_at IS NULL` guard means a second caller with the same token loses.
  * Returns false if the token was already claimed / expired / revoked.
  */
-export async function claimRegistrationToken(tokenId: string): Promise<boolean> {
+export async function claimRegistrationToken(
+  tokenId: string,
+): Promise<{ farmId: string } | null> {
   const now = new Date()
   const claimed = await db
     .update(registrationTokens)
@@ -92,8 +97,8 @@ export async function claimRegistrationToken(tokenId: string): Promise<boolean> 
         gt(registrationTokens.expiresAt, now),
       ),
     )
-    .returning({ id: registrationTokens.id })
-  return claimed.length > 0
+    .returning({ farmId: registrationTokens.farmId })
+  return claimed[0] ?? null
 }
 
 /** Record which user consumed the token (after the account is created). */
@@ -133,6 +138,7 @@ export async function hasActiveRegistrationTokens(): Promise<boolean> {
 
 export type RegistrationTokenSummary = {
   id: string
+  farmId: string
   label: string | null
   createdAt: string
   expiresAt: string
@@ -143,10 +149,11 @@ export type RegistrationTokenSummary = {
 }
 
 /** Owner-facing list (never exposes the raw token or its hash). */
-export async function listRegistrationTokens(): Promise<RegistrationTokenSummary[]> {
+export async function listRegistrationTokens(farmId: string): Promise<RegistrationTokenSummary[]> {
   const rows = await db
     .select({
       id: registrationTokens.id,
+      farmId: registrationTokens.farmId,
       label: registrationTokens.label,
       createdAt: registrationTokens.createdAt,
       expiresAt: registrationTokens.expiresAt,
@@ -156,11 +163,13 @@ export async function listRegistrationTokens(): Promise<RegistrationTokenSummary
     })
     .from(registrationTokens)
     .leftJoin(users, eq(registrationTokens.usedByUserId, users.id))
+    .where(eq(registrationTokens.farmId, farmId))
     .orderBy(desc(registrationTokens.createdAt))
     .limit(200)
 
   return rows.map((row) => ({
     id: row.id,
+    farmId: row.farmId,
     label: row.label,
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -172,11 +181,17 @@ export async function listRegistrationTokens(): Promise<RegistrationTokenSummary
 }
 
 /** Revoke an unused token. Returns false if it does not exist. */
-export async function revokeRegistrationToken(tokenId: string): Promise<boolean> {
+export async function revokeRegistrationToken(farmId: string, tokenId: string): Promise<boolean> {
   const revoked = await db
     .update(registrationTokens)
     .set({ revokedAt: new Date() })
-    .where(and(eq(registrationTokens.id, tokenId), isNull(registrationTokens.usedAt)))
+    .where(
+      and(
+        eq(registrationTokens.id, tokenId),
+        eq(registrationTokens.farmId, farmId),
+        isNull(registrationTokens.usedAt),
+      ),
+    )
     .returning({ id: registrationTokens.id })
   return revoked.length > 0
 }

@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const auth = useAuthStore()
-const canRemove = computed(() => auth.isOwner)
+const canRemove = computed(() => auth.hasPermission('products.delete'))
 
 type Product = {
   id: string

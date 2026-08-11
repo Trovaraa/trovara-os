@@ -4,6 +4,8 @@ import { customerContacts, farmEvents, sessions, tasks, users } from '../db/sche
 import { deleteEvidenceByUrl } from './evidence-store.js'
 import { purgeExpiredLoginRateLimits } from './login-rate-limit.js'
 import { loginRateLimits } from '../db/schema.js'
+import { cleanupUnpublishedMoments } from './moments-retention.js'
+import { processStorageCleanupJobs } from './storage-cleanup.js'
 
 const CHAT_ENTITY_TYPES = ['whatsapp_message', 'telegram_message'] as const
 const REDACTED_TEXT = '[redacted]'
@@ -134,6 +136,10 @@ export async function runDataRetention(farmId?: string): Promise<{
   redactedChatMessages: number
   nulledContactPhones: number
   purgedLoginRateLimits: number
+  purgedMomentSubmissions: number
+  deletedMomentFiles: number
+  completedStorageCleanups: number
+  failedStorageCleanups: number
 }> {
   const config = getRetentionConfig()
   const evidenceCutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000)
@@ -249,6 +255,8 @@ export async function runDataRetention(farmId?: string): Promise<{
   // audit_events rows are append-only and never deleted by retention (legal hold safe).
 
   const purgedLoginRateLimits = await purgeExpiredLoginRateLimits()
+  const momentsCleanup = await cleanupUnpublishedMoments(farmId)
+  const storageCleanup = await processStorageCleanupJobs()
 
   return {
     farmId,
@@ -261,5 +269,9 @@ export async function runDataRetention(farmId?: string): Promise<{
     redactedChatMessages: redactedRows.length,
     nulledContactPhones: nulledContacts.length,
     purgedLoginRateLimits,
+    purgedMomentSubmissions: momentsCleanup.deletedRows,
+    deletedMomentFiles: momentsCleanup.deletedFiles,
+    completedStorageCleanups: storageCleanup.completed,
+    failedStorageCleanups: storageCleanup.failed,
   }
 }

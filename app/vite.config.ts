@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -8,7 +8,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 // policy travels with the document instead of depending on the proxy. Build
 // only: in dev this would refuse Vite's HMR socket. `frame-ancestors` is
 // ignored in a meta tag and stays in the nginx config.
-function contentSecurityPolicy(): Plugin {
+function contentSecurityPolicy(apiUrl: string): Plugin {
+  let apiOrigin = ''
+  try {
+    apiOrigin = apiUrl ? new URL(apiUrl).origin : ''
+  } catch {
+    throw new Error('VITE_API_URL must be an absolute URL when configured')
+  }
+  const external = apiOrigin && apiOrigin !== 'null' ? ` ${apiOrigin}` : ''
   const policy = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -17,10 +24,10 @@ function contentSecurityPolicy(): Plugin {
     "script-src 'self'",
     "style-src 'self'",
     // Evidence photos and voice notes are read back as object URLs.
-    "img-src 'self' data: blob:",
-    "media-src 'self' blob:",
+    `img-src 'self' data: blob:${external}`,
+    `media-src 'self' blob:${external}`,
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self'${external}`,
     "worker-src 'self'",
     "manifest-src 'self'",
   ].join('; ')
@@ -44,10 +51,12 @@ function contentSecurityPolicy(): Plugin {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
   plugins: [
     vue(),
-    contentSecurityPolicy(),
+    contentSecurityPolicy(env.VITE_API_URL?.trim() ?? ''),
     VitePWA({
       registerType: 'prompt',
       includeAssets: ['icons/trovara-os-icon.svg', 'icons/icon-maskable.svg'],
@@ -92,4 +101,5 @@ export default defineConfig({
       '/public': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },
+  }
 })

@@ -13,6 +13,7 @@ let farmLookupError: Error | null = null
 let notifyRecipientRows: Row[] = []
 let criticalRecipientRows: Row[] = []
 let telegramLinkRows: Row[] = []
+const executeAlertRun = vi.fn(async () => [{ run_key: 'claimed' }])
 
 /**
  * Route the fake query by the columns it selects: `{ name }` is the farms
@@ -41,6 +42,7 @@ type Builder = {
 
 vi.mock('../db/index.js', () => ({
   db: {
+    execute: executeAlertRun,
     select: (columns?: Record<string, unknown>) => {
       const load = async () => rowsFor(columns)
       // where() must be thenable (notify fan-out awaits it) and also expose
@@ -90,9 +92,8 @@ vi.mock('../lib/exceptions.js', () => ({
   gatherExceptions: vi.fn(),
 }))
 
-vi.mock('../lib/health-sla.js', () => ({
-  healthSlaEnvEnabled: vi.fn(() => true),
-  collectHealthSlaReport: vi.fn(async () => ({
+vi.mock('../lib/health-sla.js', () => {
+  const collect = vi.fn(async () => ({
     checkedAt: '2026-08-10T12:00:00.000Z',
     osBaseUrl: 'https://os.trovara.farm',
     marketingBaseUrl: 'https://www.trovara.farm',
@@ -101,11 +102,18 @@ vi.mock('../lib/health-sla.js', () => ({
     totalCount: 8,
     successRate: 100,
     status: 'healthy' as const,
-  })),
-  renderHealthSlaTelegram: vi.fn(
+  }))
+  const render = vi.fn(
     () => '✅ Trovara daily health — 2026-08-10\nSLA: 8/8 probes OK (100%) · HEALTHY',
-  ),
-}))
+  )
+  return {
+    healthSlaEnvEnabled: vi.fn(() => true),
+    collectHealthSnapshotReport: collect,
+    collectHealthSlaReport: collect,
+    renderHealthSnapshotTelegram: render,
+    renderHealthSlaTelegram: render,
+  }
+})
 
 vi.mock('../lib/notifications.js', () => ({
   deliverCriticalAlert: vi.fn(async () => [
@@ -235,6 +243,7 @@ async function runProactive(): Promise<{ status: number; body: ProactiveBody }> 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  executeAlertRun.mockResolvedValue([{ run_key: 'claimed' }])
   delete process.env.CRON_SECRET
   sessionUser = { id: 'user-owner', farmId: FARM_ID, role: 'owner', email: 'o@t.farm' }
   farmRows = [{ name: FARM_NAME, healthSlaAlertsEnabled: true }]
@@ -269,6 +278,17 @@ beforeEach(() => {
 })
 
 describe('POST /alerts/run-proactive - farm name, not farm id', () => {
+  it('acknowledges a duplicate run without repeating side effects', async () => {
+    executeAlertRun.mockResolvedValueOnce([])
+
+    const { status, body } = await runProactive()
+
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ ok: true })
+    expect(mockCheckAlerts).not.toHaveBeenCalled()
+    expect(sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('names the farm in the all-clear push', async () => {
     const { status } = await runProactive()
 

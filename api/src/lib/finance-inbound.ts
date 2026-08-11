@@ -1,14 +1,14 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, lt, or, sql } from 'drizzle-orm'
 import { Resend } from 'resend'
 import { db } from '../db/index.js'
-import { expenses, financeInboundEvents, farms, users } from '../db/schema.js'
-import { resolveCustomerFarm } from './customer-orders.js'
+import { expenses, financeInboundEvents, users } from '../db/schema.js'
 import { getEvidenceStorageRoot } from './evidence-store.js'
 import { verifyResendWebhook, resendInboundWebhookSecret } from './newsletter-resend.js'
 import { extractInvoiceFields } from './invoice-extract.js'
+import { convertToNgn, FxAmountOverflowError } from './currency-fx.js'
 import { logAudit } from './audit.js'
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
@@ -64,11 +64,27 @@ function extractVendor(from: string | null | undefined): string | null {
   return local ? local.slice(0, 200) : email.slice(0, 200)
 }
 
+/** Parse RFC5322-ish From into mailbox + display name for inbound drafts. */
+export function parseInboundFromHeader(from: string | null | undefined): {
+  email: string | null
+  name: string | null
+} {
+  if (!from?.trim()) return { email: null, name: null }
+  const trimmed = from.trim()
+  const angled = trimmed.match(/^(.*?)\s*<([^>]+)>\s*$/)
+  if (angled) {
+    const email = normalizeEmailAddress(angled[2])
+    const name = angled[1].replace(/^["']|["']$/g, '').trim() || null
+    return {
+      email,
+      name: name && email && name.toLowerCase() !== email ? name.slice(0, 200) : null,
+    }
+  }
+  return { email: normalizeEmailAddress(trimmed), name: null }
+}
+
 async function resolveInboundFarmId(): Promise<string | null> {
-  const farm = await resolveCustomerFarm()
-  if (farm) return farm.id
-  const [first] = await db.select({ id: farms.id }).from(farms).orderBy(asc(farms.createdAt)).limit(1)
-  return first?.id ?? null
+  return process.env.FINANCE_INBOUND_FARM_ID?.trim() || null
 }
 
 async function resolveRecorderUserId(farmId: string): Promise<string | null> {
@@ -119,6 +135,20 @@ async function storeInboundAttachment(
   return { storageKey: `finance-inbound/${farmId}/${stored}`, safeName }
 }
 
+export async function markFinanceInboundFailed(svixId: string, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : 'Inbound processing failed'
+  await db
+    .update(financeInboundEvents)
+    .set({
+      status: 'failed',
+      lastError: message.slice(0, 1_000),
+      detail: message.slice(0, 1_000),
+      lockedAt: null,
+      lockExpiresAt: null,
+    })
+    .where(and(eq(financeInboundEvents.svixId, svixId), eq(financeInboundEvents.status, 'processing')))
+}
+
 export async function processFinanceInboundWebhook(params: {
   rawBody: string
   svixId: string
@@ -145,16 +175,62 @@ export async function processFinanceInboundWebhook(params: {
     .onConflictDoNothing({ target: financeInboundEvents.svixId })
     .returning()
 
-  if (!inserted.length) {
-    return { ok: true, duplicate: true }
+  let eventRow = inserted[0]
+  if (!eventRow) {
+    const [existing] = await db
+      .select()
+      .from(financeInboundEvents)
+      .where(eq(financeInboundEvents.svixId, params.svixId))
+      .limit(1)
+    if (!existing) throw new Error('Could not claim inbound event')
+    if (['processed', 'duplicate', 'ignored'].includes(existing.status)) {
+      return {
+        ok: true,
+        expenseId: existing.expenseId ?? undefined,
+        duplicate: true,
+        ignored: existing.status === 'ignored' || undefined,
+      }
+    }
   }
 
-  const eventRow = inserted[0]!
+  const now = new Date()
+  const leaseExpiresAt = new Date(now.getTime() + 5 * 60_000)
+  const [claimed] = await db
+    .update(financeInboundEvents)
+    .set({
+      status: 'processing',
+      lockedAt: now,
+      lockExpiresAt: leaseExpiresAt,
+      attemptCount: sql`${financeInboundEvents.attemptCount} + 1`,
+      lastError: null,
+    })
+    .where(
+      and(
+        eq(financeInboundEvents.svixId, params.svixId),
+        or(
+          eq(financeInboundEvents.status, 'received'),
+          eq(financeInboundEvents.status, 'failed'),
+          and(
+            eq(financeInboundEvents.status, 'processing'),
+            lt(financeInboundEvents.lockExpiresAt, now),
+          ),
+        ),
+      ),
+    )
+    .returning()
+  if (!claimed) return { ok: true, duplicate: true }
+  eventRow = claimed
 
   if (event.type !== 'email.received') {
     await db
       .update(financeInboundEvents)
-      .set({ status: 'ignored', detail: `Unhandled event ${event.type}` })
+      .set({
+        status: 'ignored',
+        detail: `Unhandled event ${event.type}`,
+        processedAt: new Date(),
+        lockedAt: null,
+        lockExpiresAt: null,
+      })
       .where(eq(financeInboundEvents.id, eventRow.id))
     return { ok: true, ignored: true }
   }
@@ -176,6 +252,9 @@ export async function processFinanceInboundWebhook(params: {
         status: 'ignored',
         detail: 'Recipient is not configured for finance inbound',
         resendEmailId: emailId,
+        processedAt: new Date(),
+        lockedAt: null,
+        lockExpiresAt: null,
       })
       .where(eq(financeInboundEvents.id, eventRow.id))
     return { ok: true, ignored: true }
@@ -184,7 +263,13 @@ export async function processFinanceInboundWebhook(params: {
   if (!emailId) {
     await db
       .update(financeInboundEvents)
-      .set({ status: 'error', detail: 'Missing email_id' })
+      .set({
+        status: 'failed',
+        detail: 'Missing email_id',
+        lastError: 'Missing email_id',
+        lockedAt: null,
+        lockExpiresAt: null,
+      })
       .where(eq(financeInboundEvents.id, eventRow.id))
     throw new Error('Missing email_id')
   }
@@ -193,7 +278,14 @@ export async function processFinanceInboundWebhook(params: {
   if (!farmId) {
     await db
       .update(financeInboundEvents)
-      .set({ status: 'error', detail: 'No farm configured', resendEmailId: emailId })
+      .set({
+        status: 'failed',
+        detail: 'FINANCE_INBOUND_FARM_ID is not configured',
+        lastError: 'FINANCE_INBOUND_FARM_ID is not configured',
+        resendEmailId: emailId,
+        lockedAt: null,
+        lockExpiresAt: null,
+      })
       .where(eq(financeInboundEvents.id, eventRow.id))
     throw new Error('No farm configured')
   }
@@ -202,7 +294,14 @@ export async function processFinanceInboundWebhook(params: {
   if (!recorderId) {
     await db
       .update(financeInboundEvents)
-      .set({ status: 'error', detail: 'No staff user to attribute expense', resendEmailId: emailId })
+      .set({
+        status: 'failed',
+        detail: 'No staff user to attribute expense',
+        lastError: 'No staff user to attribute expense',
+        resendEmailId: emailId,
+        lockedAt: null,
+        lockExpiresAt: null,
+      })
       .where(eq(financeInboundEvents.id, eventRow.id))
     throw new Error('No staff user')
   }
@@ -216,7 +315,14 @@ export async function processFinanceInboundWebhook(params: {
   if (existingExpense) {
     await db
       .update(financeInboundEvents)
-      .set({ status: 'duplicate', expenseId: existingExpense.id, resendEmailId: emailId })
+      .set({
+        status: 'duplicate',
+        expenseId: existingExpense.id,
+        resendEmailId: emailId,
+        processedAt: new Date(),
+        lockedAt: null,
+        lockExpiresAt: null,
+      })
       .where(eq(financeInboundEvents.id, eventRow.id))
     return { ok: true, expenseId: existingExpense.id, duplicate: true }
   }
@@ -230,12 +336,18 @@ export async function processFinanceInboundWebhook(params: {
     text?: string | null
     html?: string | null
     created_at?: string
+    message_id?: string | null
   } | null
 
   const subject = (receivedData?.subject ?? data.subject ?? 'Inbound invoice').trim()
   const from = receivedData?.from ?? data.from ?? null
   const bodyText = (receivedData?.text ?? '').trim() || (receivedData?.html ?? '').replace(/<[^>]+>/g, ' ')
   const fromVendorHint = extractVendor(from)
+  const sender = parseInboundFromHeader(from)
+  const messageIdRaw = (data.message_id ?? receivedData?.message_id)?.trim()
+  const receiptRef = messageIdRaw
+    ? messageIdRaw.slice(0, 200)
+    : emailId.slice(0, 200)
 
   let attachmentFilename: string | null = null
   let attachmentStorageKey: string | null = null
@@ -285,11 +397,16 @@ export async function processFinanceInboundWebhook(params: {
         status: 'ignored',
         detail: 'No supported PDF, JPEG, PNG, or WebP attachment was available',
         resendEmailId: emailId,
+        processedAt: new Date(),
+        lockedAt: null,
+        lockExpiresAt: null,
       })
       .where(eq(financeInboundEvents.id, eventRow.id))
     return { ok: true, ignored: true }
   }
 
+  let persistedExpense = false
+  try {
   const extracted = await extractInvoiceFields({
     farmId,
     subject,
@@ -298,6 +415,18 @@ export async function processFinanceInboundWebhook(params: {
     mime: attachmentMimeType,
     buffer: attachmentBuffer,
   })
+  const expenseDate =
+    extracted.expenseDate ??
+    (receivedData?.created_at ? new Date(receivedData.created_at) : new Date())
+  let converted = null
+  if (extracted.amount >= 1) {
+    try {
+      converted = await convertToNgn(extracted.amount, extracted.currency, expenseDate)
+    } catch (error) {
+      if (!(error instanceof FxAmountOverflowError)) throw error
+    }
+  }
+  const isForeign = extracted.currency.toUpperCase() !== 'NGN'
 
   const description = attachmentFilename
     ? `Inbound invoice: ${subject}`
@@ -309,12 +438,20 @@ export async function processFinanceInboundWebhook(params: {
       farmId,
       category: 'other',
       description: description.slice(0, 500),
-      amount: extracted.amount,
-      currency: extracted.currency,
+      amount: converted?.amount ?? Math.round(extracted.amount),
+      currency: converted?.currency ?? extracted.currency,
+      originalAmount: converted?.originalAmount ?? (isForeign ? String(extracted.amount) : null),
+      originalCurrency: converted?.originalCurrency ?? (isForeign ? extracted.currency : null),
+      fxRate: converted?.fxRate ?? null,
+      fxConvertedAt: converted?.fxConvertedAt ?? null,
+      fxRateDate: converted?.fxRateDate ?? null,
+      fxRateSource: converted?.fxRateSource ?? null,
       vendor: extracted.vendor,
-      receiptRef: data.message_id?.slice(0, 200) ?? emailId.slice(0, 200),
+      receiptRef,
       source: 'inbound_email',
       inboundMessageId: emailId,
+      inboundSenderEmail: sender.email,
+      inboundSenderName: sender.name,
       attachmentFilename,
       attachmentStorageKey,
       attachmentMimeType,
@@ -322,11 +459,10 @@ export async function processFinanceInboundWebhook(params: {
       extractionStatus: extracted.method === 'none' ? 'failed' : 'success',
       approvalStatus: 'pending',
       recordedById: recorderId,
-      expenseDate:
-        extracted.expenseDate ??
-        (receivedData?.created_at ? new Date(receivedData.created_at) : new Date()),
+      expenseDate,
     })
     .returning()
+  persistedExpense = true
 
   await db
     .update(financeInboundEvents)
@@ -334,6 +470,10 @@ export async function processFinanceInboundWebhook(params: {
       status: 'processed',
       expenseId: expense.id,
       resendEmailId: emailId,
+      processedAt: new Date(),
+      lockedAt: null,
+      lockExpiresAt: null,
+      lastError: null,
       detail: attachmentStorageKey
         ? `stored_attachment:${extracted.method}`
         : `no_attachment:${extracted.method}`,
@@ -349,11 +489,22 @@ export async function processFinanceInboundWebhook(params: {
     metadata: {
       source: 'inbound_email',
       emailId,
-      amount: extracted.amount,
-      currency: extracted.currency,
+      amount: converted?.amount ?? extracted.amount,
+      currency: converted?.currency ?? extracted.currency,
+      originalAmount: converted?.originalAmount,
+      originalCurrency: converted?.originalCurrency,
+      fxRate: converted?.fxRate,
       extractMethod: extracted.method,
     },
   })
 
   return { ok: true, expenseId: expense.id }
+  } catch (error) {
+    if (!persistedExpense && attachmentStorageKey) {
+      const root = getEvidenceStorageRoot()
+      const filePath = join(root, attachmentStorageKey)
+      await unlink(filePath).catch(() => undefined)
+    }
+    throw error
+  }
 }

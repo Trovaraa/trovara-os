@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
+import { defaultHome } from '@/lib/navigation'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -40,7 +41,7 @@ async function submit() {
     currentPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('changePassword.failed')
   } finally {

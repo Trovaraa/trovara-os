@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../db/index.js', () => ({
   db: {
@@ -41,7 +42,9 @@ vi.mock('../middleware/auth.js', () => ({
 
 vi.mock('../middleware/security.js', () => ({
   checkAuthMutationRateLimit: vi.fn(() => ({ allowed: true })),
+  resetDurableRateLimit: vi.fn(async () => undefined),
   resetLoginRateLimit: vi.fn(async () => undefined),
+  staffLoginRateKey: vi.fn(() => 'login-key'),
 }))
 
 vi.mock('../lib/csrf.js', () => ({
@@ -63,6 +66,8 @@ vi.mock('../lib/registration.js', () => ({
 }))
 
 vi.mock('../lib/rbac.js', () => ({
+  hasPermission: vi.fn(() => true),
+  requirePermission: vi.fn(),
   requireRole: vi.fn(),
 }))
 
@@ -88,5 +93,49 @@ describe('registerTotpRoutes', () => {
         'POST /totp/regenerate-recovery-codes',
       ]),
     )
+  })
+})
+
+describe('TOTP recovery code consumption', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const { db } = await import('../db/index.js')
+    const hash = createHash('sha256').update('ABCD2345').digest('hex')
+    vi.mocked(db.select).mockImplementation(() => {
+      const query: Record<string, unknown> = {}
+      const same = () => query
+      Object.assign(query, {
+        from: same,
+        where: same,
+        limit: same,
+        then: (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve([{ totpRecoveryCodes: [hash] }]).then(resolve),
+      })
+      return query as never
+    })
+
+    let claimed = false
+    vi.mocked(db.update).mockImplementation(() => ({
+      set: () => ({
+        where: () => ({
+          returning: async () => {
+            if (claimed) return []
+            claimed = true
+            return [{ id: 'user-1' }]
+          },
+        }),
+      }),
+    }) as never)
+  })
+
+  it('allows only one concurrent use of the same recovery code', async () => {
+    const { verifyAndConsumeRecoveryCode } = await import('../routes/auth-totp.js')
+    const results = await Promise.all([
+      verifyAndConsumeRecoveryCode('user-1', 'ABCD-2345'),
+      verifyAndConsumeRecoveryCode('user-1', 'ABCD-2345'),
+    ])
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(results.filter((result) => !result.ok)).toHaveLength(1)
   })
 })

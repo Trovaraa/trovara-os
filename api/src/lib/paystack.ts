@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 const PAYSTACK_BASE = 'https://api.paystack.co'
+export const PAYSTACK_REQUEST_TIMEOUT_MS = 10_000
 
 export type PaystackInitializeResult = {
   authorizationUrl: string
@@ -53,8 +54,11 @@ async function paystackFetch<T>(
   if (!key) return { ok: false, error: 'Paystack is not configured' }
 
   try {
+    const deadline = AbortSignal.timeout(PAYSTACK_REQUEST_TIMEOUT_MS)
+    const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline
     const res = await fetch(`${PAYSTACK_BASE}${path}`, {
       ...init,
+      signal,
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',

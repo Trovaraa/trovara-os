@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -22,19 +22,16 @@ import {
   streamRequestBodyToFile,
 } from '../lib/brand-media.js'
 import {
-  BRAND_PACK_SESSION_COOKIE,
+  brandPackSessionCookieName,
   brandPackSessionCookieOptions,
   createBrandPackSessionToken,
   verifyBrandPackSessionToken,
 } from '../lib/brand-pack-session.js'
 import { publicBrandPackUrl } from '../lib/public-app-url.js'
 import { hashPassword, verifyPassword } from '../lib/session.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
-import {
-  checkDurableRateLimit,
-  hashedRateKey,
-} from '../middleware/security.js'
+import { hashedRateKey } from '../middleware/security.js'
 import { createStoredZipStream } from '../lib/streaming-zip.js'
 import {
   BRAND_MAX_UPLOAD_BYTES,
@@ -46,6 +43,7 @@ import { resolve } from 'node:path'
 
 const PUBLIC_RATE = { max: 120, windowMs: 60_000 }
 const UNLOCK_MAX = 8
+const UNLOCK_WINDOW_MS = 15 * 60_000
 
 const mediaSchema = z.object({
   dataUrl: z.string().max(14_000_000),
@@ -55,7 +53,11 @@ const mediaSchema = z.object({
 const packSchema = z.object({
   title: z.string().trim().min(1).max(160),
   notes: z.string().trim().max(2000).optional().nullable(),
-  assetIds: z.array(z.string().uuid()).min(1).max(80),
+  assetIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(80)
+    .refine((ids) => new Set(ids).size === ids.length, 'Duplicate assets are not allowed'),
   password: z.string().min(4).max(128).optional().nullable(),
   clearPassword: z.boolean().optional(),
   expiresAt: z.string().datetime().optional().nullable(),
@@ -120,20 +122,33 @@ function serializePack(
   }
 }
 
-async function packAssetIds(packId: string): Promise<string[]> {
+async function packAssetIds(packId: string, farmId?: string): Promise<string[]> {
   const rows = await db
     .select({ assetId: brandPackAssets.assetId })
     .from(brandPackAssets)
-    .where(eq(brandPackAssets.packId, packId))
+    .where(
+      farmId
+        ? and(eq(brandPackAssets.packId, packId), eq(brandPackAssets.farmId, farmId))
+        : eq(brandPackAssets.packId, packId),
+    )
     .orderBy(asc(brandPackAssets.position))
   return rows.map((r) => r.assetId)
 }
 
-async function replacePackAssets(packId: string, assetIds: string[]): Promise<void> {
-  await db.delete(brandPackAssets).where(eq(brandPackAssets.packId, packId))
+type DbExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+async function replacePackAssets(
+  executor: DbExecutor,
+  farmId: string,
+  packId: string,
+  assetIds: string[],
+): Promise<void> {
+  await executor
+    .delete(brandPackAssets)
+    .where(and(eq(brandPackAssets.packId, packId), eq(brandPackAssets.farmId, farmId)))
   if (assetIds.length === 0) return
-  await db.insert(brandPackAssets).values(
-    assetIds.map((assetId, position) => ({ packId, assetId, position })),
+  await executor.insert(brandPackAssets).values(
+    assetIds.map((assetId, position) => ({ farmId, packId, assetId, position })),
   )
 }
 
@@ -167,14 +182,16 @@ async function assertReadyAssets(farmId: string, assetIds: string[]): Promise<Re
 function parseRange(
   header: string | undefined,
   size: number,
-): { start: number; end: number } | null {
+): { start: number; end: number } | 'invalid' | null {
   if (!header) return null
   const match = header.match(/^bytes=(\d*)-(\d*)$/)
-  if (!match) return null
-  const start = match[1] ? Number(match[1]) : 0
-  const end = match[2] ? Number(match[2]) : size - 1
+  if (!match || (!match[1] && !match[2])) return 'invalid'
+  const suffixLength = !match[1] && match[2] ? Number(match[2]) : null
+  const start =
+    suffixLength == null ? Number(match[1]) : Math.max(0, size - suffixLength)
+  const end = match[1] && match[2] ? Number(match[2]) : size - 1
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
-    return null
+    return 'invalid'
   }
   return { start, end: Math.min(end, size - 1) }
 }
@@ -187,6 +204,17 @@ async function mediaResponse(
 ) {
   const full = await openBrandMediaStream(farmId, filename)
   const range = parseRange(rangeHeader, full.size)
+  if (range === 'invalid') {
+    full.stream.destroy()
+    return new Response(null, {
+      status: 416,
+      headers: {
+        'Content-Range': `bytes */${full.size}`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': cacheControl,
+      },
+    })
+  }
   if (range) {
     full.stream.destroy()
     const partial = await openBrandMediaRange(farmId, filename, range.start, range.end)
@@ -248,29 +276,36 @@ brandRoutes.post('/assets', zValidator('json', mediaSchema), async (c) => {
     return c.json({ error: error instanceof Error ? error.message : 'Upload failed' }, 400)
   }
   const originalName = body.originalName?.trim() || stored.filename
-  const [row] = await db
-    .insert(brandAssets)
-    .values({
-      farmId: user.farmId,
-      filename: stored.filename,
-      originalName,
-      mimeType: stored.mimeType,
-      byteSize: stored.byteSize,
-      mediaKind: 'image',
-      status: 'ready',
-      sourceMimeType: stored.mimeType,
-      createdById: user.id,
-    })
-    .returning()
+  let row: typeof brandAssets.$inferSelect
+  try {
+    const [inserted] = await db
+      .insert(brandAssets)
+      .values({
+        farmId: user.farmId,
+        filename: stored.filename,
+        originalName,
+        mimeType: stored.mimeType,
+        byteSize: stored.byteSize,
+        mediaKind: 'image',
+        status: 'ready',
+        sourceMimeType: stored.mimeType,
+        createdById: user.id,
+      })
+      .returning()
+    row = inserted!
+  } catch (error) {
+    await deleteBrandMedia(user.farmId, stored.filename).catch(() => undefined)
+    throw error
+  }
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
     action: 'create',
     entityType: 'brand_asset',
-    entityId: row!.id,
+    entityId: row.id,
     metadata: { originalName, mimeType: stored.mimeType },
   })
-  return c.json({ asset: serializeAsset(row!) }, 201)
+  return c.json({ asset: serializeAsset(row) }, 201)
 })
 
 async function beginStreamedUpload(params: {
@@ -299,7 +334,7 @@ async function beginStreamedUpload(params: {
       .where(and(eq(brandAssets.id, params.assetId), eq(brandAssets.farmId, params.farmId)))
       .limit(1)
     if (!row) return { error: 'Not found', status: 404 as const }
-    if (row.status === 'processing' || row.status === 'uploading') {
+    if (row.status === 'processing' || row.status === 'uploading' || row.pendingSourcePath) {
       return { error: 'Asset is still processing', status: 409 as const }
     }
     if (row.mediaKind !== kind && row.status === 'ready') {
@@ -330,41 +365,49 @@ async function beginStreamedUpload(params: {
 
   let row: typeof brandAssets.$inferSelect
   if (existing) {
-    const [updated] = await db
-      .update(brandAssets)
-      .set({
-        originalName: originalName || existing.originalName,
-        sourceMimeType: mime,
-        mediaKind: kind,
-        status: 'processing',
-        processingError: null,
-        pendingSourcePath: abs,
-        pendingOriginalName: originalName || existing.originalName,
-        // Keep previous filename/poster live until processing succeeds
-        updatedAt: new Date(),
-      })
-      .where(eq(brandAssets.id, existing.id))
-      .returning()
-    row = updated!
+    try {
+      const [updated] = await db
+        .update(brandAssets)
+        .set({
+          sourceMimeType: mime,
+          // Keep the published status and metadata live until processing succeeds.
+          status: existing.filename ? 'ready' : 'processing',
+          processingError: null,
+          pendingSourcePath: abs,
+          pendingOriginalName: originalName || existing.originalName,
+          updatedAt: new Date(),
+        })
+        .where(eq(brandAssets.id, existing.id))
+        .returning()
+      row = updated!
+    } catch (error) {
+      await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
+      throw error
+    }
   } else {
-    const [inserted] = await db
-      .insert(brandAssets)
-      .values({
-        id: assetId,
-        farmId: params.farmId,
-        filename: null,
-        originalName: originalName || 'upload',
-        mimeType: kind === 'video' ? 'video/mp4' : mime === 'image/heic' || mime === 'image/heif' ? 'image/jpeg' : mime,
-        byteSize: null,
-        mediaKind: kind,
-        status: 'processing',
-        sourceMimeType: mime,
-        pendingSourcePath: abs,
-        pendingOriginalName: originalName || 'upload',
-        createdById: params.userId,
-      })
-      .returning()
-    row = inserted!
+    try {
+      const [inserted] = await db
+        .insert(brandAssets)
+        .values({
+          id: assetId,
+          farmId: params.farmId,
+          filename: null,
+          originalName: originalName || 'upload',
+          mimeType: kind === 'video' ? 'video/mp4' : mime === 'image/heic' || mime === 'image/heif' ? 'image/jpeg' : mime,
+          byteSize: null,
+          mediaKind: kind,
+          status: 'processing',
+          sourceMimeType: mime,
+          pendingSourcePath: abs,
+          pendingOriginalName: originalName || 'upload',
+          createdById: params.userId,
+        })
+        .returning()
+      row = inserted!
+    } catch (error) {
+      await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
+      throw error
+    }
   }
 
   enqueueBrandAssetProcessing(row.id, params.farmId)
@@ -440,21 +483,28 @@ brandRoutes.patch('/assets/:id', zValidator('json', mediaSchema), async (c) => {
 
   const previousFilename = existing.filename
   const originalName = body.originalName?.trim() || existing.originalName
-  const [row] = await db
-    .update(brandAssets)
-    .set({
-      filename: stored.filename,
-      originalName,
-      mimeType: stored.mimeType,
-      byteSize: stored.byteSize,
-      mediaKind: 'image',
-      status: 'ready',
-      sourceMimeType: stored.mimeType,
-      processingError: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(brandAssets.id, existing.id))
-    .returning()
+  let row: typeof brandAssets.$inferSelect
+  try {
+    const [updated] = await db
+      .update(brandAssets)
+      .set({
+        filename: stored.filename,
+        originalName,
+        mimeType: stored.mimeType,
+        byteSize: stored.byteSize,
+        mediaKind: 'image',
+        status: 'ready',
+        sourceMimeType: stored.mimeType,
+        processingError: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(brandAssets.id, existing.id))
+      .returning()
+    row = updated!
+  } catch (error) {
+    await deleteBrandMedia(user.farmId, stored.filename).catch(() => undefined)
+    throw error
+  }
 
   if (previousFilename && previousFilename !== stored.filename) {
     await deleteBrandMedia(user.farmId, previousFilename)
@@ -467,7 +517,7 @@ brandRoutes.patch('/assets/:id', zValidator('json', mediaSchema), async (c) => {
     entityId: existing.id,
     metadata: { originalName, mimeType: stored.mimeType, replaced: true },
   })
-  return c.json({ asset: serializeAsset(row!) })
+  return c.json({ asset: serializeAsset(row) })
 })
 
 brandRoutes.get('/assets/:id/media', async (c) => {
@@ -554,29 +604,32 @@ brandRoutes.post('/packs', zValidator('json', packSchema), async (c) => {
   const passwordHash =
     body.password && body.password.length > 0 ? await hashPassword(body.password) : null
   const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null
-  const [pack] = await db
-    .insert(brandPacks)
-    .values({
-      farmId: user.farmId,
-      title: body.title,
-      notes: body.notes ?? null,
-      shareToken: newShareToken(),
-      passwordHash,
-      expiresAt,
-      createdById: user.id,
-      updatedById: user.id,
-    })
-    .returning()
-  await replacePackAssets(pack!.id, body.assetIds)
+  const pack = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(brandPacks)
+      .values({
+        farmId: user.farmId,
+        title: body.title,
+        notes: body.notes ?? null,
+        shareToken: newShareToken(),
+        passwordHash,
+        expiresAt,
+        createdById: user.id,
+        updatedById: user.id,
+      })
+      .returning()
+    await replacePackAssets(tx, user.farmId, created!.id, body.assetIds)
+    return created!
+  })
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
     action: 'create',
     entityType: 'brand_pack',
-    entityId: pack!.id,
-    metadata: { title: pack!.title, assetCount: body.assetIds.length },
+    entityId: pack.id,
+    metadata: { title: pack.title, assetCount: body.assetIds.length },
   })
-  return c.json({ pack: serializePack(pack!, body.assetIds) }, 201)
+  return c.json({ pack: serializePack(pack, body.assetIds) }, 201)
 })
 
 brandRoutes.patch('/packs/:id', zValidator('json', packSchema.partial()), async (c) => {
@@ -593,7 +646,6 @@ brandRoutes.patch('/packs/:id', zValidator('json', packSchema.partial()), async 
   if (body.assetIds) {
     const blocked = await assertReadyAssets(user.farmId, body.assetIds)
     if (blocked) return blocked
-    await replacePackAssets(pack.id, body.assetIds)
   }
 
   let passwordHash = pack.passwordHash
@@ -602,23 +654,29 @@ brandRoutes.patch('/packs/:id', zValidator('json', packSchema.partial()), async 
     passwordHash = await hashPassword(body.password)
   }
 
-  const [updated] = await db
-    .update(brandPacks)
-    .set({
-      title: body.title ?? pack.title,
-      notes: body.notes === undefined ? pack.notes : body.notes,
-      passwordHash,
-      expiresAt:
-        body.expiresAt === undefined
-          ? pack.expiresAt
-          : body.expiresAt
-            ? new Date(body.expiresAt)
-            : null,
-      updatedById: user.id,
-      updatedAt: new Date(),
-    })
-    .where(eq(brandPacks.id, pack.id))
-    .returning()
+  const updated = await db.transaction(async (tx) => {
+    const [changed] = await tx
+      .update(brandPacks)
+      .set({
+        title: body.title ?? pack.title,
+        notes: body.notes === undefined ? pack.notes : body.notes,
+        passwordHash,
+        expiresAt:
+          body.expiresAt === undefined
+            ? pack.expiresAt
+            : body.expiresAt
+              ? new Date(body.expiresAt)
+              : null,
+        updatedById: user.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(brandPacks.id, pack.id))
+      .returning()
+    if (body.assetIds) {
+      await replacePackAssets(tx, user.farmId, pack.id, body.assetIds)
+    }
+    return changed!
+  })
 
   const assetIds = body.assetIds ?? (await packAssetIds(pack.id))
   await logAudit({
@@ -628,7 +686,7 @@ brandRoutes.patch('/packs/:id', zValidator('json', packSchema.partial()), async 
     entityType: 'brand_pack',
     entityId: pack.id,
   })
-  return c.json({ pack: serializePack(updated!, assetIds) })
+  return c.json({ pack: serializePack(updated, assetIds) })
 })
 
 brandRoutes.post('/packs/:id/regenerate-token', async (c) => {
@@ -711,20 +769,23 @@ async function loadActivePackByToken(token: string) {
   return pack
 }
 
-function publicRateLimited(c: { req: { header: (n: string) => string | undefined }; json: Function }) {
+async function publicRateLimited(c: Context) {
   const ip = clientIpFromHeaders((name) => c.req.header(name))
-  if (!checkRateLimit(`brand-public:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs).allowed) {
+  if (!(await checkDurableRateLimit(`brand-public:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs)).allowed) {
     return c.json({ error: 'Too many requests' }, 429)
   }
   return null
 }
 
 function hasPackSession(c: { req: { header: (n: string) => string | undefined } }, packId: string) {
-  return verifyBrandPackSessionToken(getCookie(c as never, BRAND_PACK_SESSION_COOKIE), packId)
+  return verifyBrandPackSessionToken(
+    getCookie(c as never, brandPackSessionCookieName(packId)),
+    packId,
+  )
 }
 
 publicBrandRoutes.get('/:token', async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const pack = await loadActivePackByToken(c.req.param('token'))
   if (!pack) return c.json({ error: 'Not found' }, 404)
@@ -739,7 +800,7 @@ publicBrandRoutes.get('/:token', async (c) => {
 })
 
 publicBrandRoutes.post('/:token/unlock', zValidator('json', unlockSchema), async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const token = c.req.param('token')
   const pack = await loadActivePackByToken(token)
@@ -747,7 +808,7 @@ publicBrandRoutes.post('/:token/unlock', zValidator('json', unlockSchema), async
 
   const ip = clientIpFromHeaders((name) => c.req.header(name))
   const unlockKey = hashedRateKey('brand:unlock', `${token}:${ip}`)
-  if (!(await checkDurableRateLimit(unlockKey, UNLOCK_MAX))) {
+  if (!(await checkDurableRateLimit(unlockKey, UNLOCK_MAX, UNLOCK_WINDOW_MS)).allowed) {
     return c.json({ error: 'Too many unlock attempts. Try again later.' }, 429)
   }
 
@@ -764,7 +825,12 @@ publicBrandRoutes.post('/:token/unlock', zValidator('json', unlockSchema), async
     return c.json({ error: 'Not found' }, 404)
   }
   const secure = (c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol).includes('https')
-  setCookie(c, BRAND_PACK_SESSION_COOKIE, session.token, brandPackSessionCookieOptions(secure, session.maxAgeSec))
+  setCookie(
+    c,
+    brandPackSessionCookieName(pack.id),
+    session.token,
+    brandPackSessionCookieOptions(secure, session.maxAgeSec),
+  )
 
   await db
     .update(brandPacks)
@@ -775,7 +841,7 @@ publicBrandRoutes.post('/:token/unlock', zValidator('json', unlockSchema), async
 })
 
 publicBrandRoutes.get('/:token/items', async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const pack = await loadActivePackByToken(c.req.param('token'))
   if (!pack) return c.json({ error: 'Not found' }, 404)
@@ -794,7 +860,7 @@ publicBrandRoutes.get('/:token/items', async (c) => {
     )
     setCookie(
       c,
-      BRAND_PACK_SESSION_COOKIE,
+      brandPackSessionCookieName(pack.id),
       session.token,
       brandPackSessionCookieOptions(secure, session.maxAgeSec),
     )
@@ -844,7 +910,7 @@ publicBrandRoutes.get('/:token/items', async (c) => {
 })
 
 publicBrandRoutes.get('/:token/media/:assetId/poster', async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const pack = await loadActivePackByToken(c.req.param('token'))
   if (!pack) return c.json({ error: 'Not found' }, 404)
@@ -880,7 +946,7 @@ publicBrandRoutes.get('/:token/media/:assetId/poster', async (c) => {
 })
 
 publicBrandRoutes.get('/:token/media/:assetId', async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const pack = await loadActivePackByToken(c.req.param('token'))
   if (!pack) return c.json({ error: 'Not found' }, 404)
@@ -912,7 +978,7 @@ publicBrandRoutes.get('/:token/media/:assetId', async (c) => {
 })
 
 publicBrandRoutes.get('/:token/download.zip', async (c) => {
-  const limited = publicRateLimited(c)
+  const limited = await publicRateLimited(c)
   if (limited) return limited
   const pack = await loadActivePackByToken(c.req.param('token'))
   if (!pack) return c.json({ error: 'Not found' }, 404)
@@ -931,7 +997,7 @@ publicBrandRoutes.get('/:token/download.zip', async (c) => {
     )
     setCookie(
       c,
-      BRAND_PACK_SESSION_COOKIE,
+      brandPackSessionCookieName(pack.id),
       session.token,
       brandPackSessionCookieOptions(secure, session.maxAgeSec),
     )

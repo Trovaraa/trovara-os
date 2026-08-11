@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
+import { resolveMediaUrl } from '@/lib/api'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
 
 type MomentStatus = 'pending' | 'approved' | 'rejected'
 
@@ -44,6 +46,12 @@ const summary = ref({ total: 0, pending: 0, approved: 0, rejected: 0 })
 const activeAction = ref<string | null>(null)
 const reviewingMoment = ref<Moment | null>(null)
 const reviewNote = ref('')
+const page = ref(1)
+const PAGE_SIZE = 24
+const pageCount = computed(() => Math.max(1, Math.ceil(moments.value.length / PAGE_SIZE)))
+const visibleMoments = computed(() =>
+  moments.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+)
 let loadRequestId = 0
 
 function statusLabel(status: MomentStatus): string {
@@ -54,7 +62,7 @@ function formatDate(value: string | null | undefined): string {
   if (!value) return t('moments.notAvailable')
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return t('moments.notAvailable')
-  return new Intl.DateTimeFormat(locale.value, {
+  return new Intl.DateTimeFormat(locale?.value ?? 'en', {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
@@ -81,6 +89,7 @@ async function loadMoments() {
     const data = await api<MomentsResponse>(`/api/moments?status=${requestedStatus}`)
     if (requestId !== loadRequestId) return
     moments.value = data.moments ?? []
+    page.value = 1
     summary.value = data.summary ?? {
       total: moments.value.length,
       pending: requestedStatus === 'pending' ? moments.value.length : 0,
@@ -171,8 +180,8 @@ onMounted(() => {
         </div>
       </header>
 
-      <div v-if="notice" class="notice success">{{ notice }}</div>
-      <div v-if="error && !loading" class="notice error">
+      <div v-if="notice" class="notice success" role="status" aria-live="polite">{{ notice }}</div>
+      <div v-if="error && !loading" class="notice error" role="alert">
         {{ error }}
         <button type="button" class="link-button" @click="refresh">{{ t('moments.tryAgain') }}</button>
       </div>
@@ -182,6 +191,7 @@ onMounted(() => {
           type="button"
           class="summary-card"
           :class="{ active: statusFilter === 'pending' }"
+          :aria-pressed="statusFilter === 'pending'"
           @click="selectStatus('pending')"
         >
           <div class="summary-count">{{ summary.pending }}</div>
@@ -191,6 +201,7 @@ onMounted(() => {
           type="button"
           class="summary-card"
           :class="{ active: statusFilter === 'approved' }"
+          :aria-pressed="statusFilter === 'approved'"
           @click="selectStatus('approved')"
         >
           <div class="summary-count">{{ summary.approved }}</div>
@@ -200,6 +211,7 @@ onMounted(() => {
           type="button"
           class="summary-card"
           :class="{ active: statusFilter === 'rejected' }"
+          :aria-pressed="statusFilter === 'rejected'"
           @click="selectStatus('rejected')"
         >
           <div class="summary-count">{{ summary.rejected }}</div>
@@ -207,7 +219,7 @@ onMounted(() => {
         </button>
       </div>
 
-      <div v-if="loading" class="loading">{{ t('moments.loading') }}</div>
+      <div v-if="loading" class="loading" role="status" aria-live="polite">{{ t('moments.loading') }}</div>
 
       <div v-else-if="summary.total === 0" class="empty">
         {{ t('moments.empty') }}
@@ -218,26 +230,28 @@ onMounted(() => {
       </div>
 
       <div v-else class="moments-grid">
-        <div v-for="moment in moments" :key="moment.id" class="moment-card">
+        <div v-for="moment in visibleMoments" :key="moment.id" class="moment-card">
           <div class="moment-preview">
             <img
               v-if="moment.mediaKind === 'image'"
-              :src="moment.mediaUrl"
-              :alt="moment.originalFilename || 'Moment'"
+              :src="resolveMediaUrl(moment.mediaUrl)"
+              :alt="moment.originalFilename || t('moments.imageAlt')"
               class="moment-media"
+              loading="lazy"
             />
             <video
               v-else
-              :src="moment.mediaUrl"
-              :poster="moment.posterUrl || undefined"
+              :src="resolveMediaUrl(moment.mediaUrl)"
               controls
+              preload="none"
+              :aria-label="moment.originalFilename || t('moments.videoLabel')"
               class="moment-media"
             />
           </div>
           <div class="moment-info">
             <div class="moment-meta">
               <span class="badge" :class="moment.status">{{ statusLabel(moment.status) }}</span>
-              <span class="moment-kind">{{ moment.mediaKind }}</span>
+              <span class="moment-kind">{{ t(`moments.mediaKind.${moment.mediaKind}`) }}</span>
             </div>
             <div class="moment-details">
               <p class="submitter">{{ submitterLabel(moment) }}</p>
@@ -261,27 +275,38 @@ onMounted(() => {
           </div>
         </div>
       </div>
+      <nav v-if="pageCount > 1" class="pagination" :aria-label="t('moments.pagination')">
+        <button type="button" class="button secondary small" :disabled="page === 1" @click="page--">{{ t('moments.previous') }}</button>
+        <span>{{ t('moments.page', { current: page, total: pageCount }) }}</span>
+        <button type="button" class="button secondary small" :disabled="page === pageCount" @click="page++">{{ t('moments.next') }}</button>
+      </nav>
 
       <!-- Review Modal -->
-      <div v-if="reviewingMoment" class="modal-overlay" @click.self="closeReview">
-        <div class="modal">
+      <AccessibleDialog
+        :open="!!reviewingMoment"
+        title-id="review-moment-title"
+        :close-label="t('dialog.close')"
+        @close="closeReview"
+      >
+        <div v-if="reviewingMoment" class="modal">
           <div class="modal-header">
-            <h2>{{ t('moments.reviewMoment') }}</h2>
-            <button type="button" class="close-button" @click="closeReview">&times;</button>
+            <h2 id="review-moment-title">{{ t('moments.reviewMoment') }}</h2>
+            <button type="button" class="close-button" :aria-label="t('dialog.close')" @click="closeReview">&times;</button>
           </div>
           <div class="modal-body">
             <div class="review-preview">
               <img
                 v-if="reviewingMoment.mediaKind === 'image'"
-                :src="reviewingMoment.mediaUrl"
-                :alt="reviewingMoment.originalFilename || 'Moment'"
+                :src="resolveMediaUrl(reviewingMoment.mediaUrl)"
+                :alt="reviewingMoment.originalFilename || t('moments.imageAlt')"
                 class="review-media"
               />
               <video
                 v-else
-                :src="reviewingMoment.mediaUrl"
-                :poster="reviewingMoment.posterUrl || undefined"
+                :src="resolveMediaUrl(reviewingMoment.mediaUrl)"
                 controls
+                preload="metadata"
+                :aria-label="reviewingMoment.originalFilename || t('moments.videoLabel')"
                 class="review-media"
               />
             </div>
@@ -319,7 +344,7 @@ onMounted(() => {
             </button>
           </div>
         </div>
-      </div>
+      </AccessibleDialog>
     </div>
   </AppLayout>
 </template>
@@ -328,7 +353,7 @@ onMounted(() => {
 .moments-view {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: clamp(0rem, 2vw, 2rem);
 }
 
 .view-header {
@@ -354,13 +379,13 @@ onMounted(() => {
 .view-title {
   font-size: 2rem;
   font-weight: 800;
-  color: #28382f;
+  color: var(--os-fg);
   margin: 0 0 0.5rem 0;
 }
 
 .view-subtitle {
   font-size: 1rem;
-  color: #617064;
+  color: var(--os-muted);
   margin: 0;
 }
 
@@ -405,8 +430,8 @@ onMounted(() => {
 }
 
 .summary-card {
-  background: white;
-  border: 2px solid #e2e9df;
+  background: var(--os-shell-muted);
+  border: 2px solid var(--os-border);
   border-radius: 12px;
   padding: 1.5rem;
   text-align: center;
@@ -420,19 +445,19 @@ onMounted(() => {
 
 .summary-card.active {
   border-color: #2f6b3b;
-  background: #f4f7f2;
+  background: color-mix(in srgb, var(--os-shell-muted) 80%, #2f6b3b);
 }
 
 .summary-count {
   font-size: 2.5rem;
   font-weight: 800;
-  color: #28382f;
+  color: var(--os-fg);
 }
 
 .summary-label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #617064;
+  color: var(--os-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -447,13 +472,13 @@ onMounted(() => {
 
 .moments-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 1.5rem;
 }
 
 .moment-card {
-  background: white;
-  border: 1px solid #e2e9df;
+  background: var(--os-shell-muted);
+  border: 1px solid var(--os-border);
   border-radius: 12px;
   overflow: hidden;
   transition: box-shadow 0.2s;
@@ -522,7 +547,7 @@ onMounted(() => {
 
 .submitter {
   font-weight: 600;
-  color: #28382f;
+  color: var(--os-fg);
 }
 
 .timestamp,
@@ -566,9 +591,9 @@ onMounted(() => {
 }
 
 .button.secondary {
-  background: white;
-  border: 2px solid #e2e9df;
-  color: #28382f;
+  background: var(--os-shell-muted);
+  border: 2px solid var(--os-border);
+  color: var(--os-fg);
 }
 
 .button.secondary:hover:not(:disabled) {
@@ -610,7 +635,7 @@ onMounted(() => {
 }
 
 .modal {
-  background: white;
+  background: var(--os-shell);
   border-radius: 16px;
   max-width: 800px;
   width: 100%;
@@ -629,7 +654,7 @@ onMounted(() => {
 .modal-header h2 {
   margin: 0;
   font-size: 1.5rem;
-  color: #28382f;
+  color: var(--os-fg);
 }
 
 .close-button {
@@ -667,14 +692,16 @@ onMounted(() => {
 .form-group label {
   display: block;
   font-weight: 600;
-  color: #28382f;
+  color: var(--os-fg);
   margin-bottom: 0.5rem;
 }
 
 .form-control {
   width: 100%;
   padding: 0.75rem;
-  border: 2px solid #e2e9df;
+  border: 2px solid var(--os-border);
+  background: var(--os-shell-muted);
+  color: var(--os-fg);
   border-radius: 8px;
   font-family: inherit;
   font-size: 0.875rem;
@@ -692,5 +719,15 @@ onMounted(() => {
   gap: 0.75rem;
   padding: 1.5rem;
   border-top: 1px solid #e2e9df;
+}
+
+.pagination {
+  margin-top: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--os-muted);
+  font-size: 0.875rem;
 }
 </style>

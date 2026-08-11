@@ -132,7 +132,6 @@ export async function transcodeBrandUpload(params: {
   }
 
   if (mime === 'image/svg+xml') {
-    const outputPath = resolve(sessionDir, 'output.svg')
     await access(sourcePath, fsConstants.R_OK)
     // Copy via ffmpeg-free rename handled by caller; mark passthrough
     return {

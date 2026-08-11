@@ -9,7 +9,7 @@ import { logAudit } from '../lib/audit.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import { triggerJournalBuildHook } from '../lib/journal-build-hook.js'
 import { readJournalMedia, storeJournalMedia } from '../lib/journal-media.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { requestAccessMeta } from '../lib/request-access-meta.js'
 import { hasPermission } from '../lib/rbac.js'
@@ -326,18 +326,18 @@ journalRoutes.delete('/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-function publicRateLimit(c: {
+async function publicRateLimit(c: {
   req: { header: (name: string) => string | undefined }
   header: (name: string, value: string) => void
 }) {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`public-journal:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs)
+  const result = await checkDurableRateLimit(`public-journal:${ip}`, PUBLIC_RATE.max, PUBLIC_RATE.windowMs)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
 
 publicJournalRoutes.get('/', async (c) => {
-  if (!publicRateLimit(c)) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ error: 'Journal is not available yet.' }, 503)
   const posts = await db
@@ -360,7 +360,7 @@ publicJournalRoutes.get('/', async (c) => {
 })
 
 publicJournalRoutes.get('/media/:farmId/:filename', async (c) => {
-  if (!publicRateLimit(c)) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ error: 'Not found' }, 404)
   const farmId = c.req.param('farmId')
@@ -383,7 +383,7 @@ publicJournalRoutes.get('/media/:farmId/:filename', async (c) => {
 })
 
 publicJournalRoutes.get('/:slug', async (c) => {
-  if (!publicRateLimit(c)) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const farm = await resolveCustomerFarm()
   if (!farm) return c.json({ error: 'Journal is not available yet.' }, 503)
   const slug = normalizeJournalSlug(c.req.param('slug'))

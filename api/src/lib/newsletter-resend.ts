@@ -4,6 +4,7 @@ import {
   newsletterWelcomeEmailContent,
 } from './email-template.js'
 import { normalizeMarketingOrigin } from './public-app-url.js'
+import { externalOperation } from './external-http.js'
 
 export type NewsletterContact = {
   id: string
@@ -64,16 +65,18 @@ export async function sendConfirmationEmail(
 ): Promise<string> {
   const link = `${marketingUrl()}/newsletter/confirm?token=${encodeURIComponent(confirmationToken)}`
   const mail = newsletterConfirmEmailContent(subscriber.fullName, link)
-  const response = await resendClient().emails.send(
-    {
-      from: requiredConfig('RESEND_FROM'),
-      to: subscriber.email,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-      tags: [{ name: 'category', value: 'newsletter-confirmation' }],
-    },
-    { idempotencyKey: `newsletter-confirm-${subscriber.id}-${subscriber.confirmationTokenHash?.slice(0, 20)}` },
+  const response = await externalOperation(() =>
+    resendClient().emails.send(
+      {
+        from: requiredConfig('RESEND_FROM'),
+        to: subscriber.email,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
+        tags: [{ name: 'category', value: 'newsletter-confirmation' }],
+      },
+      { idempotencyKey: `newsletter-confirm-${subscriber.id}-${subscriber.confirmationTokenHash?.slice(0, 20)}` },
+    ),
   )
   if (response.error) throw new Error(response.error.message)
   return response.data.id
@@ -85,16 +88,18 @@ export async function sendWelcomeEmail(
 ): Promise<string> {
   const link = `${marketingUrl()}/newsletter/unsubscribe?token=${encodeURIComponent(subscriber.unsubscribeToken)}`
   const mail = newsletterWelcomeEmailContent(subscriber.fullName, link)
-  const response = await resendClient().emails.send(
-    {
-      from: requiredConfig('RESEND_FROM'),
-      to: subscriber.email,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-      tags: [{ name: 'category', value: 'newsletter-welcome' }],
-    },
-    { idempotencyKey: `newsletter-welcome-${subscriber.id}-${idempotencyVersion}` },
+  const response = await externalOperation(() =>
+    resendClient().emails.send(
+      {
+        from: requiredConfig('RESEND_FROM'),
+        to: subscriber.email,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
+        tags: [{ name: 'category', value: 'newsletter-welcome' }],
+      },
+      { idempotencyKey: `newsletter-welcome-${subscriber.id}-${idempotencyVersion}` },
+    ),
   )
   if (response.error) throw new Error(response.error.message)
   return response.data.id
@@ -105,36 +110,40 @@ export async function upsertResendContact(subscriber: NewsletterContact): Promis
   const segmentId = requiredConfig('RESEND_NEWSLETTER_SEGMENT_ID')
   const { firstName, lastName } = firstAndLastName(subscriber.fullName)
   const unsubscribed = subscriber.status !== 'confirmed'
-  const existing = await resend.contacts.get({ email: subscriber.email })
+  const existing = await externalOperation(() => resend.contacts.get({ email: subscriber.email }))
 
   let contactId: string
   if (existing.data) {
     contactId = existing.data.id
-    const updated = await resend.contacts.update({
-      id: contactId,
-      firstName,
-      lastName: lastName ?? null,
-      unsubscribed,
-    })
+    const updated = await externalOperation(() =>
+      resend.contacts.update({
+        id: contactId,
+        firstName,
+        lastName: lastName ?? null,
+        unsubscribed,
+      }),
+    )
     if (updated.error) throw new Error(updated.error.message)
   } else if (existing.error?.name === 'not_found') {
-    const created = await resend.contacts.create({
-      email: subscriber.email,
-      firstName,
-      lastName,
-      unsubscribed,
-    })
+    const created = await externalOperation(() =>
+      resend.contacts.create({
+        email: subscriber.email,
+        firstName,
+        lastName,
+        unsubscribed,
+      }),
+    )
     if (created.error) throw new Error(created.error.message)
     contactId = created.data.id
   } else {
     throw new Error(existing.error?.message ?? 'Unable to read Resend contact')
   }
 
-  const segmentAction =
+  const segmentAction = () =>
     subscriber.status === 'confirmed'
       ? resend.contacts.segments.add({ contactId, segmentId })
       : resend.contacts.segments.remove({ contactId, segmentId })
-  const segmentResponse = await segmentAction
+  const segmentResponse = await externalOperation(segmentAction)
   if (segmentResponse.error && segmentResponse.error.name !== 'not_found') {
     throw new Error(segmentResponse.error.message)
   }
@@ -160,7 +169,7 @@ export function resendInboundWebhookSecret(): string {
 }
 
 export function inboundWebhookConfigMissing(): string[] {
-  return ['RESEND_API_KEY', 'RESEND_INBOUND_WEBHOOK_SECRET'].filter(
+  return ['RESEND_API_KEY', 'RESEND_INBOUND_WEBHOOK_SECRET', 'FINANCE_INBOUND_FARM_ID'].filter(
     (name) => !process.env[name]?.trim(),
   )
 }

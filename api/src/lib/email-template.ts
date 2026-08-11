@@ -387,3 +387,42 @@ export function marketingLeadEmailContent(params: {
     footerVariant: 'staff',
   })
 }
+
+/** Auto-ack after Finance approves an inbound invoice email. */
+export function financeInboundApprovalAckEmailContent(params: {
+  senderName?: string | null
+  subject?: string | null
+}): { subject: string; text: string; html: string } {
+  const greetingName = params.senderName?.trim() || null
+  const greeting = greetingName ? `Hi ${greetingName},` : 'Hello,'
+  const invoiceLine = params.subject?.trim()
+    ? `We approved your invoice email (“${params.subject.trim()}”) in Trovara Finance.`
+    : 'We approved your invoice email in Trovara Finance.'
+  const subject = params.subject?.trim()
+    ? `Re: ${params.subject.trim()}`
+    : 'We received your invoice — Trovara Finance'
+  const text = [
+    greeting,
+    '',
+    'Thank you for your email. We have received it and recorded your invoice.',
+    invoiceLine,
+    'Our Finance team will get in touch if anything else is needed.',
+    '',
+    'Best regards,',
+    'The Trovara Finance Team',
+    'finance@trovara.farm · www.trovara.farm',
+  ].join('\n')
+  return {
+    subject,
+    text,
+    html: emailLayout({
+      preheader: 'We received your invoice and will follow up if needed.',
+      documentTitle: 'Invoice received · Trovara Finance',
+      badge: 'FINANCE',
+      headline: 'We received your invoice',
+      intro: `${greeting} Thank you for your email.`,
+      body: `<p style="margin:0 0 12px 0;color:#28382f;font-size:15px;line-height:1.65">${escapeEmailHtml(invoiceLine)}</p><p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">Our Finance team will get in touch if anything else is needed.</p>`,
+      footerVariant: 'transactional',
+    }),
+  }
+}

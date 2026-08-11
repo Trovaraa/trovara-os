@@ -1,11 +1,17 @@
-import { createHmac, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, scryptSync, timingSafeEqual } from 'node:crypto'
 
-const COOKIE_NAME = 'trovara_brand_pack'
+const COOKIE_PREFIX = 'trovara_brand_pack_'
 const VERSION = 'v1'
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000
 const KEY_SALT = 'trovara-brand-pack-session-v1'
 
-export { COOKIE_NAME as BRAND_PACK_SESSION_COOKIE }
+/** @deprecated Use brandPackSessionCookieName so sessions do not replace each other. */
+export const BRAND_PACK_SESSION_COOKIE = 'trovara_brand_pack'
+
+export function brandPackSessionCookieName(packId: string): string {
+  const suffix = createHash('sha256').update(packId).digest('base64url').slice(0, 16)
+  return `${COOKIE_PREFIX}${suffix}`
+}
 
 function sessionSigningKey(): Buffer {
   const dedicated = process.env.BRAND_PACK_SESSION_SECRET?.trim()

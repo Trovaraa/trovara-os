@@ -11,7 +11,7 @@ const packId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const assetId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const shareToken = 'share-token-example-abcdefghijklmnopqrstuvwxyz'
 
-let sessionUser: Row = {
+const sessionUser: Row = {
   id: '11111111-1111-4111-8111-111111111111',
   farmId,
   role: 'owner',
@@ -77,6 +77,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
 vi.mock('../lib/rate-limit.js', () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSec: 0 }),
+  checkDurableRateLimit: async () => ({ allowed: true, retryAfterSec: 0 }),
 }))
 vi.mock('../middleware/security.js', () => ({
   checkDurableRateLimit: vi.fn(async () => true),
@@ -196,7 +197,7 @@ describe('public brand packs', () => {
     })
     expect(unlock.status).toBe(200)
     const cookie = unlock.headers.get('set-cookie') ?? ''
-    expect(cookie).toContain('trovara_brand_pack=')
+    expect(cookie).toContain('trovara_brand_pack_')
 
     const items = await app.request(`/${shareToken}/items`, {
       headers: { Cookie: cookie.split(';')[0]! },
@@ -205,6 +206,21 @@ describe('public brand packs', () => {
     const payload = await items.json()
     expect(payload.items).toHaveLength(1)
     expect(payload.items[0].originalName).toBe('logo.jpg')
+  })
+
+  it('returns 416 for an invalid media range', async () => {
+    const app = await publicApp()
+    const unlock = await app.request(`/${shareToken}/unlock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'pack-secret' }),
+    })
+    const cookie = unlock.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const response = await app.request(`/${shareToken}/media/${assetId}`, {
+      headers: { Cookie: cookie, Range: 'bytes=999-1000' },
+    })
+    expect(response.status).toBe(416)
+    expect(response.headers.get('content-range')).toBe('bytes */16')
   })
 
   it('returns 404 for revoked packs', async () => {

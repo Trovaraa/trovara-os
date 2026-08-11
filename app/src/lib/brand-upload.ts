@@ -1,6 +1,4 @@
-import { getCsrfToken } from './api'
-
-const base = import.meta.env.VITE_API_URL ?? ''
+import { getCsrfToken, resolveApiUrl } from './api'
 
 export type BrandAssetDto = {
   id: string
@@ -47,7 +45,7 @@ export function uploadBrandAsset(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open(method, `${base}${path}`)
+    xhr.open(method, resolveApiUrl(path))
     xhr.withCredentials = true
     const csrf = getCsrfToken()
     if (csrf) xhr.setRequestHeader('X-CSRF-Token', csrf)
@@ -109,7 +107,7 @@ async function pollBrandAsset(
   const timeoutMs = 15 * 60 * 1000
   while (Date.now() - started < timeoutMs) {
     await new Promise((r) => setTimeout(r, 2000))
-    const res = await fetch(`${base}/api/brand/assets/${assetId}`, {
+    const res = await fetch(resolveApiUrl(`/api/brand/assets/${assetId}`), {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     })

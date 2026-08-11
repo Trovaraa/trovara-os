@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { TraceabilityLot, TraceabilityPlotOption } from '@/components/traceability/types'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
 
 const editProductName = defineModel<string>('editProductName', { required: true })
 const editQuantityKg = defineModel<number | ''>('editQuantityKg', { required: true })
@@ -28,12 +29,9 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div
-    class="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-4"
-    @click.self="emit('close')"
-  >
+  <AccessibleDialog :open="true" title-id="edit-lot-title" :close-label="t('dialog.close')" @close="emit('close')">
     <div class="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-3">
-      <h3 class="text-white font-bold">Update lot · {{ editing.lotCode }}</h3>
+      <h3 id="edit-lot-title" class="text-white font-bold">{{ t('trace.updateLot') }} · {{ editing.lotCode }}</h3>
       <p v-if="editing.orderReference" class="text-xs text-slate-400 font-mono">
         Order {{ editing.orderReference }}
         <span v-if="editing.orderSource">({{ editing.orderSource }})</span>
@@ -118,5 +116,5 @@ const { t } = useI18n()
         </button>
       </div>
     </div>
-  </div>
+  </AccessibleDialog>
 </template>

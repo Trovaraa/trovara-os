@@ -7,10 +7,10 @@ import {
   users,
 } from '../db/schema.js'
 import { logAudit } from './audit.js'
-import { payableMinutes } from './attendance-calculations.js'
+import { payableMinutes, payableMinutesWithinBounds } from './attendance-calculations.js'
 import { authorLocaleHint, toCanonicalEnglish } from './content-locale.js'
 import { notifyWorkerClockIn } from './farm-notify.js'
-import { canApproveTasks } from './rbac.js'
+import { canApproveTasks, canViewAttendanceRoster } from './rbac.js'
 import type { SessionUser } from './session.js'
 import { contentLocaleValues, mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 
@@ -267,7 +267,7 @@ export async function listToday(user: SessionUser) {
     (date_trunc('day', now() AT TIME ZONE ${farmTimezone}) + interval '1 day')
     AT TIME ZONE ${farmTimezone}
   )`
-  const selfOnly = user.role === 'field_worker' || user.role === 'sales'
+  const selfOnly = !canViewAttendanceRoster(user)
   const visibility = selfOnly
     ? and(eq(attendanceSessions.farmId, user.farmId), eq(attendanceSessions.userId, user.id))
     : eq(attendanceSessions.farmId, user.farmId)
@@ -289,6 +289,8 @@ export async function listToday(user: SessionUser) {
       correctedById: attendanceSessions.correctedById,
       correctedAt: attendanceSessions.correctedAt,
       createdAt: attendanceSessions.createdAt,
+      rangeStart: start,
+      rangeEnd: end,
     })
     .from(attendanceSessions)
     .innerJoin(users, eq(attendanceSessions.userId, users.id))
@@ -304,9 +306,14 @@ export async function listToday(user: SessionUser) {
     .orderBy(desc(attendanceSessions.clockInAt))
 
   const now = new Date()
-  return rows.map((row) => ({
+  return rows.map(({ rangeStart, rangeEnd, ...row }) => ({
     ...row,
-    payableMinutes: payableMinutes(row.clockInAt, row.clockOutAt ?? now),
+    payableMinutes: payableMinutesWithinBounds(
+      row.clockInAt,
+      row.clockOutAt ?? now,
+      rangeStart,
+      rangeEnd,
+    ),
   }))
 }
 
@@ -457,7 +464,7 @@ export async function listHoursSummary(
   range: HoursSummaryRange,
   filterUserId?: string | null,
 ): Promise<{ range: HoursSummaryRange; people: HoursSummaryPerson[] }> {
-  const selfOnly = user.role === 'field_worker' || user.role === 'sales'
+  const selfOnly = !canViewAttendanceRoster(user)
   if (selfOnly && filterUserId && filterUserId !== user.id) {
     throw new Error('FORBIDDEN')
   }
@@ -484,6 +491,8 @@ export async function listHoursSummary(
       taskTitle: tasks.title,
       notes: attendanceSessions.notes,
       workSummary: attendanceSessions.workSummary,
+      rangeStart: start,
+      rangeEnd: end,
     })
     .from(attendanceSessions)
     .innerJoin(users, eq(attendanceSessions.userId, users.id))
@@ -501,7 +510,12 @@ export async function listHoursSummary(
   const now = new Date()
   const byUser = new Map<string, HoursSummaryPerson>()
   for (const row of rows) {
-    const minutes = payableMinutes(row.clockInAt, row.clockOutAt ?? now)
+    const minutes = payableMinutesWithinBounds(
+      row.clockInAt,
+      row.clockOutAt ?? now,
+      row.rangeStart,
+      row.rangeEnd,
+    )
     const existing = byUser.get(row.userId)
     const session = {
       id: row.id,

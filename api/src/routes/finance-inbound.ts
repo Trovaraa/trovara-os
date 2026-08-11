@@ -1,27 +1,27 @@
 import { Hono } from 'hono'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
-import { processFinanceInboundWebhook } from '../lib/finance-inbound.js'
+import { markFinanceInboundFailed, processFinanceInboundWebhook } from '../lib/finance-inbound.js'
 import { inboundWebhookConfigMissing } from '../lib/newsletter-resend.js'
 
 export const publicFinanceInboundRoutes = new Hono()
 
-function publicRateLimit(
+async function publicRateLimit(
   c: {
     req: { header: (name: string) => string | undefined }
     header: (name: string, value: string) => void
   },
   action: string,
   max: number,
-): boolean {
+): Promise<boolean> {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`finance-inbound:${action}:${ip}`, max, 60_000)
+  const result = await checkDurableRateLimit(`finance-inbound:${action}:${ip}`, max, 60_000)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
 
 publicFinanceInboundRoutes.post('/inbound', async (c) => {
-  if (!publicRateLimit(c, 'webhook', 300)) {
+  if (!(await publicRateLimit(c, 'webhook', 300))) {
     return c.json({ error: 'Too many requests' }, 429)
   }
   if (inboundWebhookConfigMissing().length > 0) {
@@ -45,6 +45,7 @@ publicFinanceInboundRoutes.post('/inbound', async (c) => {
     })
     return c.json({ received: true, ...result })
   } catch (error) {
+    await markFinanceInboundFailed(svixId, error).catch(() => undefined)
     const message = error instanceof Error ? error.message : 'Inbound processing failed'
     if (message.toLowerCase().includes('webhook') || message.toLowerCase().includes('signature')) {
       return c.json({ error: 'Invalid webhook signature' }, 401)

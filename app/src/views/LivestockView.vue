@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 const { t } = useI18n()
 const { agronomySkipText } = useAgronomySkipText()
 const auth = useAuthStore()
-const canManage = computed(() => auth.canApprove)
+const canManage = computed(() => auth.hasPermission('livestock.manage'))
 
 type Batch = {
   id: string

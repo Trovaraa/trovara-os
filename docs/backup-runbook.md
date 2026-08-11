@@ -2,7 +2,8 @@
 
 This runbook covers PostgreSQL and private evidence backup/restore. Production
 uses encrypted, checksummed artifacts and can deliver them through any storage
-provider supported by rclone. Remote delivery is disabled by default.
+provider supported by rclone. Remote delivery is optional in development and
+mandatory when `NODE_ENV=production`.
 
 ## Prerequisites
 
@@ -105,9 +106,11 @@ restricted config or its supported external secret mechanism, not in the
 Trovara environment file. The script uploads each artifact under a temporary
 remote name and moves it to its final name only after upload succeeds.
 
-`BACKUP_REMOTE_REQUIRED=1` is recommended in production. If rclone, its
-destination, or delivery fails, the command exits non-zero and does not publish
-a new success report.
+`BACKUP_REMOTE_REQUIRED=1` is optional. When set, rclone delivery is enabled
+and fail-closed: if rclone, its destination, or delivery fails, the command
+exits non-zero and does not publish a new success report. Leaving remote flags
+unset is fine when deploy Mac pulls are the off-VM copy
+(`./deploy.sh --pull-backups`).
 
 ## Pull encrypted backups to the deployment Mac
 
@@ -198,7 +201,9 @@ npm run backup:restore-test
 
 The script verifies the backup, starts an ephemeral PostgreSQL container,
 restores into the fixed `trovara_restore_test` database inside that container,
-checks that public tables exist, writes
+checks critical tables, the complete migration journal, production farm data,
+and container isolation (`--network none`, tmpfs database storage, no host
+mounts), then writes
 `reports/latest-restore-test.json` atomically, and removes the container and
 decrypted temporary SQL. It never uses `DATABASE_URL`, `PGHOST`, or a production
 database. It refuses `RESTORE_TEST_DATABASE_URL`, `RESTORE_TEST_PGHOST`, and
@@ -288,12 +293,17 @@ Use persistent paths outside the release directory:
 EVIDENCE_STORAGE_ROOT=/var/lib/trovara-os/evidence
 BACKUP_DIR=/var/backups/trovara-os
 REQUIRE_EVIDENCE_BACKUP=1
-BACKUP_REMOTE_ENABLED=0
-BACKUP_REMOTE_REQUIRED=0
+# Optional rclone offsite (not required when using deploy Mac pulls):
+# BACKUP_REMOTE_ENABLED=1
+# BACKUP_REMOTE_REQUIRED=1
+# BACKUP_RCLONE_DESTINATION=<configured-rclone-remote>:trovara/production
+BACKUP_MAX_AGE_HOURS=26
 ```
 
-Leave remote delivery disabled until rclone is configured and a manual
-production backup succeeds. Then set both remote flags to `1`.
+Encrypted VM backups plus `./deploy.sh --pull-backups` are the current default
+second copy. Rclone offsite is optional; enable only after configuring and
+verifying the remote. The provider and path remain configurable through rclone
+and `BACKUP_RCLONE_DESTINATION`.
 
 The authenticated system status endpoint reads `BACKUP_DIR` and treats a
 successful `reports/latest-backup.json` with all three referenced local
@@ -307,19 +317,16 @@ workflow; they do not replace tested off-server logical and evidence backups.
 
 ## External setup still required
 
-1. Install `gpg`, PostgreSQL client tools, `rclone`, and Docker on the backup
-   host.
+1. Install `gpg`, PostgreSQL client tools, and Docker on the backup host.
+   Install `rclone` only if you enable cloud offsite later.
 2. Create persistent `BACKUP_DIR` and evidence directories owned by the service
    account with restrictive permissions.
 3. Store a strong `BACKUP_GPG_PASSPHRASE` in the protected production
    environment and retain a recovery copy outside the host.
-4. Choose an off-server provider and jurisdiction, create a restricted storage
-   identity/bucket, and configure an rclone remote as the systemd service
-   account.
-5. Set `BACKUP_RCLONE_DESTINATION`, run `rclone lsd <remote>:` as that account,
-   then manually run `npm run backup:production`.
-6. Confirm all three artifacts exist remotely, download them to a separate
-   location, validate the manifest, and run the isolated restore test.
-7. Customize/install the example units, grant the service account Docker
+4. Keep a second copy via `./deploy.sh --pull-backups` (current default).
+   Optionally choose a cloud provider, configure an rclone remote as the
+   service account, set `BACKUP_RCLONE_DESTINATION` + `BACKUP_REMOTE_ENABLED=1`,
+   and verify with `rclone lsd <remote>:` then `npm run backup:production`.
+5. Customize/install the example units, grant the service account Docker
    access, enable both timers, and configure external monitoring for non-zero
    service exits and stale backup/restore-test reports.

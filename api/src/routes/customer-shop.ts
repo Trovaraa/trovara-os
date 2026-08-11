@@ -16,7 +16,6 @@ import {
 import {
   CUSTOMER_SESSION_COOKIE,
   consumeCustomerEmailVerificationToken,
-  consumeCustomerPasswordResetToken,
   createCustomerEmailVerificationToken,
   createCustomerLinkCode,
   createCustomerPasswordResetToken,
@@ -24,6 +23,7 @@ import {
   customerSessionCookieOptions,
   deleteCustomerSession,
   getCustomerFromSession,
+  resetCustomerPasswordWithToken,
   revokeAllCustomerSessions,
 } from '../lib/customer-accounts.js'
 import {
@@ -441,16 +441,12 @@ customerShopRoutes.post('/forgot-password', zValidator('json', forgotPasswordSch
 
 customerShopRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), async (c) => {
   const body = c.req.valid('json')
-  const tokenData = await consumeCustomerPasswordResetToken(body.token)
+  const passwordHash = await hashPassword(body.newPassword)
+  const tokenData = await resetCustomerPasswordWithToken(body.token, passwordHash)
   
   if (!tokenData) {
     return c.json({ error: 'Invalid or expired reset token.' }, 400)
   }
-
-  await db
-    .update(customerAccounts)
-    .set({ passwordHash: await hashPassword(body.newPassword) })
-    .where(eq(customerAccounts.id, tokenData.accountId))
 
   await revokeAllCustomerSessions(tokenData.accountId)
 

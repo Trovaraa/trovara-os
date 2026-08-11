@@ -1,4 +1,5 @@
 import { publicAppBaseUrl, publicMarketingUrlOrDefault } from './public-app-url.js'
+import { externalFetch } from './external-http.js'
 
 export type HealthProbeGroup = 'os' | 'marketing'
 
@@ -23,6 +24,9 @@ export type HealthSlaReport = {
   status: 'healthy' | 'degraded' | 'down'
 }
 
+/** Point-in-time reachability report; it is not a historical uptime SLA. */
+export type HealthSnapshotReport = HealthSlaReport
+
 type ProbeSpec = {
   group: HealthProbeGroup
   name: string
@@ -38,7 +42,10 @@ function timeoutMs(): number {
 }
 
 export function healthSlaEnvEnabled(): boolean {
-  const raw = process.env.HEALTH_SLA_TELEGRAM_ENABLED?.trim().toLowerCase()
+  const raw = (
+    process.env.HEALTH_SNAPSHOT_TELEGRAM_ENABLED ??
+    process.env.HEALTH_SLA_TELEGRAM_ENABLED
+  )?.trim().toLowerCase()
   if (!raw) return true
   return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no'
 }
@@ -111,15 +118,16 @@ function probeSpecs(): ProbeSpec[] {
 async function runProbe(baseUrl: string, spec: ProbeSpec): Promise<HealthProbeResult> {
   const url = `${baseUrl}${spec.path.startsWith('/') ? spec.path : `/${spec.path}`}`
   const started = Date.now()
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs())
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: { Accept: 'application/json, text/html;q=0.9,*/*;q=0.8' },
-    })
+    const response = await externalFetch(
+      url,
+      {
+        method: 'GET',
+        redirect: 'follow',
+        headers: { Accept: 'application/json, text/html;q=0.9,*/*;q=0.8' },
+      },
+      { timeoutMs: timeoutMs(), retries: 1 },
+    )
     const latencyMs = Date.now() - started
     const bodyText = await response.text().catch(() => '')
     const statusOk =
@@ -154,8 +162,6 @@ async function runProbe(baseUrl: string, spec: ProbeSpec): Promise<HealthProbeRe
       latencyMs,
       detail,
     }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -172,7 +178,7 @@ export function summarizeHealthProbes(probes: HealthProbeResult[]): Pick<
   return { okCount, totalCount, successRate, status }
 }
 
-export async function collectHealthSlaReport(): Promise<HealthSlaReport> {
+export async function collectHealthSnapshotReport(): Promise<HealthSnapshotReport> {
   const osBaseUrl = healthSlaOsBaseUrl()
   const marketingBaseUrl = healthSlaMarketingBaseUrl()
   const probes: HealthProbeResult[] = []
@@ -190,6 +196,9 @@ export async function collectHealthSlaReport(): Promise<HealthSlaReport> {
   }
 }
 
+/** @deprecated Use collectHealthSnapshotReport; retained for API compatibility. */
+export const collectHealthSlaReport = collectHealthSnapshotReport
+
 function statusEmoji(status: HealthSlaReport['status']): string {
   if (status === 'healthy') return '✅'
   if (status === 'degraded') return '⚠️'
@@ -203,14 +212,14 @@ function probeLine(probe: HealthProbeResult): string {
   return `${mark} ${probe.name} · ${status} · ${detail}`
 }
 
-/** Compact Telegram body for the daily health/SLA report. */
-export function renderHealthSlaTelegram(report: HealthSlaReport): string {
+/** Compact Telegram body for a point-in-time uptime/health snapshot. */
+export function renderHealthSnapshotTelegram(report: HealthSnapshotReport): string {
   const day = report.checkedAt.slice(0, 10)
   const osLines = report.probes.filter((probe) => probe.group === 'os').map(probeLine)
   const marketingLines = report.probes.filter((probe) => probe.group === 'marketing').map(probeLine)
   return [
     `${statusEmoji(report.status)} Trovara daily health — ${day}`,
-    `SLA: ${report.okCount}/${report.totalCount} probes OK (${report.successRate}%) · ${report.status.toUpperCase()}`,
+    `Health snapshot: ${report.okCount}/${report.totalCount} probes OK (${report.successRate}%) · ${report.status.toUpperCase()}`,
     '',
     `OS (${report.osBaseUrl})`,
     ...osLines,
@@ -219,3 +228,6 @@ export function renderHealthSlaTelegram(report: HealthSlaReport): string {
     ...marketingLines,
   ].join('\n')
 }
+
+/** @deprecated Use renderHealthSnapshotTelegram; retained for API compatibility. */
+export const renderHealthSlaTelegram = renderHealthSnapshotTelegram

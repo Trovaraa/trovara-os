@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
-import { api } from '@/lib/api'
+import { api, resolveApiUrl } from '@/lib/api'
 
 const { t } = useI18n()
 
@@ -110,7 +110,7 @@ onMounted(load)
         <p class="text-slate-400 text-sm mt-1">{{ t('audit.subtitle') }}</p>
       </div>
       <a
-        href="/api/exports/audit.csv"
+        :href="resolveApiUrl('/api/exports/audit.csv')"
         class="text-sm px-4 py-2 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
       >
         {{ t('audit.downloadCsv') }}

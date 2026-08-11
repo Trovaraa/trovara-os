@@ -1,4 +1,5 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
 import { copyFile } from 'node:fs/promises'
 import { db } from '../db/index.js'
 import { brandAssets } from '../db/schema.js'
@@ -48,28 +49,62 @@ async function pumpQueue(): Promise<void> {
 }
 
 export async function processBrandAsset(assetId: string, farmId: string): Promise<void> {
-  const [row] = await db
+  const [candidate] = await db
     .select()
     .from(brandAssets)
     .where(and(eq(brandAssets.id, assetId), eq(brandAssets.farmId, farmId)))
     .limit(1)
-  if (!row) return
-  if (row.status !== 'processing' && row.status !== 'uploading') return
-  const sourcePath = row.pendingSourcePath
-  const sourceMime = row.sourceMimeType
-  if (!sourcePath || !sourceMime) {
+  if (!candidate) return
+  // Replacements deliberately remain ready so the previous file stays live.
+  if (
+    candidate.status !== 'processing' &&
+    candidate.status !== 'uploading' &&
+    !(candidate.status === 'ready' && candidate.pendingSourcePath)
+  ) return
+  const pendingPath = candidate.pendingSourcePath
+  const pendingMime = candidate.sourceMimeType
+  if (!pendingPath || !pendingMime) {
     await markFailed(assetId, farmId, 'Missing uploaded source file')
     return
   }
+  const leaseToken = randomUUID()
+  const now = new Date()
+  const [row] = await db
+    .update(brandAssets)
+    .set({
+      processingLeaseToken: leaseToken,
+      processingLeaseExpiresAt: new Date(now.getTime() + 20 * 60 * 1000),
+      processingError: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(brandAssets.id, assetId),
+        eq(brandAssets.farmId, farmId),
+        eq(brandAssets.pendingSourcePath, pendingPath),
+        or(
+          isNull(brandAssets.processingLeaseExpiresAt),
+          lt(brandAssets.processingLeaseExpiresAt, now),
+        ),
+      ),
+    )
+    .returning()
+  if (!row) return
+  const sourcePath = pendingPath
+  const sourceMime = pendingMime
 
   const previousFilename = row.filename
   const previousPoster = row.posterFilename
+  let promotedFilename: string | null = null
+  let promotedPoster: string | null = null
 
   try {
-    await db
-      .update(brandAssets)
-      .set({ status: 'processing', processingError: null, updatedAt: new Date() })
-      .where(eq(brandAssets.id, assetId))
+    if (!previousFilename) {
+      await db
+        .update(brandAssets)
+        .set({ status: 'processing', processingError: null, updatedAt: new Date() })
+        .where(eq(brandAssets.id, assetId))
+    }
 
     const result = await transcodeBrandUpload({
       sourcePath,
@@ -92,15 +127,18 @@ export async function processBrandAsset(assetId: string, farmId: string): Promis
 
     // For SVG/JPEG passthrough where output is the source.part path, promote renames it.
     const stored = await promoteBrandFile(farmId, promotePath, result.mimeType)
+    promotedFilename = stored.filename
     let posterFilename: string | null = null
     if (result.posterPath) {
       posterFilename = await writeBrandPosterFromFile(farmId, result.posterPath)
+      promotedPoster = posterFilename
     }
 
-    await db
+    const updated = await db
       .update(brandAssets)
       .set({
         filename: stored.filename,
+        originalName: row.pendingOriginalName || row.originalName,
         mimeType: stored.mimeType,
         byteSize: stored.byteSize,
         width: result.width,
@@ -112,9 +150,24 @@ export async function processBrandAsset(assetId: string, farmId: string): Promis
         processingError: null,
         pendingSourcePath: null,
         pendingOriginalName: null,
+        processingLeaseToken: null,
+        processingLeaseExpiresAt: null,
         updatedAt: new Date(),
       })
-      .where(and(eq(brandAssets.id, assetId), eq(brandAssets.farmId, farmId)))
+      .where(
+        and(
+          eq(brandAssets.id, assetId),
+          eq(brandAssets.farmId, farmId),
+          eq(brandAssets.pendingSourcePath, sourcePath),
+          eq(brandAssets.processingLeaseToken, leaseToken),
+        ),
+      )
+      .returning({ id: brandAssets.id })
+    if (updated.length !== 1) {
+      throw new Error('Brand processing lease was lost')
+    }
+    promotedFilename = null
+    promotedPoster = null
 
     // On replace, drop previous published files after the new ones are live.
     if (previousFilename && previousFilename !== stored.filename) {
@@ -127,22 +180,41 @@ export async function processBrandAsset(assetId: string, farmId: string): Promis
     await removeBrandUploadSession(farmId, assetId)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Processing failed'
-    await markFailed(assetId, farmId, message)
+    await Promise.all([
+      deleteBrandMedia(farmId, promotedFilename).catch(() => undefined),
+      deleteBrandMedia(farmId, promotedPoster).catch(() => undefined),
+    ])
+    await markFailed(assetId, farmId, message, Boolean(previousFilename), leaseToken)
     await removeBrandUploadSession(farmId, assetId).catch(() => undefined)
     throw error
   }
 }
 
-async function markFailed(assetId: string, farmId: string, message: string): Promise<void> {
+async function markFailed(
+  assetId: string,
+  farmId: string,
+  message: string,
+  preservePublished = false,
+  leaseToken?: string,
+): Promise<void> {
   await db
     .update(brandAssets)
     .set({
-      status: 'failed',
+      status: preservePublished ? 'ready' : 'failed',
       processingError: message.slice(0, 500),
       pendingSourcePath: null,
+      pendingOriginalName: null,
+      processingLeaseToken: null,
+      processingLeaseExpiresAt: null,
       updatedAt: new Date(),
     })
-    .where(and(eq(brandAssets.id, assetId), eq(brandAssets.farmId, farmId)))
+    .where(
+      and(
+        eq(brandAssets.id, assetId),
+        eq(brandAssets.farmId, farmId),
+        ...(leaseToken ? [eq(brandAssets.processingLeaseToken, leaseToken)] : []),
+      ),
+    )
 }
 
 /** Resume interrupted jobs after API restart. */
@@ -152,7 +224,7 @@ export async function resumeBrandAssetProcessing(): Promise<void> {
   const rows = await db
     .select({ id: brandAssets.id, farmId: brandAssets.farmId })
     .from(brandAssets)
-    .where(inArray(brandAssets.status, ['processing', 'uploading']))
+    .where(inArray(brandAssets.status, ['processing', 'uploading', 'ready']))
   for (const row of rows) {
     if (!row.id) continue
     // uploading without a finished stream should fail; processing with pending path resumes
@@ -162,6 +234,7 @@ export async function resumeBrandAssetProcessing(): Promise<void> {
       .where(eq(brandAssets.id, row.id))
       .limit(1)
     if (!full?.pendingSourcePath) {
+      if (full?.status === 'ready') continue
       await markFailed(row.id, row.farmId, 'Upload interrupted before processing')
       continue
     }
