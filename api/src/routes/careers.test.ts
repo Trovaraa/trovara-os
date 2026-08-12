@@ -264,6 +264,54 @@ describe('career slug and publication behavior', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Slug already exists' })
   })
 
+  it('allows saving a draft with empty summary and body', async () => {
+    const response = await (await managerApp()).request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug: 'wip-role',
+        title: 'WIP role',
+        employmentType: 'consultancy',
+        summary: '',
+        bodyMarkdown: '',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      post: {
+        slug: 'wip-role',
+        title: 'WIP role',
+        summary: '',
+        bodyMarkdown: '',
+        published: false,
+        employmentType: 'consultancy',
+      },
+    })
+  })
+
+  it('rejects publishing a draft that is missing summary or body', async () => {
+    rows.push(
+      post({
+        id: 'empty-draft',
+        slug: 'empty-draft',
+        summary: '',
+        bodyMarkdown: '',
+      }),
+    )
+    const response = await (await managerApp()).request('/empty-draft', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ published: true }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining('before publishing'),
+    })
+    expect(rows[0]?.published).toBe(false)
+  })
+
   it('makes a post public on publish and hides it again on unpublish', async () => {
     rows.push(post({ id: 'toggle-post', slug: 'toggle-post' }))
     const manager = await managerApp()

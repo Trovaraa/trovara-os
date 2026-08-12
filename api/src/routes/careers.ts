@@ -59,9 +59,16 @@ const postFieldsSchema = z.object({
   duration: z.string().trim().max(160).nullable().optional(),
   applicationDeadline: z.string().date().nullable().optional(),
   expectedStartDate: z.string().date().nullable().optional(),
-  summary: z.string().trim().min(1).max(600),
-  bodyMarkdown: z.string().trim().min(1).max(50_000),
-  applyEmail: z.string().trim().email().max(320).default('hello@trovara.farm'),
+  // Empty allowed for drafts; publish path requires real content.
+  summary: z.string().trim().max(600).default(''),
+  bodyMarkdown: z.string().trim().max(50_000).default(''),
+  applyEmail: z
+    .string()
+    .trim()
+    .max(320)
+    .default('hello@trovara.farm')
+    .transform((value) => value || 'hello@trovara.farm')
+    .pipe(z.string().email().max(320)),
   applySubject: z.string().trim().max(200).nullable().optional(),
   applicationInstructions: z.string().trim().max(2_000).nullable().optional(),
 })
@@ -73,6 +80,24 @@ const patchPostSchema = postFieldsSchema
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505'
+}
+
+function isCheckViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23514'
+}
+
+function isReadyToPublish(fields: {
+  title: string
+  summary: string
+  bodyMarkdown: string
+  applyEmail: string
+}): boolean {
+  return Boolean(
+    fields.title.trim() &&
+      fields.summary.trim() &&
+      fields.bodyMarkdown.trim() &&
+      fields.applyEmail.trim(),
+  )
 }
 
 async function slugExists(farmId: string, slug: string, exceptId?: string): Promise<boolean> {
@@ -192,6 +217,9 @@ careersRoutes.post('/', requireCareersManage, zValidator('json', postFieldsSchem
     return c.json({ post }, 201)
   } catch (error) {
     if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
+    if (isCheckViolation(error)) {
+      return c.json({ error: 'Invalid career field value' }, 400)
+    }
     throw error
   }
 })
@@ -233,6 +261,21 @@ careersRoutes.patch('/:id', requireCareersManage, zValidator('json', patchPostSc
   if (body.applySubject !== undefined) updates.applySubject = body.applySubject
   if (body.applicationInstructions !== undefined) updates.applicationInstructions = body.applicationInstructions
   if (body.published !== undefined) {
+    const next = {
+      title: body.title ?? existing.title,
+      summary: body.summary ?? existing.summary,
+      bodyMarkdown: body.bodyMarkdown ?? existing.bodyMarkdown,
+      applyEmail: body.applyEmail ?? existing.applyEmail,
+    }
+    if (body.published && !isReadyToPublish(next)) {
+      return c.json(
+        {
+          error:
+            'Add a title, short summary, full description, and apply email before publishing',
+        },
+        400,
+      )
+    }
     updates.published = body.published
     updates.publishedAt = body.published
       ? existing.publishedAt ?? new Date()
@@ -257,6 +300,9 @@ careersRoutes.patch('/:id', requireCareersManage, zValidator('json', patchPostSc
     return c.json({ post })
   } catch (error) {
     if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
+    if (isCheckViolation(error)) {
+      return c.json({ error: 'Invalid career field value' }, 400)
+    }
     throw error
   }
 })

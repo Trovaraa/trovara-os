@@ -83,13 +83,20 @@ const form = reactive<CareerForm>({
 })
 
 const selected = computed(() => posts.value.find((post) => post.id === selectedId.value) ?? null)
-const isValid = computed(
+/** Title + slug are enough to keep a work-in-progress draft. */
+const canSaveDraft = computed(
+  () => Boolean(form.title.trim()) && Boolean(slugify(form.slug)),
+)
+/** Full listing content required before it can go live on the marketing site. */
+const canPublish = computed(
   () =>
-    Boolean(form.title.trim()) &&
-    Boolean(slugify(form.slug)) &&
+    canSaveDraft.value &&
     Boolean(form.summary.trim()) &&
     Boolean(form.bodyMarkdown.trim()) &&
     Boolean(form.applyEmail.trim()),
+)
+const saveLabel = computed(() =>
+  selected.value?.published ? t('careers.saveChanges') : t('careers.saveDraft'),
 )
 
 function slugify(value: string): string {
@@ -164,42 +171,46 @@ async function load() {
   }
 }
 
+function formPayload() {
+  return {
+    title: form.title.trim(),
+    slug: slugify(form.slug),
+    department: form.department.trim() || null,
+    location: form.location.trim() || null,
+    employmentType: form.employmentType,
+    engagementDetails: form.engagementDetails.trim() || null,
+    projectName: form.projectName.trim() || null,
+    duration: form.duration.trim() || null,
+    applicationDeadline: form.applicationDeadline || null,
+    expectedStartDate: form.expectedStartDate || null,
+    summary: form.summary.trim(),
+    bodyMarkdown: form.bodyMarkdown.trim(),
+    applyEmail: form.applyEmail.trim() || 'hello@trovara.farm',
+    applySubject: form.applySubject.trim() || null,
+    applicationInstructions: form.applicationInstructions.trim() || null,
+  }
+}
+
 async function save() {
-  if (!isValid.value) return
+  if (!canSaveDraft.value) return
   saving.value = true
   error.value = null
   notice.value = null
   try {
-    const payload = {
-      title: form.title.trim(),
-      slug: slugify(form.slug),
-      department: form.department.trim() || null,
-      location: form.location.trim() || null,
-      employmentType: form.employmentType,
-      engagementDetails: form.engagementDetails.trim() || null,
-      projectName: form.projectName.trim() || null,
-      duration: form.duration.trim() || null,
-      applicationDeadline: form.applicationDeadline || null,
-      expectedStartDate: form.expectedStartDate || null,
-      summary: form.summary.trim(),
-      bodyMarkdown: form.bodyMarkdown.trim(),
-      applyEmail: form.applyEmail.trim(),
-      applySubject: form.applySubject.trim() || null,
-      applicationInstructions: form.applicationInstructions.trim() || null,
-    }
+    const payload = formPayload()
     if (selectedId.value) {
       await api(`/api/careers/${selectedId.value}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
-      notice.value = t('careers.saved')
+      notice.value = selected.value?.published ? t('careers.saved') : t('careers.draftSaved')
     } else {
       const created = await api<{ post: CareerPost }>('/api/careers', {
         method: 'POST',
         body: JSON.stringify(payload),
       })
       selectedId.value = created.post.id
-      notice.value = t('careers.created')
+      notice.value = t('careers.draftCreated')
     }
     await load()
   } catch (e) {
@@ -211,9 +222,21 @@ async function save() {
 
 async function setPublished(published: boolean) {
   if (!selectedId.value) return
+  if (published && !canPublish.value) {
+    error.value = t('careers.publishIncomplete')
+    return
+  }
   saving.value = true
   error.value = null
+  notice.value = null
   try {
+    // Persist the form first so publish uses the latest content, not a stale row.
+    if (canSaveDraft.value) {
+      await api(`/api/careers/${selectedId.value}`, {
+        method: 'PATCH',
+        body: JSON.stringify(formPayload()),
+      })
+    }
     await api(`/api/careers/${selectedId.value}`, {
       method: 'PATCH',
       body: JSON.stringify({ published }),
@@ -289,6 +312,25 @@ onMounted(load)
       </div>
 
       <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span
+              class="rounded-full px-2.5 py-1"
+              :class="
+                selected?.published
+                  ? 'bg-farm-green/15 text-farm-green'
+                  : 'bg-slate-800 text-slate-300'
+              "
+            >
+              {{
+                selected?.published
+                  ? t('careers.status.published')
+                  : t('careers.status.draft')
+              }}
+            </span>
+          </p>
+          <p class="text-xs text-slate-500">{{ t('careers.draftHelp') }}</p>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
             <span>{{ t('careers.fields.title') }}</span>
@@ -365,16 +407,17 @@ onMounted(load)
           <button
             type="button"
             class="rounded-xl bg-farm-green px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-            :disabled="saving || !isValid"
+            :disabled="saving || !canSaveDraft"
             @click="save"
           >
-            {{ t('careers.save') }}
+            {{ saveLabel }}
           </button>
           <button
             v-if="selected && !selected.published"
             type="button"
             class="rounded-xl border border-farm-green px-4 py-2 text-sm font-semibold text-farm-green disabled:opacity-50"
-            :disabled="saving"
+            :disabled="saving || !canPublish"
+            :title="canPublish ? undefined : t('careers.publishIncomplete')"
             @click="setPublished(true)"
           >
             {{ t('careers.publish') }}

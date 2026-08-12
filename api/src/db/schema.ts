@@ -2060,6 +2060,10 @@ export const careerPosts = pgTable(
       .where(sql`${t.published} = true`),
     check('career_posts_slug_format', sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
     check(
+      'career_posts_employment_type_check',
+      sql`${t.employmentType} in ('full_time', 'part_time', 'contract', 'internship', 'temporary', 'consultancy', 'graduate_placement')`,
+    ),
+    check(
       'career_posts_published_at_consistent',
       sql`(${t.published} = false) or (${t.publishedAt} is not null)`,
     ),
