@@ -121,7 +121,7 @@ async function openConversation(id: string) {
     restorePendingAction(messages.value)
     await scrollToBottom()
   } catch (e) {
-    chatError.value = e instanceof Error ? e.message : t('ai.historyLoadFailed')
+    chatError.value = e instanceof Error ? e.message : t('insights.historyLoadFailed')
   } finally {
     conversationBusy.value = false
   }
@@ -148,7 +148,7 @@ async function newConversation() {
 }
 
 async function clearConversation() {
-  if (!activeConversationId.value || !window.confirm(t('ai.clearConfirm'))) return
+  if (!activeConversationId.value || !window.confirm(t('insights.clearConfirm'))) return
   conversationBusy.value = true
   try {
     await api(`/api/ai/conversations/${activeConversationId.value}/messages`, { method: 'DELETE' })
@@ -161,7 +161,7 @@ async function clearConversation() {
 }
 
 async function archiveConversation() {
-  if (!activeConversationId.value || !window.confirm(t('ai.archiveConfirm'))) return
+  if (!activeConversationId.value || !window.confirm(t('insights.archiveConfirm'))) return
   conversationBusy.value = true
   try {
     await api(`/api/ai/conversations/${activeConversationId.value}/archive`, { method: 'POST' })
@@ -410,12 +410,12 @@ async function resolveAction(confirm: boolean) {
       messages.value.push({ role: 'assistant', text: data.result, metadata: { confirmed: true } })
     } else {
       await api(`/api/ai/actions/${current.draftId}/cancel`, { method: 'POST' })
-      messages.value.push({ role: 'assistant', text: t('ai.actionCancelled'), metadata: { cancelled: true } })
+      messages.value.push({ role: 'assistant', text: t('insights.actionCancelled'), metadata: { cancelled: true } })
     }
     actionDraft.value = null
     await refreshConversationList()
   } catch (e) {
-    chatError.value = e instanceof Error ? e.message : t('ai.actionFailed')
+    chatError.value = e instanceof Error ? e.message : t('insights.actionFailed')
   } finally {
     confirmingAction.value = false
     void scrollToBottom()
@@ -502,23 +502,23 @@ async function draftTaskFromPrompt() {
         <select
           :value="activeConversationId ?? ''"
           :disabled="conversationBusy"
-          :aria-label="t('ai.conversationHistory')"
+          :aria-label="t('insights.conversationHistory')"
           class="min-w-0 flex-1 sm:max-w-sm bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           @change="onConversationSelected"
         >
-          <option value="" disabled>{{ t('ai.noConversation') }}</option>
+          <option value="" disabled>{{ t('insights.noConversation') }}</option>
           <option v-for="conversation in conversations" :key="conversation.id" :value="conversation.id">
             {{ conversation.title }}
           </option>
         </select>
         <button type="button" class="px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green text-xs font-bold" :disabled="conversationBusy" @click="newConversation">
-          {{ t('ai.newChat') }}
+          {{ t('insights.newChat') }}
         </button>
         <button type="button" class="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs" :disabled="conversationBusy || !activeConversationId" @click="clearConversation">
-          {{ t('ai.clearChat') }}
+          {{ t('insights.clearChat') }}
         </button>
         <button type="button" class="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs" :disabled="conversationBusy || !activeConversationId" @click="archiveConversation">
-          {{ t('ai.archiveChat') }}
+          {{ t('insights.archiveChat') }}
         </button>
       </div>
       <!-- Thread -->
@@ -578,14 +578,14 @@ async function draftTaskFromPrompt() {
       <!-- Composer -->
       <div class="border-t border-slate-800 p-3">
         <div v-if="actionDraft" class="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
-          <p class="text-xs font-bold text-amber-300 uppercase tracking-wide">{{ t('ai.actionNeedsConfirmation') }}</p>
-          <p class="mt-1 text-xs text-slate-300">{{ t('ai.actionSafetyNotice') }}</p>
+          <p class="text-xs font-bold text-amber-300 uppercase tracking-wide">{{ t('insights.actionNeedsConfirmation') }}</p>
+          <p class="mt-1 text-xs text-slate-300">{{ t('insights.actionSafetyNotice') }}</p>
           <div class="mt-3 flex items-center gap-2">
             <button type="button" :disabled="confirmingAction" class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50" @click="resolveAction(true)">
-              {{ confirmingAction ? t('ai.confirming') : t('ai.confirmAction') }}
+              {{ confirmingAction ? t('ai.confirming') : t('insights.confirmAction') }}
             </button>
             <button type="button" :disabled="confirmingAction" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50" @click="resolveAction(false)">
-              {{ t('ai.cancelAction') }}
+              {{ t('insights.cancelAction') }}
             </button>
           </div>
         </div>
