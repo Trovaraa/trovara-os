@@ -27,7 +27,7 @@ describe('translation usage', () => {
   it('resolves every static t() key used by the app', () => {
     const keys = sourceFiles(sourceRoot).flatMap((path) => {
       const content = readFileSync(path, 'utf8')
-      return [...content.matchAll(/\bt\s*\(\s*['\"]([\w.-]+)['\"]/g)].map((match) => match[1])
+      return [...content.matchAll(/\bt\s*\(\s*['"]([\w.-]+)['"]/g)].map((match) => match[1])
     })
 
     expect([...new Set(keys)].filter((key) => !hasMessage(key))).toEqual([])
