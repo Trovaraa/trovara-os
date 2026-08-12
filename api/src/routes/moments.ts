@@ -50,6 +50,7 @@ const statusSchema = z.object({
 const reviewSchema = z.object({
   status: z.enum(['approved', 'rejected']),
   reviewNote: z.string().trim().max(500).optional(),
+  groupLabel: z.string().trim().min(1).max(80).nullable().optional(),
 }).strict()
 
 type MomentSubmission = typeof momentSubmissions.$inferSelect
@@ -145,6 +146,7 @@ publicMomentsRoutes.get('/', async (c) => {
       storageKey: momentSubmissions.storageKey,
       durationSeconds: momentSubmissions.durationSeconds,
       description: momentSubmissions.description,
+      groupLabel: momentSubmissions.groupLabel,
       createdAt: momentSubmissions.createdAt,
     })
     .from(momentSubmissions)
@@ -164,6 +166,7 @@ publicMomentsRoutes.get('/', async (c) => {
       mimeType: m.mimeType,
       durationSeconds: m.durationSeconds,
       description: m.description,
+      groupLabel: m.groupLabel,
       mediaUrl: `/public/moments/${m.id}/media`,
       createdAt: m.createdAt.toISOString(),
     })),
@@ -380,6 +383,7 @@ momentsRoutes.get('/', zValidator('query', statusSchema), async (c) => {
       submitterName: m.submitterName,
       submitterEmail: m.submitterEmail,
       description: m.description,
+      groupLabel: m.groupLabel,
       consentVersion: m.consentVersion,
       consentAt: m.consentAt?.toISOString() ?? null,
       mediaKind: m.mediaKind,
@@ -419,6 +423,7 @@ momentsRoutes.patch('/:id', zValidator('json', reviewSchema), async (c) => {
     .set({
       status: body.status,
       reviewNote: body.reviewNote || null,
+      groupLabel: body.groupLabel === undefined ? existing.groupLabel : body.groupLabel,
       reviewedById: user.id,
       reviewedAt: new Date(),
       retentionExpiresAt:
@@ -441,6 +446,7 @@ momentsRoutes.patch('/:id', zValidator('json', reviewSchema), async (c) => {
     metadata: {
       status: { from: existing.status, to: body.status },
       reviewNote: body.reviewNote,
+      groupLabel: { from: existing.groupLabel, to: body.groupLabel ?? existing.groupLabel },
     },
   })
 

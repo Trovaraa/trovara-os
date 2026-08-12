@@ -11,9 +11,16 @@ type CareerPost = {
   department: string | null
   location: string | null
   employmentType: string
+  engagementDetails: string | null
+  projectName: string | null
+  duration: string | null
+  applicationDeadline: string | null
+  expectedStartDate: string | null
   summary: string
   bodyMarkdown: string
   applyEmail: string
+  applySubject: string | null
+  applicationInstructions: string | null
   published: boolean
   publishedAt: string | null
   createdAt: string
@@ -26,9 +33,16 @@ type CareerForm = {
   department: string
   location: string
   employmentType: string
+  engagementDetails: string
+  projectName: string
+  duration: string
+  applicationDeadline: string
+  expectedStartDate: string
   summary: string
   bodyMarkdown: string
   applyEmail: string
+  applySubject: string
+  applicationInstructions: string
 }
 
 const EMPLOYMENT_TYPES = [
@@ -37,6 +51,8 @@ const EMPLOYMENT_TYPES = [
   'contract',
   'internship',
   'temporary',
+  'consultancy',
+  'graduate_placement',
 ] as const
 
 const { t } = useI18n()
@@ -54,9 +70,16 @@ const form = reactive<CareerForm>({
   department: '',
   location: 'Abeokuta, Nigeria',
   employmentType: 'full_time',
+  engagementDetails: '',
+  projectName: '',
+  duration: '',
+  applicationDeadline: '',
+  expectedStartDate: '',
   summary: '',
   bodyMarkdown: '',
   applyEmail: 'hello@trovara.farm',
+  applySubject: '',
+  applicationInstructions: '',
 })
 
 const selected = computed(() => posts.value.find((post) => post.id === selectedId.value) ?? null)
@@ -94,9 +117,16 @@ function resetForm() {
   form.department = ''
   form.location = 'Abeokuta, Nigeria'
   form.employmentType = 'full_time'
+  form.engagementDetails = ''
+  form.projectName = ''
+  form.duration = ''
+  form.applicationDeadline = ''
+  form.expectedStartDate = ''
   form.summary = ''
   form.bodyMarkdown = ''
   form.applyEmail = 'hello@trovara.farm'
+  form.applySubject = ''
+  form.applicationInstructions = ''
 }
 
 function editPost(post: CareerPost) {
@@ -107,9 +137,16 @@ function editPost(post: CareerPost) {
   form.department = post.department ?? ''
   form.location = post.location ?? ''
   form.employmentType = post.employmentType
+  form.engagementDetails = post.engagementDetails ?? ''
+  form.projectName = post.projectName ?? ''
+  form.duration = post.duration ?? ''
+  form.applicationDeadline = post.applicationDeadline ?? ''
+  form.expectedStartDate = post.expectedStartDate ?? ''
   form.summary = post.summary
   form.bodyMarkdown = post.bodyMarkdown
   form.applyEmail = post.applyEmail
+  form.applySubject = post.applySubject ?? ''
+  form.applicationInstructions = post.applicationInstructions ?? ''
   notice.value = null
   error.value = null
 }
@@ -139,9 +176,16 @@ async function save() {
       department: form.department.trim() || null,
       location: form.location.trim() || null,
       employmentType: form.employmentType,
+      engagementDetails: form.engagementDetails.trim() || null,
+      projectName: form.projectName.trim() || null,
+      duration: form.duration.trim() || null,
+      applicationDeadline: form.applicationDeadline || null,
+      expectedStartDate: form.expectedStartDate || null,
       summary: form.summary.trim(),
       bodyMarkdown: form.bodyMarkdown.trim(),
       applyEmail: form.applyEmail.trim(),
+      applySubject: form.applySubject.trim() || null,
+      applicationInstructions: form.applicationInstructions.trim() || null,
     }
     if (selectedId.value) {
       await api(`/api/careers/${selectedId.value}`, {
@@ -275,9 +319,37 @@ onMounted(load)
             <span>{{ t('careers.fields.location') }}</span>
             <input v-model="form.location" type="text" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
           </label>
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('careers.fields.projectName') }}</span>
+            <input v-model="form.projectName" type="text" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('careers.fields.engagementDetails') }}</span>
+            <input v-model="form.engagementDetails" type="text" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('careers.fields.duration') }}</span>
+            <input v-model="form.duration" type="text" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('careers.fields.applicationDeadline') }}</span>
+            <input v-model="form.applicationDeadline" type="date" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('careers.fields.expectedStartDate') }}</span>
+            <input v-model="form.expectedStartDate" type="date" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
           <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
             <span>{{ t('careers.fields.applyEmail') }}</span>
             <input v-model="form.applyEmail" type="email" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
+            <span>{{ t('careers.fields.applySubject') }}</span>
+            <input v-model="form.applySubject" type="text" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
+            <span>{{ t('careers.fields.applicationInstructions') }}</span>
+            <textarea v-model="form.applicationInstructions" rows="3" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100" />
           </label>
           <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
             <span>{{ t('careers.fields.summary') }}</span>

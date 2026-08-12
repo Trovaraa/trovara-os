@@ -19,6 +19,7 @@ type Moment = {
   byteSize: number
   durationSeconds?: number | null
   reviewNote?: string | null
+  groupLabel?: string | null
   reviewedById?: string | null
   reviewedAt?: string | null
   createdAt: string
@@ -46,6 +47,7 @@ const summary = ref({ total: 0, pending: 0, approved: 0, rejected: 0 })
 const activeAction = ref<string | null>(null)
 const reviewingMoment = ref<Moment | null>(null)
 const reviewNote = ref('')
+const groupLabel = ref('')
 const page = ref(1)
 const PAGE_SIZE = 24
 const pageCount = computed(() => Math.max(1, Math.ceil(moments.value.length / PAGE_SIZE)))
@@ -119,11 +121,13 @@ async function refresh() {
 function openReview(moment: Moment) {
   reviewingMoment.value = moment
   reviewNote.value = ''
+  groupLabel.value = moment.groupLabel ?? ''
 }
 
 function closeReview() {
   reviewingMoment.value = null
   reviewNote.value = ''
+  groupLabel.value = ''
 }
 
 async function submitReview(status: 'approved' | 'rejected') {
@@ -141,6 +145,7 @@ async function submitReview(status: 'approved' | 'rejected') {
       body: JSON.stringify({
         status,
         reviewNote: reviewNote.value.trim() || undefined,
+        groupLabel: groupLabel.value.trim() || null,
       }),
     })
     await loadMoments()
@@ -261,6 +266,7 @@ onMounted(() => {
                 {{ t('moments.reviewedAt', { date: formatDate(moment.reviewedAt) }) }}
               </p>
               <p v-if="moment.reviewNote" class="review-note">{{ moment.reviewNote }}</p>
+              <p v-if="moment.groupLabel" class="group-label">{{ moment.groupLabel }}</p>
             </div>
             <div v-if="moment.status === 'pending'" class="moment-actions">
               <button
@@ -309,6 +315,17 @@ onMounted(() => {
                 :aria-label="reviewingMoment.originalFilename || t('moments.videoLabel')"
                 class="review-media"
               />
+            </div>
+            <div class="form-group">
+              <label for="groupLabel">{{ t('moments.groupLabel') }}</label>
+              <input
+                id="groupLabel"
+                v-model="groupLabel"
+                :placeholder="t('moments.groupLabelPlaceholder')"
+                maxlength="80"
+                class="form-control"
+              />
+              <p class="form-hint">{{ t('moments.groupLabelHint') }}</p>
             </div>
             <div class="form-group">
               <label for="reviewNote">{{ t('moments.reviewNote') }}</label>
@@ -565,6 +582,11 @@ onMounted(() => {
   color: #617064;
   font-style: italic;
   margin-top: 0.5rem;
+}
+
+.group-label {
+  color: #2f6b3b;
+  font-weight: 700;
 }
 
 .moment-actions {

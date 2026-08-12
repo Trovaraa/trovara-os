@@ -20,6 +20,8 @@ const EMPLOYMENT_TYPES = [
   'contract',
   'internship',
   'temporary',
+  'consultancy',
+  'graduate_placement',
 ] as const
 
 export function normalizeCareerSlug(value: string): string {
@@ -52,9 +54,16 @@ const postFieldsSchema = z.object({
   department: z.string().trim().max(120).nullable().optional(),
   location: z.string().trim().max(120).nullable().optional(),
   employmentType: z.enum(EMPLOYMENT_TYPES).default('full_time'),
+  engagementDetails: z.string().trim().max(200).nullable().optional(),
+  projectName: z.string().trim().max(160).nullable().optional(),
+  duration: z.string().trim().max(160).nullable().optional(),
+  applicationDeadline: z.string().date().nullable().optional(),
+  expectedStartDate: z.string().date().nullable().optional(),
   summary: z.string().trim().min(1).max(600),
   bodyMarkdown: z.string().trim().min(1).max(50_000),
   applyEmail: z.string().trim().email().max(320).default('hello@trovara.farm'),
+  applySubject: z.string().trim().max(200).nullable().optional(),
+  applicationInstructions: z.string().trim().max(2_000).nullable().optional(),
 })
 
 const patchPostSchema = postFieldsSchema
@@ -93,9 +102,16 @@ function publicPost(row: typeof careerPosts.$inferSelect) {
     department: row.department,
     location: row.location,
     employmentType: row.employmentType,
+    engagementDetails: row.engagementDetails,
+    projectName: row.projectName,
+    duration: row.duration,
+    applicationDeadline: row.applicationDeadline,
+    expectedStartDate: row.expectedStartDate,
     summary: row.summary,
     bodyMarkdown: row.bodyMarkdown,
     applyEmail: row.applyEmail,
+    applySubject: row.applySubject,
+    applicationInstructions: row.applicationInstructions,
     publishedAt: row.publishedAt,
   }
 }
@@ -150,9 +166,16 @@ careersRoutes.post('/', requireCareersManage, zValidator('json', postFieldsSchem
         department: body.department ?? null,
         location: body.location ?? null,
         employmentType: body.employmentType,
+        engagementDetails: body.engagementDetails ?? null,
+        projectName: body.projectName ?? null,
+        duration: body.duration ?? null,
+        applicationDeadline: body.applicationDeadline ?? null,
+        expectedStartDate: body.expectedStartDate ?? null,
         summary: body.summary,
         bodyMarkdown: body.bodyMarkdown,
         applyEmail: body.applyEmail,
+        applySubject: body.applySubject ?? null,
+        applicationInstructions: body.applicationInstructions ?? null,
         createdById: user.id,
         updatedById: user.id,
       })
@@ -199,9 +222,16 @@ careersRoutes.patch('/:id', requireCareersManage, zValidator('json', patchPostSc
   if (body.department !== undefined) updates.department = body.department
   if (body.location !== undefined) updates.location = body.location
   if (body.employmentType !== undefined) updates.employmentType = body.employmentType
+  if (body.engagementDetails !== undefined) updates.engagementDetails = body.engagementDetails
+  if (body.projectName !== undefined) updates.projectName = body.projectName
+  if (body.duration !== undefined) updates.duration = body.duration
+  if (body.applicationDeadline !== undefined) updates.applicationDeadline = body.applicationDeadline
+  if (body.expectedStartDate !== undefined) updates.expectedStartDate = body.expectedStartDate
   if (body.summary !== undefined) updates.summary = body.summary
   if (body.bodyMarkdown !== undefined) updates.bodyMarkdown = body.bodyMarkdown
   if (body.applyEmail !== undefined) updates.applyEmail = body.applyEmail
+  if (body.applySubject !== undefined) updates.applySubject = body.applySubject
+  if (body.applicationInstructions !== undefined) updates.applicationInstructions = body.applicationInstructions
   if (body.published !== undefined) {
     updates.published = body.published
     updates.publishedAt = body.published
