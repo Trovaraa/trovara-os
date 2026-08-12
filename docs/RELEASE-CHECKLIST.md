@@ -1,7 +1,7 @@
 # Coordinated OS and marketing release
 
-The OS is the system of record. Release and verify it before marketing pages
-that consume its public contracts.
+Release and verify the OS before marketing pages that call its public APIs.
+The OS holds the live data and contracts those pages depend on.
 
 ## Checklist
 
@@ -23,5 +23,5 @@ the OS deployment and verifies the embedded SHA before invoking the optional,
 operator-configured `MARKETING_DEPLOY_COMMAND`. It does not edit the marketing
 repository or hardcode a deployment provider.
 
-If the OS check fails, stop. Roll forward where possible; do not deploy a
-marketing build that assumes an unavailable OS contract.
+If the OS check fails, stop. Prefer rolling the OS forward when you can; do not
+deploy a marketing build that assumes an OS contract that is not live yet.

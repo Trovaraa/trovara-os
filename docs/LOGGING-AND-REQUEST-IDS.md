@@ -2,7 +2,7 @@
 
 ## Current production default (disk-first)
 
-Until an off-host drain is chosen, production relies on local logs only:
+Until an off-host drain is configured, production uses local logs only:
 
 - Structured application events append to `logs/api.log` on the API host
   (see `api/src/lib/api-log.ts`).
@@ -27,23 +27,23 @@ API_LOG_DRAIN_TOKEN=<restricted-ingest-token>
 
 The API POSTs each structured JSON log line with
 `Authorization: Bearer <token>`. Failures are logged to stderr and must never
-block requests. Prefer a provider-neutral collector path (Vector, Fluent Bit,
-Promtail, or the provider's agent) in front of the sink when possible, and keep
-provider credentials outside this repository.
+block requests. Prefer a collector in front of the sink (Vector, Fluent Bit,
+Promtail, or the provider's agent) when possible, and keep provider credentials
+outside this repository.
 
 ### Suggested options (pick one later)
 
 | Option | Fit | Notes |
 |---|---|---|
-| **Better Stack / Logtail** | Fastest hosted start | HTTPS ingest URL + source token; free tier often enough for a single farm API. |
-| **Axiom** | Cheap searchable JSON | Simple HTTP ingest; good for structured `api.log` events. |
-| **Grafana Cloud Loki** | If you already use Grafana | Ship via Promtail/Alloy from journald + `api.log`; keep long-term search off the VM. |
-| **Self-hosted Vector → object storage** | Max control, more ops | Tail `api.log` / journald on the VM, ship to S3/Backblaze; no SaaS dependency. |
-| **Papertrail / similar syslog HTTPS** | Simple ops familiarity | Fine for short retention; confirm NDPA/processor list before enabling. |
+| **Better Stack / Logtail** | Hosted HTTPS ingest | Ingest URL + source token; free tier is often enough for a single farm API. |
+| **Axiom** | Searchable JSON | HTTP ingest for structured `api.log` events. |
+| **Grafana Cloud Loki** | Existing Grafana stack | Ship via Promtail/Alloy from journald + `api.log`; keep long-term search off the VM. |
+| **Self-hosted Vector → object storage** | Self-hosted, more ops | Tail `api.log` / journald on the VM, ship to S3/Backblaze; no SaaS dependency. |
+| **Papertrail / similar syslog HTTPS** | Familiar syslog path | Fine for short retention; confirm NDPA/processor list before enabling. |
 
-Whichever you choose: restricted ingest token, TLS only, no secrets in Git, and
-confirm the processor is listed in the privacy notice if personal data can
-appear in error context (prefer redaction over shipping PII).
+Requirements for any choice: restricted ingest token, TLS only, no secrets in
+Git, and list the processor in the privacy notice if personal data can appear in
+error context (prefer redaction over shipping PII).
 
 ## Required fields and handling
 

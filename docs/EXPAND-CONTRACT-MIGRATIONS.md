@@ -1,7 +1,8 @@
 # Expand-contract database changes
 
-Production migrations are forward-only and must preserve compatibility while
-the old process and new process may overlap during a restart.
+Production migrations are forward-only. During a restart, the old process and
+the new process may both run, so each expand step must stay compatible with the
+release still in production.
 
 ## Required sequence
 
@@ -27,5 +28,5 @@ the old process and new process may overlap during a restart.
 
 Every pull request with a migration must state the expand step, backfill,
 verification query, rollback behavior, and the future contract step. CI upgrades
-a fixture one migration behind through the current tip; it supplements rather
-than replaces a production-data rehearsal for high-risk changes.
+a fixture that is one migration behind to the current tip. That check does not
+replace a production-data rehearsal for high-risk changes.

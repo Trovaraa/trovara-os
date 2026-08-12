@@ -1,8 +1,8 @@
 # Production environment inventory
 
-`.env.example` is the canonical exhaustive variable reference. This document
-classifies production values and records the deployment gate. Keep secrets in
-the host secret store/environment file, never Git.
+`.env.example` lists every environment variable. This document groups which
+values production needs and records the deployment gate. Keep secrets in the
+host secret store or environment file, never in Git.
 
 ## Required deployment gate
 
@@ -15,7 +15,7 @@ the host secret store/environment file, never Git.
   `VAULT_ENCRYPTION_KEY`.
 - Public-boundary: shared `FORM_PROXY_SIGNING_SECRET` (must match Netlify).
   Application logs write to disk (`logs/api.log` + journald); an HTTPS log
-  drain is optional for now — see reminders and the ops roadmap.
+  drain is optional for now (see reminders and the ops roadmap).
 - Farm/storage: `CUSTOMER_FARM_ID`, `EVIDENCE_STORAGE_ROOT`, `BACKUP_DIR`,
   `BACKUP_GPG_PASSPHRASE`, `REQUIRE_EVIDENCE_BACKUP=1`.
 - Encrypted backups on the VM plus the deploy Mac pull
@@ -45,8 +45,8 @@ these conditions before install, backup, migration, build, or frontend release.
 
 Retention windows, LLM budgets, customer order caps, translation retry limits,
 health/uptime snapshot URLs/timeouts, backup report path, PostgreSQL tool mode,
-brand-pack session secret, and storage limits retain the defaults documented in
-`.env.example`. Review that file on every release that adds an environment read.
+brand-pack session secret, and storage limits use the defaults in `.env.example`.
+Review that file on every release that adds an environment read.
 
 ## Production reminders (not blocking until you need them)
 

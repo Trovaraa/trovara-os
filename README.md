@@ -1,7 +1,7 @@
 # Trovara OS
 
-Trovara Farm operations command center. Local laptop MVP with optional demo seed;
-production runs at `https://os.trovara.farm` with real farm data (no seed).
+Farm operations software for Trovara Farm. Local laptop MVP with optional demo
+seed; production runs at `https://os.trovara.farm` with real farm data (no seed).
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ cp .env.example .env
 docker compose up -d
 npm install
 npm run db:migrate
-npm run seed                  # local demo only — never on production
+npm run seed                  # local demo only; never on production
 npm run sync-catalog -w api   # optional: catalogue from farm-knowledge
 npm run dev
 ```

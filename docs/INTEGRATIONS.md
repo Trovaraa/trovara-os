@@ -1,6 +1,8 @@
 # Trovara OS - Integrations Guide
 
-Index of integration setup. Channel- and payment-specific runbooks live in dedicated docs; this file keeps the shared env map plus topics that are not covered elsewhere (AI, cron, public QR, offline queue, seed → real adoption).
+Index of integration setup. Channel- and payment-specific runbooks live in
+dedicated docs. This file keeps the shared env map and topics not covered
+elsewhere (AI, cron, public QR, offline queue, seed to real data).
 
 | Topic | Canonical doc |
 |-------|----------------|
@@ -173,7 +175,7 @@ Returns JSON: `{ severity, category, recommendedActions }`. Without LLM: placeho
 | LLM HTTP error | Same fallback + `llmError` field | Placeholder + `llmError` |
 | Invalid JSON from model (incidents) | N/A | Falls back to placeholder |
 
-The app remains fully usable without any LLM credentials.
+The app works without LLM credentials; AI features fall back as in the table above.
 
 ### Estimated costs (daily briefing)
 
@@ -355,7 +357,7 @@ Local wipe + reseed for demos: `nvm use 22 && npm run seed` (never on production
 
 Seed data (`npm run seed`) creates **Trovara Demo Farm** with zones, plots, tasks, inventory, sample lots (`TRV-COC-2026-001`, `TRV-PLT-2026-002`), and demo users. Use it for training and integration testing only.
 
-For a **production** cutover (empty DB, first real owner), use [`GO-LIVE.md`](../../GO-LIVE.md) — not seed, and not reset-demo.
+For a **production** cutover (empty DB, first real owner), use [`GO-LIVE.md`](../../GO-LIVE.md), not seed, and not reset-demo.
 
 ### Do not use reset-demo in production
 
@@ -375,7 +377,7 @@ Adopt modules in order so each layer has master data before downstream features:
 8. **Products & sales** - Sync catalogue (`npm run sync-catalog -w api`); real prices; order fulfill via Sales or TG/WA.
 9. **Alert subscriptions** - Owners opt into customer and/or worker alerts in Settings.
 10. **WhatsApp / Telegram** - Link staff phones / Telegram; pilot supervisors first.
-11. **AI briefing** - Enable after real data exists so summaries are meaningful.
+11. **AI briefing** - Enable after real data exists so summaries use live farm records.
 
 Check readiness anytime:
 

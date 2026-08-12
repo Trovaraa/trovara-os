@@ -1,9 +1,9 @@
 # Trovara OS - Backup & Restore Runbook
 
 This runbook covers PostgreSQL and private evidence backup/restore. Production
-uses encrypted, checksummed artifacts and can deliver them through any storage
-provider supported by rclone. Remote delivery is optional in development and
-mandatory when `NODE_ENV=production`.
+uses encrypted, checksummed artifacts. Delivery can use any rclone-supported
+storage. Remote delivery is optional in development and mandatory when
+`NODE_ENV=production`.
 
 ## Prerequisites
 
