@@ -1,8 +1,9 @@
 /**
  * Offline IP → approximate location for security / audit displays.
- * Uses the bundled geoip-lite database (city-level when available).
+ * Uses the bundled geoip-country database. Reverse-proxy headers provide
+ * region detail when available.
  */
-import geoip from 'geoip-lite'
+import geoip from 'geoip-country'
 
 export type IpLocation = {
   countryCode: string
@@ -43,11 +44,9 @@ export function lookupIpLocation(ip: string | undefined): IpLocation | null {
   const hit = geoip.lookup(ip.trim())
   if (!hit?.country) return null
   const country = countryCodeToName(hit.country) ?? hit.country
-  const region = hit.city?.trim() || hit.region?.trim() || undefined
   return {
     countryCode: hit.country,
     country,
-    ...(region ? { region } : {}),
   }
 }
 

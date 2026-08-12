@@ -2,7 +2,7 @@
  * Request access metadata for security / audit logs.
  * Country/region prefer reverse-proxy headers when present
  * (Cloudflare CF-IPCountry / CF-Region, or custom X-Country-Code / X-Region-Code).
- * Otherwise they are approximated offline from the client IP (geoip-lite).
+ * Otherwise the country is approximated offline from the client IP.
  */
 import { clientIpFromHeaders } from './client-ip.js'
 import { countryCodeToName, lookupIpLocation } from './ip-location.js'

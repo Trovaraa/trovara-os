@@ -23,8 +23,9 @@
     "@types/qrcode": "^1.5.6",
     "dotenv": "^16.5.0",
     "drizzle-orm": "1.0.0-rc.4",
-    "geoip-lite": "^2.0.3",
+    "geoip-country": "^5.0.202608120039",
     "hono": "^4.13.1",
+    "ip-address": "10.4.0",
     "otplib": "^13.4.1",
     "pdfkit": "^0.19.1",
     "postgres": "^3.4.7",
@@ -34,7 +35,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
-    "@types/geoip-lite": "^1.4.4",
+    "@types/geoip-country": "^5.0.0",
     "@types/node": "^22.15.21",
     "@types/pdfkit": "^0.17.6",
     "drizzle-kit": "1.0.0-rc.4",
