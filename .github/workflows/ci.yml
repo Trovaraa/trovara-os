@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
 
+      - name: Lint API and OS app
+        run: npm run lint
+
       - name: Audit dependencies (high+)
         run: npm audit --workspaces --audit-level=high
 
