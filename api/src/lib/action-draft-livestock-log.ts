@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { livestockBatches, livestockLogs } from '../db/schema.js'
 import type { SessionUser } from './session.js'
+import { hasPermission } from './rbac.js'
 import { logAudit } from './audit.js'
 import {
   contentLocaleValues,
@@ -39,6 +40,9 @@ export async function executeConfirmedLivestockLog(
   source = 'butler',
   locale?: ContentLocaleMeta,
 ): Promise<string> {
+  if (!hasPermission(user, 'livestock.log')) {
+    return 'You do not have permission to record livestock logs.'
+  }
   const batchId = String(payload.batchId ?? '')
   const logType = String(payload.logType ?? '') as
     | 'feeding'
@@ -117,6 +121,9 @@ export async function prepareLivestockLogDraft(params: {
   channel: string
   externalChatId: string
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
+  if (!hasPermission(params.user, 'livestock.log')) {
+    return { ok: false, error: 'You do not have permission to record livestock logs.' }
+  }
   const batch = await resolveLivestockBatchByName(params.user.farmId, params.batchQuery)
   if (!batch) {
     return {

@@ -105,6 +105,15 @@ describe('hasPermission fail-closed', () => {
     expect(hasPermission(user('sales'), 'vault.view')).toBe(true)
     expect(hasPermission(user('supervisor'), 'vault.view')).toBe(true)
   })
+
+  it('legacy fallback never grants field-operation actions to sales', () => {
+    expect(hasPermission(user('sales'), 'assets.count')).toBe(false)
+    expect(hasPermission(user('sales'), 'census.create')).toBe(false)
+    expect(hasPermission(user('sales'), 'livestock.log')).toBe(false)
+    expect(hasPermission(user('sales'), 'field_reports.create')).toBe(false)
+    expect(hasPermission(user('field_worker'), 'field_reports.create')).toBe(true)
+    expect(hasPermission(user('supervisor'), 'assets.count')).toBe(true)
+  })
 })
 
 describe('requirePermission', () => {

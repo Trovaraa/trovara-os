@@ -129,6 +129,7 @@ export function buildButlerPrompt(
     wordingRules(opts?.replyLocale),
     opts?.plainText ? PLAIN_TEXT_FORMATTING_RULES : FORMATTING_RULES,
     PROMPT_INJECTION_RULES,
+    'ACTION SAFETY: A normal chat reply cannot change farm records. Never claim that you created, updated, approved, dispatched, deleted, paid, or otherwise changed anything. Trovara OS handles supported write commands as a separate server-validated draft that the user must explicitly confirm.',
     SAFETY_RULES,
     AFRICA_VET_KNOWLEDGE,
     AFRICA_AGRONOMY_KNOWLEDGE,

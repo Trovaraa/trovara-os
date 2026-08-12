@@ -21,7 +21,7 @@ For HTTP route roles see [`API.md`](./API.md). Security controls (not a second m
 | Reports | Full access | Operational reports for approvals, stock and exceptions | No access | Finance and audit reports |
 | Public Journal | Create, edit, publish, unpublish and delete | No access | No access | No access |
 | Events / audit trail | Full access | Full events/audit API (same endpoint as Admin; treat as trusted ops) | No access | No Events screen |
-| AI Copilot | Full access | Full access | No access | Full access for sales and customer-operation questions |
+| AI Copilot | Farm-wide answers and actions allowed by Admin permissions | Operational answers and actions allowed by Supervisor permissions | Own work, permitted farm context, observations, counts and livestock logs | Sales, finance, catalogue, orders and support only; no stock or field-operation changes |
 | Messaging and integrations | Configure and operate | Operational messaging + WhatsApp send | Worker commands and alerts | Template copy / customer messaging context; **WhatsApp API send is Admin/Supervisor only** |
 | Personal settings and language | Own profile plus farm settings | Own profile | Own profile | Own profile |
 
@@ -33,3 +33,5 @@ For HTTP route roles see [`API.md`](./API.md). Security controls (not a second m
 - Destructive actions and security, user, audit and farm-configuration changes remain Admin-only.
 - Changes to stock, orders, products, attendance and traceability must retain the user, time and record ID in the audit trail.
 - Sales access never grants inventory write authority. Inventory item edits, movements, opening counts, count verification and reconciliation/shrink actions are enforced as Admin/Supervisor operations at the API.
+- AI access does not widen a role. Farm context is filtered with the same permission grants as the OS, and every AI action is checked again when its draft is confirmed.
+- AI actions always produce a reviewable draft first. Nothing is written until the same user confirms it; expired, cancelled, cross-user and cross-farm drafts cannot be executed.

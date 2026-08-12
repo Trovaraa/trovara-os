@@ -17,6 +17,8 @@ Reference for what is implemented, plus the release gate used before internet-fa
 - Rate limiting on shop email endpoints (register / forgot / resend: 10/IP and 3/email per 15 min)
 - Rate limiting on mutations (120 writes / 15 min per user or IP)
 - Rate limiting on AI endpoints (60/hour per user, configurable)
+- AI conversations are private to one farm user; conversation IDs are re-scoped on every read, clear, archive, confirm, and cancel request
+- AI farm context is permission-filtered, and typed actions require an owned draft plus a second permission check at confirmation; ordinary model text cannot write records
 - CSRF double-submit cookie on POST/PATCH/DELETE (`trovara_csrf` + `X-CSRF-Token`)
 - Session metadata: user agent + SHA-256 hashed IP stored on login
 - Session revocation: `POST /auth/revoke-all-sessions`

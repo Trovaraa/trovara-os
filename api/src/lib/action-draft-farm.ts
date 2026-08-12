@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { cropCycles, livestockBatches, plots } from '../db/schema.js'
 import type { SessionUser } from './session.js'
-import { canAssignTasks } from './rbac.js'
+import { hasPermission } from './rbac.js'
 import { logAudit } from './audit.js'
 import { recordFarmEvent } from './farm-events.js'
 import {
@@ -23,7 +23,7 @@ export async function executeConfirmedCropCycle(
   user: SessionUser,
   payload: Record<string, unknown>,
 ): Promise<string> {
-  if (!canAssignTasks(user)) return 'Only Admin or Supervisor can create crop cycles.'
+  if (!hasPermission(user, 'crops.manage')) return 'You do not have permission to manage crops.'
   const plotId = String(payload.plotId ?? '')
   const cropType = String(payload.cropType ?? '').trim()
   const plantedAt = String(payload.plantedAt ?? '')
@@ -71,7 +71,7 @@ export async function executeConfirmedLivestockBatch(
   user: SessionUser,
   payload: Record<string, unknown>,
 ): Promise<string> {
-  if (!canAssignTasks(user)) return 'Only Admin or Supervisor can create livestock batches.'
+  if (!hasPermission(user, 'livestock.manage')) return 'You do not have permission to manage livestock.'
   const name = String(payload.name ?? '').trim()
   const species = String(payload.species ?? '').trim()
   const headCount = Number(payload.headCount)

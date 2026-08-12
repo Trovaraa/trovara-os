@@ -1624,6 +1624,55 @@ export const customerChatSessions = pgTable(
   ],
 )
 
+// Persistent, private Copilot threads for authenticated OS users. Threads and
+// messages are always queried by farm + user; there is intentionally no shared
+// farm-wide chat history because prompts may contain customer or finance data.
+export const aiConversations = pgTable(
+  'ai_conversations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').default('New conversation').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('ai_conversations_user_updated_idx').on(t.farmId, t.userId, t.updatedAt),
+  ],
+)
+
+export const aiMessages = pgTable(
+  'ai_messages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id')
+      .references(() => aiConversations.id, { onDelete: 'cascade' })
+      .notNull(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    attachmentUrl: text('attachment_url'),
+    model: text('model'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('ai_messages_conversation_created_idx').on(t.conversationId, t.createdAt),
+    check('ai_messages_role_check', sql`${t.role} in ('user', 'assistant')`),
+  ],
+)
+
 // Register of equipment/tools/PPE the farm owns. Founders + supervisors define
 // entries; daily state is tracked in asset_logs. Pool model: one row per item
 // type with a quantity_owned; assigned_to_id optionally ties PPE to a worker.

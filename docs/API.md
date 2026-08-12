@@ -631,12 +631,33 @@ so older field clients can continue syncing while they are upgraded.
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
+| GET | `/api/ai/status` | Yes | `ai.use` | Model availability |
+| GET | `/api/ai/conversations` | Yes | `ai.use` | Current user's active conversation list |
+| POST | `/api/ai/conversations` | Yes | `ai.use` | Create a private conversation |
+| GET | `/api/ai/conversations/:id` | Yes | `ai.use` | Owned conversation and persisted messages |
+| DELETE | `/api/ai/conversations/:id/messages` | Yes | `ai.use` | Clear owned conversation messages and stored attachments |
+| POST | `/api/ai/conversations/:id/archive` | Yes | `ai.use` | Archive owned conversation |
+| POST | `/api/ai/ask` | Yes | `ai.use` | Permission-filtered answer or reviewable action draft |
+| GET | `/api/ai/actions/capabilities` | Yes | `ai.use` | Action types allowed by the user's current grants |
+| POST | `/api/ai/actions/:draftId/confirm` | Yes | `ai.use` + action permission | Revalidate and execute an owned action draft |
+| POST | `/api/ai/actions/:draftId/cancel` | Yes | `ai.use` | Cancel an owned action draft |
+| POST | `/api/ai/transcribe` | Yes | `ai.use` | Voice transcription |
 | GET | `/api/ai/briefing` | Yes | owner, supervisor | `{ locale, priorities[], ... }` daily briefing built from farm counts |
 | POST | `/api/ai/summarize-incident` | Yes | owner, supervisor | Placeholder incident summary |
 
 `/briefing` is deterministic: priorities come from task and stock counts, never a model, so it
 works with the LLM off. Labels are rendered server-side in the caller's `preferred_locale` and
 echoed as `locale`; counts, units, item names and the farm name are interpolated verbatim.
+
+Web Copilot conversations are scoped by both `farm_id` and `user_id`; another user cannot list,
+open, clear, archive, confirm, or cancel them. The API builds model history from persisted server
+messages and ignores client-supplied history as a source of authority. Uploaded photos are stored
+as private evidence references rather than retaining data URLs in the database.
+
+AI never grants an operation by itself. Explicit commands may prepare typed drafts for tasks,
+inventory, zones/plots, livestock logs, census, asset counts, field reports, and customer support.
+The required OS permission is checked when the draft is prepared and again when it is confirmed.
+Sales can use permitted order/support actions but cannot change inventory through AI.
 
 ---
 

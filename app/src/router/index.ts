@@ -272,7 +272,7 @@ const router = createRouter({
       path: '/ai',
       name: 'ai',
       component: () => import('@/views/AiView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'integrations.view' },
+      meta: { requiresAuth: true, requiredPermission: 'ai.use' },
     },
     {
       path: '/lot/:farmSlug/:lotCode',

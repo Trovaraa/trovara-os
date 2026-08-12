@@ -5,7 +5,7 @@ import { and, count, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farms, inventoryItems, plots, tasks, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission, requireRole } from '../lib/rbac.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import {
   completeChat,
@@ -45,6 +45,23 @@ import {
   toViewerLocaleMany,
 } from '../lib/content-locale.js'
 import { transcribeVoice } from '../lib/butler-core.js'
+import { processEvidenceValue } from '../lib/evidence-store.js'
+import {
+  appendAiMessage,
+  archiveAiConversation,
+  clearAiConversation,
+  createAiConversation,
+  getAiConversation,
+  listAiConversations,
+  loadAiConversationContext,
+  requireAiConversation,
+} from '../lib/ai-conversations.js'
+import {
+  aiActionCapabilities,
+  cancelAiAction,
+  confirmAiAction,
+  prepareAiAction,
+} from '../lib/ai-actions.js'
 import {
   detectReplyLocale,
   webCopilotLlmOffMessage,
@@ -256,7 +273,7 @@ aiRoutes.use('*', async (c, next) => {
 
 aiRoutes.get('/status', (c) => {
   try {
-    requireRole(c.get('user'), 'owner', 'supervisor')
+    requirePermission(c.get('user'), 'ai.use')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -266,6 +283,109 @@ aiRoutes.get('/status', (c) => {
       ? 'LLM ready'
       : 'Set OPENAI_API_KEY (or LLM_API_KEY + LLM_BASE_URL) - see docs/INTEGRATIONS.md',
   })
+})
+
+aiRoutes.get('/conversations', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  return c.json({ conversations: await listAiConversations(user) })
+})
+
+aiRoutes.post('/conversations', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const conversation = await createAiConversation(user)
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'create',
+    entityType: 'ai_conversation',
+    entityId: conversation.id,
+  })
+  return c.json({ conversation, messages: [] }, 201)
+})
+
+aiRoutes.get('/conversations/:id', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const result = await getAiConversation(user, c.req.param('id'))
+  if (!result) return c.json({ error: 'Conversation not found' }, 404)
+  return c.json(result)
+})
+
+aiRoutes.delete('/conversations/:id/messages', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const conversationId = c.req.param('id')
+  if (!(await clearAiConversation(user, conversationId))) {
+    return c.json({ error: 'Conversation not found' }, 404)
+  }
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'delete',
+    entityType: 'ai_conversation_messages',
+    entityId: conversationId,
+  })
+  return c.json({ ok: true })
+})
+
+aiRoutes.post('/conversations/:id/archive', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const conversationId = c.req.param('id')
+  if (!(await archiveAiConversation(user, conversationId))) {
+    return c.json({ error: 'Conversation not found' }, 404)
+  }
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'ai_conversation',
+    entityId: conversationId,
+    metadata: { archived: true },
+  })
+  return c.json({ ok: true })
+})
+
+aiRoutes.get('/actions/capabilities', (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  return c.json({ actions: aiActionCapabilities(user) })
+})
+
+aiRoutes.post('/actions/:draftId/confirm', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const result = await confirmAiAction(user, c.req.param('draftId'))
+  if (!result.ok) return c.json({ error: result.error }, 403)
+  if (result.conversationId) {
+    await appendAiMessage({
+      user,
+      conversationId: result.conversationId,
+      role: 'assistant',
+      content: result.result,
+      metadata: { actionType: result.actionType, confirmed: true },
+    })
+  }
+  return c.json(result)
+})
+
+aiRoutes.post('/actions/:draftId/cancel', async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const cancelled = await cancelAiAction(user, c.req.param('draftId'))
+  if (!cancelled) return c.json({ error: 'Draft expired, already used, or unavailable.' }, 404)
+  if (cancelled.conversationId) {
+    await appendAiMessage({
+      user,
+      conversationId: cancelled.conversationId,
+      role: 'assistant',
+      content: 'Cancelled. Nothing was changed.',
+      metadata: { cancelled: true },
+    })
+  }
+  return c.json({ ok: true })
 })
 
 aiRoutes.get('/briefing', async (c) => {
@@ -488,6 +608,7 @@ const askSchema = z
     question: z.string().max(2000).optional().default(''),
     // data URL (data:image/jpeg;base64,...) or https URL - for crop/animal photos
     imageUrl: z.string().min(10).max(8_000_000).optional(),
+    conversationId: z.string().uuid().optional(),
     /** Optional UI locale hint (en|yo|pcm|fr) used for offline fallbacks. */
     locale: z.enum(['en', 'yo', 'pcm', 'fr']).optional(),
     history: z
@@ -506,9 +627,9 @@ const askSchema = z
 
 aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
 
-  const { question, imageUrl, history, locale: localeHint } = c.req.valid('json')
+  const { question, imageUrl, conversationId, locale: localeHint } = c.req.valid('json')
   const locale = detectReplyLocale(question, localeHint)
 
   if (imageUrl) {
@@ -516,32 +637,83 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
     if (imageError) return c.json({ error: imageError }, 400)
   }
 
+  const conversation = await requireAiConversation(user, conversationId)
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404)
+  const safeQuestion = sanitizeForLlm(question)
+  const safeHistory = await loadAiConversationContext(user, conversation.id)
+  let storedAttachment: string | null = null
+  if (imageUrl) {
+    try {
+      storedAttachment = (await processEvidenceValue(user.farmId, imageUrl)) ?? null
+    } catch {
+      return c.json({ error: 'Could not store the uploaded photo.' }, 400)
+    }
+  }
+  await appendAiMessage({
+    user,
+    conversationId: conversation.id,
+    role: 'user',
+    content: safeQuestion.trim() || '[Photo]',
+    attachmentUrl: storedAttachment,
+  })
+
+  if (!imageUrl && safeQuestion.trim()) {
+    const action = await prepareAiAction({
+      user,
+      text: safeQuestion,
+      conversationId: conversation.id,
+      authorLocale: localeHint,
+    })
+    if (action.handled) {
+      const answer = action.draft
+        ? `${action.draft.preview}\n\nReview this draft, then choose Confirm or Cancel. Nothing has been changed yet.`
+        : action.error ?? 'This action could not be prepared.'
+      await appendAiMessage({
+        user,
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: answer,
+        metadata: action.draft
+          ? { draftId: action.draft.draftId, actionType: action.draft.actionType }
+          : undefined,
+      })
+      return c.json({
+        placeholder: false,
+        answer,
+        question: safeQuestion,
+        conversationId: conversation.id,
+        actionDraft: action.draft ?? null,
+      })
+    }
+  }
+
   if (!isLlmConfigured()) {
+    const answer = webCopilotLlmOffMessage(locale)
+    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
-      answer: webCopilotLlmOffMessage(locale),
+      answer,
       question,
+      conversationId: conversation.id,
     })
   }
 
   const budget = checkLlmBudget(user.farmId)
   if (!budget.allowed) {
+    const answer = webCopilotUnavailableMessage(locale)
+    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
       budgetExceeded: true,
-      answer: webCopilotUnavailableMessage(locale),
+      answer,
       question,
+      conversationId: conversation.id,
     })
   }
 
   try {
     const context = await buildFarmContext(user, locale)
     const systemPrompt = buildButlerPrompt(context, { replyLocale: locale })
-    const safeQuestion = sanitizeForLlm(question)
-    const safeHistory = (history ?? []).map((m) => ({
-      role: m.role,
-      content: sanitizeForLlm(m.content),
-    }))
 
     let result: { text: string; model: string }
     if (imageUrl) {
@@ -554,13 +726,30 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
     }
 
     consumeLlmBudget(user.farmId)
-    return c.json({ placeholder: false, model: result.model, answer: result.text, question: safeQuestion })
+    const assistantMessage = await appendAiMessage({
+      user,
+      conversationId: conversation.id,
+      role: 'assistant',
+      content: result.text,
+      model: result.model,
+    })
+    return c.json({
+      placeholder: false,
+      model: result.model,
+      answer: result.text,
+      question: safeQuestion,
+      conversationId: conversation.id,
+      message: assistantMessage,
+    })
   } catch {
+    const answer = webCopilotUnavailableMessage(locale)
+    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
       error: 'AI service temporarily unavailable',
-      answer: webCopilotUnavailableMessage(locale),
+      answer,
       question,
+      conversationId: conversation.id,
     })
   }
 })
@@ -573,7 +762,7 @@ const transcribeSchema = z.object({
 
 aiRoutes.post('/transcribe', zValidator('json', transcribeSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
 
   const { allowed, retryAfterSec } = checkRateLimit(`ai-transcribe:${user.id}`, 20, 60_000)
   if (!allowed) {
@@ -636,7 +825,8 @@ const confirmTaskSchema = z.object({
  */
 aiRoutes.post('/draft-task', zValidator('json', draftTaskSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'tasks.assign')
 
   const { question } = c.req.valid('json')
   const draft = parseTaskDraft(question) ?? {
@@ -672,7 +862,8 @@ aiRoutes.post('/draft-task', zValidator('json', draftTaskSchema), async (c) => {
 
 aiRoutes.post('/confirm-task', zValidator('json', confirmTaskSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'tasks.assign')
   const body = c.req.valid('json')
 
   const stored = await takeTaskDraft(body.draftId, user.id)

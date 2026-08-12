@@ -31,6 +31,8 @@ export const DRAFT_FREE_TEXT_FIELDS: Readonly<Record<string, readonly string[]>>
   create_zone: ['description'],
   livestock_log: ['notes'],
   stock_move: ['reason'],
+  create_field_report: ['description'],
+  create_support_ticket: ['description'],
   verify_lot: ['note'],
   enrich_lot: ['publicNotes'],
 }

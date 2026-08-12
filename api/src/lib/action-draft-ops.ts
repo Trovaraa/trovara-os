@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { assetLogs, assets, plots, tasks } from '../db/schema.js'
 import type { SessionUser } from './session.js'
-import { canAssignTasks } from './rbac.js'
+import { canAssignTasks, hasPermission } from './rbac.js'
 import { logAudit } from './audit.js'
 import { createCensusSurvey } from './census-service.js'
 import { resolvePlotByName } from './action-draft-farm.js'
@@ -79,6 +79,9 @@ export async function executeConfirmedCensus(
   payload: Record<string, unknown>,
   locale?: ContentLocaleMeta,
 ): Promise<string> {
+  if (!hasPermission(user, 'census.create')) {
+    return 'You do not have permission to record crop census data.'
+  }
   const plotId = String(payload.plotId ?? '')
   const cropType = String(payload.cropType ?? '').trim()
   const plantCount = Number(payload.plantCount)
@@ -104,6 +107,9 @@ export async function executeConfirmedAssetCount(
   payload: Record<string, unknown>,
   source = 'butler',
 ): Promise<string> {
+  if (!hasPermission(user, 'assets.count')) {
+    return 'You do not have permission to count assets.'
+  }
   const assetId = String(payload.assetId ?? '')
   const countAvailable = Number(payload.countAvailable)
   const countDamaged = Number(payload.countDamaged ?? 0)
@@ -215,6 +221,9 @@ export async function prepareCensusDraft(params: {
   externalChatId: string
   authorLocale?: string | null
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
+  if (!hasPermission(params.user, 'census.create')) {
+    return { ok: false, error: 'You do not have permission to record crop census data.' }
+  }
   const plot = await resolvePlotByName(params.user.farmId, params.blockName)
   if (!plot) {
     return {
@@ -273,6 +282,9 @@ export async function prepareAssetCountDraft(params: {
   channel: string
   externalChatId: string
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
+  if (!hasPermission(params.user, 'assets.count')) {
+    return { ok: false, error: 'You do not have permission to count assets.' }
+  }
   const asset = await resolveAssetByQuery(params.user.farmId, params.assetQuery)
   if (!asset) {
     return {

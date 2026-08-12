@@ -5,7 +5,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { fieldReports, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canApproveTasks, requireRole } from '../lib/rbac.js'
+import { canApproveTasks, hasPermission, requirePermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { notifyWorkerAlertChannels } from '../lib/farm-notify.js'
 import { validateEvidenceDataUrl } from '../lib/evidence-url.js'
@@ -30,7 +30,9 @@ fieldReportRoutes.use('*', authMiddleware)
 
 fieldReportRoutes.get('/', async (c) => {
   const user = c.get('user')
-  if (user.role === 'sales') return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'field_reports.create') && !canApproveTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const rows = await db
     .select({
@@ -50,9 +52,9 @@ fieldReportRoutes.get('/', async (c) => {
     .from(fieldReports)
     .innerJoin(users, eq(fieldReports.createdById, users.id))
     .where(
-      user.role === 'field_worker'
-        ? and(eq(fieldReports.farmId, user.farmId), eq(fieldReports.createdById, user.id))
-        : eq(fieldReports.farmId, user.farmId),
+      canApproveTasks(user)
+        ? eq(fieldReports.farmId, user.farmId)
+        : and(eq(fieldReports.farmId, user.farmId), eq(fieldReports.createdById, user.id)),
     )
     .orderBy(desc(fieldReports.createdAt))
     .limit(100)
@@ -62,7 +64,7 @@ fieldReportRoutes.get('/', async (c) => {
 
 fieldReportRoutes.post('/', zValidator('json', createSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'field_reports.create')
   const body = c.req.valid('json')
   if (body.photoUrl && !validateEvidenceDataUrl(body.photoUrl)) {
     return c.json({ error: 'Invalid photo evidence URL' }, 400)
