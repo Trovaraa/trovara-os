@@ -157,6 +157,7 @@ const categories = () => {
         <div class="pt-2 border-t border-slate-800 space-y-2">
           <input
             v-model="newRoleName"
+            aria-label="New role name"
             type="text"
             maxlength="80"
             placeholder="New role name"

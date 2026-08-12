@@ -462,6 +462,7 @@ async function draftTaskFromPrompt() {
           </button>
           <textarea
             v-model="input"
+            :aria-label="t('ai.placeholder')"
             rows="1"
             :disabled="!aiStatus?.configured || recording || transcribing"
             :placeholder="recording ? t('ai.recording') : t('ai.placeholder')"

@@ -296,6 +296,7 @@ async function rejectTaskWithReason() {
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.titleLabel') }}</label>
         <input
           v-model="newTitle"
+          :aria-label="t('tasks.titleLabel')"
           type="text"
           required
           maxlength="200"
@@ -307,6 +308,7 @@ async function rejectTaskWithReason() {
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.descriptionLabel') }}</label>
         <textarea
           v-model="newDescription"
+          :aria-label="t('tasks.descriptionLabel')"
           rows="2"
           maxlength="2000"
           :placeholder="t('tasks.descriptionPlaceholder')"
@@ -318,6 +320,7 @@ async function rejectTaskWithReason() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.blockLabel') }}</label>
           <select
             v-model="newPlotId"
+            :aria-label="t('tasks.blockLabel')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="">{{ t('tasks.optionalNone') }}</option>
@@ -328,6 +331,7 @@ async function rejectTaskWithReason() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.assigneeLabel') }}</label>
           <select
             v-model="newAssignedToId"
+            :aria-label="t('tasks.assigneeLabel')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="">{{ t('tasks.optionalNone') }}</option>
@@ -338,6 +342,7 @@ async function rejectTaskWithReason() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.templateLabel') }}</label>
           <select
             v-model="newTemplateId"
+            :aria-label="t('tasks.templateLabel')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="">{{ t('tasks.optionalNone') }}</option>
@@ -348,6 +353,7 @@ async function rejectTaskWithReason() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('tasks.dueDateLabel') }}</label>
           <input
             v-model="newDueDate"
+            :aria-label="t('tasks.dueDateLabel')"
             type="datetime-local"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           />

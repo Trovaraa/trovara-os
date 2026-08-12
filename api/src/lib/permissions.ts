@@ -116,8 +116,6 @@ export const SYSTEM_ROLE_TEMPLATES: Record<UserRole, { name: string; permissions
       'sessions.revoke',
       'tasks.work_own',
       'inventory.count',
-      'orders.read',
-      'reports.read',
     ],
   },
 }

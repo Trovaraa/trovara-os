@@ -156,6 +156,7 @@ const { t } = useI18n()
       <div class="flex flex-wrap items-center gap-3">
         <select
           v-model="ttsMode"
+          :aria-label="t('settings.butlerVoiceMode')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
           <option value="off">{{ t('settings.ttsOff') }}</option>

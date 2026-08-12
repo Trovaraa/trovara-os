@@ -162,8 +162,36 @@ onMounted(load)
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('security.loading') }}</div>
     <p v-else-if="loadError" class="mt-8 text-sm text-red-400">{{ loadError }}</p>
 
-    <div v-else class="mt-8 overflow-x-auto">
-      <table class="w-full text-sm">
+    <div v-else class="mt-8">
+      <ul class="space-y-3 sm:hidden">
+        <li
+          v-for="(event, idx) in events"
+          :key="`mobile-${event.ts}-${idx}`"
+          class="rounded-xl border border-slate-800 bg-slate-900 p-4"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <span class="font-mono text-sm text-farm-gold">{{ event.type }}</span>
+            <span class="text-right text-xs text-slate-500">{{ new Date(event.ts).toLocaleString() }}</span>
+          </div>
+          <dl class="mt-3 grid gap-2 text-xs">
+            <div>
+              <dt class="text-slate-500">{{ t('security.thIp') }}</dt>
+              <dd class="break-all text-slate-300">{{ metaString(event.metadata, 'ip') || t('security.noDetails') }}</dd>
+            </div>
+            <div>
+              <dt class="text-slate-500">{{ t('security.thLocation') }}</dt>
+              <dd class="text-slate-300">{{ formatLocation(event.metadata) }}</dd>
+            </div>
+            <div>
+              <dt class="text-slate-500">{{ t('security.thDetails') }}</dt>
+              <dd class="break-all text-slate-300">{{ formatDetails(event.metadata) }}</dd>
+            </div>
+          </dl>
+        </li>
+      </ul>
+
+      <div class="hidden overflow-x-auto sm:block">
+      <table class="w-full min-w-[760px] text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
             <th class="pb-3 font-semibold">{{ t('security.thTimestamp') }}</th>
@@ -195,6 +223,7 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+      </div>
       <p v-if="!events.length" class="text-slate-500 text-sm mt-4">{{ t('security.noEvents') }}</p>
       <p v-else class="text-xs text-slate-500 mt-4">{{ t('security.locationApproxNote') }}</p>
     </div>

@@ -42,4 +42,19 @@ describe('attendance payable calculations', () => {
       ),
     ).toBe(60)
   })
+
+  it('accepts timestamp strings returned by computed database columns', () => {
+    expect(
+      payableMinutesWithinBounds(
+        '2026-07-17T07:00:00.000Z',
+        '2026-07-17T10:00:00.000Z',
+        '2026-07-17T08:00:00.000Z',
+        '2026-07-17T16:00:00.000Z',
+      ),
+    ).toBe(120)
+  })
+
+  it('returns zero instead of crashing on a malformed timestamp', () => {
+    expect(payableMinutes('not-a-date', '2026-07-17T10:00:00.000Z')).toBe(0)
+  })
 })

@@ -448,6 +448,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <input
           v-model="newItemSku"
+          aria-label="SKU"
           required
           maxlength="40"
           placeholder="SKU"
@@ -455,17 +456,20 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         />
         <input
           v-model="newItemName"
+          :aria-label="t('inventory.itemName')"
           required
           :placeholder="t('inventory.itemName')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newItemCategory"
+          :aria-label="t('inventory.category')"
           :placeholder="t('inventory.category')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <select
           v-model="newItemUnit"
+          :aria-label="t('inventory.unit')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
           <option value="units">units</option>
@@ -476,6 +480,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </select>
         <select
           v-model="newItemProductId"
+          :aria-label="t('inventory.linkedProduct')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white sm:col-span-2 lg:col-span-1"
         >
           <option value="">{{ t('inventory.noProductLink') }}</option>
@@ -485,6 +490,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </select>
         <input
           v-model.number="newVarianceTolerance"
+          aria-label="Count tolerance"
           type="number"
           min="0"
           step="1"
@@ -635,6 +641,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       </p>
       <input
         v-model="countLocation"
+        aria-label="Count location"
         type="text"
         placeholder="Location (optional)"
         class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
@@ -647,6 +654,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         >
           <select
             v-model="line.itemId"
+            :aria-label="`Count line ${idx + 1} item`"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option v-for="item in items" :key="item.id" :value="item.id">
@@ -655,6 +663,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           </select>
           <input
             v-model.number="line.countedQuantity"
+            :aria-label="`Count line ${idx + 1} quantity`"
             type="number"
             min="0"
             step="1"
@@ -728,6 +737,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.item') }}</label>
           <select
             v-model="selectedItemId"
+            :aria-label="t('inventory.item')"
             required
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
@@ -740,6 +750,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.delta') }}</label>
           <input
             v-model.number="delta"
+            :aria-label="t('inventory.delta')"
             type="number"
             required
             :placeholder="t('inventory.deltaPlaceholder')"
@@ -750,6 +761,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reasonKind') }}</label>
           <select
             v-model="reasonKind"
+            :aria-label="t('inventory.reasonKind')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
             <option value="custom">{{ t('inventory.reasonCustom') }}</option>
@@ -760,6 +772,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reason') }}</label>
           <input
             v-model="reason"
+            :aria-label="t('inventory.reason')"
             type="text"
             required
             maxlength="500"

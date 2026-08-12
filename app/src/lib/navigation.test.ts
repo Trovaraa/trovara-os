@@ -28,4 +28,28 @@ describe('frontend route access', () => {
       }),
     ).toBe(true)
   })
+
+  it('can combine a base permission with one of several report capabilities', () => {
+    const worker = user('field_worker', ['reports.read'])
+    const supervisor = user('supervisor', ['reports.read', 'tasks.approve'])
+    const meta = {
+      requiresAuth: true,
+      requiredPermission: 'reports.read',
+      anyPermission: ['tasks.approve', 'finance.read', 'audit.export'],
+    }
+
+    expect(canAccessRoute(worker, meta)).toBe(false)
+    expect(canAccessRoute(supervisor, meta)).toBe(true)
+  })
+
+  it('honours role allowlists as well as delegated permissions', () => {
+    const staleWorker = user('field_worker', ['orders.read', 'orders.manage'])
+    expect(
+      canAccessRoute(staleWorker, {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'supervisor', 'sales'],
+        requiredPermission: 'orders.read',
+      }),
+    ).toBe(false)
+  })
 })

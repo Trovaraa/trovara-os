@@ -49,8 +49,7 @@ vi.mock('@/lib/onboarding', () => {
 
 describe('OnboardingGuide help affordance', () => {
   beforeEach(() => {
-    document.body.innerHTML =
-      '<div id="mobile-guide-trigger"></div><div id="mobile-drawer-guide-trigger"></div><div id="desktop-guide-trigger"></div><div id="mount"></div>'
+    document.body.innerHTML = '<div id="mount"></div>'
     localStorage.setItem('trovara_onboarding:2026-08-guided-v2:user-1', 'complete')
   })
 
@@ -59,7 +58,7 @@ describe('OnboardingGuide help affordance', () => {
     localStorage.clear()
   })
 
-  it('places accessible icon triggers in app chrome and keeps page help working', async () => {
+  it('keeps a persistent accessible page-help trigger outside the sidebar', async () => {
     const OnboardingGuide = (await import('./OnboardingGuide.vue')).default
     const wrapper = mount(OnboardingGuide, {
       attachTo: '#mount',
@@ -73,17 +72,13 @@ describe('OnboardingGuide help affordance', () => {
       },
     })
 
-    const mobile = document.querySelector<HTMLButtonElement>('[data-testid="mobile-help-trigger"]')!
-    const drawer = document.querySelector<HTMLButtonElement>(
-      '[data-testid="mobile-drawer-help-trigger"]',
-    )!
-    const desktop = document.querySelector<HTMLButtonElement>('[data-testid="desktop-help-trigger"]')!
-    expect(mobile.getAttribute('aria-label')).toBe('Help')
-    expect(drawer.textContent).toContain('Help')
-    expect(desktop.title).toBe('Help')
-    expect(mobile.textContent?.trim()).toBe('')
+    const trigger = document.querySelector<HTMLButtonElement>('[data-testid="page-help-trigger"]')!
+    expect(trigger.getAttribute('aria-label')).toBe('Help')
+    expect(trigger.title).toBe('Help')
+    expect(trigger.textContent).toContain('Help')
+    expect(trigger.className).toContain('fixed')
 
-    mobile.click()
+    trigger.click()
     await wrapper.vm.$nextTick()
 
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()

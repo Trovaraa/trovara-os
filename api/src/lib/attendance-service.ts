@@ -191,13 +191,15 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     metadata: allocation,
   })
 
-  void notifyWorkerClockIn({
-    farmId: user.farmId,
-    workerName: user.name,
-    clockInAt: session.clockInAt,
-    actorUserId: user.id,
-    notes: session.notes,
-  }).catch(() => undefined)
+  if (user.role === 'field_worker') {
+    void notifyWorkerClockIn({
+      farmId: user.farmId,
+      workerName: user.name,
+      clockInAt: session.clockInAt,
+      actorUserId: user.id,
+      notes: session.notes,
+    }).catch(() => undefined)
+  }
 
   // The worker reads their own note back in their own words; the row holds the
   // English.

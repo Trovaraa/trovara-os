@@ -446,7 +446,6 @@ async function handleRetry() {
           <span v-else-if="syncStatus === 'error'" class="truncate">Err</span>
           <span v-else-if="pendingSyncCount > 0" class="tabular-nums">{{ pendingSyncCount }}</span>
         </div>
-        <div id="mobile-guide-trigger" class="contents" />
         <ThemeSwitcher compact />
         <LanguageSwitcher compact />
       </div>
@@ -509,7 +508,6 @@ async function handleRetry() {
           </div>
         </nav>
         <div class="pt-4 border-t border-slate-800 space-y-3">
-          <div id="mobile-drawer-guide-trigger" class="flex" />
           <p class="text-sm font-semibold text-white">{{ auth.user?.name }}</p>
           <button
             class="text-sm text-slate-400 hover:text-red-400 transition-colors min-h-[2.75rem]"
@@ -696,12 +694,6 @@ async function handleRetry() {
         <ThemeSwitcher compact toggle-only />
         <LanguageSwitcher compact toggle-only />
       </div>
-      <div
-        id="desktop-guide-trigger"
-        class="mb-3 flex"
-        :class="sidebarCollapsed ? 'justify-center' : 'px-1'"
-      />
-
       <div
         class="pt-4 border-t border-[color:var(--os-border)] flex items-center"
         :class="sidebarCollapsed ? 'flex-col gap-2' : 'gap-3'"

@@ -22,6 +22,8 @@ export type AttendanceSession = {
 
 export type PlotOption = { id: string; name: string; active: boolean }
 
+const SELF_ATTENDANCE_ROLES = new Set(['owner', 'supervisor', 'sales', 'field_worker'])
+
 /** Clock-in/out and correction state for Today's attendance panel. */
 export function useTodayAttendance(
   getRole: () => string | undefined,
@@ -42,15 +44,12 @@ export function useTodayAttendance(
   const correctionClockOut = ref('')
   const correctionNotes = ref('')
 
-  // Clocking is available to every authenticated staff role.
-  const showAttendance = computed(() => {
-    const role = getRole()
-    return role === 'field_worker' || role === 'owner' || role === 'supervisor' || role === 'sales'
-  })
+  const showAttendance = computed(() => SELF_ATTENDANCE_ROLES.has(getRole() ?? ''))
   const canManageAttendance = computed(() => {
     const role = getRole()
     return role === 'owner' || role === 'supervisor'
   })
+  const canClockSelf = computed(() => SELF_ATTENDANCE_ROLES.has(getRole() ?? ''))
   // Managers load farm-wide sessions; personal clock state must stay scoped to self.
   const openAttendance = computed(() => {
     const userId = getUserId()
@@ -171,6 +170,7 @@ export function useTodayAttendance(
     correctionNotes,
     showAttendance,
     canManageAttendance,
+    canClockSelf,
     openAttendance,
     loadAttendance,
     refresh,

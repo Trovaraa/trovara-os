@@ -22,6 +22,8 @@ describe('permissions catalog', () => {
   it('keeps owner template as full catalog', () => {
     expect(SYSTEM_ROLE_TEMPLATES.owner.permissions.every(isPermissionKey)).toBe(true)
     expect(SYSTEM_ROLE_TEMPLATES.field_worker.permissions).toContain('tasks.work_own')
+    expect(SYSTEM_ROLE_TEMPLATES.field_worker.permissions).not.toContain('orders.read')
+    expect(SYSTEM_ROLE_TEMPLATES.field_worker.permissions).not.toContain('reports.read')
     expect(SYSTEM_ROLE_TEMPLATES.field_worker.permissions).not.toContain('finance.delete')
   })
 })

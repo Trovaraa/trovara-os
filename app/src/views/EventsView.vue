@@ -136,8 +136,34 @@ function formatTime(iso: string): string {
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('events.loading') }}</div>
 
-    <div v-else class="mt-6 overflow-x-auto">
-      <table class="w-full text-sm">
+    <div v-else class="mt-6">
+      <ul class="space-y-3 sm:hidden">
+        <li v-for="evt in filteredEvents" :key="`mobile-${evt.id}`">
+          <button
+            type="button"
+            class="w-full rounded-xl border border-slate-800 bg-slate-900 p-4 text-left"
+            @click="selected = evt"
+          >
+            <span class="flex items-start justify-between gap-3">
+              <span class="font-semibold capitalize text-white">{{ evt.eventType.replace(/_/g, ' ') }}</span>
+              <span class="shrink-0 text-xs text-slate-500">{{ formatTime(evt.createdAt) }}</span>
+            </span>
+            <span class="mt-1 block text-xs capitalize text-slate-500">
+              {{ evt.entityType.replace(/_/g, ' ') }} · {{ evt.source }}
+            </span>
+            <span v-if="preview(evt) !== '-'" class="mt-2 block truncate text-sm text-slate-300">
+              {{ preview(evt) }}
+            </span>
+            <span class="mt-2 block text-xs text-slate-400">
+              {{ evt.actorName ?? '-' }}
+              <span v-if="evt.approvalStatus"> · {{ evt.approvalStatus.replace(/_/g, ' ') }}</span>
+            </span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="hidden overflow-x-auto sm:block">
+      <table class="w-full min-w-[720px] text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
             <th class="pb-3 font-semibold">{{ t('events.time') }}</th>
@@ -182,6 +208,7 @@ function formatTime(iso: string): string {
           </tr>
         </tbody>
       </table>
+      </div>
       <p v-if="!filteredEvents.length" class="text-slate-500 text-sm mt-4">{{ t('events.noEvents') }}</p>
     </div>
 

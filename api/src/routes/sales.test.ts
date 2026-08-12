@@ -640,21 +640,14 @@ describe('GET /sales - viewer locale on read', () => {
     expect(body.orders[0].notes).toBe('Deliver before noon, gate code needed')
   })
 
-  // Redaction runs first, so a field worker's hidden prose is not merely absent
-  // from the response — it is never sent to the translator either. With both
-  // customer-authored columns withheld there is nothing left to localize.
-  it('redacts before localizing, so hidden prose never reaches the translator', async () => {
+  it('forbids field workers before order data reaches localization', async () => {
     sessionUser = { ...sessionUser, id: 'user-fw', role: 'field_worker' }
     queueSelect('orders', [orderRow()])
     queueSelect('order_items', [])
     queueSelect('users', [{ preferredLocale: 'fr' }])
 
     const res = await (await app()).request('/sales')
-    const order = ((await res.json()) as { orders: Row[] }).orders[0]
-
-    expect(order.notes).toBeNull()
-    expect(order.customerFeedback).toBeNull()
-    expect(order.customerName).toBe('[redacted]')
+    expect(res.status).toBe(403)
     expect(translatedTexts()).toEqual([])
   })
 })

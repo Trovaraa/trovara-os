@@ -50,6 +50,7 @@ const { t } = useI18n()
     <form class="flex flex-col sm:flex-row gap-2" @submit.prevent="emit('create-supplier')">
       <input
         v-model="newSupplierName"
+        :aria-label="t('inventory.supplierName')"
         required
         maxlength="200"
         :placeholder="t('inventory.supplierName')"
@@ -73,6 +74,7 @@ const { t } = useI18n()
       <div class="grid sm:grid-cols-3 gap-3">
         <select
           v-model="poSupplierId"
+          :aria-label="t('inventory.chooseSupplier')"
           required
           class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
@@ -87,11 +89,13 @@ const { t } = useI18n()
         </select>
         <input
           v-model="poExpectedAt"
+          aria-label="Expected delivery date"
           type="datetime-local"
           class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="poNotes"
+          :aria-label="t('inventory.poNotes')"
           maxlength="2000"
           :placeholder="t('inventory.poNotes')"
           class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
@@ -105,6 +109,7 @@ const { t } = useI18n()
         >
           <select
             v-model="line.itemId"
+            :aria-label="`${t('inventory.chooseItem')} ${index + 1}`"
             required
             class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
@@ -123,6 +128,7 @@ const { t } = useI18n()
           />
           <input
             v-model.number="line.unitCostMinor"
+            :aria-label="t('inventory.unitCostMinor')"
             type="number"
             min="0"
             step="1"

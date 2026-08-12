@@ -94,7 +94,7 @@ const router = createRouter({
       path: '/field-reports',
       name: 'field-reports',
       component: () => import('@/views/FieldReportsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
       path: '/crops',
@@ -118,7 +118,11 @@ const router = createRouter({
       path: '/sales',
       name: 'sales',
       component: () => import('@/views/SalesView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'orders.read' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'supervisor', 'sales'],
+        requiredPermission: 'orders.read',
+      },
     },
     {
       path: '/support',
@@ -160,13 +164,17 @@ const router = createRouter({
       path: '/assets',
       name: 'assets',
       component: () => import('@/views/AssetsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'reports.read' },
+      meta: {
+        requiresAuth: true,
+        requiredPermission: 'reports.read',
+        anyPermission: ['tasks.approve', 'finance.read', 'audit.export'],
+      },
     },
     {
       path: '/journal',
@@ -190,13 +198,21 @@ const router = createRouter({
       path: '/marketing-leads',
       name: 'marketing-leads',
       component: () => import('@/views/MarketingLeadsView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'orders.manage' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'sales'],
+        requiredPermission: 'orders.manage',
+      },
     },
     {
       path: '/shop-customers',
       name: 'shop-customers',
       component: () => import('@/views/ShopCustomersView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'orders.read' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'supervisor', 'sales'],
+        anyPermission: ['orders.manage', 'finance.read'],
+      },
     },
     {
       path: '/moments',
@@ -250,7 +266,7 @@ const router = createRouter({
       path: '/events',
       name: 'events',
       component: () => import('@/views/EventsView.vue'),
-      meta: { requiresAuth: true, requiredPermission: 'reports.read' },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor'] },
     },
     {
       path: '/ai',

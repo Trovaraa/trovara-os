@@ -4,11 +4,12 @@ import { onboardingCopy, pageGuide } from './onboarding'
 const locales = ['en', 'yo', 'pcm', 'fr'] as const
 const roles = ['owner', 'supervisor', 'field_worker', 'sales'] as const
 const routes = [
-  '/dashboard', '/today', '/advisory', '/worker', '/tasks', '/tasks/post-approval',
+  '/dashboard', '/today', '/hours', '/advisory', '/worker', '/tasks', '/tasks/post-approval',
   '/field-reports', '/crops', '/livestock', '/inventory', '/assets', '/sales',
   '/support', '/products', '/customer-insights', '/whatsapp', '/traceability',
-  '/events', '/ai', '/reports', '/finance', '/templates', '/zones', '/users',
-  '/settings', '/settings/security',
+  '/events', '/ai', '/reports', '/finance', '/journal', '/brand-kits', '/newsletter',
+  '/marketing-leads', '/shop-customers', '/moments', '/careers', '/templates', '/zones',
+  '/users', '/settings', '/settings/security', '/settings/audit',
 ]
 
 describe('guided onboarding copy', () => {
@@ -50,6 +51,15 @@ describe('guided onboarding copy', () => {
         expect(guide).not.toBe(copy.pages['/today'])
         expect(guide.summary).toBeTruthy()
       }
+    }
+  })
+
+  it('tells every English role to use their Today attendance controls', () => {
+    const copy = onboardingCopy('en')
+    for (const role of roles) {
+      const guide = pageGuide(copy, '/today', role)
+      expect(guide.actions.some((action) => action.includes('Clock in'))).toBe(true)
+      expect(guide.summary).not.toMatch(/do not clock/i)
     }
   })
 

@@ -22,8 +22,56 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="mt-8 overflow-x-auto">
-    <table class="w-full text-sm">
+  <div class="mt-8">
+    <ul class="space-y-3 sm:hidden">
+      <li v-for="user in users" :key="`mobile-${user.id}`" class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="font-semibold text-white">{{ user.name }}</p>
+            <p class="mt-0.5 break-all text-xs text-slate-400">{{ user.email }}</p>
+          </div>
+          <span
+            class="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold"
+            :class="user.active ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
+          >
+            {{ user.active ? t('users.active') : t('users.inactive') }}
+          </span>
+        </div>
+        <dl class="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <div><dt class="text-slate-500">{{ t('users.role') }}</dt><dd class="mt-0.5 text-slate-300">{{ displayRole(user) }}</dd></div>
+          <div><dt class="text-slate-500">{{ t('users.phone') }}</dt><dd class="mt-0.5 break-all text-slate-300">{{ user.phone ?? '-' }}</dd></div>
+          <div><dt class="text-slate-500">{{ t('users.employeeNumber') }}</dt><dd class="mt-0.5 text-slate-300">{{ user.employeeNumber ?? '-' }}</dd></div>
+          <div><dt class="text-slate-500">{{ t('users.joined') }}</dt><dd class="mt-0.5 text-slate-300">{{ new Date(user.createdAt).toLocaleDateString() }}</dd></div>
+        </dl>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button type="button" class="min-h-10 rounded-lg bg-slate-800 px-3 text-xs text-slate-300" @click="emit('edit', user)">{{ t('users.edit') }}</button>
+          <button
+            v-if="user.role !== 'owner'"
+            type="button"
+            class="min-h-10 rounded-lg bg-slate-800 px-3 text-xs text-slate-300 disabled:opacity-50"
+            :disabled="toggling === user.id || deleting === user.id"
+            @click="emit('toggle', user)"
+          >{{ toggling === user.id ? '…' : user.active ? t('users.deactivate') : t('users.activate') }}</button>
+          <button
+            v-if="user.role !== 'owner'"
+            type="button"
+            class="min-h-10 rounded-lg bg-red-950/60 px-3 text-xs text-red-300 disabled:opacity-50"
+            :disabled="deleting === user.id || toggling === user.id"
+            @click="emit('delete', user)"
+          >{{ deleting === user.id ? '…' : t('users.delete') }}</button>
+          <button
+            v-if="canBreakGlassCleanup && user.role === 'owner'"
+            type="button"
+            class="min-h-10 rounded-lg bg-amber-950/50 px-3 text-xs text-amber-200 disabled:opacity-50"
+            :disabled="deleting === user.id"
+            @click="emit('break-glass-admin', user)"
+          >{{ deleting === user.id ? '…' : user.active ? 'Break-glass deactivate' : 'Break-glass reactivate' }}</button>
+        </div>
+      </li>
+    </ul>
+
+    <div class="hidden overflow-x-auto sm:block">
+    <table class="w-full min-w-[840px] text-sm">
       <thead>
         <tr class="text-left text-slate-500 border-b border-slate-800">
           <th class="pb-3 font-semibold">{{ t('users.name') }}</th>
@@ -116,6 +164,7 @@ const { t } = useI18n()
         </tr>
       </tbody>
     </table>
+    </div>
     <p v-if="deleteError" class="text-red-400 text-sm mt-3">{{ deleteError }}</p>
     <p v-if="!users.length" class="text-slate-500 text-sm mt-4">{{ t('users.noUsers') }}</p>
   </div>

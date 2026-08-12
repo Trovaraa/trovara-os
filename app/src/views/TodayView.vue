@@ -151,6 +151,7 @@ const {
   correctionNotes,
   showAttendance,
   canManageAttendance,
+  canClockSelf,
   openAttendance,
   loadAttendance,
   clockInNow,
@@ -357,6 +358,7 @@ function formatTime(iso: string) {
         v-model:correction-clock-out="correctionClockOut"
         v-model:correction-notes="correctionNotes"
         :can-manage-attendance="canManageAttendance"
+        :can-clock-self="canClockSelf"
         :attendance="attendance"
         :open-attendance="openAttendance"
         :plots="plots"

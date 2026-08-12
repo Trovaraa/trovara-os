@@ -19,6 +19,7 @@ const correctionNotes = defineModel<string>('correctionNotes', { required: true 
 
 defineProps<{
   canManageAttendance: boolean
+  canClockSelf: boolean
   attendance: AttendanceSession[]
   openAttendance: AttendanceSession | null
   plots: PlotOption[]
@@ -67,6 +68,7 @@ function formatTime(iso: string) {
         </p>
       </div>
       <span
+        v-if="canClockSelf"
         class="rounded-full px-3 py-1 text-xs font-bold"
         :class="openAttendance ? 'bg-farm-green/15 text-farm-green' : 'bg-slate-800 text-slate-400'"
       >
@@ -76,7 +78,7 @@ function formatTime(iso: string) {
 
     <p v-if="attendanceError" class="mt-3 text-sm text-red-400">{{ attendanceError }}</p>
 
-    <div class="mt-4">
+    <div v-if="canClockSelf" class="mt-4">
       <div v-if="openAttendance" class="space-y-3">
         <p class="text-sm text-slate-300">
           {{ t('today.since') }} {{ formatTime(openAttendance.clockInAt) }}

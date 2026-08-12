@@ -354,6 +354,7 @@ onMounted(load)
       <div class="flex flex-wrap items-center gap-2">
         <select
           v-model="labelFilter"
+          :aria-label="t('finance.labels')"
           class="rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200"
           @change="load"
         >

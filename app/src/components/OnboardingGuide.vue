@@ -97,51 +97,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <Teleport to="#mobile-guide-trigger">
+  <!-- Keep Help independent of the sidebar. It remains visible when the menu is
+       collapsed, when a sidebar section scrolls, and on every mobile role. -->
+  <Teleport to="body">
     <button
       v-if="!disabled && !open"
       type="button"
-      class="grid h-9 w-9 place-items-center rounded-lg border border-farm-gold/35 bg-farm-gold/10 text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:hidden"
+      class="fixed left-[6.5rem] top-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-full border border-farm-gold/45 bg-[var(--os-shell)] text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-[var(--os-shell-muted)] focus:outline-none focus:ring-2 focus:ring-farm-gold sm:left-auto sm:right-5 sm:top-auto sm:w-auto sm:gap-2 sm:px-4 md:bottom-6 md:right-6"
+      :class="role === 'field_worker' ? 'sm:bottom-[calc(5.25rem+env(safe-area-inset-bottom))]' : 'sm:bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
       :aria-label="copy.help"
       :title="copy.help"
-      data-testid="mobile-help-trigger"
+      data-testid="page-help-trigger"
       @click="showPageHelp"
     >
       <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
       </svg>
-    </button>
-  </Teleport>
-
-  <Teleport defer to="#mobile-drawer-guide-trigger">
-    <button
-      v-if="!disabled && !open"
-      type="button"
-      class="inline-flex min-h-11 items-center gap-2 rounded-xl border border-farm-gold/35 bg-farm-gold/10 px-3 py-2 text-sm font-bold text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:hidden"
-      :aria-label="copy.help"
-      data-testid="mobile-drawer-help-trigger"
-      @click="showPageHelp"
-    >
-      <svg class="h-[1.125rem] w-[1.125rem] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
-      </svg>
-      {{ copy.help }}
-    </button>
-  </Teleport>
-
-  <Teleport to="#desktop-guide-trigger">
-    <button
-      v-if="!disabled && !open"
-      type="button"
-      class="hidden h-9 w-9 place-items-center rounded-xl border border-farm-gold/30 bg-farm-gold/10 text-farm-gold transition hover:border-farm-gold hover:bg-farm-gold/15 focus:outline-none focus:ring-2 focus:ring-farm-gold md:grid"
-      :aria-label="copy.help"
-      :title="copy.help"
-      data-testid="desktop-help-trigger"
-      @click="showPageHelp"
-    >
-      <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
-      </svg>
+      <span class="hidden sm:inline">{{ copy.help }}</span>
     </button>
   </Teleport>
 

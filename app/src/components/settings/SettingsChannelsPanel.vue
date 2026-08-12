@@ -43,6 +43,7 @@ const { t } = useI18n()
       <div class="flex flex-wrap gap-2">
         <input
           v-model="myPhone"
+          :aria-label="t('settings.yourPhone')"
           type="tel"
           :placeholder="t('settings.phonePlaceholder')"
           class="flex-1 min-w-[10rem] bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"

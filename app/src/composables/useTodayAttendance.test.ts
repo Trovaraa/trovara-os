@@ -28,8 +28,18 @@ describe('useTodayAttendance', () => {
       expect(api).toHaveBeenCalledWith('/api/zones/plots')
       expect(attendance.showAttendance.value).toBe(true)
       expect(attendance.canManageAttendance.value).toBe(role === 'owner' || role === 'supervisor')
+      expect(attendance.canClockSelf.value).toBe(true)
     },
   )
+
+  it('does not load attendance controls for an unsupported role', async () => {
+    const { useTodayAttendance } = await import('./useTodayAttendance')
+    const attendance = useTodayAttendance(() => 'custom_role', () => 'custom-1')
+    await attendance.loadAttendance()
+    expect(api).not.toHaveBeenCalled()
+    expect(attendance.showAttendance.value).toBe(false)
+    expect(attendance.canClockSelf.value).toBe(false)
+  })
 
   it('scopes open attendance to the current user for managers', async () => {
     api.mockResolvedValueOnce({

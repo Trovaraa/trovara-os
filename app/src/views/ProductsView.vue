@@ -186,17 +186,20 @@ async function deactivate(p: Product) {
       <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_2fr_1fr_1fr_auto]">
         <input
           v-model="newSku"
+          aria-label="SKU"
           placeholder="SKU"
           maxlength="40"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white uppercase"
         />
         <input
           v-model="newName"
+          :aria-label="t('products.productNamePlaceholder')"
           :placeholder="t('products.productNamePlaceholder')"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newUnit"
+          :aria-label="t('products.unit')"
           list="product-unit-options"
           :placeholder="t('products.unit')"
           maxlength="40"
@@ -205,6 +208,7 @@ async function deactivate(p: Product) {
         />
         <input
           v-model.number="newPriceNaira"
+          :aria-label="t('products.price')"
           type="number"
           min="0"
           step="0.01"
