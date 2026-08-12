@@ -7,6 +7,7 @@ import exceptionsEn from './locales/exceptions/en'
 import exceptionsYo from './locales/exceptions/yo'
 import exceptionsPcm from './locales/exceptions/pcm'
 import exceptionsFr from './locales/exceptions/fr'
+import { withLocaleFallback } from './locale-parity'
 
 const STORAGE_KEY = 'trovara-locale'
 
@@ -22,11 +23,12 @@ export function persistLocale(locale: AppLocale) {
   localStorage.setItem(STORAGE_KEY, locale)
 }
 
+const englishMessages = { ...en, exceptions: exceptionsEn }
 const messages = {
-  en: { ...en, exceptions: exceptionsEn },
-  yo: { ...yo, exceptions: exceptionsYo },
-  pcm: { ...pcm, exceptions: exceptionsPcm },
-  fr: { ...fr, exceptions: exceptionsFr },
+  en: englishMessages,
+  yo: withLocaleFallback(englishMessages, { ...yo, exceptions: exceptionsYo }),
+  pcm: withLocaleFallback(englishMessages, { ...pcm, exceptions: exceptionsPcm }),
+  fr: withLocaleFallback(englishMessages, { ...fr, exceptions: exceptionsFr }),
 }
 
 const i18n = createI18n({

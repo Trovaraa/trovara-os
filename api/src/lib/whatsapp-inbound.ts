@@ -84,6 +84,11 @@ import {
   tryApplyLotEnrichText,
   tryApplyPoultryTypeAnswer,
 } from './whatsapp-offer-drafts.js'
+import {
+  claimInboundWhatsAppMessage,
+  completeInboundWhatsAppMessage,
+  failInboundWhatsAppMessage,
+} from './whatsapp-message-claim.js'
 
 const ENTITY = 'whatsapp_message'
 const BUTLER_RATE_LIMIT_MSG = 'You have reached the hourly Butler limit. Please try again later.'
@@ -724,11 +729,14 @@ export async function handleInboundWhatsApp(payload: unknown): Promise<{ handled
       if (!value?.messages?.length) continue
 
       for (const msg of value.messages) {
+        const phoneNumberId = value.metadata?.phone_number_id ?? 'unknown'
+        if (!(await claimInboundWhatsAppMessage(phoneNumberId, msg))) continue
         const phone = normalizePhone(msg.from)
         const dbUser = await findUserByPhone(phone)
 
         if (!dbUser) {
           console.log(`WhatsApp inbound from unknown phone ${phone} (type ${msg.type})`)
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
           continue
         }
 
@@ -748,8 +756,11 @@ export async function handleInboundWhatsApp(payload: unknown): Promise<{ handled
               'I can read text, voice notes and photos. Please send any of those.',
             ).catch(() => undefined)
           }
+          await completeInboundWhatsAppMessage(phoneNumberId, msg.id)
         } catch (err) {
           console.error('WhatsApp inbound handling error:', err)
+          await failInboundWhatsAppMessage(phoneNumberId, msg.id, err)
+          throw err
         }
       }
     }

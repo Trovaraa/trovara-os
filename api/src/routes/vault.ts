@@ -271,10 +271,10 @@ vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
           userId: user.id,
         }),
       )
-      return c.json({ error: 'TOTP code required to reveal password' }, 403)
+      return c.json({ error: '2FA/TOTP code required to reveal password -> Kindly add a 2FA/TOTP code to your account' }, 403)
     }
     const { plaintext } = decryptSecretForVerify(owner.totpSecret)
-    if (!verifyTokenForUser(user.id, plaintext, body.totpToken)) {
+    if (!(await verifyTokenForUser(user.id, plaintext, body.totpToken))) {
       logSecurityEvent(
         'vault_reveal_failed',
         withAccessMeta((name) => c.req.header(name), {

@@ -22,6 +22,9 @@ REMOTE_REQUIRED="${BACKUP_REMOTE_REQUIRED:-0}"
 RCLONE_DESTINATION="${BACKUP_RCLONE_DESTINATION:-}"
 LOCK_DIR="$BACKUP_DIR/.production-backup.lock"
 
+# Remote rclone delivery is optional. Deploy-time Mac pulls
+# (./deploy.sh --pull-backups) remain the default off-VM copy.
+# When REQUIRED=1, treat as enabled and fail closed on upload errors.
 if [[ "$REMOTE_REQUIRED" == "1" ]]; then
   REMOTE_ENABLED=1
 fi

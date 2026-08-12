@@ -4,6 +4,9 @@ import { secureHeaders } from 'hono/secure-headers'
 import { getCookie } from 'hono/cookie'
 import { csrfMiddleware } from '../lib/csrf.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { randomUUID } from 'node:crypto'
+import { checkDurableRateLimit as checkPostgresRateLimit } from '../lib/rate-limit.js'
+import { deploymentSha } from '../lib/deployment.js'
 
 const mutationAttempts = new Map<string, { count: number; resetAt: number }>()
 const authMutationAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -11,6 +14,7 @@ const MUTATION_WINDOW_MS = 15 * 60 * 1000
 const MUTATION_MAX = 120
 const AUTH_MUTATION_MAX = 30
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
 
 // Staff + shop login counters are durable (Postgres) so restarts cannot clear lockouts.
 export {
@@ -34,13 +38,36 @@ export {
 
 // Photo/voice uploads arrive as base64 JSON (~8 MB worst case); anything bigger
 // is abuse. A reverse proxy (Caddy/nginx) should enforce the same cap in front.
+// Brand Kit streaming uploads use a dedicated higher limit (see isBrandUploadPath).
 export const MAX_BODY_BYTES = 12 * 1024 * 1024
+export const BRAND_UPLOAD_BODY_BYTES = Number(
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
+)
+
+/** Authenticated Brand Kit binary upload / replace paths — streamed, not JSON. */
+export function isBrandUploadPath(pathname: string): boolean {
+  const path = pathname.split('?')[0] ?? pathname
+  return (
+    path === '/api/brand/assets/upload' ||
+    /^\/api\/brand\/assets\/upload\/[^/]+$/.test(path)
+  )
+}
 
 async function bodySizeLimit(c: Context, next: Next) {
+  const path = new URL(c.req.url).pathname
+  const brandUpload = isBrandUploadPath(path)
+  const maxBytes = brandUpload ? BRAND_UPLOAD_BODY_BYTES : MAX_BODY_BYTES
+
   const lenHeader = c.req.header('content-length')
   const len = Number(lenHeader)
-  if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+  if (Number.isFinite(len) && len > maxBytes) {
     return c.json({ error: 'Payload too large' }, 413)
+  }
+
+  // Brand uploads stream to disk in the route — do not buffer here.
+  if (brandUpload) {
+    await next()
+    return
   }
 
   // Chunked uploads without Content-Length: stream with a hard byte cap and
@@ -58,7 +85,7 @@ async function bodySizeLimit(c: Context, next: Next) {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel().catch(() => undefined)
         return c.json({ error: 'Payload too large' }, 413)
       }
@@ -91,6 +118,12 @@ export function securityMiddleware() {
     .filter(Boolean)
 
   return [
+    async (c: Context, next: Next) => {
+      const supplied = c.req.header('x-request-id')?.trim()
+      const requestId = supplied && REQUEST_ID_PATTERN.test(supplied) ? supplied : randomUUID()
+      c.header('X-Request-ID', requestId)
+      await next()
+    },
     // cross-origin: marketing shop (trovara.farm) may call this API directly;
     // same-origin proxy (/shop-api) also works. Default same-origin CORP blocks
     // credentialed cross-origin fetches even when CORS allows the origin.
@@ -105,7 +138,8 @@ export function securityMiddleware() {
       },
       credentials: true,
       allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowHeaders: ['Content-Type', 'X-CSRF-Token'],
+      allowHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Request-ID'],
+      exposeHeaders: ['X-Request-ID', 'Retry-After'],
     }),
     csrfMiddleware,
   ]
@@ -175,7 +209,11 @@ export async function authMutationRateLimit(c: Context, next: Next) {
   }
 
   const ip = clientIpFromHeaders((name) => c.req.header(name))
-  const { allowed, retryAfterSec } = checkAuthMutationRateLimit(`ip:${ip}`)
+  const { allowed, retryAfterSec } = await checkPostgresRateLimit(
+    `auth-mutation:ip:${ip}`,
+    AUTH_MUTATION_MAX,
+    MUTATION_WINDOW_MS,
+  )
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
     return c.json({ error: 'Too many auth requests. Please try again later.' }, 429)
@@ -196,7 +234,11 @@ export async function apiMutationRateLimit(c: Context, next: Next) {
   const user = token ? await getUserFromSession(token) : null
   const ip = clientIpFromHeaders((name) => c.req.header(name))
   const key = user?.id ? `user:${user.id}` : `ip:${ip}`
-  const { allowed, retryAfterSec } = checkMutationRateLimit(key)
+  const { allowed, retryAfterSec } = await checkPostgresRateLimit(
+    `api-mutation:${key}`,
+    MUTATION_MAX,
+    MUTATION_WINDOW_MS,
+  )
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
     return c.json({ error: 'Too many write requests. Please try again later.' }, 429)
@@ -206,18 +248,23 @@ export async function apiMutationRateLimit(c: Context, next: Next) {
 }
 
 export async function requestLogger(c: Context, next: Next) {
+  const startedAt = performance.now()
   await next()
-  const line = `${c.req.method} ${c.req.path} ${c.res.status}`
+  const latencyMs = Math.max(0, Math.round((performance.now() - startedAt) * 10) / 10)
+  const requestId = c.res.headers.get('x-request-id') ?? 'unknown'
+  const metadata = {
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+    status: c.res.status,
+    latencyMs,
+    deploymentSha: deploymentSha(),
+  }
+  const line = JSON.stringify({ type: 'request', ...metadata })
   if (process.env.NODE_ENV === 'development') {
     console.log(line)
     return
   }
-  if (c.res.status >= 500) {
-    const { logApiEvent } = await import('../lib/api-log.js')
-    logApiEvent('request_error', {
-      method: c.req.method,
-      path: c.req.path,
-      status: c.res.status,
-    })
-  }
+  const { logApiEvent } = await import('../lib/api-log.js')
+  logApiEvent(c.res.status >= 500 ? 'request_error' : 'request', metadata)
 }

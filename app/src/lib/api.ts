@@ -1,6 +1,23 @@
-const base = import.meta.env.VITE_API_URL ?? ''
+const configuredBase = (import.meta.env.VITE_API_URL ?? '').trim()
 
-function getCsrfToken(): string | undefined {
+export function apiOrigin(): string {
+  if (!configuredBase) return ''
+  return configuredBase.replace(/\/+$/, '')
+}
+
+/** Resolve API paths and API-returned root-relative media for split-origin deployments. */
+export function resolveApiUrl(path: string): string {
+  if (!path) return path
+  if (/^(?:https?:|blob:|data:)/i.test(path)) return path
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  return `${apiOrigin()}${normalized}`
+}
+
+export function resolveMediaUrl(url: string | null | undefined): string {
+  return url ? resolveApiUrl(url) : ''
+}
+
+export function getCsrfToken(): string | undefined {
   const match = document.cookie.match(/(?:^|;\s*)trovara_csrf=([^;]+)/)
   return match?.[1]
 }
@@ -50,7 +67,7 @@ export async function api<T>(
     if (csrf) headers['X-CSRF-Token'] = csrf
   }
 
-  const res = await fetch(`${base}${path}`, {
+  const res = await fetch(resolveApiUrl(path), {
     ...options,
     credentials: 'include',
     headers,

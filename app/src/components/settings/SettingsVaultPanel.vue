@@ -156,6 +156,7 @@ onMounted(load)
     <div class="mt-4 grid gap-2 sm:grid-cols-2">
       <input
         v-model="totpToken"
+        aria-label="TOTP for reveal"
         type="text"
         inputmode="numeric"
         maxlength="6"
@@ -164,6 +165,7 @@ onMounted(load)
       />
       <input
         v-model="breakGlassPassword"
+        aria-label="Break-glass password"
         type="password"
         placeholder="Break-glass password (if armed)"
         class="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
@@ -174,21 +176,25 @@ onMounted(load)
       <p class="text-xs font-semibold text-slate-400">Add entry</p>
       <input
         v-model="form.label"
+        aria-label="Vault entry label"
         placeholder="Label (e.g. Paystack dashboard)"
         class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
       />
       <input
         v-model="form.loginUrl"
+        aria-label="Login URL"
         placeholder="https://…"
         class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
       />
       <input
         v-model="form.loginEmail"
+        aria-label="Login email"
         placeholder="Login email"
         class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
       />
       <input
         v-model="form.password"
+        aria-label="Password"
         type="password"
         placeholder="Password"
         class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"

@@ -18,6 +18,7 @@ type EmailMessage = {
   text: string
   html?: string
   replyTo?: string
+  headers?: Record<string, string>
 }
 
 type SmsMessage = {
@@ -97,6 +98,9 @@ async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
         text: message.text,
         html,
         ...(message.replyTo ? { reply_to: message.replyTo } : {}),
+        ...(message.headers && Object.keys(message.headers).length
+          ? { headers: message.headers }
+          : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     })
@@ -279,7 +283,7 @@ export async function deliverCriticalAlert(
     headline: subject,
     intro: 'Immediate attention may be required.',
     body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65;white-space:pre-wrap">${escapeEmailHtml(message)}</p>`,
-    footer: 'Sent by Trovara OS monitoring. Review the farm dashboard when you can.',
+    footerVariant: 'staff',
   })
   for (const recipient of recipients) {
     deliveries.push(sendEmail({ to: recipient.email, subject, text: message, html }))

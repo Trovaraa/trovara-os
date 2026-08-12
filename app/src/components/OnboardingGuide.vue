@@ -97,19 +97,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <button
-    v-if="!disabled && !open"
-    type="button"
-    class="fixed right-3 md:right-6 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border border-farm-gold/40 bg-[var(--os-shell)] px-4 py-3 text-sm font-black text-farm-gold shadow-2xl shadow-black/30 transition hover:-translate-y-0.5 hover:border-farm-gold focus:outline-none focus:ring-2 focus:ring-farm-gold"
-    :class="role === 'field_worker' ? 'bottom-[5.25rem] md:bottom-6' : 'bottom-4 md:bottom-6'"
-    :aria-label="copy.help"
-    @click="showPageHelp"
-  >
-    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
-    </svg>
-    <span>{{ copy.help }}</span>
-  </button>
+  <!-- Keep Help independent of the sidebar. It remains visible when the menu is
+       collapsed, when a sidebar section scrolls, and on every mobile role. -->
+  <Teleport to="body">
+    <button
+      v-if="!disabled && !open"
+      type="button"
+      class="fixed left-[6.5rem] top-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-full border border-farm-gold/45 bg-[var(--os-shell)] text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-[var(--os-shell-muted)] focus:outline-none focus:ring-2 focus:ring-farm-gold sm:left-auto sm:right-5 sm:top-auto sm:w-auto sm:gap-2 sm:px-4 md:bottom-6 md:right-6"
+      :class="role === 'field_worker' ? 'sm:bottom-[calc(5.25rem+env(safe-area-inset-bottom))]' : 'sm:bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
+      :aria-label="copy.help"
+      :title="copy.help"
+      data-testid="page-help-trigger"
+      @click="showPageHelp"
+    >
+      <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
+      </svg>
+      <span class="hidden sm:inline">{{ copy.help }}</span>
+    </button>
+  </Teleport>
 
   <Teleport to="body">
     <div

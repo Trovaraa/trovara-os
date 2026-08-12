@@ -19,6 +19,10 @@ secret that is already set and in use on the live host (especially
 openssl rand -hex 32
 # -> TOTP_ENCRYPTION_KEY
 
+# Separate 32-byte AES key for the portal credential vault
+openssl rand -hex 32
+# -> VAULT_ENCRYPTION_KEY
+
 # Internal scheduled-job authentication
 openssl rand -hex 32
 # -> CRON_SECRET
@@ -97,6 +101,7 @@ VITE_PUBLIC_MARKETING_URL=https://trovara.farm
 PUBLIC_MARKETING_URL=https://trovara.farm
 
 TOTP_ENCRYPTION_KEY=<openssl output>
+VAULT_ENCRYPTION_KEY=<separate openssl output>
 CRON_SECRET=<openssl output>
 BREAK_GLASS_PASSWORD=<openssl output>
 # BREAK_GLASS_EMAIL=owner@trovara.farm
@@ -108,7 +113,15 @@ EVIDENCE_STORAGE_ROOT=/var/lib/trovara-os/evidence
 BACKUP_DIR=/var/backups/trovara-os
 BACKUP_GPG_PASSPHRASE=<openssl output>
 REQUIRE_EVIDENCE_BACKUP=1
+# Optional rclone cloud offsite (skip if using ./deploy.sh --pull-backups):
+# BACKUP_REMOTE_ENABLED=1
+# BACKUP_REMOTE_REQUIRED=1
+# BACKUP_RCLONE_DESTINATION=<configured-rclone-remote>:trovara/production
+BACKUP_MAX_AGE_HOURS=26
 # USE_DOCKER_PG_TOOLS=1  # enable only when using this repo's Docker Postgres
+# Brand Kit photo/video (optional overrides; defaults 500 MB / 10 min)
+# BRAND_UPLOAD_MAX_BYTES=524288000
+# BRAND_UPLOAD_MAX_DURATION_SEC=600
 
 LLM_DAILY_BUDGET_PER_FARM=500
 MAX_CUSTOMER_ORDER_VALUE_KOBO=50000000
@@ -152,7 +165,9 @@ RESEND_FROM="Trovara <newsletter@trovara.farm>"
 # EMAIL_FROM="Trovara OS <no-reply@trovara.farm>"
 # EMAIL_DELIVERY_REQUIRED=true   # fail closed if email is misconfigured
 RESEND_NEWSLETTER_SEGMENT_ID=<Resend Segment ID>
-RESEND_WEBHOOK_SECRET=<Resend webhook signing secret>
+RESEND_WEBHOOK_SECRET=<Resend newsletter webhook signing secret>
+# Second webhook for finance inbound (email.received) — different whsec_
+RESEND_INBOUND_WEBHOOK_SECRET=<Resend inbound finance webhook signing secret>
 NEWSLETTER_CONSENT_VERSION=1.0
 ```
 
@@ -264,6 +279,61 @@ be retried from the owner API.
    Copy its `whsec_...` signing secret to `RESEND_WEBHOOK_SECRET`. Trovara
    rejects missing or invalid Svix signatures; never use an unsigned production
    webhook adapter.
+
+### Configure Resend inbound invoices (`finance@`)
+
+Invoice intake uses Resend **Receiving** plus an `email.received` webhook.
+
+Because Zoho Mail owns the MX records for `trovara.farm`, **do not replace or
+mix the root-domain Zoho MX records with Resend MX records**. Use a dedicated
+receiving subdomain so normal Zoho delivery remains deterministic:
+
+1. In Resend, enable Receiving for a subdomain such as
+   **`inbound.trovara.farm`**. Add only the MX record Resend shows for that
+   subdomain in DNS, then wait for Resend to mark Receiving as verified.
+2. In Zoho Mail Admin Console, open the `finance@trovara.farm` user:
+   **Users → finance user → Mailbox Settings → Email Forwarding**. Add
+   **`finance@inbound.trovara.farm`** as an external forwarding address and
+   complete Zoho's verification using the message received by Resend. Keep
+   Zoho's copy so `finance@trovara.farm` remains a normal human mailbox.
+   External forwarding requires a paid Zoho Mail plan and may need to be
+   allowed by the user's Email Policy.
+3. Send a test invoice to `finance@trovara.farm` and confirm both outcomes:
+   it remains visible in Zoho and appears under Resend Receiving for
+   `finance@inbound.trovara.farm`.
+4. Create a **second** Resend webhook (leave the newsletter webhook unchanged):
+
+   ```text
+   https://os.trovara.farm/public/finance/inbound
+   ```
+
+   Subscribe it to:
+
+   ```text
+   email.received
+   ```
+
+   Copy that webhook’s `whsec_...` signing secret to
+   `RESEND_INBOUND_WEBHOOK_SECRET` (not `RESEND_WEBHOOK_SECRET`).
+   Set `FINANCE_INBOUND_RECIPIENTS=finance@trovara.farm`; the recipient guard
+   also accepts the same local part on the receiving subdomain, including
+   `finance@inbound.trovara.farm`.
+
+5. Keep `RESEND_API_KEY` as a full-access key so the API can call
+   `emails.receiving.get` and `emails.receiving.attachments.list` after the
+   webhook. Attachments (PDF/JPEG/PNG/WebP) are stored under evidence storage;
+   a **pending** draft expense is created for Finance staff to label and approve.
+   The sender name/email are stored on the draft. `receipt_ref` keeps the email
+   Message-ID (audit/threading), not the sender address.
+   Amount/vendor/date/currency are prefilled with hybrid extraction (PDF text
+   first, then LLM text/vision when configured via `OPENAI_API_KEY` /
+   `LLM_API_KEY`). Staff should still review drafts before approval. Approving
+   an inbound draft sends a one-shot acknowledgment to the sender via Resend
+   (skipped for noreply / `@trovara.farm` addresses).
+
+---
+
+Continue with remaining production checklist sections below.
 6. Keep `NEWSLETTER_CONSENT_VERSION=1.0` until the consent language changes,
    then increment it so new consent evidence records the correct version.
 
@@ -301,18 +371,21 @@ APP_USER=ubuntu
 
 ## 4. Install, verify, migrate, and build
 
-The normal local command is now simply:
+The normal local command selects a clean immutable commit or tag:
 
 ```bash
 cd trovara-os
-./deploy.sh
+RELEASE_REF=<full-commit-sha-or-tag> ./deploy.sh
 ```
 
 The deploy script selects Node 22 and runs `npm ci --include=dev` (the VM has
 `NODE_ENV=production`, but test/build tools are dev dependencies), tests, the blocking
 high-severity audit, production build, encrypted database/evidence backup,
-backup verification, migrations, frontend release, service restart, and
-health/readiness checks on the VM.
+freshness verification (remote rclone delivery optional when Mac pulls are the
+second copy), migrations, frontend
+release, service restart, and health/readiness checks on the VM. It embeds
+`RELEASE.json` at the release root and web root and includes `docs/` in the
+deployed artifact. It refuses uncommitted or untracked source.
 
 **Never use `./deploy.sh --skip-backup` on the live farm database.** That flag is
 only for disposable demo databases.
@@ -320,8 +393,8 @@ only for disposable demo databases.
 ### Migrations
 
 Drizzle applies folders under `api/drizzle/` in **timestamp** order (not only by
-the `00NN` label). Current tip includes through `0040_marketing_leads` (including
-Journal CMS and newsletter migrations).
+the `00NN` label). Current tip is
+`20260811173000_0054_payment_status_idempotency`.
 
 Note: there are two folders whose label contains `0027`
 (`…_0027_trovara_os_advisory` and `…_0027_registration_tokens`). Both are
@@ -345,6 +418,9 @@ VM, schedule at least:
 ```bash
 # Example — daily 05:30 Africa/Lagos; adjust path/user
 30 5 * * * cd /home/ubuntu/trovara-os && /home/ubuntu/.nvm/nvm-exec npm run send-proactive-alerts >> /var/log/trovara-proactive.log 2>&1
+
+# Daily OS + marketing health/uptime snapshot (owners + supervisors)
+0 6 * * * cd /home/ubuntu/trovara-os && /home/ubuntu/.nvm/nvm-exec npm run send-health-snapshot >> /var/log/trovara-health-snapshot.log 2>&1
 ```
 
 Also schedule as needed (see [`INTEGRATIONS.md`](./INTEGRATIONS.md) / scripts):
@@ -355,7 +431,9 @@ Also schedule as needed (see [`INTEGRATIONS.md`](./INTEGRATIONS.md) / scripts):
 - encrypted backup timers ([`backup-runbook.md`](./backup-runbook.md))
 
 Advisory + proactive alerts cron is expected to already be installed on the
-live host; verify with `crontab -l` after any VM rebuild.
+live host; verify with `crontab -l` after any VM rebuild. The health snapshot job
+is separate from farm ops proactive alerts and can be silenced from Settings
+(`healthSlaAlertsEnabled`) or with `HEALTH_SLA_TELEGRAM_ENABLED=false`.
 
 ## 6. Restart and smoke-test
 
@@ -369,11 +447,24 @@ curl -sf https://os.trovara.farm/ready
 (`./deploy.sh` restarts `trovara-api` for you; the commands above are for manual ops.)  
 External monitor intervals and escalation: [`uptime-monitoring.md`](./uptime-monitoring.md).  
 Encrypted backup procedure: [`backup-runbook.md`](./backup-runbook.md).
+Complete environment inventory: [`PRODUCTION-ENVIRONMENT.md`](./PRODUCTION-ENVIRONMENT.md).
+Migration policy: [`EXPAND-CONTRACT-MIGRATIONS.md`](./EXPAND-CONTRACT-MIGRATIONS.md).
+Coordinated OS-first release: [`RELEASE-CHECKLIST.md`](./RELEASE-CHECKLIST.md).
 
 **nginx CSP:** apply the `Content-Security-Policy` (and related) headers from
 [`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example) on the
 live vhost. The SPA also ships a matching meta CSP; `frame-ancestors` only works
-as a response header.
+as a response header. For Brand Kit video uploads, also apply the
+`/api/brand/assets/upload` locations (520m body, `proxy_request_buffering off`,
+900s timeouts) from that example.
+
+**ffmpeg (Brand Kit):** install system packages before enabling photo/video packs:
+
+```bash
+sudo apt install ffmpeg
+ffmpeg -version && ffprobe -version
+ffmpeg -hide_banner -encoders | grep libx264
+```
 
 Then verify:
 

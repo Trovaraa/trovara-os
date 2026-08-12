@@ -30,6 +30,8 @@ export function telegramCommandsForRole(role: UserRole): TelegramBotCommand[] {
   if (role === 'sales') {
     return [
       ...common,
+      { command: 'clockin', description: 'Clock in' },
+      { command: 'clockout', description: 'Clock out' },
       { command: 'orders', description: 'Order commands' },
       { command: 'confirm', description: 'Confirm a pending order' },
       { command: 'dispatch', description: 'Mark order dispatched' },
@@ -42,6 +44,8 @@ export function telegramCommandsForRole(role: UserRole): TelegramBotCommand[] {
 
   return [
     ...common,
+    { command: 'clockin', description: 'Clock in' },
+    { command: 'clockout', description: 'Clock out' },
     { command: 'approve', description: 'Approve a waiting task' },
     { command: 'reject', description: 'Reject a waiting task' },
     { command: 'orders', description: 'Order commands' },
@@ -125,43 +129,40 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
     return msg(locale, {
       en: [
         'Your commands (sales):',
+        '/clockin · /clockout',
         '/orders — order help',
         '/confirm · /dispatch · /delivered · /cancel TRV-ORD-…',
         '/lots · pack LOT-… · /printqr [LOT] — box labels',
-        '',
-        'Stock: Feed bags delta=-2 reason=used',
-        'Opening count: Feed bags=50',
-        'Ack low stock',
         '',
         'Also: ask a question, send a photo, or type brief',
         '/language — change reply language',
       ].join('\n'),
       fr: [
         'Vos commandes (ventes) :',
+        '/clockin · /clockout',
         '/orders — aide commandes',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr — étiquettes',
-        'Stock / Opening count / Ack low stock',
         '',
         'Aussi : question, photo, ou brief',
         '/language — langue',
       ].join('\n'),
       yo: [
         'Àwọn àṣẹ rẹ (títà):',
+        '/clockin · /clockout',
         '/orders — ìrànlọ́wọ́ àṣẹ',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
-        'Stock / Opening count / Ack low stock',
         '',
         'Pẹ̀lú: béèrè, fọ́tò, tàbí brief',
         '/language — èdè',
       ].join('\n'),
       pcm: [
         'Your commands (sales):',
+        '/clockin · /clockout',
         '/orders — order help',
         '/confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
-        'Stock / Opening count / Ack low stock',
         '',
         'Also: ask question, send photo, or brief',
         '/language — change language',
@@ -188,6 +189,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
     title,
     msg(locale, {
       en: [
+        '/clockin · /clockout',
         '/approve · /reject — tasks awaiting approval',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr [LOT]',
@@ -211,6 +213,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — change reply language',
       ].join('\n'),
       fr: [
+        '/clockin · /clockout',
         '/approve · /reject — tâches en attente',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack LOT-… · /printqr',
@@ -228,6 +231,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — langue',
       ].join('\n'),
       yo: [
+        '/clockin · /clockout',
         '/approve · /reject — iṣẹ́ tó ń dúró',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack · /printqr',
@@ -242,6 +246,7 @@ export function roleCommandHelp(locale: StaffLocale, role: UserRole): string {
         '/language — èdè',
       ].join('\n'),
       pcm: [
+        '/clockin · /clockout',
         '/approve · /reject — tasks wey dey wait',
         '/orders · /confirm · /dispatch · /delivered · /cancel',
         '/lots · pack · /printqr',

@@ -1,20 +1,28 @@
 import { and, count, desc, eq, gte, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
+  assets,
+  attendanceSessions,
   cropCycles,
+  customerSupportTickets,
   expenses,
   farms,
+  fieldReports,
   harvestLots,
   inventoryItems,
+  inventoryMovements,
   livestockBatches,
   livestockLogs,
   orders,
   plots,
+  products,
+  purchaseOrders,
+  suppliers,
   tasks,
   users,
 } from '../db/schema.js'
 import type { SessionUser } from './session.js'
-import { canAccessFinance } from './rbac.js'
+import { canAccessFinance, hasPermission } from './rbac.js'
 import { computePlotProfitability } from './plot-profitability.js'
 import { sanitizeFarmDataField } from './sanitize-input.js'
 import type { ReplyLocale } from './reply-locale.js'
@@ -105,6 +113,27 @@ export async function buildFarmContext(
   const locale = resolveStaffReplyLocale(replyLocale)
   const farmId = user.farmId
   const showFinance = canAccessFinance(user)
+  const canSeeStaff = hasPermission(user, 'users.view')
+  const canSeeAllTasks = hasPermission(user, 'tasks.assign') || hasPermission(user, 'tasks.approve')
+  const canSeeOwnTasks = hasPermission(user, 'tasks.work_own')
+  const canSeeLand = hasPermission(user, 'zones.manage') || hasPermission(user, 'crops.manage') || hasPermission(user, 'census.create')
+  const canSeeLivestock = hasPermission(user, 'livestock.manage') || hasPermission(user, 'livestock.log')
+  const canSeeInventory = hasPermission(user, 'inventory.read') || hasPermission(user, 'inventory.count')
+  const canSeeOrders = hasPermission(user, 'orders.read')
+  const canSeeOrderPii = hasPermission(user, 'orders.pii')
+  const canSeeTraceability = hasPermission(user, 'traceability.export') || canSeeOrders
+  const canSeeAttendanceRoster = hasPermission(user, 'attendance.roster')
+  const canManageFieldReports = hasPermission(user, 'tasks.approve')
+  const canSeeFieldReports = canManageFieldReports || hasPermission(user, 'field_reports.create')
+  const canSeeSupport = hasPermission(user, 'orders.manage')
+  const canSeeAssets = canSeeInventory || hasPermission(user, 'assets.count')
+  const canSeeProducts = hasPermission(user, 'products.manage') || canSeeOrders
+  const canSeePurchasing = hasPermission(user, 'purchase_orders.approve')
+  const taskScope = canSeeAllTasks
+    ? eq(tasks.farmId, farmId)
+    : canSeeOwnTasks
+      ? and(eq(tasks.farmId, farmId), eq(tasks.assignedToId, user.id))
+      : null
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 30)
@@ -123,13 +152,22 @@ export async function buildFarmContext(
     orderRows,
     expenseRows,
     lotRows,
+    attendanceRows,
+    fieldReportRows,
+    supportRows,
+    assetRows,
+    movementRows,
+    productRows,
+    purchaseOrderRows,
   ] = await Promise.all([
     db.select().from(farms).where(eq(farms.id, farmId)).limit(1),
-    db
-      .select({ status: tasks.status, total: count() })
-      .from(tasks)
-      .where(eq(tasks.farmId, farmId))
-      .groupBy(tasks.status),
+    taskScope
+      ? db
+          .select({ status: tasks.status, total: count() })
+          .from(tasks)
+          .where(taskScope)
+          .groupBy(tasks.status)
+      : Promise.resolve([]),
     db
       .select({
         id: users.id,
@@ -139,25 +177,26 @@ export async function buildFarmContext(
       .from(users)
       .where(and(eq(users.farmId, farmId), eq(users.active, true)))
       .orderBy(users.name),
-    db
-      .select({
-        title: tasks.title,
-        status: tasks.status,
-        assignedToName: users.name,
-        assignedToId: tasks.assignedToId,
-        plotName: plots.name,
-        dueDate: tasks.dueDate,
-      })
-      .from(tasks)
-      .leftJoin(users, eq(tasks.assignedToId, users.id))
-      .leftJoin(plots, eq(tasks.plotId, plots.id))
-      .where(eq(tasks.farmId, farmId))
-      .orderBy(desc(tasks.updatedAt))
-      .limit(MAX_TASKS_IN_CONTEXT),
-    db
-      .select({ total: count() })
-      .from(tasks)
-      .where(eq(tasks.farmId, farmId)),
+    taskScope
+      ? db
+          .select({
+            title: tasks.title,
+            status: tasks.status,
+            assignedToName: users.name,
+            assignedToId: tasks.assignedToId,
+            plotName: plots.name,
+            dueDate: tasks.dueDate,
+          })
+          .from(tasks)
+          .leftJoin(users, eq(tasks.assignedToId, users.id))
+          .leftJoin(plots, eq(tasks.plotId, plots.id))
+          .where(taskScope)
+          .orderBy(desc(tasks.updatedAt))
+          .limit(MAX_TASKS_IN_CONTEXT)
+      : Promise.resolve([]),
+    taskScope
+      ? db.select({ total: count() }).from(tasks).where(taskScope)
+      : Promise.resolve([]),
     db.select().from(plots).where(eq(plots.farmId, farmId)),
     db.select().from(cropCycles).where(eq(cropCycles.farmId, farmId)),
     db.select().from(livestockBatches).where(eq(livestockBatches.farmId, farmId)),
@@ -180,6 +219,78 @@ export async function buildFarmContext(
       .where(eq(harvestLots.farmId, farmId))
       .orderBy(desc(harvestLots.harvestedAt))
       .limit(10),
+    db
+      .select({
+        userId: attendanceSessions.userId,
+        userName: users.name,
+        clockInAt: attendanceSessions.clockInAt,
+        clockOutAt: attendanceSessions.clockOutAt,
+        workSummary: attendanceSessions.workSummary,
+      })
+      .from(attendanceSessions)
+      .innerJoin(users, eq(attendanceSessions.userId, users.id))
+      .where(
+        canSeeAttendanceRoster
+          ? eq(attendanceSessions.farmId, farmId)
+          : and(eq(attendanceSessions.farmId, farmId), eq(attendanceSessions.userId, user.id)),
+      )
+      .orderBy(desc(attendanceSessions.clockInAt))
+      .limit(20),
+    canSeeFieldReports
+      ? db
+          .select()
+          .from(fieldReports)
+          .where(
+            canManageFieldReports
+              ? eq(fieldReports.farmId, farmId)
+              : and(eq(fieldReports.farmId, farmId), eq(fieldReports.createdById, user.id)),
+          )
+          .orderBy(desc(fieldReports.createdAt))
+          .limit(20)
+      : Promise.resolve([]),
+    canSeeSupport
+      ? db
+          .select()
+          .from(customerSupportTickets)
+          .where(eq(customerSupportTickets.farmId, farmId))
+          .orderBy(desc(customerSupportTickets.createdAt))
+          .limit(20)
+      : Promise.resolve([]),
+    canSeeAssets
+      ? db.select().from(assets).where(eq(assets.farmId, farmId)).limit(100)
+      : Promise.resolve([]),
+    canSeeInventory
+      ? db
+          .select({
+            itemId: inventoryMovements.itemId,
+            itemName: inventoryItems.name,
+            delta: inventoryMovements.delta,
+            reason: inventoryMovements.reason,
+            createdAt: inventoryMovements.createdAt,
+          })
+          .from(inventoryMovements)
+          .innerJoin(inventoryItems, eq(inventoryMovements.itemId, inventoryItems.id))
+          .where(eq(inventoryMovements.farmId, farmId))
+          .orderBy(desc(inventoryMovements.createdAt))
+          .limit(20)
+      : Promise.resolve([]),
+    canSeeProducts
+      ? db.select().from(products).where(eq(products.farmId, farmId)).limit(100)
+      : Promise.resolve([]),
+    canSeePurchasing
+      ? db
+          .select({
+            id: purchaseOrders.id,
+            supplierName: suppliers.name,
+            status: purchaseOrders.status,
+            expectedAt: purchaseOrders.expectedAt,
+          })
+          .from(purchaseOrders)
+          .innerJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+          .where(eq(purchaseOrders.farmId, farmId))
+          .orderBy(desc(purchaseOrders.createdAt))
+          .limit(20)
+      : Promise.resolve([]),
   ])
 
   const lines: string[] = []
@@ -192,12 +303,25 @@ export async function buildFarmContext(
   lines.push(
     `CURRENT USER: name=${sf(user.name)}; role=${formatRole(user.role, locale)} (system key: ${user.role})`,
   )
+  const allowedActions = [
+    hasPermission(user, 'tasks.assign') ? 'create tasks' : null,
+    hasPermission(user, 'inventory.write') ? 'record stock movements and opening counts' : null,
+    hasPermission(user, 'zones.manage') ? 'create zones and plots' : null,
+    hasPermission(user, 'livestock.log') ? 'record livestock logs' : null,
+    hasPermission(user, 'census.create') ? 'submit crop census records' : null,
+    hasPermission(user, 'assets.count') ? 'submit asset counts' : null,
+    hasPermission(user, 'field_reports.create') ? 'create field reports' : null,
+    hasPermission(user, 'orders.manage') ? 'create customer support tickets' : null,
+  ].filter(Boolean)
+  lines.push(`AI ACTIONS ALLOWED FOR THIS USER: ${allowedActions.length ? allowedActions.join('; ') : 'read-only'}`)
   lines.push('')
 
   // Staff roster - field workers see only themselves + supervisors (no peer names).
-  const visibleStaff = isFieldWorker
-    ? staffRows.filter((s) => s.role === 'supervisor' || s.id === user.id)
-    : staffRows
+  const visibleStaff = canSeeStaff
+    ? staffRows
+    : isFieldWorker
+      ? staffRows.filter((s) => s.role === 'supervisor' || s.id === user.id)
+      : staffRows.filter((s) => s.id === user.id)
   const staffByRole = {
     owner: visibleStaff.filter((s) => s.role === 'owner'),
     supervisor: visibleStaff.filter((s) => s.role === 'supervisor'),
@@ -215,83 +339,93 @@ export async function buildFarmContext(
   }
   lines.push('')
 
-  // Tasks summary + per-task assignments (answers "who is linked to what task")
-  const taskMap = Object.fromEntries(taskStats.map((s) => [s.status, Number(s.total)]))
-  lines.push(
-    `TASKS SUMMARY: ${taskMap.pending ?? 0} ${formatTaskStatus('pending', locale)}, ${taskMap.in_progress ?? 0} ${formatTaskStatus('in_progress', locale)}, ${taskMap.awaiting_approval ?? 0} ${formatTaskStatus('awaiting_approval', locale)}, ${taskMap.completed ?? 0} ${formatTaskStatus('completed', locale)}, ${taskMap.rejected ?? 0} ${formatTaskStatus('rejected', locale)}`,
-  )
+  // Tasks summary + assignments are scoped before the query, not only at rendering time.
+  if (taskScope) {
+    const taskMap = Object.fromEntries(taskStats.map((s) => [s.status, Number(s.total)]))
+    lines.push(
+      `${canSeeAllTasks ? 'TASKS' : 'YOUR TASKS'} SUMMARY: ${taskMap.pending ?? 0} ${formatTaskStatus('pending', locale)}, ${taskMap.in_progress ?? 0} ${formatTaskStatus('in_progress', locale)}, ${taskMap.awaiting_approval ?? 0} ${formatTaskStatus('awaiting_approval', locale)}, ${taskMap.completed ?? 0} ${formatTaskStatus('completed', locale)}, ${taskMap.rejected ?? 0} ${formatTaskStatus('rejected', locale)}`,
+    )
 
-  const visibleTasks = isFieldWorker
-    ? taskAssignmentRows.filter((t) => t.assignedToId === user.id)
-    : taskAssignmentRows
-  const totalTasks = Number(taskAssignmentTotal[0]?.total ?? 0)
+    const totalTasks = Number(taskAssignmentTotal[0]?.total ?? 0)
+    lines.push(
+      canSeeAllTasks
+        ? `TASK ASSIGNMENTS (${taskAssignmentRows.length} of ${totalTasks} most recent):`
+        : `YOUR TASK ASSIGNMENTS (${taskAssignmentRows.length} of ${totalTasks} most recent):`,
+    )
 
-  if (isFieldWorker) {
-    lines.push(`TASK ASSIGNMENTS (your tasks only - ${visibleTasks.length} shown):`)
-  } else {
-    lines.push(`TASK ASSIGNMENTS (${visibleTasks.length} of ${totalTasks} most recent):`)
-  }
-
-  if (visibleTasks.length === 0) {
-    lines.push('  • (none)')
-  } else {
-    for (const t of visibleTasks) {
-      const assignee = t.assignedToName ? sf(t.assignedToName) : '(unassigned)'
-      const plot = t.plotName ? sf(t.plotName) : '(no plot)'
-      const due = dueLabel(
-        t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
-        locale,
-      )
-      lines.push(
-        `  • "${sf(t.title)}" - assigned to: ${assignee} - plot: ${plot} - status: ${formatTaskStatus(t.status, locale)} - due: ${due}`,
-      )
+    if (taskAssignmentRows.length === 0) {
+      lines.push('  • (none)')
+    } else {
+      for (const t of taskAssignmentRows) {
+        const assignee = t.assignedToName ? sf(t.assignedToName) : '(unassigned)'
+        const plot = t.plotName ? sf(t.plotName) : '(no plot)'
+        const due = dueLabel(
+          t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
+          locale,
+        )
+        lines.push(
+          `  • "${sf(t.title)}" - assigned to: ${assignee} - plot: ${plot} - status: ${formatTaskStatus(t.status, locale)} - due: ${due}`,
+        )
+      }
+      if (totalTasks > taskAssignmentRows.length) {
+        lines.push(`  • … and ${totalTasks - taskAssignmentRows.length} older task(s) not listed here`)
+      }
     }
-    if (!isFieldWorker && totalTasks > visibleTasks.length) {
-      lines.push(`  • … and ${totalTasks - visibleTasks.length} older task(s) not listed here`)
-    }
+    lines.push('')
   }
-  lines.push('')
 
   // Plots & crops
-  lines.push(`PLOTS (${plotRows.length}):`)
-  for (const p of plotRows) {
-    const cycles = cropRows.filter((c) => c.plotId === p.id)
-    const activeCycle = cycles.find((c) => c.stage !== 'harvested') ?? cycles[0]
-    const stage = activeCycle ? ` - stage: ${activeCycle.stage}` : ''
-    const area = p.areaAcres ? ` (${p.areaAcres} acres)` : ''
-    lines.push(
-      `  • ${sf(p.name)}: ${sf(p.cropType)}${p.cropVariety ? ` (${sf(p.cropVariety)})` : ''}${area}${stage}`,
-    )
+  if (canSeeLand) {
+    lines.push(`PLOTS (${plotRows.length}):`)
+    for (const p of plotRows) {
+      const cycles = cropRows.filter((c) => c.plotId === p.id)
+      const activeCycle = cycles.find((c) => c.stage !== 'harvested') ?? cycles[0]
+      const stage = activeCycle ? ` - stage: ${activeCycle.stage}` : ''
+      const area = p.areaAcres ? ` (${p.areaAcres} acres)` : ''
+      lines.push(
+        `  • ${sf(p.name)}: ${sf(p.cropType)}${p.cropVariety ? ` (${sf(p.cropVariety)})` : ''}${area}${stage}`,
+      )
+    }
+    lines.push('')
   }
-  lines.push('')
 
   // Livestock
-  const activeBatches = batchRows.filter((b) => b.active)
-  const totalHead = activeBatches.reduce((sum, b) => sum + (b.headCount ?? 0), 0)
-  lines.push(`LIVESTOCK: ${activeBatches.length} active batch(es), ${totalHead} head total`)
-  for (const b of activeBatches) {
-    const started = b.startCount ?? b.headCount
-    const lost = started - (b.headCount ?? 0)
-    lines.push(
-      `  • ${sf(b.name)}: ${sf(b.species)}${b.batchType ? ` (${sf(b.batchType)})` : ''} - ${b.headCount} alive${lost > 0 ? `, ${lost} lost since start` : ''}`,
-    )
+  if (canSeeLivestock) {
+    const activeBatches = batchRows.filter((b) => b.active)
+    const totalHead = activeBatches.reduce((sum, b) => sum + (b.headCount ?? 0), 0)
+    lines.push(`LIVESTOCK: ${activeBatches.length} active batch(es), ${totalHead} head total`)
+    for (const b of activeBatches) {
+      const started = b.startCount ?? b.headCount
+      const lost = started - (b.headCount ?? 0)
+      lines.push(
+        `  • ${sf(b.name)}: ${sf(b.species)}${b.batchType ? ` (${sf(b.batchType)})` : ''} - ${b.headCount} alive${lost > 0 ? `, ${lost} lost since start` : ''}`,
+      )
+    }
+    lines.push(`  Mortality last 30 days: ${Number(mortality30[0]?.total ?? 0)} head`)
+    lines.push('')
   }
-  lines.push(`  Mortality last 30 days: ${Number(mortality30[0]?.total ?? 0)} head`)
-  lines.push('')
 
   // Inventory
-  const lowStock = inventoryRows.filter((i) => i.quantity <= i.reorderLevel)
-  lines.push(`INVENTORY: ${inventoryRows.length} item(s), ${lowStock.length} at/below reorder level`)
-  for (const i of inventoryRows) {
-    const flag = i.quantity <= i.reorderLevel ? ' [LOW - reorder]' : ''
-    lines.push(
-      `  • ${sf(i.name)} (${sf(i.category)}): ${i.quantity} ${sf(i.unit)}, reorder at ${i.reorderLevel}${flag}`,
-    )
+  if (canSeeInventory) {
+    const lowStock = inventoryRows.filter((i) => i.quantity <= i.reorderLevel)
+    lines.push(`INVENTORY: ${inventoryRows.length} item(s), ${lowStock.length} at/below reorder level`)
+    for (const i of inventoryRows) {
+      const flag = i.quantity <= i.reorderLevel ? ' [LOW - reorder]' : ''
+      lines.push(
+        `  • ${sf(i.sku)} · ${sf(i.name)} (${sf(i.category)}): ${i.quantity} ${sf(i.unit)}, reorder at ${i.reorderLevel}${flag}`,
+      )
+    }
+    if (movementRows.length) {
+      lines.push('  Recent stock movements:')
+      for (const move of movementRows.slice(0, 10)) {
+        lines.push(`    • ${sf(move.itemName)}: ${move.delta > 0 ? '+' : ''}${move.delta} · ${sf(move.reason)} · ${move.createdAt.toISOString().slice(0, 10)}`)
+      }
+    }
+    lines.push('')
   }
-  lines.push('')
 
   // Harvest lots
-  if (lotRows.length) {
+  if (canSeeTraceability && lotRows.length) {
     lines.push(`RECENT HARVEST LOTS:`)
     for (const l of lotRows) {
       lines.push(
@@ -301,7 +435,78 @@ export async function buildFarmContext(
     lines.push('')
   }
 
-  // Sales & finance (owner only)
+  if (attendanceRows.length) {
+    lines.push(canSeeAttendanceRoster ? 'RECENT ATTENDANCE:' : 'YOUR RECENT ATTENDANCE:')
+    for (const session of attendanceRows.slice(0, 10)) {
+      lines.push(
+        `  • ${sf(session.userName)}: in ${session.clockInAt.toISOString()} · out ${session.clockOutAt?.toISOString() ?? 'still clocked in'}${session.workSummary ? ` · ${sf(session.workSummary)}` : ''}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (fieldReportRows.length) {
+    lines.push(user.role === 'field_worker' ? 'YOUR FIELD REPORTS:' : 'RECENT FIELD REPORTS:')
+    for (const report of fieldReportRows) {
+      lines.push(
+        `  • ${report.createdAt.toISOString().slice(0, 10)} · ${sf(report.category)} · ${sf(report.severity)} · ${sf(report.status)} · ${sf(report.description).slice(0, 300)}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (canSeeAssets) {
+    lines.push(`ASSETS (${assetRows.length}):`)
+    for (const asset of assetRows.slice(0, 30)) {
+      lines.push(
+        `  • ${sf(asset.assetTag) || '(no tag)'} · ${sf(asset.name)} · ${asset.quantityOwned} ${sf(asset.unit)} · ${sf(asset.operationalStatus)}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (canSeeProducts) {
+    lines.push(`PRODUCT CATALOGUE (${productRows.length}):`)
+    for (const product of productRows) {
+      lines.push(
+        `  • ${sf(product.sku)} · ${sf(product.name)} · ${product.priceKobo > 0 ? `${product.currency} ${(product.priceKobo / 100).toLocaleString()}` : 'price on request'} per ${sf(product.unit)} · ${product.active ? 'active' : 'inactive'}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (canSeeOrders) {
+    lines.push(`ORDERS (${orderRows.length}):`)
+    for (const order of [...orderRows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 15)) {
+      const customer = canSeeOrderPii ? sf(order.customerName) : 'customer identity hidden'
+      lines.push(
+        `  • ${order.createdAt.toISOString().slice(0, 10)} · ${customer} · ${order.currency} ${(order.totalAmount ?? 0).toLocaleString()} · ${sf(order.status)} · payment ${sf(order.paymentStatus)}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (supportRows.length) {
+    lines.push('CUSTOMER SUPPORT TICKETS:')
+    for (const ticket of supportRows) {
+      lines.push(
+        `  • ${sf(ticket.reference)} · ${sf(ticket.category)} · ${sf(ticket.priority)} · ${sf(ticket.status)} · ${sf(ticket.description).slice(0, 300)}`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (purchaseOrderRows.length) {
+    lines.push('PURCHASE ORDERS:')
+    for (const po of purchaseOrderRows) {
+      lines.push(
+        `  • ${po.id} · ${sf(po.supplierName)} · ${sf(po.status)} · expected ${po.expectedAt?.toISOString().slice(0, 10) ?? 'not set'}`,
+      )
+    }
+    lines.push('')
+  }
+
+  // Finance data is permission-scoped independently from order operations.
   if (showFinance) {
     const currency = orderRows[0]?.currency ?? 'NGN'
     const fmt = (n: number) => `${currency} ${n.toLocaleString()}`
@@ -335,18 +540,6 @@ export async function buildFarmContext(
     lines.push(`  Revenue last 7 days: ${fmt(revenueWeek)}`)
     lines.push(`  Revenue this calendar month: ${fmt(revenueMonth)}`)
     lines.push(`  Pending orders (not yet revenue): ${pending.length}, value ${fmt(pendingValue)}`)
-    const recentOrders = [...orderRows]
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, 8)
-    if (recentOrders.length) {
-      lines.push('  Recent orders (date - customer - amount - status):')
-      for (const o of recentOrders) {
-        lines.push(
-          `    ${o.createdAt.toISOString().slice(0, 10)} - ${sf(o.customerName)} - ${fmt(o.totalAmount ?? 0)} - ${o.status}`,
-        )
-      }
-    }
-
     const sumExp = (since?: Date) =>
       expenseRows
         .filter((e) => (since ? e.expenseDate >= since : true))
@@ -384,7 +577,7 @@ export async function buildFarmContext(
     }
     lines.push('')
   } else {
-    lines.push('SALES/FINANCE: hidden (only the Admin can view revenue, expenses and profit).')
+    lines.push('FINANCE: hidden because this role does not have finance.read.')
     lines.push('')
   }
 

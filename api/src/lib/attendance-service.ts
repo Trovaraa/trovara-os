@@ -7,10 +7,10 @@ import {
   users,
 } from '../db/schema.js'
 import { logAudit } from './audit.js'
-import { payableMinutes } from './attendance-calculations.js'
+import { payableMinutes, payableMinutesWithinBounds } from './attendance-calculations.js'
 import { authorLocaleHint, toCanonicalEnglish } from './content-locale.js'
 import { notifyWorkerClockIn } from './farm-notify.js'
-import { canApproveTasks } from './rbac.js'
+import { canApproveTasks, canViewAttendanceRoster } from './rbac.js'
 import type { SessionUser } from './session.js'
 import { contentLocaleValues, mergeContentLocale, type ContentLocaleMeta } from './task-drafts.js'
 
@@ -120,7 +120,8 @@ async function validateAllocation(
 }
 
 export async function clockIn(user: SessionUser, input: AttendanceAllocationInput = {}) {
-  if (user.role !== 'field_worker') throw new Error('FORBIDDEN')
+  const allowedRoles = new Set(['owner', 'supervisor', 'sales', 'field_worker'])
+  if (!allowedRoles.has(user.role)) throw new Error('FORBIDDEN')
 
   const [existing] = await db
     .select()
@@ -142,7 +143,8 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     .from(users)
     .where(and(eq(users.id, user.id), eq(users.farmId, user.farmId)))
     .limit(1)
-  if (monthlyWageNgn == null) throw new Error('WAGE_NOT_SET')
+  if (user.role === 'field_worker' && monthlyWageNgn == null) throw new Error('WAGE_NOT_SET')
+  const wageSnapshot = monthlyWageNgn ?? 0
 
   const allocation = await validateAllocation(user, input)
   const typedNotes = cleanNotes(input.notes)
@@ -158,7 +160,7 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
       .values({
         farmId: user.farmId,
         userId: user.id,
-        monthlyWageSnapshotNgn: monthlyWageNgn,
+        monthlyWageSnapshotNgn: wageSnapshot,
         ...allocation,
         notes: canonical.text,
         ...contentLocaleValues(canonical.locale),
@@ -189,13 +191,15 @@ export async function clockIn(user: SessionUser, input: AttendanceAllocationInpu
     metadata: allocation,
   })
 
-  void notifyWorkerClockIn({
-    farmId: user.farmId,
-    workerName: user.name,
-    clockInAt: session.clockInAt,
-    actorUserId: user.id,
-    notes: session.notes,
-  }).catch(() => undefined)
+  if (user.role === 'field_worker') {
+    void notifyWorkerClockIn({
+      farmId: user.farmId,
+      workerName: user.name,
+      clockInAt: session.clockInAt,
+      actorUserId: user.id,
+      notes: session.notes,
+    }).catch(() => undefined)
+  }
 
   // The worker reads their own note back in their own words; the row holds the
   // English.
@@ -206,7 +210,8 @@ export async function clockOut(
   user: SessionUser,
   input: { workSummary?: string | null } = {},
 ) {
-  if (user.role !== 'field_worker') throw new Error('FORBIDDEN')
+  const allowedRoles = new Set(['owner', 'supervisor', 'sales', 'field_worker'])
+  if (!allowedRoles.has(user.role)) throw new Error('FORBIDDEN')
 
   const now = new Date()
   const workSummary = cleanNotes(input.workSummary)
@@ -253,8 +258,6 @@ export async function clockOut(
 }
 
 export async function listToday(user: SessionUser) {
-  if (user.role === 'sales') return []
-
   const farmTimezone = sql<string>`COALESCE(
     (SELECT "timezone" FROM "farms" WHERE "id" = ${user.farmId}),
     'Africa/Lagos'
@@ -266,10 +269,10 @@ export async function listToday(user: SessionUser) {
     (date_trunc('day', now() AT TIME ZONE ${farmTimezone}) + interval '1 day')
     AT TIME ZONE ${farmTimezone}
   )`
-  const visibility =
-    user.role === 'field_worker'
-      ? and(eq(attendanceSessions.farmId, user.farmId), eq(attendanceSessions.userId, user.id))
-      : eq(attendanceSessions.farmId, user.farmId)
+  const selfOnly = !canViewAttendanceRoster(user)
+  const visibility = selfOnly
+    ? and(eq(attendanceSessions.farmId, user.farmId), eq(attendanceSessions.userId, user.id))
+    : eq(attendanceSessions.farmId, user.farmId)
 
   const rows = await db
     .select({
@@ -288,6 +291,8 @@ export async function listToday(user: SessionUser) {
       correctedById: attendanceSessions.correctedById,
       correctedAt: attendanceSessions.correctedAt,
       createdAt: attendanceSessions.createdAt,
+      rangeStart: start,
+      rangeEnd: end,
     })
     .from(attendanceSessions)
     .innerJoin(users, eq(attendanceSessions.userId, users.id))
@@ -303,9 +308,14 @@ export async function listToday(user: SessionUser) {
     .orderBy(desc(attendanceSessions.clockInAt))
 
   const now = new Date()
-  return rows.map((row) => ({
+  return rows.map(({ rangeStart, rangeEnd, ...row }) => ({
     ...row,
-    payableMinutes: payableMinutes(row.clockInAt, row.clockOutAt ?? now),
+    payableMinutes: payableMinutesWithinBounds(
+      row.clockInAt,
+      row.clockOutAt ?? now,
+      rangeStart,
+      rangeEnd,
+    ),
   }))
 }
 
@@ -396,4 +406,145 @@ export async function supervisorCorrect(
   // The supervisor reads their own note back in their own words; the row and the
   // audit trail hold the English.
   return typedNotes === undefined ? session : { ...session, notes: typedNotes }
+}
+
+export type HoursSummaryRange = 'day' | 'week' | 'month' | 'ytd'
+
+export type HoursSummaryPerson = {
+  userId: string
+  userName: string
+  role: string
+  totalMinutes: number
+  sessionCount: number
+  sessions: Array<{
+    id: string
+    clockInAt: Date
+    clockOutAt: Date | null
+    payableMinutes: number
+    plotName: string | null
+    taskTitle: string | null
+    notes: string | null
+    workSummary: string | null
+  }>
+}
+
+function farmTimezoneExpr(farmId: string) {
+  return sql<string>`COALESCE(
+    (SELECT "timezone" FROM "farms" WHERE "id" = ${farmId}),
+    'Africa/Lagos'
+  )`
+}
+
+function rangeBounds(farmId: string, range: HoursSummaryRange) {
+  const farmTimezone = farmTimezoneExpr(farmId)
+  if (range === 'day') {
+    return {
+      start: sql<Date>`(date_trunc('day', now() AT TIME ZONE ${farmTimezone}) AT TIME ZONE ${farmTimezone})`,
+      end: sql<Date>`((date_trunc('day', now() AT TIME ZONE ${farmTimezone}) + interval '1 day') AT TIME ZONE ${farmTimezone})`,
+    }
+  }
+  if (range === 'week') {
+    return {
+      start: sql<Date>`(date_trunc('week', now() AT TIME ZONE ${farmTimezone}) AT TIME ZONE ${farmTimezone})`,
+      end: sql<Date>`((date_trunc('week', now() AT TIME ZONE ${farmTimezone}) + interval '7 days') AT TIME ZONE ${farmTimezone})`,
+    }
+  }
+  if (range === 'month') {
+    return {
+      start: sql<Date>`(date_trunc('month', now() AT TIME ZONE ${farmTimezone}) AT TIME ZONE ${farmTimezone})`,
+      end: sql<Date>`((date_trunc('month', now() AT TIME ZONE ${farmTimezone}) + interval '1 month') AT TIME ZONE ${farmTimezone})`,
+    }
+  }
+  return {
+    start: sql<Date>`(date_trunc('year', now() AT TIME ZONE ${farmTimezone}) AT TIME ZONE ${farmTimezone})`,
+    end: sql<Date>`((date_trunc('year', now() AT TIME ZONE ${farmTimezone}) + interval '1 year') AT TIME ZONE ${farmTimezone})`,
+  }
+}
+
+export async function listHoursSummary(
+  user: SessionUser,
+  range: HoursSummaryRange,
+  filterUserId?: string | null,
+): Promise<{ range: HoursSummaryRange; people: HoursSummaryPerson[] }> {
+  const selfOnly = !canViewAttendanceRoster(user)
+  if (selfOnly && filterUserId && filterUserId !== user.id) {
+    throw new Error('FORBIDDEN')
+  }
+  if (!selfOnly && filterUserId === undefined) {
+    // managers: optional filter
+  }
+
+  const targetUserId = selfOnly ? user.id : filterUserId ?? null
+  const { start, end } = rangeBounds(user.farmId, range)
+
+  const visibility = targetUserId
+    ? and(eq(attendanceSessions.farmId, user.farmId), eq(attendanceSessions.userId, targetUserId))
+    : eq(attendanceSessions.farmId, user.farmId)
+
+  const rows = await db
+    .select({
+      id: attendanceSessions.id,
+      userId: attendanceSessions.userId,
+      userName: users.name,
+      role: users.role,
+      clockInAt: attendanceSessions.clockInAt,
+      clockOutAt: attendanceSessions.clockOutAt,
+      plotName: plots.name,
+      taskTitle: tasks.title,
+      notes: attendanceSessions.notes,
+      workSummary: attendanceSessions.workSummary,
+      rangeStart: start,
+      rangeEnd: end,
+    })
+    .from(attendanceSessions)
+    .innerJoin(users, eq(attendanceSessions.userId, users.id))
+    .leftJoin(plots, eq(attendanceSessions.plotId, plots.id))
+    .leftJoin(tasks, eq(attendanceSessions.taskId, tasks.id))
+    .where(
+      and(
+        visibility,
+        lt(attendanceSessions.clockInAt, end),
+        or(isNull(attendanceSessions.clockOutAt), gte(attendanceSessions.clockOutAt, start)),
+      ),
+    )
+    .orderBy(desc(attendanceSessions.clockInAt))
+
+  const now = new Date()
+  const byUser = new Map<string, HoursSummaryPerson>()
+  for (const row of rows) {
+    const minutes = payableMinutesWithinBounds(
+      row.clockInAt,
+      row.clockOutAt ?? now,
+      row.rangeStart,
+      row.rangeEnd,
+    )
+    const existing = byUser.get(row.userId)
+    const session = {
+      id: row.id,
+      clockInAt: row.clockInAt,
+      clockOutAt: row.clockOutAt,
+      payableMinutes: minutes,
+      plotName: row.plotName,
+      taskTitle: row.taskTitle,
+      notes: row.notes,
+      workSummary: row.workSummary,
+    }
+    if (existing) {
+      existing.totalMinutes += minutes
+      existing.sessionCount += 1
+      existing.sessions.push(session)
+    } else {
+      byUser.set(row.userId, {
+        userId: row.userId,
+        userName: row.userName,
+        role: row.role,
+        totalMinutes: minutes,
+        sessionCount: 1,
+        sessions: [session],
+      })
+    }
+  }
+
+  const people = [...byUser.values()].sort((a, b) => b.totalMinutes - a.totalMinutes)
+  return { range, people }
 }

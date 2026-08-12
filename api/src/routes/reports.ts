@@ -4,6 +4,8 @@ import { db } from '../db/index.js'
 import {
   auditEvents,
   cropCycles,
+  expenseLabelLinks,
+  expenseLabels,
   expenses,
   inventoryItems,
   inventoryMovements,
@@ -18,7 +20,8 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { gatherExceptions } from '../lib/exceptions.js'
 import { computePlotProfitability } from '../lib/plot-profitability.js'
 import { computeInventoryShrinkReport } from '../lib/inventory-stock.js'
-import { canAccessFinance, canApproveTasks } from '../lib/rbac.js'
+import { canAccessFinance, canApproveTasks, hasPermission } from '../lib/rbac.js'
+import { filterAndGroupExpensesByLabel } from '../lib/expense-label-report.js'
 
 export const reportRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -26,7 +29,12 @@ reportRoutes.use('*', authMiddleware)
 
 reportRoutes.get('/owner', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (
+    !hasPermission(user, 'reports.read') ||
+    !hasPermission(user, 'audit.export') ||
+    !canAccessFinance(user)
+  ) return c.json({ error: 'Forbidden' }, 403)
+  const labelFilter = c.req.query('labelId')
 
   const now = new Date()
   const startOfDay = new Date(now)
@@ -43,6 +51,7 @@ reportRoutes.get('/owner', async (c) => {
     recentLivestockLogs,
     allOrders,
     allExpenses,
+    expenseLabelAllocations,
     incidentLogs,
     recentAudit,
   ] = await Promise.all([
@@ -114,6 +123,17 @@ reportRoutes.get('/owner', async (c) => {
     db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
     db
       .select({
+        expenseId: expenseLabelLinks.expenseId,
+        labelId: expenseLabels.id,
+        labelName: expenseLabels.name,
+        labelSlug: expenseLabels.slug,
+      })
+      .from(expenseLabelLinks)
+      .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
+      .innerJoin(expenses, eq(expenseLabelLinks.expenseId, expenses.id))
+      .where(and(eq(expenses.farmId, user.farmId), eq(expenseLabels.farmId, user.farmId))),
+    db
+      .select({
         id: livestockLogs.id,
         headCount: livestockLogs.headCount,
         notes: livestockLogs.notes,
@@ -154,13 +174,25 @@ reportRoutes.get('/owner', async (c) => {
 
   const lowStockItems = allInventory.filter((i) => i.quantity <= i.reorderLevel)
 
-  const revenue = allOrders
-    .filter((o) => o.status === 'delivered' || o.status === 'confirmed' || o.status === 'dispatched')
-    .reduce((sum, o) => sum + o.totalAmount, 0)
+  const ngnOrders = allOrders.filter(
+    (order) =>
+      order.currency === 'NGN' &&
+      (order.status === 'delivered' || order.status === 'confirmed' || order.status === 'dispatched'),
+  )
+  const revenue = ngnOrders.reduce((sum, o) => sum + o.totalAmount, 0)
 
-  const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0)
+  const reportableExpenses = allExpenses.filter(
+    (expense) => expense.approvalStatus === 'approved' && expense.currency === 'NGN',
+  )
+  const { expenses: filteredExpenses, expensesByLabel } = filterAndGroupExpensesByLabel(
+    reportableExpenses,
+    expenseLabelAllocations,
+    labelFilter,
+  )
 
-  const expensesByCategory = allExpenses.reduce<Record<string, number>>((acc, e) => {
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+  const expensesByCategory = filteredExpenses.reduce<Record<string, number>>((acc, e) => {
     acc[e.category] = (acc[e.category] ?? 0) + e.amount
     return acc
   }, {})
@@ -264,12 +296,13 @@ reportRoutes.get('/owner', async (c) => {
         })),
       },
       pnl: {
-        phase: allOrders.length || allExpenses.length ? 'active' : 'placeholder',
-        currency: allOrders[0]?.currency ?? allExpenses[0]?.currency ?? 'NGN',
+        phase: allOrders.length || filteredExpenses.length ? 'active' : 'placeholder',
+        currency: 'NGN',
         revenue,
         expenses: totalExpenses,
         net: revenue - totalExpenses,
         expensesByCategory,
+        expensesByLabel,
       },
       incidents: {
         phase: incidentLogs.length ? 'active' : 'placeholder',
@@ -296,7 +329,9 @@ reportRoutes.get('/owner', async (c) => {
 
 reportRoutes.get('/digest', async (c) => {
   const user = c.get('user')
-  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canApproveTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const now = new Date()
   const { exceptions, summary } = await gatherExceptions(user)
@@ -343,7 +378,9 @@ reportRoutes.get('/digest', async (c) => {
 
 reportRoutes.get('/inventory-shrink', async (c) => {
   const user = c.get('user')
-  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canApproveTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const daysRaw = Number(c.req.query('days') ?? '30')
   const periodDays = Number.isFinite(daysRaw) ? daysRaw : 30
@@ -358,7 +395,9 @@ reportRoutes.get('/inventory-shrink', async (c) => {
 
 reportRoutes.get('/burn-rate', async (c) => {
   const user = c.get('user')
-  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canApproveTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -422,7 +461,9 @@ reportRoutes.get('/burn-rate', async (c) => {
 
 reportRoutes.get('/action-list', async (c) => {
   const user = c.get('user')
-  if (!canApproveTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canApproveTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const now = new Date()
   const { actionList, summary } = await gatherExceptions(user)
@@ -437,7 +478,9 @@ reportRoutes.get('/action-list', async (c) => {
 
 reportRoutes.get('/plot-profitability', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const rows = await computePlotProfitability(user.farmId)
   const totals = rows.reduce(
@@ -462,7 +505,9 @@ reportRoutes.get('/plot-profitability', async (c) => {
 
 reportRoutes.get('/audit-export', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !hasPermission(user, 'audit.export')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const events = await db
     .select()

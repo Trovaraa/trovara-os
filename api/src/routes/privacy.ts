@@ -5,6 +5,8 @@ import { and, desc, eq, ne } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   auditEvents,
+  aiConversations,
+  aiMessages,
   customerContacts,
   expenses,
   inventoryItems,
@@ -65,7 +67,7 @@ privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), as
 
   const { reason } = c.req.valid('query')
 
-  const [userRows, taskRows, inventoryRows, orderRows, expenseRows, auditSample] = await Promise.all([
+  const [userRows, taskRows, inventoryRows, orderRows, expenseRows, conversationRows, messageRows, auditSample] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -95,6 +97,8 @@ privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), as
     db.select().from(inventoryItems).where(eq(inventoryItems.farmId, user.farmId)),
     db.select().from(orders).where(eq(orders.farmId, user.farmId)),
     db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
+    db.select().from(aiConversations).where(eq(aiConversations.farmId, user.farmId)),
+    db.select().from(aiMessages).where(eq(aiMessages.farmId, user.farmId)),
     db
       .select()
       .from(auditEvents)
@@ -120,6 +124,8 @@ privacyRoutes.get('/privacy/export', zValidator('query', exportReasonSchema), as
     inventory: inventoryRows,
     orders: orderRows,
     expenses: expenseRows,
+    aiConversations: conversationRows,
+    aiMessages: messageRows,
     auditSample,
   })
 })
@@ -294,6 +300,7 @@ privacyRoutes.post('/system/run-retention', zValidator('json', retentionSchema),
         purgedTaskEvidence: result.purgedTaskEvidence,
         purgedExpiredSessions: result.purgedExpiredSessions,
         redactedChatMessages: result.redactedChatMessages,
+        purgedAiMessages: result.purgedAiMessages,
         nulledContactPhones: result.nulledContactPhones,
         purgedLoginRateLimits: result.purgedLoginRateLimits,
       },

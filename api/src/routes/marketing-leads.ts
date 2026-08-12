@@ -13,7 +13,7 @@ import {
   marketingLeadEmailContent,
 } from '../lib/email-template.js'
 import { sendEmail } from '../lib/notifications.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { getBreakGlassEmail } from '../lib/registration.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
@@ -144,9 +144,9 @@ function contactParts(value: string): { email: string | null; phone: string | nu
     : null
 }
 
-function publicRateLimit(c: { req: { header: (name: string) => string | undefined }; header: (name: string, value: string) => void }, action: string): boolean {
+async function publicRateLimit(c: { req: { header: (name: string) => string | undefined }; header: (name: string, value: string) => void }, action: string): Promise<boolean> {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`marketing-leads:${action}:${ip}`, 10, 60_000)
+  const result = await checkDurableRateLimit(`marketing-leads:${action}:${ip}`, 10, 60_000)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
@@ -277,7 +277,7 @@ function startNotification(lead: MarketingLead): void {
 }
 
 publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), async (c) => {
-  if (!publicRateLimit(c, 'contact')) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  if (!(await publicRateLimit(c, 'contact'))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)
   const farm = await resolveCustomerFarm()
@@ -304,7 +304,7 @@ publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), as
 })
 
 publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), async (c) => {
-  if (!publicRateLimit(c, 'waitlist')) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  if (!(await publicRateLimit(c, 'waitlist'))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)
   const farm = await resolveCustomerFarm()

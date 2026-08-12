@@ -119,7 +119,11 @@ vi.mock('../middleware/auth.js', () => ({
 }))
 
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
-vi.mock('../lib/farm-notify.js', () => ({ notifyWorkerClockIn: vi.fn(async () => undefined) }))
+const notifyWorkerClockIn = vi.fn(async (_params: unknown) => undefined)
+
+vi.mock('../lib/farm-notify.js', () => ({
+  notifyWorkerClockIn: (params: unknown) => notifyWorkerClockIn(params),
+}))
 
 const FRENCH_NOTE = 'La pompe du forage fuit depuis ce matin'
 const ENGLISH_NOTE = 'The borehole pump has been leaking since this morning'
@@ -153,6 +157,8 @@ function sessionRow(overrides: Row = {}): Row {
     correctedById: null,
     correctedAt: null,
     createdAt: new Date('2026-07-20T07:00:00Z'),
+    rangeStart: new Date('2026-07-20T00:00:00Z'),
+    rangeEnd: new Date('2026-07-21T00:00:00Z'),
     ...overrides,
   }
 }
@@ -172,6 +178,14 @@ function queueClockInReads(preferredLocale: string) {
 
 async function clockIn(body: unknown) {
   return (await app()).request('/attendance/clock-in', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+async function clockOut(body: unknown = {}) {
+  return (await app()).request('/attendance/clock-out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -223,6 +237,40 @@ beforeEach(() => {
     name: 'Ade',
     email: 'ade@trovara.farm',
   }
+})
+
+describe('self-attendance role access', () => {
+  it.each(['owner', 'supervisor', 'sales', 'field_worker'])(
+    'allows %s to clock in',
+    async (role) => {
+      sessionUser = { ...sessionUser, role }
+      queueSelect('attendance_sessions', [])
+      queueSelect('users', [
+        {
+          monthlyWageNgn: role === 'field_worker' ? 220_000 : null,
+          preferredLocale: 'en',
+        },
+      ])
+
+      const res = await clockIn({})
+
+      expect(res.status).toBe(201)
+      expect(insertedSession()).toMatchObject({ userId: 'user-worker' })
+      expect(notifyWorkerClockIn).toHaveBeenCalledTimes(role === 'field_worker' ? 1 : 0)
+    },
+  )
+
+  it.each(['owner', 'supervisor', 'sales', 'field_worker'])(
+    'allows %s to clock out',
+    async (role) => {
+      sessionUser = { ...sessionUser, role }
+
+      const res = await clockOut()
+
+      expect(res.status).toBe(200)
+      expect(sessionPatch().clockOutAt).toBeInstanceOf(Date)
+    },
+  )
 })
 
 describe('POST /attendance/clock-in - canonical English on write', () => {

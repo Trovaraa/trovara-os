@@ -453,9 +453,20 @@ describe('PATCH /sales/:id - canonical English on write', () => {
 
 describe('POST /sales/:id/refund - canonical English on write', () => {
   const FRENCH_REFUND = {
+    idempotencyKey: '11111111-1111-4111-8111-111111111111',
     amountKobo: 45000,
     reason: 'Le client a reçu des tubercules abîmés',
   }
+
+  it('requires an idempotency key before any refund work starts', async () => {
+    const res = await post('/sales/order-1/refund', {
+      amountKobo: 45000,
+      reason: 'Duplicate-safe refund',
+    })
+
+    expect(res.status).toBe(400)
+    expect(initiateRefund).not.toHaveBeenCalled()
+  })
 
   it('sends Paystack and the refund row the English, with the amount untouched', async () => {
     queueSelect('orders', [orderRow()])
@@ -535,6 +546,7 @@ describe('POST /sales/:id/refund - canonical English on write', () => {
     queueSelect('orders', [orderRow()])
 
     const res = await post('/sales/order-1/refund', {
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
       amountKobo: 45000,
       reason: 'The customer received damaged tubers',
     })
@@ -628,21 +640,14 @@ describe('GET /sales - viewer locale on read', () => {
     expect(body.orders[0].notes).toBe('Deliver before noon, gate code needed')
   })
 
-  // Redaction runs first, so a field worker's hidden prose is not merely absent
-  // from the response — it is never sent to the translator either. With both
-  // customer-authored columns withheld there is nothing left to localize.
-  it('redacts before localizing, so hidden prose never reaches the translator', async () => {
+  it('forbids field workers before order data reaches localization', async () => {
     sessionUser = { ...sessionUser, id: 'user-fw', role: 'field_worker' }
     queueSelect('orders', [orderRow()])
     queueSelect('order_items', [])
     queueSelect('users', [{ preferredLocale: 'fr' }])
 
     const res = await (await app()).request('/sales')
-    const order = ((await res.json()) as { orders: Row[] }).orders[0]
-
-    expect(order.notes).toBeNull()
-    expect(order.customerFeedback).toBeNull()
-    expect(order.customerName).toBe('[redacted]')
+    expect(res.status).toBe(403)
     expect(translatedTexts()).toEqual([])
   })
 })

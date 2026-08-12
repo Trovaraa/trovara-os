@@ -6,6 +6,7 @@ import InventoryProcurementSection from '@/components/inventory/InventoryProcure
 import { useInventoryProcurement } from '@/composables/useInventoryProcurement'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
 
 const { t } = useI18n()
 
@@ -54,9 +55,11 @@ type ShrinkAlert = {
 
 const auth = useAuthStore()
 const isFieldWorker = computed(() => auth.user?.role === 'field_worker')
-const canSubmitCount = computed(() => auth.canApprove || isFieldWorker.value)
+const canSubmitCount = computed(() => auth.hasPermission('inventory.count'))
+const canWrite = computed(() => auth.hasPermission('inventory.write'))
 const items = ref<Item[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 
 const hasSupplier = computed(() => items.value.some((i) => i.supplier))
 const hasCostPerUnit = computed(() => items.value.some((i) => i.costPerUnit != null))
@@ -117,6 +120,7 @@ const verifyingSessionId = ref<string | null>(null)
 
 async function load() {
   loading.value = true
+  loadError.value = null
   try {
     const data = await api<{ items: Item[] }>('/api/inventory')
     items.value = data.items
@@ -129,6 +133,8 @@ async function load() {
         countedQuantity: item.quantity,
       }))
     }
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : t('inventory.loadFailed')
   } finally {
     loading.value = false
   }
@@ -145,7 +151,7 @@ async function loadCountSessions() {
 }
 
 async function loadReconciliationAlerts() {
-  if (!auth.canApprove) return
+  if (!canWrite.value) return
   try {
     const data = await api<{ alerts: ReconciliationAlert[] }>('/api/inventory/reconciliation-alerts')
     reconciliationAlerts.value = data.alerts ?? []
@@ -155,7 +161,7 @@ async function loadReconciliationAlerts() {
 }
 
 async function loadCatalogueProducts() {
-  if (!auth.canApprove) return
+  if (!canWrite.value) return
   try {
     const data = await api<{ products: CatalogueProduct[] }>('/api/products')
     catalogueProducts.value = (data.products ?? []).filter((p) => p.active)
@@ -165,7 +171,7 @@ async function loadCatalogueProducts() {
 }
 
 async function loadShrinkAlerts() {
-  if (!auth.canApprove) return
+  if (!canWrite.value) return
   try {
     const data = await api<{ alerts: ShrinkAlert[] }>('/api/inventory/shrink-alerts')
     shrinkAlerts.value = data.alerts ?? []
@@ -175,7 +181,7 @@ async function loadShrinkAlerts() {
 }
 
 async function refreshShrinkAlerts() {
-  if (!auth.canApprove) return
+  if (!canWrite.value) return
   refreshingShrink.value = true
   try {
     await api('/api/inventory/shrink-alerts/refresh?days=30', { method: 'POST' })
@@ -215,7 +221,7 @@ const {
   purchaseOrderAction,
   receivePurchaseOrder,
 } = useInventoryProcurement({
-  canApprove: () => auth.canApprove,
+  canApprove: () => auth.hasPermission('purchase_orders.approve'),
   getItems: () => items.value,
   reloadItems: load,
 })
@@ -393,7 +399,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       <h2 class="text-2xl font-black text-os-fg">{{ t('inventory.title') }}</h2>
       <p class="text-slate-400 text-sm mt-1">{{ t('inventory.subtitle') }}</p>
       <button
-        v-if="auth.canApprove && !loading"
+        v-if="canWrite && !loading"
         type="button"
         class="mt-3 text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
         @click="openOpeningStockModal"
@@ -403,8 +409,13 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       <p v-if="openingMessage" class="mt-2 text-xs text-slate-400">{{ openingMessage }}</p>
     </div>
 
+    <div v-if="loadError && !loading" class="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300" role="alert">
+      <p>{{ loadError }}</p>
+      <button type="button" class="mt-3 underline" @click="load">{{ t('inventory.tryAgain') }}</button>
+    </div>
+
     <InventoryProcurementSection
-      v-if="auth.canApprove && !loading"
+      v-if="canWrite && !loading"
       v-model:new-supplier-name="newSupplierName"
       v-model:po-supplier-id="poSupplierId"
       v-model:po-expected-at="poExpectedAt"
@@ -429,7 +440,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
     />
 
     <form
-      v-if="auth.canApprove && !loading"
+      v-if="canWrite && !loading"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="createItem"
     >
@@ -437,6 +448,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <input
           v-model="newItemSku"
+          aria-label="SKU"
           required
           maxlength="40"
           placeholder="SKU"
@@ -444,17 +456,20 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         />
         <input
           v-model="newItemName"
+          :aria-label="t('inventory.itemName')"
           required
           :placeholder="t('inventory.itemName')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newItemCategory"
+          :aria-label="t('inventory.category')"
           :placeholder="t('inventory.category')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <select
           v-model="newItemUnit"
+          :aria-label="t('inventory.unit')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         >
           <option value="units">units</option>
@@ -465,6 +480,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </select>
         <select
           v-model="newItemProductId"
+          :aria-label="t('inventory.linkedProduct')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white sm:col-span-2 lg:col-span-1"
         >
           <option value="">{{ t('inventory.noProductLink') }}</option>
@@ -474,6 +490,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </select>
         <input
           v-model.number="newVarianceTolerance"
+          aria-label="Count tolerance"
           type="number"
           min="0"
           step="1"
@@ -494,7 +511,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
     </form>
 
     <section
-      v-if="auth.canApprove"
+      v-if="canWrite"
       class="mt-8 rounded-xl border border-amber-900/50 bg-amber-950/15 p-5"
     >
       <div class="flex items-start justify-between gap-4">
@@ -560,7 +577,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
     </section>
 
     <section
-      v-if="auth.canApprove && reconciliationAlerts.length"
+      v-if="canWrite && reconciliationAlerts.length"
       class="mt-8 rounded-xl border border-red-900/60 bg-red-950/20 p-5"
     >
       <div class="flex items-start justify-between gap-4">
@@ -624,6 +641,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       </p>
       <input
         v-model="countLocation"
+        aria-label="Count location"
         type="text"
         placeholder="Location (optional)"
         class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
@@ -636,6 +654,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         >
           <select
             v-model="line.itemId"
+            :aria-label="`Count line ${idx + 1} item`"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option v-for="item in items" :key="item.id" :value="item.id">
@@ -644,6 +663,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           </select>
           <input
             v-model.number="line.countedQuantity"
+            :aria-label="`Count line ${idx + 1} quantity`"
             type="number"
             min="0"
             step="1"
@@ -683,7 +703,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
               <template v-if="session.locationText"> · {{ session.locationText }}</template>
             </span>
           </div>
-          <div v-if="auth.canApprove && session.status === 'submitted'" class="flex gap-2">
+          <div v-if="canWrite && session.status === 'submitted'" class="flex gap-2">
             <button
               type="button"
               :disabled="verifyingSessionId === session.id"
@@ -707,7 +727,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
     </div>
 
     <form
-      v-if="auth.canApprove && !loading"
+      v-if="canWrite && !loading"
       class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
       @submit.prevent="recordMovement"
     >
@@ -717,6 +737,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.item') }}</label>
           <select
             v-model="selectedItemId"
+            :aria-label="t('inventory.item')"
             required
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
@@ -729,6 +750,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.delta') }}</label>
           <input
             v-model.number="delta"
+            :aria-label="t('inventory.delta')"
             type="number"
             required
             :placeholder="t('inventory.deltaPlaceholder')"
@@ -739,6 +761,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reasonKind') }}</label>
           <select
             v-model="reasonKind"
+            :aria-label="t('inventory.reasonKind')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
             <option value="custom">{{ t('inventory.reasonCustom') }}</option>
@@ -749,6 +772,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.reason') }}</label>
           <input
             v-model="reason"
+            :aria-label="t('inventory.reason')"
             type="text"
             required
             maxlength="500"
@@ -774,7 +798,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       </div>
     </form>
 
-    <div v-if="loading" class="mt-8 text-slate-400">{{ t('inventory.loading') }}</div>
+    <div v-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('inventory.loading') }}</div>
 
     <div v-else class="mt-8 overflow-x-auto">
       <table class="w-full text-sm">
@@ -837,13 +861,9 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       </table>
     </div>
 
-    <div
-      v-if="openingStockOpen"
-      class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center"
-      @click.self="openingStockOpen = false"
-    >
+    <AccessibleDialog :open="openingStockOpen" title-id="opening-stock-title" :close-label="t('dialog.close')" @close="openingStockOpen = false">
       <div class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">{{ t('inventory.openingStockTitle') }}</h3>
+        <h3 id="opening-stock-title" class="text-white font-bold text-lg">{{ t('inventory.openingStockTitle') }}</h3>
         <p class="text-xs text-slate-500 mt-1">{{ t('inventory.openingStockDesc') }}</p>
         <div class="mt-4 max-h-[55vh] overflow-auto space-y-2">
           <div
@@ -882,6 +902,6 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           </button>
         </div>
       </div>
-    </div>
+    </AccessibleDialog>
   </AppLayout>
 </template>

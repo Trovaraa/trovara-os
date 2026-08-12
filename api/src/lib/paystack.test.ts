@@ -1,12 +1,34 @@
 import { createHmac } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
-import { verifyWebhookSignature } from './paystack.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { initializeTransaction, verifyWebhookSignature } from './paystack.js'
 
 const ORIGINAL_SECRET = process.env.PAYSTACK_SECRET_KEY
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   if (ORIGINAL_SECRET === undefined) delete process.env.PAYSTACK_SECRET_KEY
   else process.env.PAYSTACK_SECRET_KEY = ORIGINAL_SECRET
+})
+
+describe('Paystack request deadline', () => {
+  it('passes an abortable deadline signal to provider calls', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'sk_test_deadline'
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      expect(init?.signal?.aborted).toBe(false)
+      throw new DOMException('request timed out', 'AbortError')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await initializeTransaction({
+      email: 'buyer@example.com',
+      amountKobo: 1000,
+      reference: 'TRV-PAY-DEADLINE',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'request timed out' })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
 })
 
 describe('verifyWebhookSignature', () => {

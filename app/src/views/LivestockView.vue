@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 const { t } = useI18n()
 const { agronomySkipText } = useAgronomySkipText()
 const auth = useAuthStore()
-const canManage = computed(() => auth.canApprove)
+const canManage = computed(() => auth.hasPermission('livestock.manage'))
 
 type Batch = {
   id: string
@@ -416,6 +416,7 @@ const vaccStatusColor: Record<string, string> = {
         <div class="mt-4 space-y-3">
           <input
             v-model="logNotes[batch.id]"
+            :aria-label="`${batch.name} ${t('livestock.notesPlaceholder')}`"
             type="text"
             :placeholder="t('livestock.notesPlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-farm-green/50"
@@ -435,6 +436,7 @@ const vaccStatusColor: Record<string, string> = {
 
             <input
               v-model.number="mortalityCount[batch.id]"
+              :aria-label="`${batch.name} ${t('livestock.mortalityPlaceholder')}`"
               type="number"
               min="1"
               :max="batch.headCount"

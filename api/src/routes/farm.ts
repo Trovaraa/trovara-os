@@ -35,6 +35,7 @@ const updateFarmSchema = z.object({
   latitude: coordSchema(-90, 90, 'latitude'),
   longitude: coordSchema(-180, 180, 'longitude'),
   timezone: z.string().trim().min(1).max(80).optional(),
+  healthSlaAlertsEnabled: z.boolean().optional(),
 })
 
 export const farmRoutes = new Hono<{ Variables: AppVariables }>()
@@ -53,6 +54,7 @@ farmRoutes.get('/', async (c) => {
       longitude: farms.longitude,
       timezone: farms.timezone,
       liveMode: farms.liveMode,
+      healthSlaAlertsEnabled: farms.healthSlaAlertsEnabled,
     })
     .from(farms)
     .where(eq(farms.id, user.farmId))
@@ -77,6 +79,9 @@ farmRoutes.patch('/', zValidator('json', updateFarmSchema), async (c) => {
   if (body.latitude !== undefined) updates.latitude = body.latitude
   if (body.longitude !== undefined) updates.longitude = body.longitude
   if (body.timezone !== undefined) updates.timezone = body.timezone
+  if (body.healthSlaAlertsEnabled !== undefined) {
+    updates.healthSlaAlertsEnabled = body.healthSlaAlertsEnabled
+  }
 
   if (!Object.keys(updates).length) {
     return c.json({ error: 'No fields to update' }, 400)
@@ -95,6 +100,7 @@ farmRoutes.patch('/', zValidator('json', updateFarmSchema), async (c) => {
       longitude: farms.longitude,
       timezone: farms.timezone,
       liveMode: farms.liveMode,
+      healthSlaAlertsEnabled: farms.healthSlaAlertsEnabled,
     })
 
   await logAudit({

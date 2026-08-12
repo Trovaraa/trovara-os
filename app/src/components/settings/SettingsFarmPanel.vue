@@ -25,18 +25,21 @@ const { t } = useI18n()
     <div class="grid sm:grid-cols-2 gap-3">
       <input
         v-model="farmName"
+        :aria-label="t('settings.farmName')"
         type="text"
         :placeholder="t('settings.farmName')"
         class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
       />
       <input
         v-model="farmLocation"
+        :aria-label="t('settings.farmLocationLabel')"
         type="text"
         :placeholder="t('settings.farmLocationLabel')"
         class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
       />
       <input
         v-model="farmLatitude"
+        :aria-label="t('settings.farmLatitude')"
         type="text"
         inputmode="decimal"
         :placeholder="t('settings.farmLatitude')"
@@ -44,6 +47,7 @@ const { t } = useI18n()
       />
       <input
         v-model="farmLongitude"
+        :aria-label="t('settings.farmLongitude')"
         type="text"
         inputmode="decimal"
         :placeholder="t('settings.farmLongitude')"
@@ -51,6 +55,7 @@ const { t } = useI18n()
       />
       <input
         v-model="farmTimezone"
+        :aria-label="t('settings.farmTimezone')"
         type="text"
         :placeholder="t('settings.farmTimezone')"
         class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white sm:col-span-2"

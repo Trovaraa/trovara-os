@@ -10,6 +10,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/trovara-os
 EnvironmentFile=/home/ubuntu/trovara-os/.env
 ExecStart=/usr/bin/bash /home/ubuntu/trovara-os/scripts/backup-production.sh
+ExecStartPost=/usr/bin/bash /home/ubuntu/trovara-os/scripts/check-backup-freshness.sh
 PrivateTmp=true
 NoNewPrivileges=true
 UMask=0077

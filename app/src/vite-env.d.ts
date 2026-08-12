@@ -1,6 +1,19 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 
+import 'vue-router'
+import type { UserRole } from '@/stores/auth'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean
+    guest?: boolean
+    fieldWorkerOnly?: boolean
+    requiredPermission?: string
+    anyPermission?: string[]
+    allowedRoles?: UserRole[]
+  }
+}
 interface ImportMetaEnv {
   readonly VITE_API_URL: string
   /** OS SPA origin for staff/app links (build-time). */

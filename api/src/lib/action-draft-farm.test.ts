@@ -34,7 +34,7 @@ vi.mock('../db/index.js', () => {
   }
 })
 
-vi.mock('./rbac.js', () => ({ canAssignTasks: () => true }))
+vi.mock('./rbac.js', () => ({ hasPermission: () => true }))
 vi.mock('./audit.js', () => ({ logAudit: vi.fn() }))
 vi.mock('./farm-events.js', () => ({ recordFarmEvent: vi.fn() }))
 

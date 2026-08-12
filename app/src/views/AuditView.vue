@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
-import { api } from '@/lib/api'
+import { api, resolveApiUrl } from '@/lib/api'
 
 const { t } = useI18n()
 
@@ -110,7 +110,7 @@ onMounted(load)
         <p class="text-slate-400 text-sm mt-1">{{ t('audit.subtitle') }}</p>
       </div>
       <a
-        href="/api/exports/audit.csv"
+        :href="resolveApiUrl('/api/exports/audit.csv')"
         class="text-sm px-4 py-2 rounded-lg bg-slate-800 text-farm-green hover:bg-slate-700"
       >
         {{ t('audit.downloadCsv') }}
@@ -159,8 +159,31 @@ onMounted(load)
     <p v-else-if="loadError" class="mt-8 text-sm text-red-400">{{ loadError }}</p>
 
     <div v-else class="mt-8 grid lg:grid-cols-[1fr_320px] gap-6">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+      <div>
+        <ul class="space-y-3 sm:hidden">
+          <li v-for="event in events" :key="`mobile-${event.id}`">
+            <button
+              type="button"
+              class="w-full rounded-xl border border-slate-800 bg-slate-900 p-4 text-left"
+              :class="selectedId === event.id ? 'border-farm-green/60' : ''"
+              @click="selectedId = event.id"
+            >
+              <span class="flex items-start justify-between gap-3">
+                <span class="font-mono text-sm text-farm-gold">{{ event.action }}</span>
+                <span class="shrink-0 text-xs text-slate-500">{{ new Date(event.ts).toLocaleString() }}</span>
+              </span>
+              <span class="mt-2 block text-xs text-slate-300">
+                {{ event.domain }} · {{ event.entityType }}
+                <span v-if="event.entityId"> #{{ event.entityId.slice(0, 8) }}</span>
+              </span>
+              <span class="mt-1 block text-xs text-slate-400">{{ actorLabel(event.actor) }}</span>
+              <span class="mt-2 block break-all text-xs text-slate-500">{{ formatDetails(event.metadata) }}</span>
+            </button>
+          </li>
+        </ul>
+
+        <div class="hidden overflow-x-auto sm:block">
+        <table class="w-full min-w-[760px] text-sm">
           <thead>
             <tr class="text-left text-slate-500 border-b border-slate-800">
               <th class="pb-3 font-semibold">{{ t('audit.thTimestamp') }}</th>
@@ -196,6 +219,7 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
+        </div>
         <p v-if="!events.length" class="text-slate-500 text-sm mt-4">{{ t('audit.noEvents') }}</p>
         <p v-else class="text-xs text-slate-500 mt-4">{{ t('audit.hint') }}</p>
       </div>

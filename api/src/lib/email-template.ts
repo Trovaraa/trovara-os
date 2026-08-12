@@ -12,6 +12,16 @@ export function escapeEmailHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
+export type EmailFooterVariant = 'default' | 'shop' | 'newsletter' | 'transactional' | 'staff'
+
+export type EmailFooterOptions = {
+  variant?: EmailFooterVariant
+  /** When set (newsletter), utility line includes Unsubscribe. */
+  unsubscribeUrl?: string
+  /** Extra utility links after Privacy (label + absolute URL). */
+  extraUtilityLinks?: Array<{ label: string; href: string }>
+}
+
 export type EmailLayoutOptions = {
   preheader: string
   /** Browser / client title */
@@ -25,13 +35,68 @@ export type EmailLayoutOptions = {
   /** Main body HTML (tables, paragraphs, callouts) */
   body?: string
   cta?: { href: string; label: string }
+  /**
+   * Raw HTML footer. Prefer {@link emailFooterHtml} / `footerVariant`.
+   * When omitted, a structured Trovara footer is used.
+   */
   footer?: string
+  footerVariant?: EmailFooterVariant
+  unsubscribeUrl?: string
 }
 
-const DEFAULT_FOOTER = 'Trovara Farm · Abeokuta, Nigeria'
+const PRIVACY_URL = 'https://www.trovara.farm/privacy'
+
+const SOCIAL_LINKS = [
+  { label: 'Facebook', href: 'https://www.facebook.com/profile.php?id=61592210064140' },
+  { label: 'Instagram', href: 'https://www.instagram.com/trovara_farm/' },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/company/trovarafarm/' },
+] as const
 
 /** Absolute PNG (no apex→www redirect). Gmail often blocks redirected image URLs. */
 export const EMAIL_BRAND_MARK_URL = 'https://www.trovara.farm/brand/trovara-mark.png'
+
+/**
+ * Structured email footer: social links, copyright, and context utility links.
+ * Matches the Coconoto-style layout adapted for Trovara.
+ */
+export function emailFooterHtml(options: EmailFooterOptions = {}): string {
+  const variant = options.variant ?? 'default'
+  const social = SOCIAL_LINKS.map((link, index) => {
+    const sep =
+      index < SOCIAL_LINKS.length - 1
+        ? `<span style="color:#2f6b3b;padding:0 6px">·</span>`
+        : ''
+    return `<a href="${escapeEmailHtml(link.href)}" style="color:#2f6b3b;text-decoration:none;font-weight:700">${escapeEmailHtml(link.label)}</a>${sep}`
+  }).join('')
+
+  const utility: Array<{ label: string; href: string }> = []
+  if (variant === 'newsletter' && options.unsubscribeUrl) {
+    utility.push({ label: 'Unsubscribe', href: options.unsubscribeUrl })
+  }
+  if (variant !== 'staff') {
+    utility.push({ label: 'Privacy', href: PRIVACY_URL })
+  }
+  for (const link of options.extraUtilityLinks ?? []) {
+    utility.push(link)
+  }
+
+  const utilityHtml =
+    utility.length > 0
+      ? `<p style="margin:10px 0 0;color:#8a948c;font-size:11px;line-height:1.5">${utility
+          .map((link, index) => {
+            const sep =
+              index < utility.length - 1
+                ? `<span style="color:#b0b8b2;padding:0 5px">|</span>`
+                : ''
+            return `<a href="${escapeEmailHtml(link.href)}" style="color:#8a948c;text-decoration:none">${escapeEmailHtml(link.label)}</a>${sep}`
+          })
+          .join('')}</p>`
+      : ''
+
+  return `<p style="margin:0 0 8px;line-height:1.5">${social}</p>
+<p style="margin:0;color:#8b6914;font-size:12px;font-weight:700;line-height:1.5">© Trovara Farm | All Rights Reserved</p>
+${utilityHtml}`
+}
 
 function brandHeaderHtml(): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0">
@@ -106,7 +171,12 @@ export function emailLayout(options: EmailLayoutOptions): string {
       : ''
   const body = options.body ?? ''
   const cta = options.cta ? emailButton(options.cta.href, options.cta.label) : ''
-  const footer = escapeEmailHtml(options.footer ?? DEFAULT_FOOTER)
+  const footer =
+    options.footer ??
+    emailFooterHtml({
+      variant: options.footerVariant ?? 'default',
+      unsubscribeUrl: options.unsubscribeUrl,
+    })
 
   return `<!doctype html>
 <html lang="en">
@@ -132,7 +202,7 @@ export function emailLayout(options: EmailLayoutOptions): string {
             </td>
           </tr>
           <tr>
-            <td style="padding:18px 28px;background:#f8faf7;border-top:1px solid #e2e9df;color:#718075;font-size:12px;line-height:1.5">
+            <td style="padding:18px 28px;background:#f8faf7;border-top:1px solid #e2e9df;color:#718075;font-size:12px;line-height:1.5;text-align:center">
               ${footer}
             </td>
           </tr>
@@ -143,8 +213,6 @@ export function emailLayout(options: EmailLayoutOptions): string {
 </body>
 </html>`
 }
-
-const SHOP_FOOTER = 'Trovara Farm shop · message us on WhatsApp if you need help.'
 
 export function shopVerifyEmailContent(
   name: string,
@@ -161,7 +229,7 @@ export function shopVerifyEmailContent(
       intro: 'Thanks for creating a Trovara Farm shop account. Confirm your email so you can sign in, track orders, and get harvest updates.',
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">This link expires in 48 hours. If you did not create an account, you can ignore this email.</p>`,
       cta: { href: verifyUrl, label: 'Verify email' },
-      footer: SHOP_FOOTER,
+      footerVariant: 'shop',
     }),
   }
 }
@@ -181,7 +249,7 @@ export function shopResetPasswordEmailContent(
       intro: 'We received a request to reset the password for your Trovara Farm shop account. Use the button below within one hour.',
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">If you did not request this, you can ignore this message. Your password will stay the same.</p>`,
       cta: { href: resetUrl, label: 'Reset password' },
-      footer: SHOP_FOOTER,
+      footerVariant: 'shop',
     }),
   }
 }
@@ -201,7 +269,7 @@ export function newsletterConfirmEmailContent(
       intro: 'Please confirm that you want to receive Trovara farm stories and seasonal updates.',
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">This link expires in 48 hours. If you did not request this, you can ignore this email.</p>`,
       cta: { href: confirmUrl, label: 'Confirm subscription' },
-      footer: 'Fresh farm stories and seasonal updates from Trovara.',
+      footerVariant: 'newsletter',
     }),
   }
 }
@@ -221,7 +289,8 @@ export function newsletterWelcomeEmailContent(
       intro:
         'Your subscription is confirmed. We look forward to sharing what is growing, what is in season, and life around the farm.',
       body: `<p style="margin:0;color:#617064;font-size:13px;line-height:1.5">You can <a href="${escapeEmailHtml(unsubscribeUrl)}" style="color:#276338;font-weight:700;text-decoration:none">unsubscribe at any time</a>.</p>`,
-      footer: 'Fresh farm stories and seasonal updates from Trovara.',
+      footerVariant: 'newsletter',
+      unsubscribeUrl,
     }),
   }
 }
@@ -242,7 +311,7 @@ export function staffPasswordResetEmailContent(resetUrl: string): {
       intro: 'Use the button below to choose a new Trovara OS password. This link expires in one hour.',
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">If you did not request this, you can ignore this message.</p>`,
       cta: { href: resetUrl, label: 'Reset password' },
-      footer: 'Sent by Trovara OS security. Do not share this link.',
+      footerVariant: 'staff',
     }),
   }
 }
@@ -288,7 +357,7 @@ export function customerOrderEmailContent(params: {
       intro: `We received your Trovara order ${params.reference}. Track it from your shop account anytime.`,
       body: emailDetailRows(rows),
       cta: { href: params.accountUrl, label: 'View shop account' },
-      footer: SHOP_FOOTER,
+      footerVariant: 'shop',
     }),
   }
 }
@@ -314,8 +383,46 @@ export function marketingLeadEmailContent(params: {
       emailDetailRows(params.rows) +
       (params.messageHtml ? emailCallout('Message', params.messageHtml) : ''),
     cta: { href: params.ctaHref, label: params.ctaLabel ?? 'Open in Trovara OS' },
-    footer:
-      params.footer ??
-      'Sent automatically because you are an active Owner or Sales user in Trovara OS.',
+    footer: params.footer,
+    footerVariant: 'staff',
   })
+}
+
+/** Auto-ack after Finance approves an inbound invoice email. */
+export function financeInboundApprovalAckEmailContent(params: {
+  senderName?: string | null
+  subject?: string | null
+}): { subject: string; text: string; html: string } {
+  const greetingName = params.senderName?.trim() || null
+  const greeting = greetingName ? `Hi ${greetingName},` : 'Hello,'
+  const invoiceLine = params.subject?.trim()
+    ? `We approved your invoice email (“${params.subject.trim()}”) in Trovara Finance.`
+    : 'We approved your invoice email in Trovara Finance.'
+  const subject = params.subject?.trim()
+    ? `Re: ${params.subject.trim()}`
+    : 'We received your invoice — Trovara Finance'
+  const text = [
+    greeting,
+    '',
+    'Thank you for your email. We have received it and recorded your invoice.',
+    invoiceLine,
+    'Our Finance team will get in touch if anything else is needed.',
+    '',
+    'Best regards,',
+    'The Trovara Finance Team',
+    'finance@trovara.farm · www.trovara.farm',
+  ].join('\n')
+  return {
+    subject,
+    text,
+    html: emailLayout({
+      preheader: 'We received your invoice and will follow up if needed.',
+      documentTitle: 'Invoice received · Trovara Finance',
+      badge: 'FINANCE',
+      headline: 'We received your invoice',
+      intro: `${greeting} Thank you for your email.`,
+      body: `<p style="margin:0 0 12px 0;color:#28382f;font-size:15px;line-height:1.65">${escapeEmailHtml(invoiceLine)}</p><p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">Our Finance team will get in touch if anything else is needed.</p>`,
+      footerVariant: 'transactional',
+    }),
+  }
 }

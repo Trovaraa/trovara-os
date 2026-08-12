@@ -20,7 +20,7 @@ import {
   verifyResendWebhook,
 } from '../lib/newsletter-resend.js'
 import { publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
@@ -87,16 +87,16 @@ function safeProviderError(error: unknown): string {
   return message.replace(/re_[A-Za-z0-9_-]+/g, '[redacted]').slice(0, 1000)
 }
 
-function publicRateLimit(
+async function publicRateLimit(
   c: {
     req: { header: (name: string) => string | undefined }
     header: (name: string, value: string) => void
   },
   action: string,
   max: number,
-): boolean {
+): Promise<boolean> {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const result = checkRateLimit(`newsletter:${action}:${ip}`, max, 60_000)
+  const result = await checkDurableRateLimit(`newsletter:${action}:${ip}`, max, 60_000)
   if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
   return result.allowed
 }
@@ -181,7 +181,7 @@ async function deliverConfirmation(subscriber: Subscriber, token: string): Promi
 }
 
 publicNewsletterRoutes.post('/subscribe', zValidator('json', subscribeSchema), async (c) => {
-  if (!publicRateLimit(c, 'subscribe', 10)) {
+  if (!(await publicRateLimit(c, 'subscribe', 10))) {
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   }
   const body = c.req.valid('json')
@@ -261,7 +261,7 @@ publicNewsletterRoutes.post('/subscribe', zValidator('json', subscribeSchema), a
 })
 
 publicNewsletterRoutes.post('/confirm', zValidator('json', tokenSchema), async (c) => {
-  if (!publicRateLimit(c, 'confirm', 30)) {
+  if (!(await publicRateLimit(c, 'confirm', 30))) {
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   }
   const farm = await resolveCustomerFarm()
@@ -325,7 +325,7 @@ publicNewsletterRoutes.post('/confirm', zValidator('json', tokenSchema), async (
 })
 
 publicNewsletterRoutes.post('/unsubscribe', zValidator('json', tokenSchema), async (c) => {
-  if (!publicRateLimit(c, 'unsubscribe', 30)) {
+  if (!(await publicRateLimit(c, 'unsubscribe', 30))) {
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   }
   const farm = await resolveCustomerFarm()
@@ -362,7 +362,7 @@ publicNewsletterRoutes.post('/unsubscribe', zValidator('json', tokenSchema), asy
 })
 
 publicNewsletterRoutes.post('/webhook', async (c) => {
-  if (!publicRateLimit(c, 'webhook', 300)) {
+  if (!(await publicRateLimit(c, 'webhook', 300))) {
     return c.json({ error: 'Too many requests' }, 429)
   }
   if (!process.env.RESEND_WEBHOOK_SECRET?.trim()) {

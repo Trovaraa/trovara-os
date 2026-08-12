@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farms, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
@@ -18,10 +18,16 @@ import { resolveStaffReplyLocale } from '../lib/reply-locale.js'
 import {
   notifyOwner,
   notifyOwnerTelegram,
+  notifyRolesTelegram,
   notifySupervisors,
   notifySupervisorsTelegram,
   type NotifyLocaleContext,
 } from '../lib/farm-notify.js'
+import {
+  collectHealthSnapshotReport,
+  healthSlaEnvEnabled,
+  renderHealthSnapshotTelegram,
+} from '../lib/health-sla.js'
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 import { deliverCriticalAlert } from '../lib/notifications.js'
@@ -29,6 +35,47 @@ import { deliverCriticalAlert } from '../lib/notifications.js'
 const cronSchema = z.object({
   farmId: z.string().uuid().optional(),
 })
+
+type ClaimedAlertRun = { period_key: string }
+
+function alertRunKey(c: any): string {
+  const supplied = c.req.header('idempotency-key')?.trim()
+  return supplied && supplied.length <= 128 ? supplied : new Date().toISOString().slice(0, 10)
+}
+
+/**
+ * A completed period is immutable. Failed runs and processing leases abandoned
+ * for 15 minutes may be reclaimed.
+ */
+async function claimAlertRun(c: any, farmId: string, runType: string): Promise<boolean> {
+  const periodKey = alertRunKey(c)
+  const rows = await db.execute<ClaimedAlertRun>(sql`
+    INSERT INTO alert_runs (farm_id, job_type, period_key, status, started_at)
+    VALUES (${farmId}, ${runType}, ${periodKey}, 'processing', now())
+    ON CONFLICT (farm_id, job_type, period_key) DO UPDATE SET
+      status = 'processing',
+      last_error = null,
+      started_at = now(),
+      completed_at = null
+    WHERE alert_runs.status = 'failed'
+       OR (alert_runs.status = 'processing' AND alert_runs.started_at < now() - interval '15 minutes')
+    RETURNING period_key
+  `)
+  return rows.length === 1
+}
+
+async function completeAlertRun(c: any, farmId: string, runType: string): Promise<void> {
+  const periodKey = alertRunKey(c)
+  await db.execute(sql`
+    UPDATE alert_runs
+    SET status = 'completed', completed_at = now(), last_error = null
+    WHERE farm_id = ${farmId} AND job_type = ${runType} AND period_key = ${periodKey}
+  `)
+}
+
+function duplicateRunResponse(c: any, farmId: string) {
+  return c.json({ ok: true, farmId, duplicate: true, notified: {} })
+}
 
 type AuthResult = { user: SessionUser; usedCronSecret: boolean } | null
 
@@ -145,6 +192,9 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
   const body = c.req.valid('json')
   const auth = await resolveAlertActor(c, body.farmId)
   if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+  if (!(await claimAlertRun(c, auth.user.farmId, 'proactive'))) {
+    return duplicateRunResponse(c, auth.user.farmId)
+  }
 
   const alerts = await checkProactiveAlerts(auth.user.farmId)
   const advisory = await runAdvisoryEngine(auth.user.farmId)
@@ -225,6 +275,7 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
     supervisorNotified = { telegram: supTg.notified, whatsapp: supWa.notified }
   }
 
+  await completeAlertRun(c, auth.user.farmId, 'proactive')
   return c.json({
     ok: true,
     farmId: auth.user.farmId,
@@ -247,6 +298,9 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
   const body = c.req.valid('json')
   const auth = await resolveAlertActor(c, body.farmId)
   if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+  if (!(await claimAlertRun(c, auth.user.farmId, 'evening_digest'))) {
+    return duplicateRunResponse(c, auth.user.farmId)
+  }
 
   const [{ summary }, farmName] = await Promise.all([
     gatherExceptions(auth.user),
@@ -267,6 +321,7 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
     reason: auth.usedCronSecret ? 'cron_evening_digest' : 'manual_evening_digest',
   })
 
+  await completeAlertRun(c, auth.user.farmId, 'evening_digest')
   return c.json({
     ok: true,
     farmId: auth.user.farmId,
@@ -274,3 +329,62 @@ alertsRoutes.post('/evening-digest', zValidator('json', cronSchema), async (c) =
     notified: { telegram: tg.notified, whatsapp: wa.notified },
   })
 })
+
+/** Point-in-time OS + marketing uptime/health snapshot. */
+async function runHealthSnapshot(c: any) {
+  const body = c.req.valid('json')
+  const auth = await resolveAlertActor(c, body.farmId)
+  if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+  if (!healthSlaEnvEnabled()) {
+    return c.json({
+      ok: true,
+      farmId: auth.user.farmId,
+      skipped: true,
+      reason: 'env_disabled',
+      notified: { telegram: 0 },
+    })
+  }
+
+  const [farm] = await db
+    .select({
+      healthSlaAlertsEnabled: farms.healthSlaAlertsEnabled,
+    })
+    .from(farms)
+    .where(eq(farms.id, auth.user.farmId))
+    .limit(1)
+
+  if (farm && !farm.healthSlaAlertsEnabled) {
+    return c.json({
+      ok: true,
+      farmId: auth.user.farmId,
+      skipped: true,
+      reason: 'farm_disabled',
+      notified: { telegram: 0 },
+    })
+  }
+
+  if (!(await claimAlertRun(c, auth.user.farmId, 'health_snapshot'))) {
+    return duplicateRunResponse(c, auth.user.farmId)
+  }
+
+  const report = await collectHealthSnapshotReport()
+  const message = renderHealthSnapshotTelegram(report)
+  const tg = await notifyRolesTelegram(auth.user.farmId, ['owner', 'supervisor'], message, {
+    actorUserId: auth.user.id,
+    reason: auth.usedCronSecret ? 'cron_health_snapshot' : 'manual_health_snapshot',
+    kind: 'health_snapshot',
+  })
+
+  await completeAlertRun(c, auth.user.farmId, 'health_snapshot')
+  return c.json({
+    ok: true,
+    farmId: auth.user.farmId,
+    report,
+    notified: { telegram: tg.notified },
+  })
+}
+
+alertsRoutes.post('/run-health-snapshot', zValidator('json', cronSchema), runHealthSnapshot)
+/** @deprecated Retained for existing schedulers and API clients. */
+alertsRoutes.post('/run-health-sla', zValidator('json', cronSchema), runHealthSnapshot)

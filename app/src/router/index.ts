@@ -1,40 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-
-const workerAllowedNames = new Set([
-  'change-password',
-  'today',
-  'worker',
-  'assets',
-  'traceability',
-  'settings',
-  'advisory',
-  'field-reports',
-  'inventory',
-])
-
-const salesAllowedNames = new Set([
-  'change-password',
-  'today',
-  'dashboard',
-  'sales',
-  'products',
-  'whatsapp',
-  'traceability',
-  'finance',
-  'settings',
-  'pay-callback',
-  'public-lot',
-  'support',
-  'marketing-leads',
-  'shop-customers',
-])
-
-function defaultHome(role?: string) {
-  if (role === 'field_worker') return '/today'
-  if (role === 'sales') return '/sales'
-  return '/dashboard'
-}
+import { canAccessRoute, defaultHome } from '@/lib/navigation'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -98,85 +64,95 @@ const router = createRouter({
       path: '/worker',
       name: 'worker',
       component: () => import('@/views/WorkerTasksView.vue'),
-      meta: { requiresAuth: true, fieldWorker: true },
+      meta: { requiresAuth: true, fieldWorkerOnly: true, requiredPermission: 'tasks.work_own' },
     },
     {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/views/DashboardView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'sales'] },
     },
     {
       path: '/tasks',
       name: 'tasks',
       component: () => import('@/views/TasksView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiredPermission: 'tasks.assign' },
     },
     {
       path: '/tasks/post-approval',
       name: 'post-approval-tasks',
       component: () => import('@/views/PostApprovalTasksView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'tasks.approve' },
     },
     {
       path: '/inventory',
       name: 'inventory',
       component: () => import('@/views/InventoryView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, anyPermission: ['inventory.read', 'inventory.count'] },
     },
     {
       path: '/field-reports',
       name: 'field-reports',
       component: () => import('@/views/FieldReportsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
       path: '/crops',
       name: 'crops',
       component: () => import('@/views/CropsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiredPermission: 'crops.manage' },
     },
     {
       path: '/livestock',
       name: 'livestock',
       component: () => import('@/views/LivestockView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiredPermission: 'livestock.manage' },
     },
     {
       path: '/whatsapp',
       name: 'whatsapp',
       component: () => import('@/views/WhatsAppView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, anyPermission: ['whatsapp.send', 'whatsapp.configure'] },
     },
     {
       path: '/sales',
       name: 'sales',
       component: () => import('@/views/SalesView.vue'),
-      meta: { requiresAuth: true },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'supervisor', 'sales'],
+        requiredPermission: 'orders.read',
+      },
     },
     {
       path: '/support',
       name: 'support',
       component: () => import('@/views/SupportView.vue'),
-      meta: { requiresAuth: true, orderStaffOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'orders.manage' },
     },
     {
       path: '/products',
       name: 'products',
       component: () => import('@/views/ProductsView.vue'),
-      meta: { requiresAuth: true, orderStaffOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'products.manage' },
     },
     {
       path: '/customer-insights',
       name: 'customer-insights',
       component: () => import('@/views/CustomerInsightsView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'orders.pii' },
     },
     {
       path: '/finance',
       name: 'finance',
       component: () => import('@/views/FinanceView.vue'),
-      meta: { requiresAuth: true, financeAccess: true },
+      meta: { requiresAuth: true, requiredPermission: 'finance.read' },
+    },
+    {
+      path: '/hours',
+      name: 'hours',
+      component: () => import('@/views/HoursView.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/traceability',
@@ -188,61 +164,91 @@ const router = createRouter({
       path: '/assets',
       name: 'assets',
       component: () => import('@/views/AssetsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: {
+        requiresAuth: true,
+        requiredPermission: 'reports.read',
+        anyPermission: ['tasks.approve', 'finance.read', 'audit.export'],
+      },
     },
     {
       path: '/journal',
       name: 'journal',
       component: () => import('@/views/JournalView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'journal.manage' },
+    },
+    {
+      path: '/brand-kits',
+      name: 'brand-kits',
+      component: () => import('@/views/BrandKitsView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'brand.manage' },
     },
     {
       path: '/newsletter',
       name: 'newsletter',
       component: () => import('@/views/NewsletterView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'newsletter.manage' },
     },
     {
       path: '/marketing-leads',
       name: 'marketing-leads',
       component: () => import('@/views/MarketingLeadsView.vue'),
-      meta: { requiresAuth: true, marketingStaffOnly: true },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'sales'],
+        requiredPermission: 'orders.manage',
+      },
     },
     {
       path: '/shop-customers',
       name: 'shop-customers',
       component: () => import('@/views/ShopCustomersView.vue'),
-      meta: { requiresAuth: true, marketingStaffOnly: true },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['owner', 'supervisor', 'sales'],
+        anyPermission: ['orders.manage', 'finance.read'],
+      },
+    },
+    {
+      path: '/moments',
+      name: 'moments',
+      component: () => import('@/views/MomentsView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'moments.manage' },
+    },
+    {
+      path: '/careers',
+      name: 'careers',
+      component: () => import('@/views/CareersView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'careers.manage' },
     },
     {
       path: '/templates',
       name: 'templates',
       component: () => import('@/views/TemplatesView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'tasks.assign' },
     },
     {
       path: '/zones',
       name: 'zones',
       component: () => import('@/views/ZonesView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'zones.manage' },
     },
     {
       path: '/settings/security',
       name: 'settings-security',
       component: () => import('@/views/SecurityView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'security.admin' },
     },
     {
       path: '/settings/audit',
       name: 'settings-audit',
       component: () => import('@/views/AuditView.vue'),
-      meta: { requiresAuth: true, auditAccess: true },
+      meta: { requiresAuth: true, requiredPermission: 'audit.export' },
     },
     {
       path: '/settings',
@@ -254,24 +260,29 @@ const router = createRouter({
       path: '/users',
       name: 'users',
       component: () => import('@/views/UsersView.vue'),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'users.view' },
     },
     {
       path: '/events',
       name: 'events',
       component: () => import('@/views/EventsView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor'] },
     },
     {
       path: '/ai',
       name: 'ai',
       component: () => import('@/views/AiView.vue'),
-      meta: { requiresAuth: true, managerOnly: true },
+      meta: { requiresAuth: true, requiredPermission: 'ai.use' },
     },
     {
       path: '/lot/:farmSlug/:lotCode',
       name: 'public-lot',
       component: () => import('@/views/PublicLotView.vue'),
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
     },
   ],
 })
@@ -287,29 +298,7 @@ router.beforeEach(async (to) => {
   if (to.meta.guest && auth.isAuthenticated) {
     return defaultHome(auth.user?.role)
   }
-  if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
-    return defaultHome(auth.user?.role)
-  }
-  if (to.meta.auditAccess && !auth.hasPermission('audit.export')) {
-    return defaultHome(auth.user?.role)
-  }
-  if (to.meta.financeAccess && !auth.canAccessFinance) {
-    return defaultHome(auth.user?.role)
-  }
-  if (to.meta.orderStaffOnly && !auth.canManageProducts) {
-    return defaultHome(auth.user?.role)
-  }
-  if (
-    to.meta.marketingStaffOnly &&
-    auth.user?.role !== 'owner' &&
-    auth.user?.role !== 'sales'
-  ) {
-    return defaultHome(auth.user?.role)
-  }
-  if (to.meta.managerOnly && !auth.canApprove) {
-    return defaultHome(auth.user?.role)
-  }
-  if (to.meta.fieldWorker && auth.user?.role !== 'field_worker') {
+  if (!canAccessRoute(auth.user, to.meta)) {
     return defaultHome(auth.user?.role)
   }
   if (
@@ -317,22 +306,6 @@ router.beforeEach(async (to) => {
     to.name !== 'change-password'
   ) {
     return { name: 'change-password' }
-  }
-  if (
-    auth.user?.role === 'field_worker' &&
-    to.meta.requiresAuth &&
-    to.name &&
-    !workerAllowedNames.has(String(to.name))
-  ) {
-    return { name: 'today' }
-  }
-  if (
-    auth.user?.role === 'sales' &&
-    to.meta.requiresAuth &&
-    to.name &&
-    !salesAllowedNames.has(String(to.name))
-  ) {
-    return { name: 'sales' }
   }
 })
 

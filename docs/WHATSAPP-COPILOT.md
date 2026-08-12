@@ -41,6 +41,11 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 > **Customer number:** when `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` is set, messages to
 > that number run the order catalogue (no staff user match). Paystack pay links use
 > the same flow as the Telegram customer bot — see [`PAYSTACK.md`](./PAYSTACK.md).
+>
+> **Deferred:** richer WhatsApp **customer shop linking** (account linking UX parity
+> with Telegram) remains out of scope for now; Telegram is the live customer
+> commerce channel. Staff WhatsApp `/clockin` · `/clockout` is supported for all
+> roles.
 
 ---
 
@@ -135,7 +140,7 @@ phone — supervisors (and owners subscribed to Worker alerts) should receive th
 | --- | --- |
 | `hi` / `hello` / `help` / `menu` / `ops` | Field / ops command help (+ order help if sales/supervisor/owner) |
 | `brief` / `today` | Short daily attention summary |
-| `/clockin` · `/clockout` | Attendance (field workers) |
+| `/clockin` · `/clockout` | Attendance for **all staff roles** (owner, supervisor, sales, field worker) — same commands as Telegram |
 | `/tasks` · `/taskstart` · `/done` · `/done TSK-…` | List / start / submit tasks |
 | `/approve` · `/reject` | Approve or reject awaiting tasks (supervisor / owner) |
 | Photo captioned `done TSK-…` | Submit task with photo evidence |

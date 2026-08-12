@@ -2,6 +2,12 @@
 
 Base URL (local dev): `http://127.0.0.1:3000`
 
+Production runtime environment and feature-conditional variables are documented
+in [`PRODUCTION-ENVIRONMENT.md`](./PRODUCTION-ENVIRONMENT.md). Database
+migrations currently run through
+`20260811173000_0054_payment_status_idempotency`; use the
+[expand-contract policy](./EXPAND-CONTRACT-MIGRATIONS.md) for future changes.
+
 All authenticated routes require the `trovara_session` httpOnly cookie. Mutating requests (`POST`, `PATCH`, `DELETE`) also require the double-submit CSRF token: cookie `trovara_csrf` must match header `X-CSRF-Token`. The CSRF cookie is set on successful login.
 
 Errors return JSON: `{ "error": "message" }` with appropriate HTTP status.
@@ -91,6 +97,15 @@ mailboxes; otherwise active Owner/Sales users are used, excluding break-glass.
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
 | GET | `/health` | No | - | `{ status, service }` |
+| GET | `/ready` | No | - | `200` when the database is reachable; otherwise `503` |
+
+The deployed frontend also serves `/RELEASE.json` with the immutable Git SHA,
+optional exact tag, and release timestamp. It is deployment metadata, not an API
+route.
+
+Authenticated owners can read `GET /system-status`. Its sanitized operations
+fields include backup report/delivery state and restore-test status, age, and
+freshness; it does not expose artifact paths or credentials.
 
 ---
 
@@ -209,12 +224,15 @@ Task status state machine: `pending → in_progress → awaiting_approval → co
 
 | Method | Path | Auth | Roles | Request | Response |
 |--------|------|------|-------|---------|----------|
-| GET | `/api/attendance/today` | Yes | all (worker: own) | - | `{ sessions[] }` |
+| GET | `/api/attendance/today` | Yes | all (Sales/worker: own) | - | `{ sessions[] }` |
+| GET | `/api/attendance/summary` | Yes | all (Sales/worker: own; Admin/Supervisor: farm-wide or `userId`) | `?range=day\|week\|month\|ytd&userId?=` | `{ range, people[] }` |
 | POST | `/api/attendance/clock-in` | Yes | all | `{ plotId?, taskId?, notes? }` | attendance session |
 | POST | `/api/attendance/clock-out` | Yes | all | `{ workSummary?: string \| null }` | attendance session |
 | PATCH | `/api/attendance/:id` | Yes | owner, supervisor | attendance correction | `{ session }` |
 
 `workSummary` is optional and limited to 2,000 characters. The clock-out still succeeds when it is omitted.
+Hours summary ranges use the farm timezone. Open shifts accrue through the
+current time; sessions are grouped by staff member and ordered by total minutes.
 
 ---
 
@@ -565,6 +583,27 @@ Customer WhatsApp/Telegram order conversations also accept `4`, `complaint`,
 | PATCH | `/api/finance/:id` | Yes | owner | `{ expense }` |
 | DELETE | `/api/finance/:id` | Yes | owner | `{ ok: true }` |
 
+### Resend finance inbound (`/public/finance/inbound`)
+
+`POST /public/finance/inbound` is an unauthenticated, rate-limited Resend
+Receiving webhook. It requires the raw request body plus `svix-id`,
+`svix-timestamp`, and `svix-signature`; the signature is verified with the
+separate `RESEND_INBOUND_WEBHOOK_SECRET`. Missing or invalid signature headers
+return `401`, and missing `RESEND_API_KEY` or webhook secret returns `503`.
+
+Only `email.received` events addressed to `FINANCE_INBOUND_RECIPIENTS` create a
+pending expense. The setting is a comma-separated address allowlist and defaults
+to `finance@trovara.farm`. The same local part on a subdomain of an allowed
+domain is also accepted for Receiving/forwarding hosts (for example,
+`finance@inbound.trovara.farm`); unrelated recipients are acknowledged and
+ignored.
+
+Successful responses contain `{ received: true, ok: true, expenseId? }` and may
+include `duplicate: true` or `ignored: true`. Events are deduplicated by
+`svix-id`, then by Resend `email_id`. The first PDF, JPEG, PNG, or WebP
+attachment up to 25 MB is stored under the private evidence root and linked to
+the draft expense.
+
 ---
 
 ## Traceability (`/api/traceability`)
@@ -592,12 +631,33 @@ so older field clients can continue syncing while they are upgraded.
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
+| GET | `/api/ai/status` | Yes | `ai.use` | Model availability |
+| GET | `/api/ai/conversations` | Yes | `ai.use` | Current user's active conversation list |
+| POST | `/api/ai/conversations` | Yes | `ai.use` | Create a private conversation |
+| GET | `/api/ai/conversations/:id` | Yes | `ai.use` | Owned conversation and persisted messages |
+| DELETE | `/api/ai/conversations/:id/messages` | Yes | `ai.use` | Clear owned conversation messages and stored attachments |
+| POST | `/api/ai/conversations/:id/archive` | Yes | `ai.use` | Archive owned conversation |
+| POST | `/api/ai/ask` | Yes | `ai.use` | Permission-filtered answer or reviewable action draft |
+| GET | `/api/ai/actions/capabilities` | Yes | `ai.use` | Action types allowed by the user's current grants |
+| POST | `/api/ai/actions/:draftId/confirm` | Yes | `ai.use` + action permission | Revalidate and execute an owned action draft |
+| POST | `/api/ai/actions/:draftId/cancel` | Yes | `ai.use` | Cancel an owned action draft |
+| POST | `/api/ai/transcribe` | Yes | `ai.use` | Voice transcription |
 | GET | `/api/ai/briefing` | Yes | owner, supervisor | `{ locale, priorities[], ... }` daily briefing built from farm counts |
 | POST | `/api/ai/summarize-incident` | Yes | owner, supervisor | Placeholder incident summary |
 
 `/briefing` is deterministic: priorities come from task and stock counts, never a model, so it
 works with the LLM off. Labels are rendered server-side in the caller's `preferred_locale` and
 echoed as `locale`; counts, units, item names and the farm name are interpolated verbatim.
+
+Web Copilot conversations are scoped by both `farm_id` and `user_id`; another user cannot list,
+open, clear, archive, confirm, or cancel them. The API builds model history from persisted server
+messages and ignores client-supplied history as a source of authority. Uploaded photos are stored
+as private evidence references rather than retaining data URLs in the database.
+
+AI never grants an operation by itself. Explicit commands may prepare typed drafts for tasks,
+inventory, zones/plots, livestock logs, census, asset counts, field reports, and customer support.
+The required OS permission is checked when the draft is prepared and again when it is confirmed.
+Sales can use permitted order/support actions but cannot change inventory through AI.
 
 ---
 

@@ -59,7 +59,7 @@ Whatever field workers and supervisors do day-to-day in the app for **attendance
 
 | Command | Who | Effect |
 | --- | --- |
-| `/clockin` · `/clockout` | Field | Attendance clock in / out |
+| `/clockin` · `/clockout` | All staff | Attendance clock in / out |
 | `/tasks` | Field | List my open tasks (`TSK-……`) |
 | `/taskstart` | Field | Start a task (inline pick list) |
 | `/done` · `/done TSK-… note` | Field | Submit for approval (pick list or ref + note) |
@@ -70,15 +70,17 @@ Whatever field workers and supervisors do day-to-day in the app for **attendance
 | `/handover` | Staff | Handover checklist progress |
 | Voice notes | All | Same commands after transcription |
 
-Telegram also supports draft-and-confirm flows (Admin / Supervisor / Sales as noted in `help`):
-`Create task`, `Census`, `Asset count`, `Crop`, `Livestock` batch,
-`Stock` / `Opening count` / `Ack low stock`, `Create zone` / `Create plot`,
-`pack LOT-…` / `Verify` / `Reject`, plus field livestock logs
-(`Feed` / `Vaccinate` / `Mortality`).
+Telegram also supports role-scoped draft-and-confirm flows. Admin/Supervisor can
+draft tasks, stock/opening counts, low-stock acknowledgements, zones, plots,
+crops and livestock batches. Field operations can draft the census, asset-count
+and livestock-log actions granted to that role. Sales keeps order, fulfilment and
+support commands but cannot change inventory. `help` shows only the commands the
+linked user may run.
 
 **Role-scoped menus:** After you link, typing `/` or `help` shows only commands for
-your role (field workers see clock-in; admins do not). Telegram also sets a
-per-chat slash menu for your role.
+your role. Every staff role (Admin, Supervisor, Sales, and Field worker) sees
+clock-in and clock-out; other commands remain role-specific. Telegram also sets
+a per-chat slash menu for your role.
 
 ## Next build plan (staff butler parity)
 

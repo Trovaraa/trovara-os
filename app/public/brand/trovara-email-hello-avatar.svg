@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Trovara hello@ profile image</title>
+  <desc id="desc">Trovara T monogram on warm white for the hello@trovara.farm mailbox.</desc>
+  <rect width="1024" height="1024" fill="#FAF9F5"/>
+  <!-- Soft welcoming rim so it reads as contact, not the default mark tile -->
+  <circle cx="512" cy="512" r="470" fill="none" stroke="#E8F0E6" stroke-width="28"/>
+  <g transform="translate(204 148) scale(2.8)">
+    <path fill="#28382F" d="M18 14h184v48h-5c-1-24-17-39-45-39h-30v184c0 22 8 32 27 37v3H71v-3c19-5 27-15 27-37V23H68C40 23 24 38 23 62h-5Z"/>
+    <path fill="#28382F" d="M19 61c5 42 24 70 59 83 25 10 37 33 42 73-4-49-16-83-43-111C59 87 40 72 19 61Z"/>
+    <path fill="#889058" d="M201 70c-5 46-25 76-60 91-20 9-31 29-39 61 6-42 18-72 44-99 18-19 36-36 55-53Z"/>
+    <path d="M42 91c32 20 58 55 68 103" fill="none" stroke="#FAF9F5" stroke-width="5" stroke-linecap="round"/>
+    <path d="M179 100c-31 23-56 57-69 94" fill="none" stroke="#FAF9F5" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

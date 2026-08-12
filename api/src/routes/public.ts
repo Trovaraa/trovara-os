@@ -4,7 +4,7 @@ import QRCode from 'qrcode'
 import { db } from '../db/index.js'
 import { cropCycles, farms, harvestLots, invoices, orders, plots } from '../db/schema.js'
 import { orderReference } from '../lib/customer-cart.js'
-import { checkRateLimit } from '../lib/rate-limit.js'
+import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import {
   renderInvoiceHtml,
@@ -95,14 +95,14 @@ async function isPendingPublicLot(farmSlug: string, tokenOrCode: string): Promis
   return byCode?.status === 'reported'
 }
 
-function rateLimitOrNull(c: { req: { header: (name: string) => string | undefined }; header: (k: string, v: string) => void }) {
+async function rateLimitOrNull(c: { req: { header: (name: string) => string | undefined }; header: (k: string, v: string) => void }) {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
   const rateKey = `public-lot:${ip}`
-  return checkRateLimit(rateKey, PUBLIC_LOT_RATE.max, PUBLIC_LOT_RATE.windowMs)
+  return checkDurableRateLimit(rateKey, PUBLIC_LOT_RATE.max, PUBLIC_LOT_RATE.windowMs)
 }
 
 publicRoutes.get('/lots/:farmSlug/:tokenOrCode', async (c) => {
-  const { allowed, retryAfterSec } = rateLimitOrNull(c)
+  const { allowed, retryAfterSec } = await rateLimitOrNull(c)
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
@@ -150,7 +150,7 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode', async (c) => {
 
 /** Public printable certificate for verified lots (QR scan → download). */
 publicRoutes.get('/lots/:farmSlug/:tokenOrCode/certificate.html', async (c) => {
-  const { allowed, retryAfterSec } = rateLimitOrNull(c)
+  const { allowed, retryAfterSec } = await rateLimitOrNull(c)
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
@@ -200,7 +200,7 @@ publicRoutes.get('/lots/:farmSlug/:tokenOrCode/certificate.html', async (c) => {
 
 /** Public print sticker for a delivery box (QR + lot code). Verified lots only. */
 publicRoutes.get('/lots/:farmSlug/:tokenOrCode/label.html', async (c) => {
-  const { allowed, retryAfterSec } = rateLimitOrNull(c)
+  const { allowed, retryAfterSec } = await rateLimitOrNull(c)
   if (!allowed) {
     c.header('Retry-After', String(retryAfterSec))
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
@@ -255,7 +255,7 @@ async function loadPublicInvoice(token: string) {
 /** Public printable invoice by token (no auth). */
 publicRoutes.get('/invoices/:token', async (c) => {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const { allowed, retryAfterSec } = checkRateLimit(
+  const { allowed, retryAfterSec } = await checkDurableRateLimit(
     `public-invoice:${ip}`,
     PUBLIC_INVOICE_RATE.max,
     PUBLIC_INVOICE_RATE.windowMs,
@@ -288,7 +288,7 @@ publicRoutes.get('/invoices/:token', async (c) => {
 /** Public PDF invoice by token (no auth). */
 publicRoutes.get('/invoices/:token/pdf', async (c) => {
   const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
-  const { allowed, retryAfterSec } = checkRateLimit(
+  const { allowed, retryAfterSec } = await checkDurableRateLimit(
     `public-invoice-pdf:${ip}`,
     PUBLIC_INVOICE_RATE.max,
     PUBLIC_INVOICE_RATE.windowMs,

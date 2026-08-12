@@ -16,7 +16,7 @@ import {
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAssignTasks, canManageOrders } from '../lib/rbac.js'
+import { canAssignTasks, canManageOrders, hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import type { OrderStatus } from '../lib/state-machines.js'
 import { orderReference } from '../lib/customer-cart.js'
@@ -67,6 +67,7 @@ const updateOrderSchema = z.object({
 })
 
 const refundSchema = z.object({
+  idempotencyKey: z.string().uuid(),
   amountKobo: z.number().int().positive().optional(),
   reason: z.string().min(1).max(2000),
 })
@@ -261,6 +262,12 @@ salesRoutes.use('*', authMiddleware)
 
 salesRoutes.get('/', async (c) => {
   const user = c.get('user')
+  // Field workers never need customer-order visibility. Keep this explicit in
+  // addition to the permission check so stale system-role grants cannot expose
+  // orders after a role-template change.
+  if (user.role === 'field_worker' || !hasPermission(user, 'orders.read')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   const rows = await db
     .select({
@@ -714,6 +721,7 @@ salesRoutes.post('/:id/refund', zValidator('json', refundSchema), async (c) => {
     amountKobo,
     reason: canonical.english ?? body.reason,
     userId: user.id,
+    idempotencyKey: body.idempotencyKey,
   })
   if (!result.ok) return c.json({ error: result.error }, 400)
 

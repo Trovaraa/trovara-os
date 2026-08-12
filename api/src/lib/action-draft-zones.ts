@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { plots, zones } from '../db/schema.js'
 import type { SessionUser } from './session.js'
-import { canAssignTasks } from './rbac.js'
+import { hasPermission } from './rbac.js'
 import { logAudit } from './audit.js'
 import { storeActionDraft } from './task-drafts.js'
 import { findByName } from './entity-name-match.js'
@@ -32,7 +32,7 @@ export async function executeConfirmedCreateZone(
   payload: Record<string, unknown>,
   source = 'butler',
 ): Promise<string> {
-  if (!canAssignTasks(user)) return 'Only Admin or Supervisor can create zones.'
+  if (!hasPermission(user, 'zones.manage')) return 'You do not have permission to manage zones.'
   const name = String(payload.name ?? '').trim()
   if (!name) return 'Draft was missing a zone name.'
 
@@ -62,7 +62,7 @@ export async function executeConfirmedCreatePlot(
   payload: Record<string, unknown>,
   source = 'butler',
 ): Promise<string> {
-  if (!canAssignTasks(user)) return 'Only Admin or Supervisor can create plots.'
+  if (!hasPermission(user, 'zones.manage')) return 'You do not have permission to manage plots.'
   const name = String(payload.name ?? '').trim()
   const zoneId = String(payload.zoneId ?? '')
   if (!name || !zoneId) return 'Draft was missing plot fields.'
@@ -110,8 +110,8 @@ export async function prepareCreateZoneDraft(params: {
   channel: string
   externalChatId: string
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
-  if (!canAssignTasks(params.user)) {
-    return { ok: false, error: 'Only Admin or Supervisor can create zones.' }
+  if (!hasPermission(params.user, 'zones.manage')) {
+    return { ok: false, error: 'You do not have permission to manage zones.' }
   }
 
   const stored = await storeActionDraft({
@@ -147,8 +147,8 @@ export async function prepareCreatePlotDraft(params: {
   channel: string
   externalChatId: string
 }): Promise<{ ok: true; preview: string; draftId: string } | { ok: false; error: string }> {
-  if (!canAssignTasks(params.user)) {
-    return { ok: false, error: 'Only Admin or Supervisor can create plots.' }
+  if (!hasPermission(params.user, 'zones.manage')) {
+    return { ok: false, error: 'You do not have permission to manage plots.' }
   }
 
   const zone = await resolveZoneByName(params.user.farmId, params.zoneName)

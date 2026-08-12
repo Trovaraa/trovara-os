@@ -141,6 +141,42 @@ const enPages: Record<string, PageGuide> = {
     summary: 'Create staff accounts and control what each person can see or do through their assigned role.',
     actions: ['Give the smallest role needed for the job.', 'Deactivate people who no longer work with the farm.'],
   },
+  '/hours': {
+    summary: 'See attendance time, hours worked, and any correction that needs review.',
+    actions: ['Check the person and date before changing a record.', 'Write a clear reason for every correction.'],
+  },
+  '/journal': {
+    summary: 'Write and publish stories for the public farm blog.',
+    actions: ['Save a draft until the words and images are ready.', 'Preview the story before you publish it.'],
+  },
+  '/brand-kits': {
+    summary: 'Prepare a private set of approved photos and files for a partner to download.',
+    actions: ['Add only files approved for sharing.', 'Set an expiry date and password when the pack needs extra protection.'],
+  },
+  '/newsletter': {
+    summary: 'See people who asked for farm emails and whether their subscription is confirmed.',
+    actions: ['Use this list only for the updates people agreed to receive.', 'Respect an unsubscribe request immediately.'],
+  },
+  '/marketing-leads': {
+    summary: 'Follow enquiries from the website until the right person replies or closes them.',
+    actions: ['Assign each new enquiry to someone.', 'Update the status after every useful follow-up.'],
+  },
+  '/shop-customers': {
+    summary: 'Find shop accounts, verification status, and linked WhatsApp or Telegram contacts.',
+    actions: ['Search with the details the customer gave you.', 'Treat phone numbers and email addresses as private.'],
+  },
+  '/moments': {
+    summary: 'Review farm photos and videos sent for the public Moments page.',
+    actions: ['Check consent and the description before approval.', 'Do not publish private or unsafe material.'],
+  },
+  '/careers': {
+    summary: 'Manage public job openings and review applications sent to the farm.',
+    actions: ['Keep dates and job details current.', 'Restrict applicant information to people handling recruitment.'],
+  },
+  '/settings/audit': {
+    summary: 'Search security and record changes, then export them when an investigation needs evidence.',
+    actions: ['Filter by person, action, or date.', 'Do not edit or share an audit export without a work reason.'],
+  },
   '/settings': {
     summary: 'Change your language, appearance, notifications, security, and allowed farm configuration.',
     actions: ['Choose the language you understand best.', 'Only administrators should change farm-wide settings.'],
@@ -154,14 +190,14 @@ const enPages: Record<string, PageGuide> = {
 const enRolePages: OnboardingCopy['rolePages'] = {
   owner: {
     '/today': {
-      summary: 'Your daily control room for farm-wide alerts, approvals, exceptions, and the end-of-day position. Administrators do not clock in or out.',
-      actions: ['Review urgent exceptions and work awaiting approval.', 'Check the day-close summary before making farm-wide decisions.'],
+      summary: 'Your daily control room for your attendance, farm-wide alerts, approvals, exceptions, and the end-of-day position.',
+      actions: ['Clock in when you start work and clock out when you finish.', 'Review urgent exceptions and work awaiting approval.', 'Check the day-close summary before making farm-wide decisions.'],
     },
   },
   supervisor: {
     '/today': {
-      summary: 'Your operations desk for coordinating today’s work, checking field exceptions, and keeping the team moving. Supervisors do not clock in or out.',
-      actions: ['Review urgent work, worker reports, and attendance exceptions.', 'Approve completed work or send it back with a clear reason.'],
+      summary: 'Your operations desk for your attendance, today’s work, field exceptions, and the team roster.',
+      actions: ['Clock in when you start work and clock out when you finish.', 'Review urgent work, worker reports, and attendance exceptions.', 'Approve completed work or send it back with a clear reason.'],
     },
   },
   field_worker: {
@@ -232,8 +268,8 @@ const enRolePages: OnboardingCopy['rolePages'] = {
   },
   sales: {
     '/today': {
-      summary: 'Your daily sales queue for pending orders, customer follow-ups, complaints, payments, and deliveries. Sales staff do not clock in or out here.',
-      actions: ['Start with orders and customer issues that need action.', 'Confirm payment and delivery updates without changing physical stock.'],
+      summary: 'Your starting point for attendance, pending orders, customer follow-ups, complaints, payments, and deliveries.',
+      actions: ['Clock in when you start work and clock out when you finish.', 'Start with orders and customer issues that need action.', 'Confirm payment and delivery updates without changing physical stock.'],
     },
   },
 }
@@ -263,13 +299,22 @@ const pcmPages: Record<string, PageGuide> = {
   '/templates': { summary: 'Instruction wey farm fit use again for feeding, inspection or regular work.', actions: ['Write steps for correct order.', 'Update am when real process change.'] },
   '/zones': { summary: 'Farm place setup: zones, plots and where work, crop, animal and stock belong.', actions: ['Use name workers know.', 'No create two zones for same place.'] },
   '/users': { summary: 'Create staff account and control wetin each role fit see or do.', actions: ['Give only access wey person need.', 'Deactivate person wey no dey work with farm again.'] },
+  '/hours': { summary: 'See attendance time, hours wey person work and correction wey need check.', actions: ['Check person and date before you change record.', 'Write clear reason for every correction.'] },
+  '/journal': { summary: 'Write and publish story for public farm blog.', actions: ['Keep am as draft until words and picture ready.', 'Preview the story before you publish am.'] },
+  '/brand-kits': { summary: 'Prepare approved photos and files wey partner fit download with private link.', actions: ['Add only file wey farm approve to share.', 'Set expiry date and password if the pack need more protection.'] },
+  '/newsletter': { summary: 'See people wey ask for farm email and whether dem confirm subscription.', actions: ['Use the list only for update wey dem agree to receive.', 'Respect unsubscribe request quick.'] },
+  '/marketing-leads': { summary: 'Follow website enquiry until correct person reply or close am.', actions: ['Give every new enquiry to one person.', 'Update status after useful follow-up.'] },
+  '/shop-customers': { summary: 'Find shop account, verification and linked WhatsApp or Telegram contact.', actions: ['Search with details wey customer give you.', 'Treat phone number and email as private.'] },
+  '/moments': { summary: 'Review farm photo and video wey people send for public Moments page.', actions: ['Check consent and description before approval.', 'No publish private or unsafe material.'] },
+  '/careers': { summary: 'Manage public job opening and review application wey reach farm.', actions: ['Keep date and job details correct.', 'Only recruitment people suppose see applicant details.'] },
+  '/settings/audit': { summary: 'Search security and record changes, then export evidence when work need am.', actions: ['Filter by person, action or date.', 'No edit or share audit export without work reason.'] },
   '/settings': { summary: 'Change language, look, notification, security and farm setup.', actions: ['Choose language wey you understand pass.', 'Only admin suppose change farm-wide setting.'] },
   '/settings/security': { summary: 'Protect account with password and two-step verification.', actions: ['Use password wey you no use somewhere else.', 'Keep recovery details for safe place.'] },
 }
 
 const pcmRolePages: OnboardingCopy['rolePages'] = {
-  owner: { '/today': { summary: 'Na your daily control page for farm warning, approval, exception and day-close summary. Admin no need clock in or clock out.', actions: ['Check urgent issue and work wey dey wait for approval.', 'Check day-close summary before you make farm-wide decision.'] } },
-  supervisor: { '/today': { summary: 'Na here you arrange today work, check field issue and help team move. Supervisor no need clock in or clock out.', actions: ['Check urgent work, worker report and attendance problem.', 'Approve completed work or return am with clear reason.'] } },
+  owner: { '/today': { summary: 'Na your daily control page for your attendance, farm warning, approval, exception and day-close summary.', actions: ['Clock in when you start work and clock out when you finish.', 'Check urgent issue and work wey dey wait for approval.', 'Check day-close summary before you make farm-wide decision.'] } },
+  supervisor: { '/today': { summary: 'Na here you record your attendance, arrange today work, check field issue and help team move.', actions: ['Clock in when you start work and clock out when you finish.', 'Check urgent work, worker report and attendance problem.', 'Approve completed work or return am with clear reason.'] } },
   field_worker: {
     '/today': {
       summary: 'Your workday start here. Clock in, see wetin need attention, then clock out when you finish.',
@@ -336,7 +381,7 @@ const pcmRolePages: OnboardingCopy['rolePages'] = {
       ],
     },
   },
-  sales: { '/today': { summary: 'Na your daily sales page for pending order, customer follow-up, complaint, payment and delivery. Sales no need clock in or clock out here.', actions: ['Start with order and customer issue wey need action.', 'Confirm payment and delivery without changing physical stock.'] } },
+  sales: { '/today': { summary: 'Na your starting page for attendance, pending order, customer follow-up, complaint, payment and delivery.', actions: ['Clock in when you start work and clock out when you finish.', 'Start with order and customer issue wey need action.', 'Confirm payment and delivery without changing physical stock.'] } },
 }
 
 const yoPages: Record<string, PageGuide> = {
@@ -364,13 +409,22 @@ const yoPages: Record<string, PageGuide> = {
   '/templates': { summary: 'Ìtọ́sọ́nà tí a lè tún lò fún fífún ẹranko, àyẹ̀wò tàbí iṣẹ́ àtúnṣe.', actions: ['Kọ àwọn ìgbésẹ̀ ní ìtẹ̀sí tó tọ́.', 'Ṣe àtúnṣe rẹ̀ nígbà tí iṣẹ́ gidi bá yí padà.'] },
   '/zones': { summary: 'Ìṣètò ibi oko: agbègbè, pápá àti ibi tí iṣẹ́, irugbin, ẹranko àti stock wà.', actions: ['Lo orúkọ tí àwọn òṣìṣẹ́ mọ̀.', 'Má ṣẹ̀dá agbègbè méjì fún ibi kan náà.'] },
   '/users': { summary: 'Ṣẹ̀dá àkọọ́lẹ̀ òṣìṣẹ́, kí o sì ṣàkóso ohun tí ipa kọ̀ọ̀kan lè rí tàbí ṣe.', actions: ['Fún ènìyàn ní àṣẹ tó kéré tó yẹ fún iṣẹ́ rẹ̀.', 'Pa àkọọ́lẹ̀ ẹni tí kò ṣiṣẹ́ mọ́.'] },
+  '/hours': { summary: 'Wo àkókò wíwá, iye wákàtí iṣẹ́ àti àtúnṣe tó nílò àyẹ̀wò.', actions: ['Ṣàyẹ̀wò ènìyàn àti ọjọ́ kí o tó yí àkọsílẹ̀ padà.', 'Kọ ìdí kedere fún gbogbo àtúnṣe.'] },
+  '/journal': { summary: 'Kọ àti tẹ ìtàn jáde fún bulọọgi oko tí gbogbo ènìyàn lè kà.', actions: ['Fi sí draft títí ọ̀rọ̀ àti àwòrán fi pé.', 'Wo ìtàn náà kí o tó tẹ̀ ẹ́ jáde.'] },
+  '/brand-kits': { summary: 'Pèsè àwọn fọ́tò àti fáìlì tí a fọwọ́sí fún alábàáṣiṣẹ́ láti gba.', actions: ['Fi fáìlì tí a fọwọ́sí nìkan kún un.', 'Ṣètò ọjọ́ ìparí àti ọ̀rọ̀ aṣínà bí ó bá yẹ.'] },
+  '/newsletter': { summary: 'Wo àwọn tó béèrè fún ìròyìn imeeli oko àti bóyá wọ́n ti fọwọ́sí.', actions: ['Lo àtòjọ náà fún ìròyìn tí wọ́n gbà láti rí nìkan.', 'Bọwọ́ fún ìbéèrè láti dá imeeli dúró lẹ́sẹ̀kẹsẹ̀.'] },
+  '/marketing-leads': { summary: 'Tọ́pa ìbéèrè láti ojú-òpó títí ẹni tó yẹ fi dáhùn tàbí pa á.', actions: ['Yan ẹni kan fún ìbéèrè tuntun kọ̀ọ̀kan.', 'Ṣe ìmúdójúìwọ̀n ipo lẹ́yìn ìtọ́pa.'] },
+  '/shop-customers': { summary: 'Wá àkọọ́lẹ̀ ṣọ́ọ̀bù, ìfọwọ́sí àti WhatsApp tàbí Telegram tí a so mọ́ ọn.', actions: ['Wá pẹ̀lú alaye tí oníbàárà fún ọ.', 'Pa nọ́mbà fóònù àti imeeli mọ́ gẹ́gẹ́ bí alaye àṣírí.'] },
+  '/moments': { summary: 'Ṣàyẹ̀wò fọ́tò àti fídíò oko tí a fi ránṣẹ́ fún ojú-ewé Moments.', actions: ['Ṣàyẹ̀wò ìyọ̀nda àti àlàyé kí o tó fọwọ́sí.', 'Má tẹ ohun àṣírí tàbí ohun tó léwu jáde.'] },
+  '/careers': { summary: 'Ṣàkóso iṣẹ́ tó ṣí sí gbogbo ènìyàn, kí o sì wo àwọn ìbéèrè iṣẹ́.', actions: ['Jẹ́ kí ọjọ́ àti alaye iṣẹ́ jẹ́ tuntun.', 'Àwọn tó ń ṣàkóso ìgbaniṣẹ́ nìkan ni kí wọ́n rí alaye olùbéèrè.'] },
+  '/settings/audit': { summary: 'Wá ìyípadà ààbò àti àkọsílẹ̀, kí o sì gbe ẹ̀rí jáde bí iṣẹ́ bá nílò rẹ̀.', actions: ['Ṣàlẹ̀mọ́ pẹ̀lú ènìyàn, ìgbésẹ̀ tàbí ọjọ́.', 'Má yí tàbí pín export láìní ìdí iṣẹ́.'] },
   '/settings': { summary: 'Yí èdè, àwọ̀, ìkìlọ̀, ààbò àti ìṣètò oko padà.', actions: ['Yan èdè tí o lóye jù.', 'Admin nìkan ló yẹ kí ó yí ìṣètò gbogbo oko padà.'] },
   '/settings/security': { summary: 'Dáàbò bo àkọọ́lẹ̀ pẹ̀lú ọ̀rọ̀ aṣínà àti ìjẹ́rìí ìgbésẹ̀ méjì.', actions: ['Lo ọ̀rọ̀ aṣínà tí o kò lò ní ibòmíràn.', 'Pa alaye ìmúpadàbọ̀ sí ibi ààbò.'] },
 }
 
 const yoRolePages: OnboardingCopy['rolePages'] = {
-  owner: { '/today': { summary: 'Ibí ni o ti ń ṣàkóso ìkìlọ̀ gbogbo oko, ìfọwọ́sí, ìṣòro àti àkótán ọjọ́. Olùṣàkóso kò nílò láti wọlé tàbí jáde níbi iṣẹ́.', actions: ['Ṣàyẹ̀wò ìṣòro pàtàkì àti iṣẹ́ tó ń dúró fún ìfọwọ́sí.', 'Ka àkótán ìparí ọjọ́ kí o tó ṣe ìpinnu gbogbo oko.'] } },
-  supervisor: { '/today': { summary: 'Ibí ni o ti ń ṣètò iṣẹ́ òní, ṣàyẹ̀wò ìṣòro oko, kí o sì jẹ́ kí ẹgbẹ́ tẹ̀síwájú. Alábòójútó kò nílò láti wọlé tàbí jáde níbi iṣẹ́.', actions: ['Ṣàyẹ̀wò iṣẹ́ pàtàkì, ìròyìn òṣìṣẹ́ àti ìṣòro wíwà.', 'Fọwọ́sí iṣẹ́ tó pé tàbí dá a padà pẹ̀lú ìdí kedere.'] } },
+  owner: { '/today': { summary: 'Ibí ni o ti ń ṣàkọsílẹ̀ wíwà rẹ, ṣàkóso ìkìlọ̀ gbogbo oko, ìfọwọ́sí, ìṣòro àti àkótán ọjọ́.', actions: ['Wọlé sí iṣẹ́ nígbà tí o bá bẹ̀rẹ̀, kí o sì jáde nígbà tí o bá parí.', 'Ṣàyẹ̀wò ìṣòro pàtàkì àti iṣẹ́ tó ń dúró fún ìfọwọ́sí.', 'Ka àkótán ìparí ọjọ́ kí o tó ṣe ìpinnu gbogbo oko.'] } },
+  supervisor: { '/today': { summary: 'Ibí ni o ti ń ṣàkọsílẹ̀ wíwà rẹ, ṣètò iṣẹ́ òní, ṣàyẹ̀wò ìṣòro oko, kí o sì jẹ́ kí ẹgbẹ́ tẹ̀síwájú.', actions: ['Wọlé sí iṣẹ́ nígbà tí o bá bẹ̀rẹ̀, kí o sì jáde nígbà tí o bá parí.', 'Ṣàyẹ̀wò iṣẹ́ pàtàkì, ìròyìn òṣìṣẹ́ àti ìṣòro wíwà.', 'Fọwọ́sí iṣẹ́ tó pé tàbí dá a padà pẹ̀lú ìdí kedere.'] } },
   field_worker: {
     '/today': {
       summary: 'Ibí ni ọjọ́ iṣẹ́ rẹ ti bẹ̀rẹ̀. Wọlé sí iṣẹ́, wo ohun tó nílò àkíyèsí, kí o sì jáde nígbà tí o bá parí.',
@@ -437,7 +491,7 @@ const yoRolePages: OnboardingCopy['rolePages'] = {
       ],
     },
   },
-  sales: { '/today': { summary: 'Ibí ni títà ti ń rí ọ̀dà tó ń dúró, ìtọ́pa oníbàárà, ẹ̀dùn, ìsanwó àti ìfijiṣẹ́. Ẹgbẹ́ títà kò nílò láti wọlé tàbí jáde níbi.', actions: ['Bẹ̀rẹ̀ pẹ̀lú ọ̀dà àti ìṣòro oníbàárà tó nílò ìgbésẹ̀.', 'Jẹ́rìí ìsanwó àti ìfijiṣẹ́ láìyí stock gidi padà.'] } },
+  sales: { '/today': { summary: 'Ibí ni o ti ń ṣàkọsílẹ̀ wíwà rẹ, rí ọ̀dà tó ń dúró, ìtọ́pa oníbàárà, ẹ̀dùn, ìsanwó àti ìfijiṣẹ́.', actions: ['Wọlé sí iṣẹ́ nígbà tí o bá bẹ̀rẹ̀, kí o sì jáde nígbà tí o bá parí.', 'Bẹ̀rẹ̀ pẹ̀lú ọ̀dà àti ìṣòro oníbàárà tó nílò ìgbésẹ̀.', 'Jẹ́rìí ìsanwó àti ìfijiṣẹ́ láìyí stock gidi padà.'] } },
 }
 
 const frPages: Record<string, PageGuide> = {
@@ -465,13 +519,22 @@ const frPages: Record<string, PageGuide> = {
   '/templates': { summary: 'Consignes réutilisables pour l’alimentation, les inspections et les routines.', actions: ['Écrivez les étapes dans l’ordre.', 'Mettez le modèle à jour lorsque le processus change.'] },
   '/zones': { summary: 'Structure des lieux : zones, parcelles et emplacements du travail, des cultures, animaux et stocks.', actions: ['Utilisez des noms connus de l’équipe.', 'Ne créez pas deux zones pour le même lieu.'] },
   '/users': { summary: 'Créez les comptes et contrôlez les accès selon le rôle.', actions: ['Donnez uniquement les droits nécessaires.', 'Désactivez les personnes qui ne travaillent plus avec la ferme.'] },
+  '/hours': { summary: 'Consultez les présences, les heures travaillées et les corrections à vérifier.', actions: ['Vérifiez la personne et la date avant une modification.', 'Donnez un motif clair pour chaque correction.'] },
+  '/journal': { summary: 'Rédigez et publiez les articles du blog public de la ferme.', actions: ['Gardez le brouillon tant que le texte ou les images ne sont pas prêts.', 'Prévisualisez l’article avant de le publier.'] },
+  '/brand-kits': { summary: 'Préparez un dossier privé de photos et fichiers approuvés pour un partenaire.', actions: ['Ajoutez uniquement les fichiers autorisés.', 'Fixez une date d’expiration et un mot de passe si nécessaire.'] },
+  '/newsletter': { summary: 'Consultez les personnes inscrites aux emails de la ferme et leur état de confirmation.', actions: ['Utilisez la liste uniquement pour les messages acceptés.', 'Appliquez immédiatement toute demande de désinscription.'] },
+  '/marketing-leads': { summary: 'Suivez les demandes du site jusqu’à leur réponse ou leur clôture.', actions: ['Assignez chaque nouvelle demande.', 'Mettez le statut à jour après chaque suivi utile.'] },
+  '/shop-customers': { summary: 'Retrouvez les comptes boutique, leur vérification et les contacts WhatsApp ou Telegram liés.', actions: ['Recherchez avec les informations données par le client.', 'Traitez les téléphones et emails comme des données privées.'] },
+  '/moments': { summary: 'Contrôlez les photos et vidéos proposées pour la page publique Moments.', actions: ['Vérifiez le consentement et la description.', 'Ne publiez aucun contenu privé ou dangereux.'] },
+  '/careers': { summary: 'Gérez les offres d’emploi publiques et les candidatures reçues par la ferme.', actions: ['Gardez les dates et les détails à jour.', 'Réservez les données des candidats aux personnes chargées du recrutement.'] },
+  '/settings/audit': { summary: 'Recherchez les changements de sécurité et de données, puis exportez les preuves nécessaires.', actions: ['Filtrez par personne, action ou date.', 'Ne modifiez ni ne partagez un export sans motif professionnel.'] },
   '/settings': { summary: 'Modifiez langue, apparence, notifications, sécurité et configuration autorisée.', actions: ['Choisissez la langue la plus claire pour vous.', 'Seuls les administrateurs changent les réglages de toute la ferme.'] },
   '/settings/security': { summary: 'Protégez le compte avec le mot de passe et la vérification en deux étapes.', actions: ['Utilisez un mot de passe unique.', 'Gardez les informations de récupération en lieu sûr.'] },
 }
 
 const frRolePages: OnboardingCopy['rolePages'] = {
-  owner: { '/today': { summary: 'Votre poste de contrôle quotidien pour les alertes, approbations, exceptions et la clôture de la ferme. Les administrateurs ne pointent pas.', actions: ['Examinez les urgences et le travail en attente d’approbation.', 'Consultez la clôture avant toute décision concernant toute la ferme.'] } },
-  supervisor: { '/today': { summary: 'Votre poste d’opérations pour coordonner le travail, contrôler les exceptions et faire avancer l’équipe. Les superviseurs ne pointent pas.', actions: ['Vérifiez le travail urgent, les rapports terrain et les anomalies de présence.', 'Approuvez le travail terminé ou renvoyez-le avec un motif clair.'] } },
+  owner: { '/today': { summary: 'Votre poste de contrôle quotidien pour votre présence, les alertes, les approbations, les exceptions et la clôture de la ferme.', actions: ['Pointez à votre arrivée et à votre départ.', 'Examinez les urgences et le travail en attente d’approbation.', 'Consultez la clôture avant toute décision concernant toute la ferme.'] } },
+  supervisor: { '/today': { summary: 'Votre poste d’opérations pour votre présence, le travail du jour, les exceptions et le suivi de l’équipe.', actions: ['Pointez à votre arrivée et à votre départ.', 'Vérifiez le travail urgent, les rapports terrain et les anomalies de présence.', 'Approuvez le travail terminé ou renvoyez-le avec un motif clair.'] } },
   field_worker: {
     '/today': {
       summary: 'Votre journée commence ici. Pointez à l’arrivée, voyez ce qui demande attention, puis pointez au départ.',
@@ -538,7 +601,7 @@ const frRolePages: OnboardingCopy['rolePages'] = {
       ],
     },
   },
-  sales: { '/today': { summary: 'Votre file de vente quotidienne : commandes, suivis clients, réclamations, paiements et livraisons. L’équipe commerciale ne pointe pas ici.', actions: ['Commencez par les commandes et demandes clients urgentes.', 'Confirmez paiements et livraisons sans modifier le stock physique.'] } },
+  sales: { '/today': { summary: 'Votre point de départ pour la présence, les commandes, les suivis clients, les réclamations, les paiements et les livraisons.', actions: ['Pointez à votre arrivée et à votre départ.', 'Commencez par les commandes et demandes clients urgentes.', 'Confirmez paiements et livraisons sans modifier le stock physique.'] } },
 }
 
 const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> & { pages: Record<string, PageGuide>; fallbackPage: PageGuide }> = {
@@ -555,7 +618,7 @@ const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> &
     basics: ['Use the menu arrow to make the desktop menu smaller or larger.', 'Use the language buttons at any time; your choice is saved to your profile.', 'Tap the Help button on any page for a plain explanation of that page.'],
     readyTitle: 'You are ready to begin',
     readyBody: 'Start with the page your role opens. Read before you save, and ask a supervisor whenever the real farm result does not match the screen.',
-    help: 'Help', pageHelp: 'About this page', pageHelpBody: 'Here is what this page is for and the safest way to use it.', pageRoleLead: (roleTitle) => `As a ${roleTitle}, follow the steps below for this page.`, fullGuide: 'Show full guide', start: 'Start guide', next: 'Next', back: 'Back', finish: 'Start using Trovara OS', skip: 'Skip for now', close: 'Close', step: (current, total) => `Step ${current} of ${total}`,
+    help: 'Help', pageHelp: 'About this page', pageHelpBody: 'Here is what this page is for and the safest way to use it.', pageRoleLead: (roleTitle) => `${roleTitle === 'Administrator' ? 'As an' : 'As a'} ${roleTitle}, follow the steps below for this page.`, fullGuide: 'Show full guide', start: 'Start guide', next: 'Next', back: 'Back', finish: 'Start using Trovara OS', skip: 'Skip for now', close: 'Close', step: (current, total) => `Step ${current} of ${total}`,
     roles: {
       owner: { title: 'Administrator', summary: 'You oversee the whole farm system and control access, setup, approvals, records, and business reporting.', duties: ['Set up users and farm structure.', 'Review exceptions and approvals.', 'Protect permissions, finance, and audit records.'] },
       supervisor: { title: 'Supervisor', summary: 'You coordinate daily farm work and verify that field records match what really happened.', duties: ['Assign and review work.', 'Check crops, animals, stock, and field reports.', 'Escalate losses, risks, and unusual differences.'] },

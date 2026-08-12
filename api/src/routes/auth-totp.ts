@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { createHash, randomInt } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { setCookie, getCookie } from 'hono/cookie'
 import QRCode from 'qrcode'
 import { db } from '../db/index.js'
@@ -89,7 +89,7 @@ function generateRecoveryCodes(count = 8): { plaintext: string[]; hashes: string
 
 async function verifyStoredTotpToken(userId: string, storedSecret: string, token: string): Promise<boolean> {
   const { plaintext, shouldReencrypt } = decryptSecretForVerify(storedSecret)
-  const valid = verifyTokenForUser(userId, plaintext, token)
+  const valid = await verifyTokenForUser(userId, plaintext, token)
   if (valid && shouldReencrypt) {
     await db
       .update(users)
@@ -99,7 +99,7 @@ async function verifyStoredTotpToken(userId: string, storedSecret: string, token
   return valid
 }
 
-async function verifyAndConsumeRecoveryCode(
+export async function verifyAndConsumeRecoveryCode(
   userId: string,
   recoveryCode: string,
 ): Promise<{ ok: true; remaining: string[] } | { ok: false }> {
@@ -115,7 +115,14 @@ async function verifyAndConsumeRecoveryCode(
   if (index === -1) return { ok: false }
 
   const remaining = stored.filter((_, i) => i !== index)
-  await db.update(users).set({ totpRecoveryCodes: remaining }).where(eq(users.id, userId))
+  // Compare the complete old JSON value while updating it. Concurrent requests
+  // can both read the code, but only one can replace that exact old value.
+  const [consumed] = await db
+    .update(users)
+    .set({ totpRecoveryCodes: remaining })
+    .where(and(eq(users.id, userId), eq(users.totpRecoveryCodes, stored)))
+    .returning({ id: users.id })
+  if (!consumed) return { ok: false }
   return { ok: true, remaining }
 }
 
@@ -128,14 +135,14 @@ export function registerTotpRoutes(app: AuthApp) {
     const hashedIp = hashIp(ip)
     const { totpChallenge, token: totpToken } = c.req.valid('json')
 
-    const rate = checkTotpChallengeRateLimit(totpChallenge, ip)
+    const rate = await checkTotpChallengeRateLimit(totpChallenge, ip)
     if (!rate.allowed) {
-      invalidateTotpChallenge(totpChallenge)
+      await invalidateTotpChallenge(totpChallenge)
       c.header('Retry-After', String(rate.retryAfterSec))
       return c.json({ error: 'Too many failed attempts. Sign in again.' }, 429)
     }
 
-    const challengedUserId = peekTotpChallenge(totpChallenge)
+    const challengedUserId = await peekTotpChallenge(totpChallenge)
     if (!challengedUserId) {
       return c.json({ error: 'Session expired. Sign in again.' }, 401)
     }
@@ -146,7 +153,7 @@ export function registerTotpRoutes(app: AuthApp) {
     }
 
     if (!(await verifyStoredTotpToken(user.id, user.totpSecret, totpToken))) {
-      const locked = recordTotpChallengeFailure(totpChallenge, ip)
+      const locked = await recordTotpChallengeFailure(totpChallenge, ip)
       logSecurityEvent(
         'failed_login',
         withAccessMeta((name) => c.req.header(name), {
@@ -161,8 +168,8 @@ export function registerTotpRoutes(app: AuthApp) {
       )
     }
 
-    resetTotpChallengeRateLimit(totpChallenge, ip)
-    consumeTotpChallenge(totpChallenge)
+    await resetTotpChallengeRateLimit(totpChallenge, ip)
+    await consumeTotpChallenge(totpChallenge)
     await resetDurableRateLimit(staffLoginRateKey(ip))
 
     const sessionToken = await createSession(user.id, {
@@ -407,14 +414,14 @@ export function registerTotpRoutes(app: AuthApp) {
     const { totpChallenge, token: recoveryCode, password } = c.req.valid('json')
 
     if (totpChallenge) {
-      const rate = checkTotpChallengeRateLimit(totpChallenge, ip)
+      const rate = await checkTotpChallengeRateLimit(totpChallenge, ip)
       if (!rate.allowed) {
-        invalidateTotpChallenge(totpChallenge)
+        await invalidateTotpChallenge(totpChallenge)
         c.header('Retry-After', String(rate.retryAfterSec))
         return c.json({ error: 'Too many failed attempts. Sign in again.' }, 429)
       }
 
-      const challengedUserId = peekTotpChallenge(totpChallenge)
+      const challengedUserId = await peekTotpChallenge(totpChallenge)
       if (!challengedUserId) {
         return c.json({ error: 'Session expired. Sign in again.' }, 401)
       }
@@ -426,7 +433,7 @@ export function registerTotpRoutes(app: AuthApp) {
 
       const verified = await verifyAndConsumeRecoveryCode(user.id, recoveryCode)
       if (!verified.ok) {
-        const locked = recordTotpChallengeFailure(totpChallenge, ip)
+        const locked = await recordTotpChallengeFailure(totpChallenge, ip)
         logSecurityEvent(
           'totp_recovery_failed',
           withAccessMeta((name) => c.req.header(name), {
@@ -442,8 +449,8 @@ export function registerTotpRoutes(app: AuthApp) {
         )
       }
 
-      resetTotpChallengeRateLimit(totpChallenge, ip)
-      consumeTotpChallenge(totpChallenge)
+      await resetTotpChallengeRateLimit(totpChallenge, ip)
+      await consumeTotpChallenge(totpChallenge)
       await resetDurableRateLimit(staffLoginRateKey(ip))
 
       const sessionToken = await createSession(user.id, {

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1584 396" role="img" aria-labelledby="title desc">
+  <title id="title">Trovara LinkedIn profile banner</title>
+  <desc id="desc">Trovara T and leaf monogram with the line Food you can trust from a farm built for tomorrow.</desc>
+  <rect width="1584" height="396" fill="#28382F"/>
+  <path d="M0 315c250-114 495-112 735 8s481 119 735 12l114-45v106H0Z" fill="#31483C"/>
+  <path d="M0 358c265-85 518-73 758 38" fill="none" stroke="#889058" stroke-width="6" opacity=".65"/>
+
+  <g transform="translate(610 58)">
+    <rect width="268" height="268" rx="54" fill="#FAF9F5"/>
+    <g transform="translate(43 18) scale(.83)">
+      <path fill="#28382F" d="M18 14h184v48h-5c-1-24-17-39-45-39h-30v184c0 22 8 32 27 37v3H71v-3c19-5 27-15 27-37V23H68C40 23 24 38 23 62h-5Z"/>
+      <path fill="#28382F" d="M19 61c5 42 24 70 59 83 25 10 37 33 42 73-4-49-16-83-43-111C59 87 40 72 19 61Z"/>
+      <path fill="#889058" d="M201 70c-5 46-25 76-60 91-20 9-31 29-39 61 6-42 18-72 44-99 18-19 36-36 55-53Z"/>
+      <path d="M42 91c32 20 58 55 68 103" fill="none" stroke="#FAF9F5" stroke-width="5" stroke-linecap="round"/>
+      <path d="M179 100c-31 23-56 57-69 94" fill="none" stroke="#FAF9F5" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <text x="928" y="166" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="850" letter-spacing="7">TROVARA</text>
+  <text x="934" y="214" fill="#B8C27A" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="750" letter-spacing="10">FARM</text>
+  <text x="930" y="258" fill="#FAF9F5" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600">Food you can trust</text>
+  <text x="930" y="296" fill="#FAF9F5" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600">from a farm built</text>
+  <text x="930" y="334" fill="#FAF9F5" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600">for tomorrow.</text>
+</svg>

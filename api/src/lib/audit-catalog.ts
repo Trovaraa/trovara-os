@@ -41,7 +41,7 @@ export const AUDIT_DOMAIN_ENTITY_TYPES: Record<AuditDomain, readonly string[]> =
     'farm',
   ],
   privacy: ['privacy', 'data_export', 'consent'],
-  integrations: ['whatsapp', 'telegram', 'newsletter', 'journal', 'marketing_lead'],
+  integrations: ['whatsapp', 'telegram', 'newsletter', 'journal', 'marketing_lead', 'brand_asset', 'brand_pack'],
   other: [],
 }
 

@@ -17,13 +17,55 @@ describe('useTodayAttendance', () => {
     vi.clearAllMocks()
   })
 
-  it.each(['owner', 'supervisor', 'sales'])('does not load personal attendance for %s', async (role) => {
+  it.each(['owner', 'supervisor', 'sales', 'field_worker'])(
+    'loads attendance for %s',
+    async (role) => {
+      api.mockResolvedValueOnce({ sessions: [] }).mockResolvedValueOnce({ plots: [] })
+      const { useTodayAttendance } = await import('./useTodayAttendance')
+      const attendance = useTodayAttendance(() => role, () => 'user-1')
+      await attendance.loadAttendance()
+      expect(api).toHaveBeenCalledWith('/api/attendance/today')
+      expect(api).toHaveBeenCalledWith('/api/zones/plots')
+      expect(attendance.showAttendance.value).toBe(true)
+      expect(attendance.canManageAttendance.value).toBe(role === 'owner' || role === 'supervisor')
+      expect(attendance.canClockSelf.value).toBe(true)
+    },
+  )
+
+  it('does not load attendance controls for an unsupported role', async () => {
     const { useTodayAttendance } = await import('./useTodayAttendance')
-    const attendance = useTodayAttendance(() => role)
-    attendance.attendance.value = [{ id: 'x' } as never]
+    const attendance = useTodayAttendance(() => 'custom_role', () => 'custom-1')
     await attendance.loadAttendance()
     expect(api).not.toHaveBeenCalled()
-    expect(attendance.attendance.value).toEqual([])
+    expect(attendance.showAttendance.value).toBe(false)
+    expect(attendance.canClockSelf.value).toBe(false)
+  })
+
+  it('scopes open attendance to the current user for managers', async () => {
+    api.mockResolvedValueOnce({
+      sessions: [
+        {
+          id: 'worker-open',
+          userId: 'worker-1',
+          userName: 'Worker',
+          clockInAt: '2026-08-10T07:00:00.000Z',
+          clockOutAt: null,
+          payableMinutes: 0,
+        },
+        {
+          id: 'manager-closed',
+          userId: 'manager-1',
+          userName: 'Manager',
+          clockInAt: '2026-08-10T08:00:00.000Z',
+          clockOutAt: '2026-08-10T09:00:00.000Z',
+          payableMinutes: 60,
+        },
+      ],
+    }).mockResolvedValueOnce({ plots: [] })
+    const { useTodayAttendance } = await import('./useTodayAttendance')
+    const attendance = useTodayAttendance(() => 'owner', () => 'manager-1')
+    await attendance.loadAttendance()
+    expect(attendance.openAttendance.value).toBeNull()
   })
 
   it('clockInNow posts then refreshes', async () => {

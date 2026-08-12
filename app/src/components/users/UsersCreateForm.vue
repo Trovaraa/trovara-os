@@ -39,6 +39,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.email') }}</label>
         <input
           v-model="newEmail"
+          :aria-label="t('users.email')"
           type="email"
           required
           placeholder="worker@trovara.farm"
@@ -49,6 +50,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.name') }}</label>
         <input
           v-model="newName"
+          :aria-label="t('users.name')"
           type="text"
           required
           maxlength="200"
@@ -60,6 +62,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.role') }}</label>
         <select
           v-model="newFarmRoleId"
+          :aria-label="t('users.role')"
           required
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         >
@@ -76,6 +79,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.jobTitle') }}</label>
         <input
           v-model="newJobTitle"
+          :aria-label="t('users.jobTitle')"
           type="text"
           maxlength="200"
           :placeholder="t('users.jobTitle')"
@@ -86,6 +90,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.password') }}</label>
         <input
           v-model="newPassword"
+          :aria-label="t('users.password')"
           type="password"
           required
           minlength="8"
@@ -97,6 +102,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.phone') }}</label>
         <input
           v-model="newPhone"
+          :aria-label="t('users.phone')"
           type="tel"
           placeholder="+234..."
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
@@ -106,6 +112,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employeeNumber') }}</label>
         <input
           v-model="newEmployeeNumber"
+          :aria-label="t('users.employeeNumber')"
           type="text"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />
@@ -114,6 +121,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employmentType') }}</label>
         <select
           v-model="newEmploymentType"
+          :aria-label="t('users.employmentType')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         >
           <option value="">{{ t('users.optional') }}</option>
@@ -127,6 +135,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.employmentStartDate') }}</label>
         <input
           v-model="newEmploymentStartDate"
+          :aria-label="t('users.employmentStartDate')"
           type="date"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />
@@ -135,6 +144,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.monthlyWage') }}</label>
         <input
           v-model.number="newMonthlyWageNgn"
+          :aria-label="t('users.monthlyWage')"
           type="number"
           min="0"
           step="1"
@@ -146,6 +156,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.wageEffectiveFrom') }}</label>
         <input
           v-model="newMonthlyWageEffectiveFrom"
+          :aria-label="t('users.wageEffectiveFrom')"
           type="date"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />
@@ -154,6 +165,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinName') }}</label>
         <input
           v-model="newNextOfKinName"
+          :aria-label="t('users.nextOfKinName')"
           type="text"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />
@@ -162,6 +174,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinPhone') }}</label>
         <input
           v-model="newNextOfKinPhone"
+          :aria-label="t('users.nextOfKinPhone')"
           type="tel"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
         />
@@ -170,6 +183,7 @@ const { t } = useI18n()
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.nextOfKinRelationship') }}</label>
         <input
           v-model="newNextOfKinRelationship"
+          :aria-label="t('users.nextOfKinRelationship')"
           type="text"
           :placeholder="t('users.nextOfKinRelationshipPlaceholder')"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"

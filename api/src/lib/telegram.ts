@@ -6,6 +6,7 @@
 
 import type { UserRole } from '../db/schema.js'
 import { telegramCommandsForRole } from './role-menus.js'
+import { externalFetch } from './external-http.js'
 
 export type TelegramConfig = { botToken: string; apiBase: string }
 
@@ -50,7 +51,7 @@ async function tgCall<T>(
   const config = getTelegramConfig(kind)
   if (!config) throw new Error('Telegram not configured - set TELEGRAM_BOT_TOKEN')
 
-  const res = await fetch(`${config.apiBase}/${method}`, {
+  const res = await externalFetch(`${config.apiBase}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -154,7 +155,7 @@ export async function sendTelegramPhoto(
   form.append('photo', new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }), filename)
   if (opts?.caption?.trim()) form.append('caption', opts.caption.trim().slice(0, 1024))
 
-  const res = await fetch(`${config.apiBase}/sendPhoto`, {
+  const res = await externalFetch(`${config.apiBase}/sendPhoto`, {
     method: 'POST',
     body: form,
   })
@@ -179,7 +180,7 @@ export async function sendTelegramVoice(
   form.append('voice', new Blob([new Uint8Array(audioBuffer)]), filename)
   if (opts?.caption?.trim()) form.append('caption', opts.caption.trim().slice(0, 1024))
 
-  const res = await fetch(`${config.apiBase}/sendVoice`, {
+  const res = await externalFetch(`${config.apiBase}/sendVoice`, {
     method: 'POST',
     body: form,
   })
@@ -202,7 +203,7 @@ export async function downloadTelegramFile(fileId: string): Promise<string> {
     throw new Error('Telegram file too large')
   }
 
-  const fileRes = await fetch(`https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`)
+  const fileRes = await externalFetch(`https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`)
   if (!fileRes.ok) throw new Error(`Telegram file download failed (${fileRes.status})`)
 
   const buffer = Buffer.from(await fileRes.arrayBuffer())
@@ -227,7 +228,7 @@ export async function downloadTelegramFileBuffer(
     throw new Error('Telegram file too large')
   }
 
-  const fileRes = await fetch(`https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`)
+  const fileRes = await externalFetch(`https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`)
   if (!fileRes.ok) throw new Error(`Telegram file download failed (${fileRes.status})`)
 
   const buffer = Buffer.from(await fileRes.arrayBuffer())
@@ -271,15 +272,19 @@ export async function getTelegramUpdates(
 ): Promise<TelegramUpdate[]> {
   const config = getTelegramConfig(kind)
   if (!config) return []
-  const res = await fetch(`${config.apiBase}/getUpdates`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      offset,
-      timeout: 50,
-      allowed_updates: ['message', 'callback_query'],
-    }),
-  })
+  const res = await externalFetch(
+    `${config.apiBase}/getUpdates`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        offset,
+        timeout: 50,
+        allowed_updates: ['message', 'callback_query'],
+      }),
+    },
+    { timeoutMs: 60_000 },
+  )
   const data = (await res.json()) as {
     ok: boolean
     result?: TelegramUpdate[]

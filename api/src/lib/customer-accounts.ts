@@ -179,36 +179,37 @@ export async function createCustomerPasswordResetToken(accountId: string): Promi
   return { rawToken, expiresAt }
 }
 
-export async function consumeCustomerPasswordResetToken(token: string): Promise<{
+export async function resetCustomerPasswordWithToken(
+  token: string,
+  passwordHash: string,
+): Promise<{
   accountId: string
   farmId: string
 } | null> {
   const now = new Date()
-  const [tokenRow] = await db
-    .select({
-      id: customerPasswordResetTokens.id,
-      accountId: customerPasswordResetTokens.accountId,
-      farmId: customerAccounts.farmId,
-    })
-    .from(customerPasswordResetTokens)
-    .innerJoin(customerAccounts, eq(customerPasswordResetTokens.accountId, customerAccounts.id))
-    .where(
-      and(
-        eq(customerPasswordResetTokens.tokenHash, hashCustomerToken(token)),
-        gt(customerPasswordResetTokens.expiresAt, now),
-        isNull(customerPasswordResetTokens.usedAt),
-      ),
-    )
-    .limit(1)
+  return db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(customerPasswordResetTokens)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(customerPasswordResetTokens.tokenHash, hashCustomerToken(token)),
+          gt(customerPasswordResetTokens.expiresAt, now),
+          isNull(customerPasswordResetTokens.usedAt),
+        ),
+      )
+      .returning({ accountId: customerPasswordResetTokens.accountId })
+    if (!claimed) return null
 
-  if (!tokenRow) return null
+    const [account] = await tx
+      .update(customerAccounts)
+      .set({ passwordHash })
+      .where(eq(customerAccounts.id, claimed.accountId))
+      .returning({ farmId: customerAccounts.farmId })
+    if (!account) throw new Error('RESET_ACCOUNT_NOT_FOUND')
 
-  await db
-    .update(customerPasswordResetTokens)
-    .set({ usedAt: now })
-    .where(eq(customerPasswordResetTokens.id, tokenRow.id))
-
-  return { accountId: tokenRow.accountId, farmId: tokenRow.farmId }
+    return { accountId: claimed.accountId, farmId: account.farmId }
+  })
 }
 
 export async function createCustomerEmailVerificationToken(accountId: string): Promise<{

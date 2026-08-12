@@ -8,6 +8,7 @@ import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import { api } from '@/lib/api'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { defaultHome } from '@/lib/navigation'
 
 const auth = useAuthStore()
 const { t } = useI18n()
@@ -72,7 +73,7 @@ async function submitRegister() {
 
     auth.user = data.user
     auth.error = null
-    await router.push('/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     formError.value = e instanceof Error ? e.message : t('register.failed')
   } finally {

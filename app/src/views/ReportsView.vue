@@ -19,8 +19,13 @@ const {
   inventoryShrink,
   actionList,
   plotProfitability,
+  expenseLabels,
+  expenseLabelFilter,
   loading,
+  refreshingExpenses,
   error,
+  expenseFilterError,
+  refreshExpenseReport,
   formatMoney,
   formatDate,
 } = useReportsData()
@@ -78,8 +83,31 @@ function auditLocation(metadata: unknown): string {
       <p v-if="generatedAt" class="text-xs text-slate-500">
         {{ t('reports.generated') }} {{ formatDate(generatedAt) }}
       </p>
+      <div v-if="auth.canAccessFinance && data" class="flex flex-wrap items-center gap-3">
+        <label for="report-expense-label" class="text-sm text-slate-400">
+          {{ t('finance.labels') }}
+        </label>
+        <select
+          id="report-expense-label"
+          v-model="expenseLabelFilter"
+          class="rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+          :disabled="refreshingExpenses"
+          @change="refreshExpenseReport"
+        >
+          <option value="">{{ t('finance.allLabels') }}</option>
+          <option v-for="label in expenseLabels" :key="label.id" :value="label.id">
+            {{ label.name }}
+          </option>
+        </select>
+        <span v-if="refreshingExpenses" class="text-xs text-slate-500">
+          {{ t('reports.loading') }}
+        </span>
+        <span v-if="expenseFilterError" class="text-xs text-red-400">
+          {{ expenseFilterError }}
+        </span>
+      </div>
 
-      <template v-if="auth.canApprove">
+      <template v-if="auth.hasPermission('reports.read')">
         <!-- Exception Digest -->
         <ReportsDigestPanel v-if="digest" :digest="digest" />
 
@@ -431,7 +459,27 @@ function auditLocation(metadata: unknown): string {
                 {{ cat }}: {{ formatMoney(amount, data.reports.pnl.currency) }}
               </span>
             </div>
-            <p v-else class="text-slate-500 text-sm">{{ t('reports.financeComing') }}</p>
+            <div
+              v-if="Object.keys(data.reports.pnl.expensesByLabel).length"
+              class="mt-3 flex flex-wrap gap-2"
+            >
+              <span
+                v-for="(row, labelId) in data.reports.pnl.expensesByLabel"
+                :key="labelId"
+                class="text-xs bg-slate-800/80 px-3 py-1.5 rounded-lg text-farm-gold"
+              >
+                {{ row.name }}: {{ formatMoney(row.total, data.reports.pnl.currency) }}
+              </span>
+            </div>
+            <p
+              v-if="
+                !Object.keys(data.reports.pnl.expensesByCategory).length &&
+                !Object.keys(data.reports.pnl.expensesByLabel).length
+              "
+              class="text-slate-500 text-sm"
+            >
+              {{ t('reports.financeComing') }}
+            </p>
           </section>
         </template>
 

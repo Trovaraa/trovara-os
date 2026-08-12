@@ -6,15 +6,17 @@
  * /register form. The token auto-invalidates after one successful registration.
  *
  * Usage:
- *   npm run reg-token -w api                       # 24h token
- *   npm run reg-token -w api -- --ttl=2 --label="initial founder"
+ *   npm run reg-token -w api -- --farm=<farm-uuid> # 24h token
+ *   npm run reg-token -w api -- --farm=<farm-uuid> --ttl=2 --label="initial founder"
  */
 import '../lib/env.js'
 import { createRegistrationToken } from '../lib/registration-tokens.js'
 
-function parseArgs(argv: string[]): { ttlHours?: number; label?: string } {
-  const out: { ttlHours?: number; label?: string } = {}
+function parseArgs(argv: string[]): { farmId?: string; ttlHours?: number; label?: string } {
+  const out: { farmId?: string; ttlHours?: number; label?: string } = {}
   for (const arg of argv) {
+    const farm = arg.match(/^--farm=([0-9a-f-]+)$/i)
+    if (farm) out.farmId = farm[1]
     const ttl = arg.match(/^--ttl=(\d+)$/)
     if (ttl) out.ttlHours = Number(ttl[1])
     const label = arg.match(/^--label=(.+)$/)
@@ -24,8 +26,12 @@ function parseArgs(argv: string[]): { ttlHours?: number; label?: string } {
 }
 
 async function main() {
-  const { ttlHours, label } = parseArgs(process.argv.slice(2))
+  const { farmId, ttlHours, label } = parseArgs(process.argv.slice(2))
+  if (!farmId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(farmId)) {
+    throw new Error('A valid --farm=<farm-uuid> is required')
+  }
   const generated = await createRegistrationToken({
+    farmId,
     createdByUserId: null,
     label: label ?? 'bootstrap CLI',
     ttlHours,
@@ -34,6 +40,7 @@ async function main() {
   console.log('\nOwner registration token (copy now — shown once):\n')
   console.log(`  ${generated.token}\n`)
   console.log(`  expires: ${generated.expiresAt.toISOString()}`)
+  console.log(`  farm:    ${generated.farmId}`)
   console.log(`  label:   ${label ?? 'bootstrap CLI'}`)
   console.log('\nPaste it into the "registration secret" field at /register.')
   console.log('It becomes invalid the moment an account is created with it.\n')

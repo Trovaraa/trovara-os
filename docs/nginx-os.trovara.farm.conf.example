@@ -7,6 +7,12 @@ map $http_upgrade $connection_upgrade {
   ''      close;
 }
 
+log_format trovara_json escape=json
+  '{"time":"$time_iso8601","requestId":"$request_id","remote":"$remote_addr",'
+  '"method":"$request_method","uri":"$uri","status":$status,'
+  '"bytes":$body_bytes_sent,"duration":$request_time,'
+  '"upstreamDuration":"$upstream_response_time"}';
+
 upstream trovara_api {
   server 127.0.0.1:3000;
   keepalive 16;
@@ -22,6 +28,8 @@ server {
   listen 80;
   listen [::]:80;
   server_name os.trovara.farm;
+  access_log /var/log/nginx/trovara-os-access.json trovara_json;
+  add_header X-Request-ID $request_id always;
   return 301 https://$host$request_uri;
 }
 
@@ -29,6 +37,8 @@ server {
   listen 443 ssl http2;
   listen [::]:443 ssl http2;
   server_name os.trovara.farm;
+  access_log /var/log/nginx/trovara-os-access.json trovara_json;
+  add_header X-Request-ID $request_id always;
 
   # TLS (replace with your cert paths or certbot-managed files)
   ssl_certificate     /etc/letsencrypt/live/os.trovara.farm/fullchain.pem;
@@ -54,11 +64,34 @@ server {
   # Match API body limit (12 MB) - photo/voice evidence uploads
   client_max_body_size 12m;
 
+  # Brand Kit streamed photo/video uploads (iPhone HEIC/MOV → H.264 MP4).
+  # Prefix ^~ wins over the generic /api/ location. Covers create + replace:
+  #   POST  /api/brand/assets/upload
+  #   PATCH /api/brand/assets/upload/:id
+  location ^~ /api/brand/assets/upload {
+    client_max_body_size 520m;
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Request-ID $request_id;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_read_timeout 900s;
+    proxy_send_timeout 900s;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
+  }
+
   # Real client IP for rate limiting and session metadata
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Request-ID $request_id;
   # Optional geo (when Cloudflare or nginx geo module sets these):
   # proxy_set_header CF-IPCountry $http_cf_ipcountry;
   # proxy_set_header CF-Region $http_cf_region;
@@ -72,8 +105,10 @@ server {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
   }
@@ -82,8 +117,10 @@ server {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
   }
@@ -92,8 +129,10 @@ server {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
   }
@@ -104,16 +143,20 @@ server {
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
+    add_header X-Request-ID $request_id always;
   }
 
   location = /health {
     proxy_pass http://trovara_api/health;
+    proxy_set_header X-Request-ID $request_id;
     access_log off;
   }
 
   location = /ready {
     proxy_pass http://trovara_api/ready;
+    proxy_set_header X-Request-ID $request_id;
     access_log off;
   }
 
@@ -123,5 +166,6 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
+    proxy_set_header X-Request-ID $request_id;
   }
 }

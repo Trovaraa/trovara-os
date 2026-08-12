@@ -18,7 +18,7 @@ type FieldReport = {
 
 const { t, locale } = useI18n()
 const auth = useAuthStore()
-const canManage = computed(() => auth.canApprove)
+const canManage = computed(() => auth.hasPermission('tasks.approve'))
 const reports = ref<FieldReport[]>([])
 const loading = ref(true)
 const saving = ref(false)

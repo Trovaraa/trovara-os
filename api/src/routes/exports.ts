@@ -47,7 +47,9 @@ function toCsv(headers: string[], rows: Array<Record<string, unknown>>, watermar
 
 exportRoutes.get('/tasks.csv', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const reason = parseExportReason(c)
 
   const rows = await db
@@ -93,7 +95,9 @@ exportRoutes.get('/tasks.csv', async (c) => {
 
 exportRoutes.get('/inventory.csv', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const reason = parseExportReason(c)
 
   const rows = await db
@@ -125,7 +129,9 @@ exportRoutes.get('/inventory.csv', async (c) => {
 
 exportRoutes.get('/expenses.csv', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const reason = parseExportReason(c)
 
   const rows = await db
@@ -169,7 +175,7 @@ exportRoutes.get('/expenses.csv', async (c) => {
 
 exportRoutes.get('/audit.csv', async (c) => {
   const user = c.get('user')
-  if (!hasPermission(user, 'audit.export') && !canAccessFinance(user)) {
+  if (!hasPermission(user, 'reports.read') || !hasPermission(user, 'audit.export')) {
     return c.json({ error: 'Forbidden' }, 403)
   }
   const reason = parseExportReason(c)
@@ -203,7 +209,9 @@ exportRoutes.get('/audit.csv', async (c) => {
 
 exportRoutes.get('/farm-data.json', async (c) => {
   const user = c.get('user')
-  if (!canAccessFinance(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'reports.read') || !canAccessFinance(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const reason = parseExportReason(c)
 
   const [tasksRows, inventoryRows, expenseRows, lotsRows, cropRows, plotRows, userRows] = await Promise.all([

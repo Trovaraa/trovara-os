@@ -67,6 +67,7 @@ const { t } = useI18n()
     <div class="flex flex-wrap items-center gap-2">
       <input
         v-model="totpCode"
+        aria-label="Authentication code"
         type="text"
         inputmode="numeric"
         maxlength="6"
@@ -83,6 +84,7 @@ const { t } = useI18n()
       </button>
       <input
         v-model="totpDisablePassword"
+        :aria-label="t('settings.disable2faPassword')"
         type="password"
         :placeholder="t('settings.disable2faPassword')"
         class="w-full max-w-xs bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"

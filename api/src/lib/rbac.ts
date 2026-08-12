@@ -55,9 +55,12 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'farm.manage':
     case 'newsletter.manage':
     case 'journal.manage':
+    case 'brand.manage':
+    case 'careers.manage':
     case 'products.delete':
     case 'whatsapp.configure':
       return user.role === 'owner'
+    case 'moments.manage':
     case 'tasks.assign':
     case 'tasks.approve':
     case 'attendance.roster':
@@ -79,6 +82,11 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'reports.read':
       // Broad staff defaults — match field-worker template minimums.
       return true
+    case 'assets.count':
+    case 'census.create':
+    case 'livestock.log':
+    case 'field_reports.create':
+      return user.role === 'owner' || user.role === 'supervisor' || user.role === 'field_worker'
     case 'inventory.read':
     case 'users.view':
       return user.role === 'owner' || user.role === 'supervisor'
@@ -86,6 +94,8 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'integrations.view':
       // Never grant vault/integrations metadata to field workers via legacy.
       return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
+    case 'ai.use':
+      return true
     case 'audit.export':
     case 'traceability.export':
       return user.role === 'owner' || user.role === 'sales'

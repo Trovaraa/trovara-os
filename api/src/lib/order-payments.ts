@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { and, count, desc, eq, like, sql } from 'drizzle-orm'
+import { and, count, desc, eq, like, ne, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   invoices,
@@ -43,6 +43,23 @@ export function makePayReference(orderId: string): string {
   return `TRV-PAY-${short}-${rand}`
 }
 
+export function webhookPaymentMatchesOrder(params: {
+  metadataFarmId: string
+  metadataOrderId: string
+  orderFarmId: string
+  orderId: string
+  webhookAmountKobo: number
+  orderAmountKobo: number
+  currency: string
+}): boolean {
+  return (
+    params.metadataFarmId === params.orderFarmId &&
+    params.metadataOrderId === params.orderId &&
+    Math.round(params.webhookAmountKobo) === params.orderAmountKobo &&
+    params.currency.toUpperCase() === 'NGN'
+  )
+}
+
 export async function sumOrderItemsKobo(orderId: string): Promise<number> {
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
   return items.reduce((sum, i) => sum + (i.lineTotalKobo ?? 0), 0)
@@ -62,26 +79,6 @@ async function findFarmOwnerActor(farmId: string) {
     name: owner.name,
     preferredLocale: owner.preferredLocale,
   }
-}
-
-async function nextInvoiceNumber(farmId: string, year: number): Promise<string> {
-  const prefix = `TRV-INV-${year}-`
-  const [row] = await db
-    .select({ total: count() })
-    .from(invoices)
-    .where(and(eq(invoices.farmId, farmId), like(invoices.invoiceNumber, `${prefix}%`)))
-  const seq = Number(row?.total ?? 0) + 1
-  return `${prefix}${String(seq).padStart(5, '0')}`
-}
-
-async function nextReceiptNumber(farmId: string, year: number): Promise<string> {
-  const prefix = `TRV-RCP-${year}-`
-  const [row] = await db
-    .select({ total: count() })
-    .from(paymentReceipts)
-    .where(and(eq(paymentReceipts.farmId, farmId), like(paymentReceipts.receiptNumber, `${prefix}%`)))
-  const seq = Number(row?.total ?? 0) + 1
-  return `${prefix}${String(seq).padStart(5, '0')}`
 }
 
 type MsgTable = Record<ReplyLocale, string>
@@ -209,6 +206,26 @@ export async function createPaymentAttemptForOrder(params: {
       ? `${params.phone.replace(/\D/g, '') || 'customer'}@pay.trovara.farm`
       : `order-${ordRef.toLowerCase()}@pay.trovara.farm`)
 
+  // Persist our reference before talking to Paystack. A fast webhook can now
+  // always resolve the attempt, and a timeout leaves a reconcilable record.
+  const [attempt] = await db
+    .insert(paymentAttempts)
+    .values({
+      farmId: params.farmId,
+      orderId: params.orderId,
+      provider: 'paystack',
+      providerReference: reference,
+      amountKobo,
+      currency: 'NGN',
+      status: 'initializing',
+      metadata: {
+        email,
+        phone: params.phone ?? null,
+        orderReference: ordRef,
+      },
+    })
+    .returning()
+
   const init = await initializeTransaction({
     email,
     amountKobo,
@@ -223,25 +240,29 @@ export async function createPaymentAttemptForOrder(params: {
       ],
     },
   })
-  if (!init.ok) return { error: init.error }
+  if (!init.ok) {
+    await db
+      .update(paymentAttempts)
+      .set({
+        status: 'initialization_unknown',
+        updatedAt: new Date(),
+        metadata: { ...(attempt.metadata ?? {}), initializationError: init.error },
+      })
+      .where(and(eq(paymentAttempts.id, attempt.id), ne(paymentAttempts.status, 'success')))
+    return { error: init.error }
+  }
+  if (init.data.reference !== reference) {
+    await db
+      .update(paymentAttempts)
+      .set({ status: 'failed', updatedAt: new Date() })
+      .where(and(eq(paymentAttempts.id, attempt.id), ne(paymentAttempts.status, 'success')))
+    return { error: 'Paystack returned an unexpected payment reference' }
+  }
 
-  const [attempt] = await db
-    .insert(paymentAttempts)
-    .values({
-      farmId: params.farmId,
-      orderId: params.orderId,
-      provider: 'paystack',
-      providerReference: init.data.reference,
-      accessCode: init.data.accessCode,
-      amountKobo,
-      currency: 'NGN',
-      status: 'initiated',
-      metadata: {
-        email,
-        phone: params.phone ?? null,
-        orderReference: ordRef,
-      },
-    })
+  const [initializedAttempt] = await db
+    .update(paymentAttempts)
+    .set({ accessCode: init.data.accessCode, status: 'initiated', updatedAt: new Date() })
+    .where(and(eq(paymentAttempts.id, attempt.id), ne(paymentAttempts.status, 'success')))
     .returning()
 
   if (order.paymentStatus === 'not_required' || order.paymentStatus === 'unpaid') {
@@ -251,7 +272,10 @@ export async function createPaymentAttemptForOrder(params: {
       .where(eq(orders.id, params.orderId))
   }
 
-  return { attempt, authorizationUrl: init.data.authorizationUrl }
+  return {
+    attempt: initializedAttempt ?? { ...attempt, accessCode: init.data.accessCode },
+    authorizationUrl: init.data.authorizationUrl,
+  }
 }
 
 export async function applySuccessfulPayment(params: {
@@ -271,92 +295,143 @@ export async function applySuccessfulPayment(params: {
     }
   | { ok: false; error: string }
 > {
-  const [attempt] = await db
-    .select()
+  const currency = (params.currency || 'NGN').toUpperCase()
+  const [known] = await db
+    .select({ id: paymentAttempts.id })
     .from(paymentAttempts)
     .where(eq(paymentAttempts.providerReference, params.reference))
     .limit(1)
-
-  if (!attempt) return { ok: false, error: 'Payment attempt not found' }
-
-  const currency = (params.currency || 'NGN').toUpperCase()
-  if (currency !== (attempt.currency || 'NGN').toUpperCase()) {
-    return { ok: false, error: 'Currency mismatch' }
-  }
-  if (Math.round(params.amountKobo) !== attempt.amountKobo) {
-    return { ok: false, error: 'Amount mismatch' }
-  }
-
-  const order = await findOrderById(attempt.farmId, attempt.orderId)
-  if (!order) return { ok: false, error: 'Order not found' }
-
-  // Idempotent: already success → skip mutate but still ensure invoice/receipt once.
-  const alreadyApplied = attempt.status === 'success'
-
-  if (!alreadyApplied) {
-    const now = new Date()
+  if (!known) {
+    // Initialization may have committed at Paystack while our local insert/update
+    // failed in an older deployment. A signed webhook can repair that gap, but
+    // only when its tenant/order metadata and amount agree with local records.
+    const raw = params.raw && typeof params.raw === 'object'
+      ? (params.raw as Record<string, unknown>)
+      : null
+    const metadata =
+      raw?.metadata && typeof raw.metadata === 'object'
+        ? (raw.metadata as Record<string, unknown>)
+        : null
+    const farmId = typeof metadata?.farmId === 'string' ? metadata.farmId : ''
+    const orderId = typeof metadata?.orderId === 'string' ? metadata.orderId : ''
+    const order = farmId && orderId ? await findOrderById(farmId, orderId) : null
+    const expectedAmount = order ? await sumOrderItemsKobo(orderId) : 0
+    if (
+      !order ||
+      !webhookPaymentMatchesOrder({
+        metadataFarmId: farmId,
+        metadataOrderId: orderId,
+        orderFarmId: order.farmId,
+        orderId: order.id,
+        webhookAmountKobo: params.amountKobo,
+        orderAmountKobo: expectedAmount,
+        currency,
+      })
+    ) {
+      return { ok: false, error: 'Payment attempt not found' }
+    }
     await db
+      .insert(paymentAttempts)
+      .values({
+        farmId,
+        orderId,
+        provider: 'paystack',
+        providerReference: params.reference,
+        amountKobo: expectedAmount,
+        currency,
+        status: 'initiated',
+        providerEventId: params.providerEventId,
+        metadata: { reconciledFromWebhook: true, ...metadata },
+      })
+      .onConflictDoNothing()
+  }
+
+  const applied = await db.transaction(async (tx) => {
+    // Serialize webhook and manual verification for this provider reference.
+    await tx.execute(sql`
+      SELECT id FROM payment_attempts
+      WHERE provider_reference = ${params.reference}
+      FOR UPDATE
+    `)
+    const [attempt] = await tx
+      .select()
+      .from(paymentAttempts)
+      .where(eq(paymentAttempts.providerReference, params.reference))
+      .limit(1)
+    if (!attempt) return { ok: false as const, error: 'Payment attempt not found' }
+    if (currency !== (attempt.currency || 'NGN').toUpperCase()) {
+      return { ok: false as const, error: 'Currency mismatch' }
+    }
+    if (Math.round(params.amountKobo) !== attempt.amountKobo) {
+      return { ok: false as const, error: 'Amount mismatch' }
+    }
+
+    const [order] = await tx
+      .select()
+      .from(orders)
+      .where(and(eq(orders.id, attempt.orderId), eq(orders.farmId, attempt.farmId)))
+      .limit(1)
+    if (!order) return { ok: false as const, error: 'Order not found' }
+
+    const now = new Date()
+    const [won] = await tx
       .update(paymentAttempts)
       .set({
         status: 'success',
-        paidAt: now,
+        paidAt: attempt.paidAt ?? now,
         providerEventId: params.providerEventId ?? attempt.providerEventId,
         updatedAt: now,
         metadata: {
           ...(attempt.metadata ?? {}),
           ...(params.raw && typeof params.raw === 'object'
-            ? { webhook: params.raw as Record<string, unknown> }
+            ? { providerSuccess: params.raw as Record<string, unknown> }
             : {}),
         },
       })
-      .where(eq(paymentAttempts.id, attempt.id))
+      .where(and(eq(paymentAttempts.id, attempt.id), ne(paymentAttempts.status, 'success')))
+      .returning({ id: paymentAttempts.id })
+    const alreadyApplied = !won
 
-    await db
+    if (alreadyApplied && params.providerEventId && !attempt.providerEventId) {
+      await tx
+        .update(paymentAttempts)
+        .set({ providerEventId: params.providerEventId, updatedAt: now })
+        .where(eq(paymentAttempts.id, attempt.id))
+    }
+
+    await tx
       .update(orders)
-      .set({ paymentStatus: 'paid', updatedAt: now })
-      .where(eq(orders.id, attempt.orderId))
-  } else if (params.providerEventId && !attempt.providerEventId) {
-    await db
-      .update(paymentAttempts)
-      .set({ providerEventId: params.providerEventId, updatedAt: new Date() })
-      .where(eq(paymentAttempts.id, attempt.id))
-  }
+      .set({
+        paymentStatus: 'paid',
+        ...(order.status === 'pending' ? { status: 'confirmed' as const } : {}),
+        updatedAt: now,
+      })
+      .where(and(eq(orders.id, attempt.orderId), eq(orders.farmId, attempt.farmId)))
 
-  let invoiceId: string | undefined
-  let receiptId: string | undefined
+    // Number allocation and document creation are part of the same commit.
+    // The farm lock prevents count-based invoice/receipt sequences colliding.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${attempt.farmId}, 1))`)
+    const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, attempt.orderId))
+    const year = now.getFullYear()
+    const paidAt = attempt.paidAt ?? now
 
-  const [existingInvoice] = await db
-    .select()
-    .from(invoices)
-    .where(and(eq(invoices.farmId, attempt.farmId), eq(invoices.orderId, attempt.orderId)))
-    .limit(1)
-
-  const [existingReceipt] = await db
-    .select()
-    .from(paymentReceipts)
-    .where(eq(paymentReceipts.paymentAttemptId, attempt.id))
-    .limit(1)
-
-  if (existingInvoice) {
-    invoiceId = existingInvoice.id
-  }
-  if (existingReceipt) {
-    receiptId = existingReceipt.id
-  }
-
-  if (!existingInvoice || !existingReceipt) {
-    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, attempt.orderId))
-    const year = new Date().getFullYear()
-    const paidAt = attempt.paidAt ?? new Date()
-
-    if (!existingInvoice) {
-      const invoiceNumber = await nextInvoiceNumber(attempt.farmId, year)
-      const [invoice] = await db
+    let [invoice] = await tx
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.farmId, attempt.farmId), eq(invoices.orderId, attempt.orderId)))
+      .limit(1)
+    if (!invoice) {
+      const prefix = `TRV-INV-${year}-`
+      const [row] = await tx
+        .select({ total: count() })
+        .from(invoices)
+        .where(and(eq(invoices.farmId, attempt.farmId), like(invoices.invoiceNumber, `${prefix}%`)))
+      ;[invoice] = await tx
         .insert(invoices)
         .values({
           farmId: attempt.farmId,
           orderId: attempt.orderId,
-          invoiceNumber,
+          invoiceNumber: `${prefix}${String(Number(row?.total ?? 0) + 1).padStart(5, '0')}`,
           currency: attempt.currency,
           amountKobo: attempt.amountKobo,
           publicToken: publicToken(),
@@ -378,46 +453,65 @@ export async function applySuccessfulPayment(params: {
             paidAt: paidAt.toISOString(),
           },
         })
+        .onConflictDoNothing()
         .returning()
-      invoiceId = invoice.id
+      if (!invoice) {
+        ;[invoice] = await tx
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.farmId, attempt.farmId), eq(invoices.orderId, attempt.orderId)))
+          .limit(1)
+      }
     }
+    if (!invoice) throw new Error('Invoice reconciliation failed')
 
-    if (!existingReceipt && invoiceId) {
-      const receiptNumber = await nextReceiptNumber(attempt.farmId, year)
-      const [receipt] = await db
+    let [receipt] = await tx
+      .select()
+      .from(paymentReceipts)
+      .where(eq(paymentReceipts.paymentAttemptId, attempt.id))
+      .limit(1)
+    if (!receipt) {
+      const prefix = `TRV-RCP-${year}-`
+      const [row] = await tx
+        .select({ total: count() })
+        .from(paymentReceipts)
+        .where(
+          and(eq(paymentReceipts.farmId, attempt.farmId), like(paymentReceipts.receiptNumber, `${prefix}%`)),
+        )
+      ;[receipt] = await tx
         .insert(paymentReceipts)
         .values({
           farmId: attempt.farmId,
-          invoiceId,
+          invoiceId: invoice.id,
           paymentAttemptId: attempt.id,
-          receiptNumber,
+          receiptNumber: `${prefix}${String(Number(row?.total ?? 0) + 1).padStart(5, '0')}`,
           amountKobo: attempt.amountKobo,
           paidAt,
           publicToken: publicToken(),
         })
+        .onConflictDoNothing()
         .returning()
-      receiptId = receipt.id
+      if (!receipt) {
+        ;[receipt] = await tx
+          .select()
+          .from(paymentReceipts)
+          .where(eq(paymentReceipts.paymentAttemptId, attempt.id))
+          .limit(1)
+      }
     }
-  }
+    if (!receipt) throw new Error('Receipt reconciliation failed')
 
-  // Auto-confirm pending orders on first successful payment application.
-  if (!alreadyApplied && order.status === 'pending') {
-    const actor = await findFarmOwnerActor(attempt.farmId)
-    if (actor) {
-      await transitionOrder({
-        farmId: attempt.farmId,
-        orderId: attempt.orderId,
-        toStatus: 'confirmed',
-        actor,
-        skipStaffNotify: true,
-      })
-    } else {
-      await db
-        .update(orders)
-        .set({ status: 'confirmed', updatedAt: new Date() })
-        .where(eq(orders.id, attempt.orderId))
+    return {
+      ok: true as const,
+      alreadyApplied,
+      attempt,
+      invoiceId: invoice.id,
+      receiptId: receipt.id,
     }
-  }
+  })
+  if (!applied.ok) return applied
+
+  const { attempt, alreadyApplied, invoiceId, receiptId } = applied
 
   if (!alreadyApplied) {
     const ref = orderReference(attempt.orderId)
@@ -570,6 +664,7 @@ export async function initiateRefund(params: {
   amountKobo: number
   reason: string
   userId: string
+  idempotencyKey: string
 }): Promise<
   | { ok: true; refund: typeof paymentRefunds.$inferSelect }
   | { ok: false; error: string }
@@ -604,53 +699,101 @@ export async function initiateRefund(params: {
     return { ok: false, error: 'Refund amount exceeds payment' }
   }
 
-  const [prior] = await db
-    .select({ total: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}), 0)` })
-    .from(paymentRefunds)
-    .where(
-      and(
-        eq(paymentRefunds.paymentAttemptId, attempt.id),
-        sql`${paymentRefunds.status} <> 'failed'`,
-      ),
-    )
-  const alreadyRefunded = Number(prior?.total ?? 0)
-  if (alreadyRefunded + amountKobo > attempt.amountKobo) {
-    return { ok: false, error: 'Refund would exceed remaining paid amount' }
-  }
+  const reserved = await db.transaction(async (tx) => {
+    // Per-payment serialization makes the remaining-balance check and intent
+    // insert one operation. Provider I/O happens only after this commits.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${attempt.id}, 2))`)
+    const [replay] = await tx
+      .select()
+      .from(paymentRefunds)
+      .where(
+        and(
+          eq(paymentRefunds.paymentAttemptId, attempt.id),
+          eq(paymentRefunds.idempotencyKey, params.idempotencyKey),
+        ),
+      )
+      .limit(1)
+    if (replay) return { ok: true as const, refund: replay, replay: true as const }
+
+    const [prior] = await tx
+      .select({ total: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}), 0)` })
+      .from(paymentRefunds)
+      .where(
+        and(
+          eq(paymentRefunds.paymentAttemptId, attempt.id),
+          sql`${paymentRefunds.status} <> 'failed'`,
+        ),
+      )
+    const alreadyRefunded = Number(prior?.total ?? 0)
+    if (alreadyRefunded + amountKobo > attempt.amountKobo) {
+      return { ok: false as const, error: 'Refund would exceed remaining paid amount' }
+    }
+
+    const [refund] = await tx
+      .insert(paymentRefunds)
+      .values({
+        farmId: params.farmId,
+        paymentAttemptId: attempt.id,
+        orderId: params.orderId,
+        amountKobo,
+        idempotencyKey: params.idempotencyKey,
+        status: 'submitting',
+        reason: params.reason.slice(0, 2000),
+        createdById: params.userId,
+      })
+      .returning()
+    return { ok: true as const, refund, replay: false as const, alreadyRefunded }
+  })
+  if (!reserved.ok) return reserved
+  if (reserved.replay) return { ok: true, refund: reserved.refund }
 
   const ps = await refundTransaction({
     reference: attempt.providerReference,
     amountKobo,
-    merchantNote: params.reason.slice(0, 500),
+    merchantNote: `[${reserved.refund.id}] ${params.reason}`.slice(0, 500),
   })
-  if (!ps.ok) return { ok: false, error: ps.error }
+  if (!ps.ok) {
+    // A timeout/network failure is an unknown outcome, not a failed refund.
+    // Keep the amount reserved and reconcile from a later provider webhook.
+    const [unknown] = await db
+      .update(paymentRefunds)
+      .set({ status: 'unknown', lastError: ps.error.slice(0, 2000), updatedAt: new Date() })
+      .where(eq(paymentRefunds.id, reserved.refund.id))
+      .returning()
+    return { ok: false, error: `${ps.error}; refund status is being reconciled (${unknown?.id})` }
+  }
 
   const refundStatus =
     ps.data.status === 'processed' || ps.data.status === 'success' ? 'success' : 'pending'
 
   const [refund] = await db
-    .insert(paymentRefunds)
-    .values({
-      farmId: params.farmId,
-      paymentAttemptId: attempt.id,
-      orderId: params.orderId,
-      amountKobo,
+    .update(paymentRefunds)
+    .set({
       providerRefundId: ps.data.id != null ? String(ps.data.id) : null,
       status: refundStatus,
-      reason: params.reason.slice(0, 2000),
-      createdById: params.userId,
+      lastError: null,
+      updatedAt: new Date(),
     })
+    .where(eq(paymentRefunds.id, reserved.refund.id))
     .returning()
 
-  const inFlight = alreadyRefunded + amountKobo
-  let nextStatus: PaymentStatus
-  if (refundStatus === 'success' && inFlight >= attempt.amountKobo) {
-    nextStatus = 'refunded'
-  } else if (refundStatus === 'success') {
-    nextStatus = 'partially_refunded'
-  } else {
-    nextStatus = 'refund_pending'
-  }
+  const [totals] = await db
+    .select({
+      successful: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}) filter (where ${paymentRefunds.status} = 'success'), 0)`,
+      active: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}) filter (where ${paymentRefunds.status} not in ('failed', 'success')), 0)`,
+    })
+    .from(paymentRefunds)
+    .where(eq(paymentRefunds.paymentAttemptId, attempt.id))
+  const successful = Number(totals?.successful ?? 0)
+  const active = Number(totals?.active ?? 0)
+  const nextStatus: PaymentStatus =
+    successful >= attempt.amountKobo
+      ? 'refunded'
+      : active > 0
+        ? 'refund_pending'
+        : successful > 0
+          ? 'partially_refunded'
+          : 'paid'
 
   await db
     .update(orders)
@@ -658,4 +801,81 @@ export async function initiateRefund(params: {
     .where(eq(orders.id, params.orderId))
 
   return { ok: true, refund }
+}
+
+/** Reconcile a Paystack refund webhook with an intent, including timed-out calls. */
+export async function reconcileRefund(params: {
+  providerRefundId: string
+  transactionReference: string
+  amountKobo: number
+  providerStatus: string
+}): Promise<{ ok: true; refundId: string } | { ok: false; error: string }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`
+      SELECT id FROM payment_attempts
+      WHERE provider_reference = ${params.transactionReference}
+      FOR UPDATE
+    `)
+    const [attempt] = await tx
+      .select()
+      .from(paymentAttempts)
+      .where(eq(paymentAttempts.providerReference, params.transactionReference))
+      .limit(1)
+    if (!attempt) return { ok: false as const, error: 'Payment attempt not found' }
+
+    let [refund] = await tx
+      .select()
+      .from(paymentRefunds)
+      .where(eq(paymentRefunds.providerRefundId, params.providerRefundId))
+      .limit(1)
+    if (!refund) {
+      ;[refund] = await tx
+        .select()
+        .from(paymentRefunds)
+        .where(
+          and(
+            eq(paymentRefunds.paymentAttemptId, attempt.id),
+            eq(paymentRefunds.amountKobo, Math.round(params.amountKobo)),
+            sql`${paymentRefunds.status} IN ('submitting', 'unknown', 'pending')`,
+          ),
+        )
+        .orderBy(paymentRefunds.createdAt)
+        .limit(1)
+    }
+    if (!refund) return { ok: false as const, error: 'Refund intent not found' }
+
+    const status =
+      params.providerStatus === 'processed' || params.providerStatus === 'success'
+        ? 'success'
+        : params.providerStatus === 'failed'
+          ? 'failed'
+          : 'pending'
+    await tx
+      .update(paymentRefunds)
+      .set({ providerRefundId: params.providerRefundId, status, updatedAt: new Date() })
+      .where(eq(paymentRefunds.id, refund.id))
+
+    const [totals] = await tx
+      .select({
+        successful: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}) filter (where ${paymentRefunds.status} = 'success'), 0)`,
+        active: sql<number>`coalesce(sum(${paymentRefunds.amountKobo}) filter (where ${paymentRefunds.status} not in ('failed', 'success')), 0)`,
+      })
+      .from(paymentRefunds)
+      .where(eq(paymentRefunds.paymentAttemptId, attempt.id))
+    const successful = Number(totals?.successful ?? 0)
+    const active = Number(totals?.active ?? 0)
+    const paymentStatus: PaymentStatus =
+      successful >= attempt.amountKobo
+        ? 'refunded'
+        : active > 0
+          ? 'refund_pending'
+          : successful > 0
+            ? 'partially_refunded'
+            : 'paid'
+    await tx
+      .update(orders)
+      .set({ paymentStatus, updatedAt: new Date() })
+      .where(and(eq(orders.id, attempt.orderId), eq(orders.farmId, attempt.farmId)))
+    return { ok: true as const, refundId: refund.id }
+  })
 }

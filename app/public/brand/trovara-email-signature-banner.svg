@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 140" role="img" aria-labelledby="title desc">
+  <title id="title">Trovara email signature banner</title>
+  <desc id="desc">Compact Trovara Farm lockup for email signatures. Name and role sit above this image in HTML.</desc>
+  <rect width="600" height="140" rx="0" fill="#FAF9F5"/>
+  <rect x="0" y="0" width="6" height="140" fill="#28382F"/>
+  <rect x="28" y="24" width="92" height="92" rx="20" fill="#28382F"/>
+  <g transform="translate(40 32) scale(.32)">
+    <path fill="#FAF9F5" d="M18 14h184v48h-5c-1-24-17-39-45-39h-30v184c0 22 8 32 27 37v3H71v-3c19-5 27-15 27-37V23H68C40 23 24 38 23 62h-5Z"/>
+    <path fill="#FAF9F5" d="M19 61c5 42 24 70 59 83 25 10 37 33 42 73-4-49-16-83-43-111C59 87 40 72 19 61Z"/>
+    <path fill="#E8C46A" d="M201 70c-5 46-25 76-60 91-20 9-31 29-39 61 6-42 18-72 44-99 18-19 36-36 55-53Z"/>
+    <path d="M42 91c32 20 58 55 68 103" fill="none" stroke="#28382F" stroke-width="5" stroke-linecap="round"/>
+    <path d="M179 100c-31 23-56 57-69 94" fill="none" stroke="#28382F" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <text x="144" y="68" fill="#28382F" font-family="Georgia, 'Times New Roman', serif" font-size="36" font-weight="700" letter-spacing="3">TROVARA</text>
+  <text x="146" y="92" fill="#889058" font-family="Inter, Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="4.5">FARM</text>
+  <text x="146" y="116" fill="#617064" font-family="Inter, Arial, Helvetica, sans-serif" font-size="13" font-weight="500">Food you can trust · www.trovara.farm</text>
+</svg>

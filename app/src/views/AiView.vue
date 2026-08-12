@@ -8,13 +8,37 @@ import { api } from '@/lib/api'
 const { t, locale } = useI18n()
 
 type IntegrationStatus = { configured: boolean; hint?: string }
-type ChatMessage = { role: 'user' | 'assistant'; text: string; image?: string }
+type ChatMessage = {
+  id?: string
+  role: 'user' | 'assistant'
+  text: string
+  image?: string
+  metadata?: Record<string, unknown> | null
+}
 type TaskDraft = { title: string; description?: string; assigneeId?: string; dueAt?: string }
+type ActionDraft = { draftId: string; actionType: string; preview: string }
+type Conversation = {
+  id: string
+  title: string
+  archivedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+type StoredMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  attachmentUrl: string | null
+  metadata: Record<string, unknown> | null
+}
 
 const loading = ref(true)
 const aiStatus = ref<IntegrationStatus | null>(null)
 
 const messages = ref<ChatMessage[]>([])
+const conversations = ref<Conversation[]>([])
+const activeConversationId = ref<string | null>(null)
+const conversationBusy = ref(false)
 const input = ref('')
 const attachedImage = ref<string | null>(null)
 const sending = ref(false)
@@ -24,6 +48,8 @@ const draft = ref<TaskDraft | null>(null)
 const draftId = ref<string | null>(null)
 const confirmingDraft = ref(false)
 const draftMessage = ref<string | null>(null)
+const actionDraft = ref<ActionDraft | null>(null)
+const confirmingAction = ref(false)
 
 const recording = ref(false)
 const transcribing = ref(false)
@@ -48,9 +74,110 @@ function appLocale(): 'en' | 'yo' | 'pcm' | 'fr' {
 async function load() {
   loading.value = true
   try {
-    aiStatus.value = await api<IntegrationStatus>('/api/ai/status')
+    const [status, history] = await Promise.all([
+      api<IntegrationStatus>('/api/ai/status'),
+      api<{ conversations: Conversation[] }>('/api/ai/conversations'),
+    ])
+    aiStatus.value = status
+    conversations.value = history.conversations
+    if (conversations.value[0]) await openConversation(conversations.value[0].id)
   } finally {
     loading.value = false
+  }
+}
+
+function restorePendingAction(rows: ChatMessage[]) {
+  actionDraft.value = null
+  for (const row of [...rows].reverse()) {
+    const draftId = row.metadata?.draftId
+    const actionType = row.metadata?.actionType
+    if (typeof draftId === 'string' && typeof actionType === 'string') {
+      actionDraft.value = { draftId, actionType, preview: row.text }
+      return
+    }
+    if (row.metadata?.confirmed || row.metadata?.cancelled) return
+  }
+}
+
+async function refreshConversationList() {
+  const data = await api<{ conversations: Conversation[] }>('/api/ai/conversations')
+  conversations.value = data.conversations
+}
+
+async function openConversation(id: string) {
+  if (conversationBusy.value) return
+  conversationBusy.value = true
+  chatError.value = null
+  try {
+    const data = await api<{ conversation: Conversation; messages: StoredMessage[] }>(`/api/ai/conversations/${id}`)
+    activeConversationId.value = data.conversation.id
+    messages.value = data.messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.content,
+      image: message.attachmentUrl ?? undefined,
+      metadata: message.metadata,
+    }))
+    restorePendingAction(messages.value)
+    await scrollToBottom()
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : t('insights.historyLoadFailed')
+  } finally {
+    conversationBusy.value = false
+  }
+}
+
+function onConversationSelected(event: Event) {
+  const id = (event.target as HTMLSelectElement).value
+  if (id) void openConversation(id)
+}
+
+async function newConversation() {
+  if (conversationBusy.value) return
+  conversationBusy.value = true
+  try {
+    const data = await api<{ conversation: Conversation; messages: StoredMessage[] }>('/api/ai/conversations', { method: 'POST' })
+    conversations.value = [data.conversation, ...conversations.value]
+    activeConversationId.value = data.conversation.id
+    messages.value = []
+    actionDraft.value = null
+    draft.value = null
+  } finally {
+    conversationBusy.value = false
+  }
+}
+
+async function clearConversation() {
+  if (!activeConversationId.value || !window.confirm(t('insights.clearConfirm'))) return
+  conversationBusy.value = true
+  try {
+    await api(`/api/ai/conversations/${activeConversationId.value}/messages`, { method: 'DELETE' })
+    messages.value = []
+    actionDraft.value = null
+    await refreshConversationList()
+  } finally {
+    conversationBusy.value = false
+  }
+}
+
+async function archiveConversation() {
+  if (!activeConversationId.value || !window.confirm(t('insights.archiveConfirm'))) return
+  conversationBusy.value = true
+  try {
+    await api(`/api/ai/conversations/${activeConversationId.value}/archive`, { method: 'POST' })
+    await refreshConversationList()
+    const next = conversations.value[0]
+    if (next) {
+      conversationBusy.value = false
+      await openConversation(next.id)
+    }
+    else {
+      activeConversationId.value = null
+      messages.value = []
+      actionDraft.value = null
+    }
+  } finally {
+    conversationBusy.value = false
   }
 }
 
@@ -237,10 +364,6 @@ async function send(presetQuestion?: string) {
   if ((!question && !image) || sending.value || !aiStatus.value?.configured) return
 
   chatError.value = null
-  const history = messages.value
-    .slice(-10)
-    .map((m) => ({ role: m.role, content: m.text }))
-
   messages.value.push({ role: 'user', text: question || t('ai.photoOnly'), image: image ?? undefined })
   input.value = ''
   attachedImage.value = null
@@ -248,22 +371,53 @@ async function send(presetQuestion?: string) {
   void scrollToBottom()
 
   try {
-    const data = await api<{ answer: string; llmError?: string; draft?: TaskDraft }>('/api/ai/ask', {
+    const data = await api<{
+      answer: string
+      conversationId: string
+      draft?: TaskDraft
+      actionDraft?: ActionDraft | null
+    }>('/api/ai/ask', {
       method: 'POST',
       body: JSON.stringify({
         question,
         imageUrl: image ?? undefined,
-        history,
+        conversationId: activeConversationId.value ?? undefined,
         locale: appLocale(),
       }),
     })
     messages.value.push({ role: 'assistant', text: data.answer })
+    activeConversationId.value = data.conversationId
+    actionDraft.value = data.actionDraft ?? null
     draft.value = data.draft ?? null
     draftMessage.value = null
+    await refreshConversationList()
   } catch (e) {
     chatError.value = e instanceof Error ? e.message : t('ai.copilotError')
   } finally {
     sending.value = false
+    void scrollToBottom()
+  }
+}
+
+async function resolveAction(confirm: boolean) {
+  if (!actionDraft.value || confirmingAction.value) return
+  confirmingAction.value = true
+  chatError.value = null
+  const current = actionDraft.value
+  try {
+    if (confirm) {
+      const data = await api<{ result: string }>(`/api/ai/actions/${current.draftId}/confirm`, { method: 'POST' })
+      messages.value.push({ role: 'assistant', text: data.result, metadata: { confirmed: true } })
+    } else {
+      await api(`/api/ai/actions/${current.draftId}/cancel`, { method: 'POST' })
+      messages.value.push({ role: 'assistant', text: t('insights.actionCancelled'), metadata: { cancelled: true } })
+    }
+    actionDraft.value = null
+    await refreshConversationList()
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : t('insights.actionFailed')
+  } finally {
+    confirmingAction.value = false
     void scrollToBottom()
   }
 }
@@ -344,6 +498,29 @@ async function draftTaskFromPrompt() {
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('ai.loading') }}</div>
 
     <section v-else class="mt-6 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden" style="height: calc(100vh - 16rem); min-height: 28rem">
+      <div class="border-b border-slate-800 p-3 flex flex-wrap items-center gap-2">
+        <select
+          :value="activeConversationId ?? ''"
+          :disabled="conversationBusy"
+          :aria-label="t('insights.conversationHistory')"
+          class="min-w-0 flex-1 sm:max-w-sm bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          @change="onConversationSelected"
+        >
+          <option value="" disabled>{{ t('insights.noConversation') }}</option>
+          <option v-for="conversation in conversations" :key="conversation.id" :value="conversation.id">
+            {{ conversation.title }}
+          </option>
+        </select>
+        <button type="button" class="px-3 py-2 rounded-lg bg-farm-green/20 text-farm-green text-xs font-bold" :disabled="conversationBusy" @click="newConversation">
+          {{ t('insights.newChat') }}
+        </button>
+        <button type="button" class="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs" :disabled="conversationBusy || !activeConversationId" @click="clearConversation">
+          {{ t('insights.clearChat') }}
+        </button>
+        <button type="button" class="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs" :disabled="conversationBusy || !activeConversationId" @click="archiveConversation">
+          {{ t('insights.archiveChat') }}
+        </button>
+      </div>
       <!-- Thread -->
       <div ref="threadEl" class="flex-1 overflow-y-auto p-4 space-y-3">
         <!-- Empty state -->
@@ -370,7 +547,7 @@ async function draftTaskFromPrompt() {
         <!-- Messages -->
         <div
           v-for="(msg, idx) in messages"
-          :key="idx"
+          :key="msg.id ?? idx"
           class="flex"
           :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
         >
@@ -400,6 +577,18 @@ async function draftTaskFromPrompt() {
 
       <!-- Composer -->
       <div class="border-t border-slate-800 p-3">
+        <div v-if="actionDraft" class="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
+          <p class="text-xs font-bold text-amber-300 uppercase tracking-wide">{{ t('insights.actionNeedsConfirmation') }}</p>
+          <p class="mt-1 text-xs text-slate-300">{{ t('insights.actionSafetyNotice') }}</p>
+          <div class="mt-3 flex items-center gap-2">
+            <button type="button" :disabled="confirmingAction" class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50" @click="resolveAction(true)">
+              {{ confirmingAction ? t('ai.confirming') : t('insights.confirmAction') }}
+            </button>
+            <button type="button" :disabled="confirmingAction" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50" @click="resolveAction(false)">
+              {{ t('insights.cancelAction') }}
+            </button>
+          </div>
+        </div>
         <div v-if="draft" class="mb-3 rounded-lg border border-farm-green/30 bg-farm-green/10 p-3">
           <p class="text-xs font-bold text-farm-green uppercase tracking-wide">{{ t('ai.suggestedTaskDraft') }}</p>
           <p class="mt-1 text-sm text-white">{{ draft.title }}</p>
@@ -462,6 +651,7 @@ async function draftTaskFromPrompt() {
           </button>
           <textarea
             v-model="input"
+            :aria-label="t('ai.placeholder')"
             rows="1"
             :disabled="!aiStatus?.configured || recording || transcribing"
             :placeholder="recording ? t('ai.recording') : t('ai.placeholder')"

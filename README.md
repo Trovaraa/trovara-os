@@ -1,7 +1,7 @@
 # Trovara OS
 
-Trovara Farm operations command center. Local laptop MVP with optional demo seed;
-production runs at `https://os.trovara.farm` with real farm data (no seed).
+Farm operations software for Trovara Farm. Local laptop MVP with optional demo
+seed; production runs at `https://os.trovara.farm` with real farm data (no seed).
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ cp .env.example .env
 docker compose up -d
 npm install
 npm run db:migrate
-npm run seed                  # local demo only — never on production
+npm run seed                  # local demo only; never on production
 npm run sync-catalog -w api   # optional: catalogue from farm-knowledge
 npm run dev
 ```
@@ -94,3 +94,14 @@ Integrations index: `docs/INTEGRATIONS.md`
 Staff messaging: `docs/TELEGRAM-COPILOT.md`, `docs/WHATSAPP-COPILOT.md`  
 Customer payments: `docs/PAYSTACK.md` (production activation still in progress)  
 Product roadmap: `../ROADMAP.md` · active OS backlog: `../next-steps-trovara-os.md`
+
+## Release and brand operations
+
+- Production environment: `docs/PRODUCTION-ENVIRONMENT.md`
+- OS-first coordinated release: `docs/RELEASE-CHECKLIST.md`
+- Expand-contract migrations: `docs/EXPAND-CONTRACT-MIGRATIONS.md`
+- Request IDs and log drains: `docs/LOGGING-AND-REQUEST-IDS.md`
+- Canonical brand assets: `../brand/assets`, described by
+  `brand-assets.manifest.json`. Run `npm run brand:check` to detect drift or
+  `npm run brand:sync` to copy verified assets to the OS and marketing public
+  trees. The sync script checks SVG dimensions and SHA-256 before copying.

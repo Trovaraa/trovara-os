@@ -1,6 +1,8 @@
 # Trovara OS - Integrations Guide
 
-Index of integration setup. Channel- and payment-specific runbooks live in dedicated docs; this file keeps the shared env map plus topics that are not covered elsewhere (AI, cron, public QR, offline queue, seed → real adoption).
+Index of integration setup. Channel- and payment-specific runbooks live in
+dedicated docs. This file keeps the shared env map and topics not covered
+elsewhere (AI, cron, public QR, offline queue, seed to real data).
 
 | Topic | Canonical doc |
 |-------|----------------|
@@ -10,7 +12,7 @@ Index of integration setup. Channel- and payment-specific runbooks live in dedic
 | Production deploy / secrets | [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) |
 | One-time clean go-live (wipe demo) | [`../../GO-LIVE.md`](../../GO-LIVE.md) |
 | Encrypted backup / restore | [`backup-runbook.md`](./backup-runbook.md) |
-| External health probes | [`uptime-monitoring.md`](./uptime-monitoring.md) |
+| Health probes and uptime snapshots | [`uptime-monitoring.md`](./uptime-monitoring.md) |
 | API contracts | [`API.md`](./API.md) |
 | Product RBAC | [`ROLE-PERMISSION-MATRIX.md`](./ROLE-PERMISSION-MATRIX.md) |
 | Security controls + release gate | [`security.md`](./security.md) |
@@ -32,10 +34,39 @@ Copy `.env.example` to `.env` and uncomment the sections you need. Never commit 
 | Telegram | Staff + customer bots | `TELEGRAM_*` — see [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md) |
 | Paystack | Customer order payments | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` — see [`PAYSTACK.md`](./PAYSTACK.md) |
 | Email + public forms | Newsletter, password reset, contact/waitlist alerts | `RESEND_*`, `EMAIL_FROM`, optional `MARKETING_LEAD_NOTIFICATION_EMAILS` — see [`PRODUCTION-DEPLOYMENT.md`](./PRODUCTION-DEPLOYMENT.md) and [`API.md`](./API.md) |
+| Finance invoice inbound | Resend Receiving → draft expenses | `RESEND_API_KEY`, `RESEND_INBOUND_WEBHOOK_SECRET`, optional `FINANCE_INBOUND_RECIPIENTS` |
 | LLM | AI briefing / incidents / Advisory fallback | `OPENAI_API_KEY` or `LLM_*` |
 | Marketplace search | Trovara OS Advisory product links | `MARKETPLACE_SEARCH_API_KEY`, `MARKETPLACE_SEARCH_PROVIDER` |
 | Cron | Scheduled jobs | `CRON_SECRET` (prod), `CRON_OWNER_*` / `CRON_FARM_ID`, `API_URL` |
 | Backup | `scripts/backup-db.sh` | `BACKUP_DIR`, `BACKUP_GPG_PASSPHRASE`, `PGHOST`, `PGPORT` (optional) |
+
+### Finance invoice inbound (Resend Receiving)
+
+1. Configure Resend Receiving and its MX records on the chosen inbound domain.
+2. Subscribe a dedicated webhook to `email.received` at
+   `POST https://<api-host>/public/finance/inbound`.
+3. Set its signing secret as `RESEND_INBOUND_WEBHOOK_SECRET`; do not reuse the
+   newsletter `RESEND_WEBHOOK_SECRET`.
+4. Draft expenses prefill amount/vendor/date/currency from the attachment when
+   possible (PDF text layer first; LLM text/vision fallback when the farm LLM
+   budget allows). Foreign amounts are converted to NGN using open.er-api.com;
+   configure `FX_FALLBACK_RATES` (for example `USD:1550,EUR:1700`) for an
+   offline fallback. The original amount, currency, rate, and conversion time
+   remain attached to the expense. Staff still review pending drafts before
+   approval, and only approved NGN expenses count in P&L.
+5. Keep `FINANCE_INBOUND_RECIPIENTS=finance@trovara.farm`, or comma-separate
+   additional intended finance aliases. When unset, it defaults to
+   `finance@trovara.farm`.
+
+Recipient matching is case-insensitive and exact, with one forwarding-safe
+exception: the same local part is accepted on subdomains of an allowed domain.
+Thus `finance@inbound.trovara.farm` is accepted for the default address, while
+`orders@inbound.trovara.farm` and `finance@unrelated.example` are ignored.
+
+Verified events are idempotent by Svix event ID and Resend email ID. The first
+PDF, JPEG, PNG, or WebP attachment up to 25 MB is stored below
+`EVIDENCE_STORAGE_ROOT/finance-inbound/`; a pending draft expense is created for
+an intended recipient only.
 
 ### Alert subscriptions
 
@@ -50,12 +81,20 @@ Staff alerts fan out on Telegram and WhatsApp. Ownership of the subscription tab
 
 Stage/weather rules create recommendations (now → next → safe inputs → notify roles). Product links use SerpAPI when `MARKETPLACE_SEARCH_API_KEY` is set; otherwise the LLM suggests local product types (no invented URLs). Cron `POST /api/alerts/run-proactive` also runs the advisory engine; or call `POST /api/advisory/run`.
 
+Daily **health/uptime snapshots** (`POST /api/alerts/run-health-sla`,
+`npm run send-health-snapshot`) are separate: they probe OS + marketing
+endpoints and notify linked **owners and supervisors**. The legacy route/env
+identifier remains for compatibility. Toggle in Settings or via
+`HEALTH_SLA_TELEGRAM_ENABLED`. See [`uptime-monitoring.md`](./uptime-monitoring.md).
+
 ---
 
 ## 1. Messaging channels
 
 - **WhatsApp (Meta Cloud API):** account, webhook, verify token, dual phone numbers, and go-live — [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
 - **Telegram:** BotFather, polling/webhook, link codes, ops commands — [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md).
+- **Staff clock-in/out:** `/clockin` and `/clockout` work on both Telegram and WhatsApp for every staff role (owner, supervisor, sales, field worker).
+- **Deferred:** WhatsApp customer shop account-linking UX stays documentation-only; Telegram remains the primary customer commerce messenger.
 
 Quick status checks (session cookie may be required for some routes):
 
@@ -136,7 +175,7 @@ Returns JSON: `{ severity, category, recommendedActions }`. Without LLM: placeho
 | LLM HTTP error | Same fallback + `llmError` field | Placeholder + `llmError` |
 | Invalid JSON from model (incidents) | N/A | Falls back to placeholder |
 
-The app remains fully usable without any LLM credentials.
+The app works without LLM credentials; AI features fall back as in the table above.
 
 ### Estimated costs (daily briefing)
 
@@ -214,6 +253,28 @@ https://trovara.farm/lot/trovara-farm/<publicToken-or-code>
 ```
 
 The marketing site fetches `GET /public/lots/:farmSlug/:lotCode` (via same-origin `/lot-api` proxy) and renders brand UI. Certificates and box labels remain on the OS origin under `/public/lots/...`.
+
+### Brand / press packs
+
+Owners manage assets and packs in Trovara OS (**Brand kit**). Share URLs use the marketing site:
+
+```
+https://www.trovara.farm/brand/<shareToken>
+```
+
+Marketing proxies `/brand-api/*` → OS `/public/brand/*`. Unlock sets an HttpOnly pack-session cookie; gallery media and zip download require that cookie when a pack password is set.
+
+Photos and videos (including iPhone HEIC / MOV / HEVC) upload via streamed `POST /api/brand/assets/upload` (max 500 MB / 10 minutes). The API converts HEIC→JPEG and video→H.264 MP4 (CRF 18, original pixel dimensions) with `ffmpeg`/`ffprobe` on the host. Visually lossless is not mathematically lossless, and efficient HEVC sources may not shrink.
+
+Production needs:
+
+```bash
+sudo apt install ffmpeg
+ffmpeg -version && ffprobe -version
+ffmpeg -hide_banner -encoders | grep libx264
+```
+
+Nginx must raise body size / timeouts for the upload routes (see [`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example)).
 
 QR codes and **Print QR** labels open the public lot page (certificate-style HTML). Staff can also open printable sticker HTML and the **Trovara Farm Traceability Certificate** from Traceability / Sales.
 
@@ -296,7 +357,7 @@ Local wipe + reseed for demos: `nvm use 22 && npm run seed` (never on production
 
 Seed data (`npm run seed`) creates **Trovara Demo Farm** with zones, plots, tasks, inventory, sample lots (`TRV-COC-2026-001`, `TRV-PLT-2026-002`), and demo users. Use it for training and integration testing only.
 
-For a **production** cutover (empty DB, first real owner), use [`GO-LIVE.md`](../../GO-LIVE.md) — not seed, and not reset-demo.
+For a **production** cutover (empty DB, first real owner), use [`GO-LIVE.md`](../../GO-LIVE.md), not seed, and not reset-demo.
 
 ### Do not use reset-demo in production
 
@@ -316,7 +377,7 @@ Adopt modules in order so each layer has master data before downstream features:
 8. **Products & sales** - Sync catalogue (`npm run sync-catalog -w api`); real prices; order fulfill via Sales or TG/WA.
 9. **Alert subscriptions** - Owners opt into customer and/or worker alerts in Settings.
 10. **WhatsApp / Telegram** - Link staff phones / Telegram; pilot supervisors first.
-11. **AI briefing** - Enable after real data exists so summaries are meaningful.
+11. **AI briefing** - Enable after real data exists so summaries use live farm records.
 
 Check readiness anytime:
 
@@ -339,6 +400,8 @@ When migrating from demo: export anything you need (`/api/traceability/export`, 
 | WhatsApp templates | GET | `/api/whatsapp/templates` | No |
 | WhatsApp status | GET | `/api/whatsapp/status` | No |
 | Paystack webhook | POST | `/api/paystack/webhook` | No (HMAC) |
+| Resend finance inbound | POST | `/public/finance/inbound` | No (Svix signature) |
+| Daily health/uptime snapshot | POST | `/api/alerts/run-health-sla` | Cron secret or owner/supervisor |
 | Public invoice | GET | `/public/invoices/:token` | No |
 | Public invoice PDF | GET | `/public/invoices/:token/pdf` | No |
 | AI briefing | GET | `/api/ai/briefing` | owner, supervisor |

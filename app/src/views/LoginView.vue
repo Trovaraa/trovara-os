@@ -9,6 +9,7 @@ import TrovaraLogo from '@/components/brand/TrovaraLogo.vue'
 import router from '@/router'
 import { api } from '@/lib/api'
 import type { ConsentStatus } from '@/lib/consent'
+import { defaultHome } from '@/lib/navigation'
 
 const auth = useAuthStore()
 const { t } = useI18n()
@@ -86,7 +87,7 @@ async function submitLogin() {
       await router.push('/change-password')
       return
     }
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     const disarmed =
       e instanceof Error &&
@@ -130,7 +131,7 @@ async function submitTotp() {
       return
     }
 
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     auth.error = e instanceof Error ? e.message : 'Invalid authentication code'
   } finally {
@@ -179,7 +180,7 @@ async function applyForcedPasswordChange() {
     forceChangeOpen.value = false
     forceNewPassword.value = ''
     forceConfirmPassword.value = ''
-    await router.push(auth.user?.role === 'field_worker' ? '/today' : '/dashboard')
+    await router.push(defaultHome(auth.user?.role))
   } catch (e) {
     forceError.value = e instanceof Error ? e.message : 'Could not change password.'
   } finally {
@@ -208,8 +209,9 @@ async function applyForcedPasswordChange() {
 
       <form v-if="!requiresTotp" class="space-y-4" @submit.prevent="submitLogin">
         <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">{{ t('login.email') }}</label>
+          <label for="login-email" class="block text-xs font-semibold text-slate-400 mb-1.5">{{ t('login.email') }}</label>
           <input
+            id="login-email"
             v-model="email"
             type="email"
             required
@@ -218,8 +220,9 @@ async function applyForcedPasswordChange() {
           />
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">{{ t('login.password') }}</label>
+          <label for="login-password" class="block text-xs font-semibold text-slate-400 mb-1.5">{{ t('login.password') }}</label>
           <input
+            id="login-password"
             v-model="password"
             type="password"
             required
@@ -269,8 +272,9 @@ async function applyForcedPasswordChange() {
           Enter your 6-digit authenticator code to finish signing in.
         </p>
         <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Authentication code</label>
+          <label for="login-totp" class="block text-xs font-semibold text-slate-400 mb-1.5">Authentication code</label>
           <input
+            id="login-totp"
             v-model="totpCode"
             type="text"
             inputmode="numeric"
@@ -317,13 +321,28 @@ async function applyForcedPasswordChange() {
     <div
       v-if="forgotOpen"
       class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="forgot-password-title"
       @click.self="forgotOpen = false"
     >
       <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Forgot password</h3>
+        <div class="flex items-start justify-between gap-4">
+          <h3 id="forgot-password-title" class="text-white font-bold text-lg">Forgot password</h3>
+          <button
+            type="button"
+            aria-label="Close forgot password"
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+            @click="forgotOpen = false"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
         <p class="text-xs text-slate-500 mt-1">Enter your account email to receive reset instructions.</p>
         <form class="mt-4 space-y-3" @submit.prevent="sendForgotPassword">
+          <label for="forgot-password-email" class="sr-only">Account email</label>
           <input
+            id="forgot-password-email"
             v-model="forgotEmail"
             type="email"
             required
@@ -345,12 +364,17 @@ async function applyForcedPasswordChange() {
     <div
       v-if="forceChangeOpen"
       class="fixed inset-0 z-50 bg-black/75 p-4 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="force-password-title"
     >
       <div class="w-full max-w-md rounded-2xl border border-amber-700/40 bg-slate-900 p-5">
-        <h3 class="text-white font-bold text-lg">Change your password</h3>
+        <h3 id="force-password-title" class="text-white font-bold text-lg">Change your password</h3>
         <p class="text-xs text-amber-200/80 mt-1">Your account requires a password update before continuing.</p>
         <form class="mt-4 space-y-3" @submit.prevent="applyForcedPasswordChange">
+          <label for="force-new-password" class="sr-only">New password</label>
           <input
+            id="force-new-password"
             v-model="forceNewPassword"
             type="password"
             minlength="8"
@@ -358,7 +382,9 @@ async function applyForcedPasswordChange() {
             placeholder="New password"
             class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
           />
+          <label for="force-confirm-password" class="sr-only">Confirm new password</label>
           <input
+            id="force-confirm-password"
             v-model="forceConfirmPassword"
             type="password"
             minlength="8"

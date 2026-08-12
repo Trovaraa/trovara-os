@@ -97,4 +97,26 @@ describe('backup status evidence', () => {
 
     expect(getLastBackupInfo(root).backupEvidence).toBe('filesystem')
   })
+
+  it('exposes restore-test freshness from the existing report', () => {
+    const root = temporaryRoot()
+    const backupDir = join(root, 'backups')
+    const reportDir = join(backupDir, 'reports')
+    mkdirSync(reportDir, { recursive: true })
+    useIsolatedBackupEnv(backupDir)
+    writeFileSync(join(backupDir, 'trovara.sql'), 'database')
+    writeFileSync(
+      join(reportDir, 'latest-restore-test.json'),
+      JSON.stringify({
+        status: 'success',
+        completedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }),
+    )
+
+    expect(getLastBackupInfo(root)).toMatchObject({
+      restoreTestStatus: 'success',
+      restoreTestFresh: true,
+    })
+    expect(getLastBackupInfo(root).restoreTestAgeHours).toBeCloseTo(1, 1)
+  })
 })

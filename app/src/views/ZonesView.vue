@@ -282,6 +282,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.name') }}</label>
           <input
             v-model="newZoneName"
+            :aria-label="t('zones.name')"
             type="text"
             required
             maxlength="200"
@@ -293,6 +294,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.description') }}</label>
           <input
             v-model="newZoneDescription"
+            :aria-label="t('zones.description')"
             type="text"
             maxlength="2000"
             :placeholder="t('zones.optional')"
@@ -322,6 +324,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.zone') }}</label>
           <select
             v-model="newBlockZoneId"
+            :aria-label="t('zones.zone')"
             required
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           >
@@ -332,6 +335,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.blockName') }}</label>
           <input
             v-model="newBlockName"
+            :aria-label="t('zones.blockName')"
             type="text"
             required
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
@@ -341,6 +345,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.blockCode') }}</label>
           <input
             v-model="newBlockCode"
+            :aria-label="t('zones.blockCode')"
             type="text"
             :placeholder="t('zones.blockCodePlaceholder')"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
@@ -350,6 +355,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.area') }}</label>
           <input
             v-model="newBlockArea"
+            :aria-label="t('zones.area')"
             type="text"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           />
@@ -358,6 +364,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('zones.notes') }}</label>
           <input
             v-model="newBlockNotes"
+            :aria-label="t('zones.notes')"
             type="text"
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           />

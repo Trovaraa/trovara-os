@@ -73,6 +73,7 @@ vi.mock('../lib/notifications.js', () => ({
 }))
 vi.mock('../lib/rate-limit.js', () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSec: 0 }),
+  checkDurableRateLimit: async () => ({ allowed: true, retryAfterSec: 0 }),
 }))
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
 

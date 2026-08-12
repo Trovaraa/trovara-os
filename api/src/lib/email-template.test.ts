@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMAIL_BRAND_MARK_URL,
+  emailFooterHtml,
   emailLayout,
   marketingLeadEmailContent,
+  newsletterWelcomeEmailContent,
   shopResetPasswordEmailContent,
   shopVerifyEmailContent,
 } from './email-template.js'
@@ -25,6 +27,23 @@ describe('email-template (canonical FARM OS card)', () => {
     expect(html).toContain('TEST')
     expect(html).toContain('Hello')
     expect(html).toContain('Body')
+    expect(html).toContain('© Trovara Farm | All Rights Reserved')
+    expect(html).toContain('instagram.com/trovara_farm')
+    expect(html).toContain('Privacy')
+  })
+
+  it('builds a structured footer with social, copyright, and utility links', () => {
+    const footer = emailFooterHtml({
+      variant: 'newsletter',
+      unsubscribeUrl: 'https://www.trovara.farm/newsletter/unsubscribe?token=abc',
+    })
+    expect(footer).toContain('Facebook')
+    expect(footer).toContain('Instagram')
+    expect(footer).toContain('LinkedIn')
+    expect(footer).toContain('#2f6b3b')
+    expect(footer).toContain('© Trovara Farm | All Rights Reserved')
+    expect(footer).toContain('Unsubscribe')
+    expect(footer).toContain('Privacy')
   })
 
   it('builds branded shop verify mail', () => {
@@ -33,12 +52,19 @@ describe('email-template (canonical FARM OS card)', () => {
     expect(mail.html).toContain('SHOP ACCOUNT')
     expect(mail.html).toContain('Verify email')
     expect(mail.html).toContain('Ada Lovelace')
+    expect(mail.html).toContain('© Trovara Farm | All Rights Reserved')
   })
 
   it('builds branded shop reset mail', () => {
     const mail = shopResetPasswordEmailContent('Ada', 'https://example.test/reset')
     expect(mail.html).toContain('PASSWORD RESET')
     expect(mail.html).toContain('#2f6b3b')
+  })
+
+  it('puts unsubscribe into the newsletter welcome footer', () => {
+    const mail = newsletterWelcomeEmailContent('Ada', 'https://www.trovara.farm/newsletter/unsubscribe?token=xyz')
+    expect(mail.html).toContain('Unsubscribe')
+    expect(mail.html).toContain('token=xyz')
   })
 
   it('builds marketing-lead style content', () => {

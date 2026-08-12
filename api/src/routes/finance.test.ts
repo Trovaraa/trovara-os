@@ -20,6 +20,12 @@ const selectLog: string[] = []
 const inserted: { table: string; values: Row }[] = []
 const updates: { table: string; patch: Row }[] = []
 let updatedRow: Row = {}
+const { convertToNgn, extractInvoiceFields, readFile, unlink } = vi.hoisted(() => ({
+  convertToNgn: vi.fn(),
+  extractInvoiceFields: vi.fn(),
+  readFile: vi.fn(),
+  unlink: vi.fn(),
+}))
 
 function queueSelect(table: string, rows: Row[]) {
   const queued = selectQueue.get(table) ?? []
@@ -43,6 +49,7 @@ vi.mock('../db/index.js', () => {
       innerJoin: same,
       where: same,
       orderBy: same,
+      groupBy: same,
       limit: same,
       then: (resolve: (value: Row[]) => unknown, reject?: (reason: unknown) => unknown) =>
         Promise.resolve(rows).then(resolve, reject),
@@ -50,16 +57,21 @@ vi.mock('../db/index.js', () => {
     return self
   }
 
-  return {
-    db: {
+  const dbMock = {
       select: selectChain,
       insert: (table: unknown) => ({
         values: (values: Row) => {
           inserted.push({ table: nameOf(table), values })
-          return {
+          const result = {
             returning: async () => [{ id: `${nameOf(table)}-new`, ...values }],
-            onConflictDoNothing: async () => undefined,
+            onConflictDoNothing: () => ({
+              returning: async () => [{ id: `${nameOf(table)}-new`, ...values }],
+            }),
+            onConflictDoUpdate: () => ({
+              returning: async () => [{ id: `${nameOf(table)}-new`, ...values }],
+            }),
           }
+          return result
         },
       }),
       update: (table: unknown) => ({
@@ -69,7 +81,10 @@ vi.mock('../db/index.js', () => {
         },
       }),
       delete: () => ({ where: async () => undefined }),
-    },
+      transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(dbMock),
+  }
+  return {
+    db: dbMock,
   }
 })
 
@@ -120,6 +135,25 @@ vi.mock('../middleware/auth.js', () => ({
 }))
 
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
+vi.mock('../lib/finance-inbound-ack.js', () => ({
+  maybeSendInboundApprovalAck: vi.fn(async () => ({ sent: true, to: 'billing@resend.com' })),
+}))
+vi.mock('../lib/invoice-extract.js', () => ({ extractInvoiceFields }))
+vi.mock('../lib/currency-fx.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/currency-fx.js')>()
+  return {
+    ...actual,
+    convertToNgn,
+  }
+})
+vi.mock('../lib/evidence-store.js', () => ({
+  getEvidenceStorageRoot: () => '/tmp/trovara-evidence-test',
+}))
+vi.mock('node:fs/promises', () => ({
+  access: vi.fn(),
+  readFile,
+  unlink,
+}))
 
 const FRENCH_TO_ENGLISH: Record<string, string> = {
   'Carburant pour le générateur pendant la panne': 'Fuel for the generator during the outage',
@@ -210,6 +244,22 @@ beforeEach(() => {
     const table = /into English/i.test(system) ? FRENCH_TO_ENGLISH : ENGLISH_TO_FRENCH
     return { text: table[text] ?? `[${text}]`, model: 'test' }
   })
+  readFile.mockResolvedValue(Buffer.from('%PDF-1.4'))
+  extractInvoiceFields.mockResolvedValue({
+    amount: 4500,
+    currency: 'USD',
+    vendor: 'Resend',
+    expenseDate: new Date('2026-08-10T12:00:00.000Z'),
+    method: 'pdf_text',
+  })
+  convertToNgn.mockResolvedValue({
+    amount: 6975000,
+    currency: 'NGN',
+    originalAmount: '4500',
+    originalCurrency: 'USD',
+    fxRate: '1550',
+    fxConvertedAt: new Date('2026-08-10T12:01:00.000Z'),
+  })
   sessionUser = {
     id: 'user-owner',
     farmId: 'farm-1',
@@ -220,6 +270,20 @@ beforeEach(() => {
 })
 
 describe('POST /finance - canonical English on write', () => {
+  it('validates labels before creating the expense', async () => {
+    queueSelect('users', [{ preferredLocale: 'en' }])
+    queueSelect('expense_labels', [])
+
+    const res = await post('/finance', {
+      ...FRENCH_EXPENSE,
+      description: 'Fuel delivery',
+      labelIds: ['11111111-1111-4111-8111-111111111111'],
+    })
+
+    expect(res.status).toBe(400)
+    expect(inserted.some((entry) => entry.table === 'expenses')).toBe(false)
+  })
+
   it('stores a French description in English with the author locale', async () => {
     queueSelect('users', [{ preferredLocale: 'fr' }])
 
@@ -321,6 +385,38 @@ describe('POST /finance - canonical English on write', () => {
 })
 
 describe('PATCH /finance/:id - canonical English on write', () => {
+  it('does not approve an unconverted foreign-currency expense', async () => {
+    queueSelect('expenses', [expenseRow({ amount: 20, currency: 'USD', approvalStatus: 'pending' })])
+
+    const res = await patch('/finance/expense-1', { approvalStatus: 'approved' })
+
+    expect(res.status).toBe(409)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('acks the inbound sender when approving a pending inbound draft', async () => {
+    const { maybeSendInboundApprovalAck } = await import('../lib/finance-inbound-ack.js')
+    queueSelect('expenses', [
+      expenseRow({
+        source: 'inbound_email',
+        approvalStatus: 'pending',
+        inboundSenderEmail: 'billing@resend.com',
+      }),
+    ])
+    updatedRow = expenseRow({
+      source: 'inbound_email',
+      approvalStatus: 'pending',
+      inboundSenderEmail: 'billing@resend.com',
+    })
+
+    const res = await patch('/finance/expense-1', { approvalStatus: 'approved' })
+    const body = (await res.json()) as { inboundAck?: { sent: boolean; to?: string } }
+
+    expect(res.status).toBe(200)
+    expect(maybeSendInboundApprovalAck).toHaveBeenCalled()
+    expect(body.inboundAck).toEqual({ sent: true, to: 'billing@resend.com' })
+  })
+
   it('normalizes a French description and echoes the author', async () => {
     queueSelect('expenses', [expenseRow()])
     queueSelect('users', [{ preferredLocale: 'fr' }])
@@ -375,6 +471,180 @@ describe('PATCH /finance/:id - canonical English on write', () => {
 
     expect(viewerBatchCalls).toHaveBeenCalledTimes(1)
     expect(body.expense.description).toBe('Carburant pour le générateur pendant la panne')
+  })
+})
+
+describe('POST /finance/:id/convert-currency', () => {
+  it('stores NGN plus the original receipt amount and rate', async () => {
+    const foreign = expenseRow({ amount: 20, currency: 'USD', approvalStatus: 'pending' })
+    queueSelect('expenses', [foreign])
+    updatedRow = foreign
+    convertToNgn.mockResolvedValueOnce({
+      amount: 31000,
+      currency: 'NGN',
+      originalAmount: '20',
+      originalCurrency: 'USD',
+      fxRate: '1550',
+      fxConvertedAt: new Date('2026-08-10T12:01:00.000Z'),
+    })
+
+    const res = await post('/finance/expense-1/convert-currency', {})
+
+    expect(res.status).toBe(200)
+    expect(updates[0].patch).toMatchObject({
+      amount: 31000,
+      currency: 'NGN',
+      originalAmount: '20',
+      originalCurrency: 'USD',
+      fxRate: '1550',
+    })
+  })
+
+  it('returns 422 when the converted naira amount overflows integer storage', async () => {
+    const { FxAmountOverflowError } = await import('../lib/currency-fx.js')
+    const foreign = expenseRow({ amount: 2_000_000, currency: 'USD', approvalStatus: 'pending' })
+    queueSelect('expenses', [foreign])
+    convertToNgn.mockRejectedValueOnce(new FxAmountOverflowError())
+
+    const res = await post('/finance/expense-1/convert-currency', {})
+
+    expect(res.status).toBe(422)
+    expect(updates).toHaveLength(0)
+  })
+})
+
+describe('DELETE /finance/:id', () => {
+  it('removes the attachment before deleting the expense row', async () => {
+    queueSelect('expenses', [
+      expenseRow({
+        source: 'inbound_email',
+        attachmentStorageKey: 'finance-inbound/farm-1/invoice.pdf',
+      }),
+    ])
+    unlink.mockResolvedValueOnce(undefined)
+
+    const res = await (await app()).request('/finance/expense-1', { method: 'DELETE' })
+
+    expect(res.status).toBe(200)
+    expect(unlink).toHaveBeenCalled()
+  })
+
+  it('deletes the expense and queues attachment cleanup when unlink fails', async () => {
+    queueSelect('expenses', [
+      expenseRow({
+        source: 'inbound_email',
+        attachmentStorageKey: 'finance-inbound/farm-1/invoice.pdf',
+      }),
+    ])
+    unlink.mockRejectedValueOnce(Object.assign(new Error('EACCES'), { code: 'EACCES' }))
+
+    const res = await (await app()).request('/finance/expense-1', { method: 'DELETE' })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ ok: true, cleanupPending: true })
+    expect(
+      inserted.find((entry) => entry.table === 'storage_cleanup_jobs')?.values,
+    ).toMatchObject({
+      storageRoot: 'evidence',
+      storageKey: 'finance-inbound/farm-1/invoice.pdf',
+    })
+  })
+})
+
+describe('POST /finance/labels', () => {
+  it('creates labels with non-Latin names', async () => {
+    const res = await post('/finance/labels', { name: '旅費' })
+    const body = (await res.json()) as { label: Row }
+
+    expect(res.status).toBe(201)
+    expect(inserted.find((entry) => entry.table === 'expense_labels')?.values).toMatchObject({
+      name: '旅費',
+      slug: '旅費',
+    })
+    expect(body.label.name).toBe('旅費')
+  })
+})
+
+describe('POST /finance/:id/retry-extraction', () => {
+  const inboundExpense = () =>
+    expenseRow({
+      source: 'inbound_email',
+      approvalStatus: 'pending',
+      attachmentStorageKey: 'finance-inbound/farm-1/invoice.pdf',
+      attachmentMimeType: 'application/pdf',
+      attachmentFilename: 'invoice.pdf',
+    })
+
+  it('updates useful extracted fields while preserving pending review', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+    const body = (await res.json()) as Row
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({
+      extractionMethod: 'pdf_text',
+      extractionStatus: 'success',
+      updatedFields: ['amount', 'currency', 'vendor', 'expenseDate'],
+    })
+    expect(updates[0].patch).toMatchObject({
+      amount: 6975000,
+      currency: 'NGN',
+      originalAmount: '4500',
+      originalCurrency: 'USD',
+      fxRate: '1550',
+      vendor: 'Resend',
+      expenseDate: new Date('2026-08-10T12:00:00.000Z'),
+      extractionMethod: 'pdf_text',
+      extractionStatus: 'success',
+    })
+    expect(updates[0].patch).not.toHaveProperty('approvalStatus')
+    expect((body.expense as Row).approvalStatus).toBe('pending')
+  })
+
+  it('rejects roles other than owner or supervisor', async () => {
+    sessionUser = { ...sessionUser, role: 'sales' }
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+
+    expect(res.status).toBe(403)
+    expect(extractInvoiceFields).not.toHaveBeenCalled()
+  })
+
+  it('records extraction failure without changing existing expense fields', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+    extractInvoiceFields.mockRejectedValueOnce(new Error('PDF parser unavailable'))
+
+    const res = await post('/finance/expense-1/retry-extraction', {})
+    const body = (await res.json()) as Row
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({
+      extractionMethod: 'none',
+      extractionStatus: 'failed',
+      updatedFields: [],
+    })
+    expect(updates[0].patch).toEqual({
+      extractionMethod: 'none',
+      extractionStatus: 'failed',
+    })
+  })
+
+  it('is safe to repeat and does not create another expense', async () => {
+    queueSelect('expenses', [inboundExpense()])
+    queueSelect('expenses', [inboundExpense()])
+    updatedRow = inboundExpense()
+
+    const first = await post('/finance/expense-1/retry-extraction', {})
+    const second = await post('/finance/expense-1/retry-extraction', {})
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(updates.map((entry) => entry.patch)).toHaveLength(2)
+    expect(updates[1].patch).toEqual(updates[0].patch)
+    expect(inserted.filter((entry) => entry.table === 'expenses')).toHaveLength(0)
   })
 })
 
@@ -444,14 +714,43 @@ describe('GET /finance - viewer locale on read', () => {
 })
 
 describe('GET /finance/summary - money only', () => {
+  it('excludes pending, rejected, and unconverted foreign expenses from NGN P&L', async () => {
+    queueSelect('orders', [])
+    queueSelect('expenses', [
+      expenseRow({ id: 'approved-ngn', amount: 10000 }),
+      expenseRow({ id: 'pending-ngn', amount: 20000, approvalStatus: 'pending' }),
+      expenseRow({ id: 'rejected-ngn', amount: 30000, approvalStatus: 'rejected' }),
+      expenseRow({ id: 'approved-usd', amount: 20, currency: 'USD' }),
+    ])
+    queueSelect('payment_attempts', [])
+    queueSelect('orders', [])
+    queueSelect('payment_refunds', [])
+    queueSelect('invoices', [])
+    queueSelect('expense_label_links', [])
+
+    const res = await (await app()).request('/finance/summary')
+    const body = (await res.json()) as { summary: Row }
+
+    expect(res.status).toBe(200)
+    expect(body.summary).toMatchObject({
+      currency: 'NGN',
+      totalExpenses: 10000,
+      netProfit: -10000,
+      expenseCount: 1,
+      pendingExpenseCount: 1,
+      rejectedExpenseCount: 1,
+      unconvertedForeignCount: 1,
+    })
+  })
+
   it('translates nothing for a French viewer', async () => {
-    queueSelect('orders', [{ status: 'delivered', totalAmount: 45000 }])
+    queueSelect('orders', [{ status: 'delivered', totalAmount: 45000, currency: 'NGN' }])
     queueSelect('expenses', [expenseRow()])
     queueSelect('payment_attempts', [{ totalKobo: 4500000 }])
-    queueSelect('orders', [{ totalAmount: 12000 }])
+    queueSelect('orders', [{ totalAmount: 12000, currency: 'NGN' }])
     queueSelect('payment_refunds', [])
     queueSelect('invoices', [{ total: 3 }])
-    queueSelect('users', [{ preferredLocale: 'fr' }])
+    queueSelect('expense_label_links', [])
 
     const res = await (await app()).request('/finance/summary')
     const body = (await res.json()) as { summary: Row }
@@ -464,6 +763,82 @@ describe('GET /finance/summary - money only', () => {
       revenue: 45000,
       totalExpenses: 125000,
       expensesByCategory: { utilities: 125000 },
+    })
+  })
+
+  it('excludes foreign-currency order revenue from NGN P&L', async () => {
+    queueSelect('orders', [
+      { status: 'delivered', totalAmount: 50000, currency: 'NGN' },
+      { status: 'delivered', totalAmount: 20, currency: 'USD' },
+    ])
+    queueSelect('expenses', [expenseRow({ amount: 10000 })])
+    queueSelect('payment_attempts', [])
+    queueSelect('orders', [
+      { totalAmount: 8000, currency: 'NGN' },
+      { totalAmount: 5, currency: 'USD' },
+    ])
+    queueSelect('payment_refunds', [])
+    queueSelect('invoices', [])
+    queueSelect('expense_label_links', [])
+
+    const res = await (await app()).request('/finance/summary')
+    const body = (await res.json()) as { summary: Row }
+
+    expect(res.status).toBe(200)
+    expect(body.summary).toMatchObject({
+      currency: 'NGN',
+      revenue: 50000,
+      deliveredRevenue: 50000,
+      outstandingInvoices: 8000,
+      totalExpenses: 10000,
+      netProfit: 40000,
+      orderCount: 1,
+    })
+  })
+
+  it('applies the label filter to totals, categories, and label groups', async () => {
+    queueSelect('orders', [])
+    queueSelect('expenses', [
+      expenseRow({ id: 'expense-capex', amount: 100000, category: 'equipment' }),
+      expenseRow({ id: 'expense-opex', amount: 25000, category: 'utilities' }),
+    ])
+    queueSelect('payment_attempts', [])
+    queueSelect('orders', [])
+    queueSelect('payment_refunds', [])
+    queueSelect('invoices', [])
+    queueSelect('expense_label_links', [
+      {
+        expenseId: 'expense-capex',
+        labelId: 'label-capex',
+        labelName: 'Capex',
+        labelSlug: 'capex',
+      },
+      {
+        expenseId: 'expense-capex',
+        labelId: 'label-recurring',
+        labelName: 'Recurring',
+        labelSlug: 'recurring',
+      },
+      {
+        expenseId: 'expense-opex',
+        labelId: 'label-recurring',
+        labelName: 'Recurring',
+        labelSlug: 'recurring',
+      },
+    ])
+
+    const res = await (await app()).request('/finance/summary?labelId=label-capex')
+    const body = (await res.json()) as { summary: Row }
+
+    expect(res.status).toBe(200)
+    expect(body.summary).toMatchObject({
+      totalExpenses: 100000,
+      expenseCount: 1,
+      expensesByCategory: { equipment: 100000 },
+      expensesByLabel: {
+        'label-capex': { name: 'Capex', slug: 'capex', total: 100000 },
+        'label-recurring': { name: 'Recurring', slug: 'recurring', total: 100000 },
+      },
     })
   })
 })

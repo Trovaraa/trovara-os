@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import { roleLabel } from '@/lib/roles'
 import type { AssignableFarmRole, FarmUser } from '@/composables/useUsers'
+import AccessibleDialog from '@/components/AccessibleDialog.vue'
 
 const editName = defineModel<string>('editName', { required: true })
 const editFarmRoleId = defineModel<string>('editFarmRoleId', { required: true })
@@ -35,12 +36,9 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div
-    class="fixed inset-0 z-50 bg-black/70 p-4 flex items-center justify-center overflow-y-auto"
-    @click.self="emit('close')"
-  >
+  <AccessibleDialog :open="true" title-id="edit-user-title" :close-label="t('dialog.close')" @close="emit('close')">
     <div class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5 my-8">
-      <h3 class="text-white font-bold text-lg">{{ t('users.editUser') }}</h3>
+      <h3 id="edit-user-title" class="text-white font-bold text-lg">{{ t('users.editUser') }}</h3>
       <form class="mt-4 grid sm:grid-cols-2 gap-3" @submit.prevent="emit('save')">
         <input
           v-model="editName"
@@ -165,5 +163,5 @@ const { t } = useI18n()
         </div>
       </form>
     </div>
-  </div>
+  </AccessibleDialog>
 </template>

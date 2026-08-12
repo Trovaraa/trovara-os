@@ -1,9 +1,11 @@
 import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { customerContacts, farmEvents, sessions, tasks, users } from '../db/schema.js'
+import { aiMessages, customerContacts, farmEvents, sessions, tasks, users } from '../db/schema.js'
 import { deleteEvidenceByUrl } from './evidence-store.js'
 import { purgeExpiredLoginRateLimits } from './login-rate-limit.js'
 import { loginRateLimits } from '../db/schema.js'
+import { cleanupUnpublishedMoments } from './moments-retention.js'
+import { processStorageCleanupJobs } from './storage-cleanup.js'
 
 const CHAT_ENTITY_TYPES = ['whatsapp_message', 'telegram_message'] as const
 const REDACTED_TEXT = '[redacted]'
@@ -48,6 +50,7 @@ export async function getRetentionPreview(farmId: string): Promise<{
   pendingTaskEvidence: number
   pendingExpiredSessions: number
   pendingChatMessages: number
+  pendingAiMessages: number
   pendingContactPhones: number
   pendingExpiredLoginRateLimits: number
 }> {
@@ -97,6 +100,11 @@ export async function getRetentionPreview(farmId: string): Promise<{
       ),
     )
 
+  const [aiMessageRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(aiMessages)
+    .where(and(eq(aiMessages.farmId, farmId), lt(aiMessages.createdAt, evidenceCutoff)))
+
   const [contactRow] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(customerContacts)
@@ -118,6 +126,7 @@ export async function getRetentionPreview(farmId: string): Promise<{
     pendingTaskEvidence: taskEvidenceRow?.count ?? 0,
     pendingExpiredSessions,
     pendingChatMessages: chatRow?.count ?? 0,
+    pendingAiMessages: aiMessageRow?.count ?? 0,
     pendingContactPhones: contactRow?.count ?? 0,
     pendingExpiredLoginRateLimits: loginRateRow?.count ?? 0,
   }
@@ -132,8 +141,13 @@ export async function runDataRetention(farmId?: string): Promise<{
   deletedEvidenceFiles: number
   purgedExpiredSessions: number
   redactedChatMessages: number
+  purgedAiMessages: number
   nulledContactPhones: number
   purgedLoginRateLimits: number
+  purgedMomentSubmissions: number
+  deletedMomentFiles: number
+  completedStorageCleanups: number
+  failedStorageCleanups: number
 }> {
   const config = getRetentionConfig()
   const evidenceCutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000)
@@ -232,6 +246,27 @@ export async function runDataRetention(farmId?: string): Promise<{
     .where(chatWhere)
     .returning({ id: farmEvents.id })
 
+  const aiMessageWhere = farmId
+    ? and(eq(aiMessages.farmId, farmId), lt(aiMessages.createdAt, evidenceCutoff))
+    : lt(aiMessages.createdAt, evidenceCutoff)
+  const retainedAiAttachments = await db
+    .select({ url: aiMessages.attachmentUrl })
+    .from(aiMessages)
+    .where(aiMessageWhere)
+  const deletedAiMessages = await db
+    .delete(aiMessages)
+    .where(aiMessageWhere)
+    .returning({ id: aiMessages.id })
+  const aiEvidenceDeletes = await Promise.allSettled(
+    retainedAiAttachments.map((row) => deleteEvidenceByUrl(row.url)),
+  )
+  for (const result of aiEvidenceDeletes) {
+    if (result.status === 'fulfilled' && result.value) deletedEvidenceFiles += 1
+    if (result.status === 'rejected') {
+      console.error('Failed to delete retained AI attachment:', result.reason)
+    }
+  }
+
   const contactWhere = farmId
     ? and(
         eq(customerContacts.farmId, farmId),
@@ -249,6 +284,8 @@ export async function runDataRetention(farmId?: string): Promise<{
   // audit_events rows are append-only and never deleted by retention (legal hold safe).
 
   const purgedLoginRateLimits = await purgeExpiredLoginRateLimits()
+  const momentsCleanup = await cleanupUnpublishedMoments(farmId)
+  const storageCleanup = await processStorageCleanupJobs()
 
   return {
     farmId,
@@ -259,7 +296,12 @@ export async function runDataRetention(farmId?: string): Promise<{
     deletedEvidenceFiles,
     purgedExpiredSessions,
     redactedChatMessages: redactedRows.length,
+    purgedAiMessages: deletedAiMessages.length,
     nulledContactPhones: nulledContacts.length,
     purgedLoginRateLimits,
+    purgedMomentSubmissions: momentsCleanup.deletedRows,
+    deletedMomentFiles: momentsCleanup.deletedFiles,
+    completedStorageCleanups: storageCleanup.completed,
+    failedStorageCleanups: storageCleanup.failed,
   }
 }

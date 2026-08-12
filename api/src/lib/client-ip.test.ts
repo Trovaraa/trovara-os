@@ -1,14 +1,18 @@
+import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveClientIp } from './client-ip.js'
+import { clientIpFromHeaders, resolveClientIp } from './client-ip.js'
 
 const originalHops = process.env.TRUSTED_PROXY_HOPS
 const originalEnv = process.env.NODE_ENV
+const originalProxySecret = process.env.FORM_PROXY_SIGNING_SECRET
 
 afterEach(() => {
   if (originalHops === undefined) delete process.env.TRUSTED_PROXY_HOPS
   else process.env.TRUSTED_PROXY_HOPS = originalHops
   if (originalEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = originalEnv
+  if (originalProxySecret === undefined) delete process.env.FORM_PROXY_SIGNING_SECRET
+  else process.env.FORM_PROXY_SIGNING_SECRET = originalProxySecret
 })
 
 describe('resolveClientIp', () => {
@@ -41,5 +45,33 @@ describe('resolveClientIp', () => {
         fallback: 'local',
       }),
     ).toBe('203.0.113.10')
+  })
+
+  it('accepts a fresh signed Netlify client identity', () => {
+    process.env.FORM_PROXY_SIGNING_SECRET = 'test-proxy-secret'
+    const timestamp = String(Date.now())
+    const clientId = 'visitor_identity_abcdefghijklmnopqrstuvwxyz1234'
+    const signature = createHmac('sha256', process.env.FORM_PROXY_SIGNING_SECRET)
+      .update(`${timestamp}.${clientId}`)
+      .digest('base64url')
+    const headers = new Map([
+      ['x-trovara-client-id', clientId],
+      ['x-trovara-client-timestamp', timestamp],
+      ['x-trovara-client-signature', signature],
+    ])
+
+    expect(clientIpFromHeaders((name) => headers.get(name))).toBe(`proxy:${clientId}`)
+  })
+
+  it('rejects forged proxy identities', () => {
+    process.env.FORM_PROXY_SIGNING_SECRET = 'test-proxy-secret'
+    const headers = new Map([
+      ['x-trovara-client-id', 'visitor_identity_abcdefghijklmnopqrstuvwxyz1234'],
+      ['x-trovara-client-timestamp', String(Date.now())],
+      ['x-trovara-client-signature', 'forged'],
+      ['x-real-ip', '127.0.0.1'],
+    ])
+
+    expect(clientIpFromHeaders((name) => headers.get(name))).toBe('127.0.0.1')
   })
 })

@@ -144,41 +144,53 @@ export async function setFarmRolePermissions(
   permissionKeys: string[],
   options?: { revokeSessions?: boolean },
 ): Promise<{ ok: true; revokedUsers: number } | { ok: false; error: string; status: 400 | 404 }> {
-  const [role] = await db
-    .select()
-    .from(farmRoles)
-    .where(and(eq(farmRoles.id, roleId), eq(farmRoles.farmId, farmId)))
-    .limit(1)
-  if (!role) return { ok: false, error: 'Role not found', status: 404 }
-
-  if (role.clonedFrom === 'owner') {
-    return { ok: false, error: 'Admin role permissions cannot be edited', status: 400 }
-  }
-
   const next = filterDelegablePermissions(permissionKeys)
-  const current = await db
-    .select({ permissionKey: farmRolePermissions.permissionKey })
-    .from(farmRolePermissions)
-    .where(eq(farmRolePermissions.roleId, roleId))
-  const keepNonDelegable = current
-    .map((r) => r.permissionKey)
-    .filter((k): k is PermissionKey => isPermissionKey(k) && NON_DELEGABLE_PERMISSIONS.has(k))
+  const replacement = await db.transaction(async (tx) => {
+    // Serialize replacements for one role so permissions and their version move
+    // together and concurrent writers cannot interleave delete/insert phases.
+    const [role] = await tx
+      .select()
+      .from(farmRoles)
+      .where(and(eq(farmRoles.id, roleId), eq(farmRoles.farmId, farmId)))
+      .limit(1)
+      .for('update')
+    if (!role) {
+      return { ok: false as const, error: 'Role not found', status: 404 as const }
+    }
+    if (role.clonedFrom === 'owner') {
+      return {
+        ok: false as const,
+        error: 'Admin role permissions cannot be edited',
+        status: 400 as const,
+      }
+    }
 
-  const finalKeys = [...new Set([...next, ...keepNonDelegable])]
+    const current = await tx
+      .select({ permissionKey: farmRolePermissions.permissionKey })
+      .from(farmRolePermissions)
+      .where(eq(farmRolePermissions.roleId, roleId))
+    const keepNonDelegable = current
+      .map((r) => r.permissionKey)
+      .filter((k): k is PermissionKey => isPermissionKey(k) && NON_DELEGABLE_PERMISSIONS.has(k))
+    const finalKeys = [...new Set([...next, ...keepNonDelegable])]
 
-  await db.delete(farmRolePermissions).where(eq(farmRolePermissions.roleId, roleId))
-  if (finalKeys.length) {
-    await db.insert(farmRolePermissions).values(
-      finalKeys.map((permissionKey) => ({ roleId, permissionKey })),
-    )
-  }
-  await db
-    .update(farmRoles)
-    .set({
-      permissionsVersion: role.permissionsVersion + 1,
-      updatedAt: new Date(),
-    })
-    .where(eq(farmRoles.id, roleId))
+    await tx.delete(farmRolePermissions).where(eq(farmRolePermissions.roleId, roleId))
+    if (finalKeys.length) {
+      await tx.insert(farmRolePermissions).values(
+        finalKeys.map((permissionKey) => ({ roleId, permissionKey })),
+      )
+    }
+    await tx
+      .update(farmRoles)
+      .set({
+        permissionsVersion: role.permissionsVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(farmRoles.id, roleId), eq(farmRoles.farmId, farmId)))
+
+    return { ok: true as const }
+  })
+  if (!replacement.ok) return replacement
 
   let revokedUsers = 0
   if (options?.revokeSessions !== false) {

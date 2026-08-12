@@ -5,14 +5,13 @@ import { randomBytes, createHash } from 'node:crypto'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { setCookie, deleteCookie, getCookie } from 'hono/cookie'
 import { db } from '../db/index.js'
-import { consentRecords, farms, passwordResetTokens, users } from '../db/schema.js'
+import { consentRecords, passwordResetTokens, users } from '../db/schema.js'
 import { CONSENT_TYPES, CURRENT_CONSENT_VERSION } from '../lib/consent.js'
 import {
   isBreakGlassEmail,
   normalizeRegisterEmail,
   normalizeRegisterPhone,
   registerBodySchema,
-  validateRegistrationSecret,
   verifyArmedBreakGlassPassword,
   verifyBreakGlassPassword,
 } from '../lib/registration.js'
@@ -52,6 +51,7 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { checkDurableRateLimit, checkAuthMutationRateLimit, resetDurableRateLimit, staffLoginRateKey } from '../middleware/security.js'
 import { createTotpChallenge } from '../lib/totp.js'
 import { deliverPasswordReset, requiredDeliveryFailed } from '../lib/notifications.js'
+import { resetStaffPasswordWithToken } from '../lib/password-reset.js'
 import { authMutationKey, denyAuthMutation } from './auth-shared.js'
 import { registerTotpRoutes } from './auth-totp.js'
 
@@ -176,7 +176,7 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
   const userAgent = c.req.header('user-agent')
   const hashedIp = hashIp(ip)
   if (user.totpEnabled && user.totpSecret) {
-    const totpChallenge = createTotpChallenge(user.id)
+    const totpChallenge = await createTotpChallenge(user.id)
     return c.json({
       requiresTotp: true,
       totpChallenge,
@@ -253,12 +253,11 @@ authRoutes.post('/login', zValidator('json', loginSchema), async (c) => {
 
 /**
  * Resolve the registration secret without mutating anything. Prefers a
- * single-use DB registration token; falls back to the legacy reusable
- * OWNER_REGISTRATION_SECRET env value for bootstrap / backward compatibility.
+ * single-use DB registration token. The token's claimed farm is the only
+ * authority for tenant placement; registration never chooses an arbitrary farm.
  */
 type RegistrationSecretMode =
   | { kind: 'token'; tokenId: string }
-  | { kind: 'env' }
   | { kind: 'disabled' }
   | { kind: 'invalid'; reason: string }
 
@@ -270,12 +269,7 @@ async function resolveRegistrationSecret(secret: string): Promise<RegistrationSe
     return { kind: 'invalid', reason: `token_${inspected.status}` }
   }
 
-  const envCheck = validateRegistrationSecret(secret, process.env.OWNER_REGISTRATION_SECRET)
-  if (envCheck.ok) return { kind: 'env' }
-  if (envCheck.reason === 'invalid') return { kind: 'invalid', reason: 'invalid_secret' }
-
-  // Env secret unset: registration is only "disabled" when no token could work
-  // either. If active tokens exist, this was just a wrong secret.
+  // Registration is disabled only when no tenant has an active token.
   return (await hasActiveRegistrationTokens())
     ? { kind: 'invalid', reason: 'invalid_secret' }
     : { kind: 'disabled' }
@@ -300,11 +294,6 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
     return c.json({ error: 'Invalid registration secret' }, 401)
   }
 
-  const [farm] = await db.select({ id: farms.id }).from(farms).limit(1)
-  if (!farm) {
-    return c.json({ error: 'No farm provisioned. Seed or create a farm first.' }, 409)
-  }
-
   const email = normalizeRegisterEmail(body.email)
   if (isBreakGlassEmail(email)) {
     return c.json(
@@ -325,16 +314,15 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
 
   // Claim the single-use token now (atomic) so a valid request consumes it
   // exactly once. Only reached after all cheap validations pass, so a bad
-  // request never burns a token. The env-secret path stays reusable.
-  if (secretMode.kind === 'token') {
-    const claimed = await claimRegistrationToken(secretMode.tokenId)
-    if (!claimed) {
-      logSecurityEvent('failed_registration', withAccessMeta((name) => c.req.header(name), {
-        reason: 'token_race_lost',
-        email,
-      }))
-      return c.json({ error: 'Invalid registration secret' }, 401)
-    }
+  // request never burns a token. The returned farm is authoritative and comes
+  // from the same conditional update that won the one-time claim.
+  const claimed = await claimRegistrationToken(secretMode.tokenId)
+  if (!claimed) {
+    logSecurityEvent('failed_registration', withAccessMeta((name) => c.req.header(name), {
+      reason: 'token_race_lost',
+      email,
+    }))
+    return c.json({ error: 'Invalid registration secret' }, 401)
   }
 
   let created
@@ -342,7 +330,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
     ;[created] = await db
       .insert(users)
       .values({
-        farmId: farm.id,
+        farmId: claimed.farmId,
         email,
         name: body.name.trim(),
         phone,
@@ -355,29 +343,28 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   } catch (err) {
     // Creation failed after the token was claimed — release it so the operator
     // does not have to mint a new one for a transient error.
-    if (secretMode.kind === 'token') await releaseRegistrationToken(secretMode.tokenId)
+    await releaseRegistrationToken(secretMode.tokenId)
     throw err
   }
 
   if (!created) {
-    if (secretMode.kind === 'token') await releaseRegistrationToken(secretMode.tokenId)
+    await releaseRegistrationToken(secretMode.tokenId)
     return c.json({ error: 'Could not create account' }, 500)
   }
 
-  if (secretMode.kind === 'token') {
-    await attachRegistrationTokenUser(secretMode.tokenId, created.id)
-    logSecurityEvent('registration_token_used', withAccessMeta((name) => c.req.header(name), {
-      tokenId: secretMode.tokenId,
-      userId: created.id,
-      email,
-    }))
-  }
+  await attachRegistrationTokenUser(secretMode.tokenId, created.id)
+  logSecurityEvent('registration_token_used', withAccessMeta((name) => c.req.header(name), {
+    tokenId: secretMode.tokenId,
+    userId: created.id,
+    farmId: claimed.farmId,
+    email,
+  }))
 
   const acceptedAt = new Date()
   await db.insert(consentRecords).values(
     CONSENT_TYPES.map((consentType) => ({
       userId: created.id,
-      farmId: farm.id,
+      farmId: claimed.farmId,
       consentType,
       version: CURRENT_CONSENT_VERSION,
       acceptedAt,
@@ -402,7 +389,7 @@ authRoutes.post('/register', zValidator('json', registerBodySchema), async (c) =
   )
 
   await logAudit({
-    farmId: farm.id,
+    farmId: claimed.farmId,
     userId: created.id,
     action: 'register',
     entityType: 'user',
@@ -503,42 +490,17 @@ authRoutes.post('/reset-password', zValidator('json', resetPasswordSchema), asyn
   const nextPassword = newPassword ?? password
   if (!nextPassword) return c.json({ error: 'Password is required' }, 400)
   const now = new Date()
-  const [tokenRow] = await db
-    .select({
-      id: passwordResetTokens.id,
-      userId: passwordResetTokens.userId,
-      farmId: users.farmId,
-    })
-    .from(passwordResetTokens)
-    .innerJoin(users, eq(passwordResetTokens.userId, users.id))
-    .where(
-      and(
-        eq(passwordResetTokens.tokenHash, hashResetToken(token)),
-        gt(passwordResetTokens.expiresAt, now),
-        isNull(passwordResetTokens.usedAt),
-      ),
-    )
-    .limit(1)
+  const passwordHash = await hashPassword(nextPassword)
+  const tokenRow = await resetStaffPasswordWithToken({
+    tokenHash: hashResetToken(token),
+    passwordHash,
+    now,
+  })
 
   if (!tokenRow) {
     logSecurityEvent('password_reset_failed', withAccessMeta((name) => c.req.header(name), { reason: 'invalid_or_expired_token' }))
     return c.json({ error: 'Invalid or expired reset token' }, 400)
   }
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(nextPassword),
-        mustChangePassword: false,
-      })
-      .where(eq(users.id, tokenRow.userId))
-
-    await tx
-      .update(passwordResetTokens)
-      .set({ usedAt: now })
-      .where(eq(passwordResetTokens.id, tokenRow.id))
-  })
 
   // No active session after reset - revoke all sessions for this user
   await revokeOtherSessions(tokenRow.userId, undefined)
@@ -822,6 +784,7 @@ authRoutes.post(
 
     const { label, ttlHours } = c.req.valid('json')
     const generated = await createRegistrationToken({
+      farmId: user.farmId,
       createdByUserId: user.id,
       label,
       ttlHours,
@@ -862,7 +825,7 @@ authRoutes.get('/registration-tokens', authMiddleware, async (c) => {
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
-  const tokens = await listRegistrationTokens()
+  const tokens = await listRegistrationTokens(user.farmId)
   return c.json({ tokens })
 })
 
@@ -876,7 +839,7 @@ authRoutes.post('/registration-tokens/:id/revoke', authMiddleware, async (c) => 
 
   const tokenId = c.req.param('id')
   if (!tokenId) return c.json({ error: 'Token id required' }, 400)
-  const revoked = await revokeRegistrationToken(tokenId)
+  const revoked = await revokeRegistrationToken(user.farmId, tokenId)
   if (!revoked) {
     return c.json({ error: 'Token not found or already used' }, 404)
   }

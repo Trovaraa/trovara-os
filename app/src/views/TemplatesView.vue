@@ -177,6 +177,7 @@ async function generateTasks() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.nameLabel') }}</label>
           <input
             v-model="newName"
+            :aria-label="t('templates.nameLabel')"
             type="text"
             required
             maxlength="200"
@@ -188,6 +189,7 @@ async function generateTasks() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.cropTypeLabel') }}</label>
           <input
             v-model="newCropType"
+            :aria-label="t('templates.cropTypeLabel')"
             type="text"
             maxlength="100"
             :placeholder="t('templates.cropTypePlaceholder')"
@@ -198,6 +200,7 @@ async function generateTasks() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.durationLabel') }}</label>
           <input
             v-model.number="newDurationHours"
+            :aria-label="t('templates.durationLabel')"
             type="number"
             min="1"
             step="1"
@@ -209,6 +212,7 @@ async function generateTasks() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.descriptionLabel') }}</label>
           <input
             v-model="newDescription"
+            :aria-label="t('templates.descriptionLabel')"
             type="text"
             maxlength="2000"
             :placeholder="t('templates.descriptionPlaceholder')"
@@ -220,6 +224,7 @@ async function generateTasks() {
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('templates.checklistLabel') }}</label>
         <textarea
           v-model="newChecklistText"
+          :aria-label="t('templates.checklistLabel')"
           rows="3"
           maxlength="4000"
           :placeholder="t('templates.checklistPlaceholder')"
@@ -276,7 +281,7 @@ async function generateTasks() {
       <div class="mt-8">
         <h3 class="font-bold text-white mb-4">{{ t('templates.recurringSchedules') }}</h3>
         <div v-if="schedules.length" class="overflow-x-auto">
-          <table class="w-full text-sm">
+        <table class="w-full min-w-[720px] text-sm">
             <thead>
               <tr class="text-left text-slate-500 border-b border-slate-800">
                 <th class="pb-3 font-semibold">{{ t('templates.thTemplate') }}</th>
