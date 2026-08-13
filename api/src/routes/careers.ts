@@ -347,6 +347,7 @@ publicCareersRoutes.get('/', async (c) => {
     )
     .orderBy(desc(careerPosts.publishedAt))
 
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
   return c.json({ posts: posts.map(publicPost) })
 })
 
@@ -369,5 +370,6 @@ publicCareersRoutes.get('/:slug', async (c) => {
     )
     .limit(1)
   if (!post) return c.json({ error: 'Not found' }, 404)
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
   return c.json({ post: publicPost(post) })
 })
