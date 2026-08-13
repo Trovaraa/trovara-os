@@ -359,6 +359,7 @@ describe('public career reads', () => {
 
     const list = await app.request('/')
     expect(list.status).toBe(200)
+    expect(list.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate')
     const payload = await list.json()
     expect(payload.posts).toHaveLength(1)
     expect(payload.posts[0]).toMatchObject({ id: 'visible', slug: 'visible-role' })
@@ -369,6 +370,7 @@ describe('public career reads', () => {
     expect((await app.request('/Foreign Role')).status).toBe(404)
     const detail = await app.request('/Visible Role')
     expect(detail.status).toBe(200)
+    expect(detail.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate')
     await expect(detail.json()).resolves.toMatchObject({ post: { id: 'visible' } })
   })
 })
