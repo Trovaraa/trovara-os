@@ -24,14 +24,31 @@ import {
 export const vaultRoutes = new Hono<{ Variables: AppVariables }>()
 vaultRoutes.use('*', authMiddleware)
 
+const loginIdentifierSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(320)
+  .refine((value) => !/[\s\u0000-\u001f]/.test(value), {
+    message: 'Login must be an email or username without spaces',
+  })
+  .transform((value) => (value.includes('@') ? value.toLowerCase() : value))
+
+const stepUpSchema = z.object({
+  totpToken: z.string().trim().regex(/^\d{6}$/).optional(),
+  breakGlassPassword: z.string().min(8).max(128).optional(),
+})
+
 const entrySchema = z.object({
   label: z.string().trim().min(1).max(160),
   category: z.string().trim().min(1).max(60).default('other'),
   loginUrl: z.string().trim().url().max(500),
-  loginEmail: z.string().trim().email().max(320),
+  loginEmail: loginIdentifierSchema,
   password: z.string().min(1).max(500).optional(),
   notes: z.string().trim().max(2000).optional().nullable(),
 })
+
+const patchSchema = entrySchema.partial().extend(stepUpSchema.shape)
 
 function metadataRow(
   row: typeof portalVaultEntries.$inferSelect,
@@ -64,6 +81,70 @@ function metadataRow(
 
 function canViewAllVault(user: SessionUser) {
   return hasPermission(user, 'vault.view') || hasPermission(user, 'vault.manage')
+}
+
+async function requireVaultStepUp(
+  user: SessionUser,
+  body: z.infer<typeof stepUpSchema>,
+  header: (name: string) => string | undefined,
+  action: 'reveal' | 'update',
+): Promise<{ error: string; status: 403 } | null> {
+  if (isBreakGlassEmail(user.email)) {
+    if (!body.breakGlassPassword || !verifyArmedBreakGlassPassword(body.breakGlassPassword)) {
+      logSecurityEvent(
+        action === 'reveal' ? 'vault_reveal_failed' : 'vault_update_failed',
+        withAccessMeta(header, {
+          reason: 'break_glass_step_up_failed',
+          userId: user.id,
+          farmId: user.farmId,
+        }),
+      )
+      return {
+        error:
+          action === 'reveal'
+            ? 'Armed break-glass password required to reveal'
+            : 'Armed break-glass password required to edit',
+        status: 403,
+      }
+    }
+    return null
+  }
+
+  const [owner] = await db
+    .select({ totpEnabled: users.totpEnabled, totpSecret: users.totpSecret })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
+  if (!owner?.totpEnabled || !owner.totpSecret || !body.totpToken) {
+    logSecurityEvent(
+      action === 'reveal' ? 'vault_reveal_failed' : 'vault_update_failed',
+      withAccessMeta(header, {
+        reason: 'totp_required',
+        userId: user.id,
+        farmId: user.farmId,
+      }),
+    )
+    return {
+      error:
+        action === 'reveal'
+          ? '2FA/TOTP code required to reveal password -> Kindly add a 2FA/TOTP code to your account'
+          : '2FA/TOTP code required to edit this vault entry',
+      status: 403,
+    }
+  }
+  const { plaintext } = decryptSecretForVerify(owner.totpSecret)
+  if (!(await verifyTokenForUser(user.id, plaintext, body.totpToken))) {
+    logSecurityEvent(
+      action === 'reveal' ? 'vault_reveal_failed' : 'vault_update_failed',
+      withAccessMeta(header, {
+        reason: 'invalid_totp',
+        userId: user.id,
+        farmId: user.farmId,
+      }),
+    )
+    return { error: 'Invalid authentication code', status: 403 }
+  }
+  return null
 }
 
 async function sharedEntryIdsForUser(farmId: string, userId: string): Promise<string[]> {
@@ -243,7 +324,7 @@ vaultRoutes.post('/', zValidator('json', entrySchema), async (c) => {
       label: body.label,
       category: body.category,
       loginUrl: body.loginUrl,
-      loginEmail: body.loginEmail.toLowerCase(),
+      loginEmail: body.loginEmail,
       passwordCiphertext: encryptVaultSecret(body.password),
       notes: body.notes ?? null,
       createdById: user.id,
@@ -280,13 +361,27 @@ vaultRoutes.post('/', zValidator('json', entrySchema), async (c) => {
   }, 201)
 })
 
-vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) => {
+vaultRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => {
   const user = c.get('user')
   try {
     requirePermission(user, 'vault.manage')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
+
+  const stepUpKey = vaultRevealRateKey(user.id)
+  if (!(await checkDurableRateLimit(stepUpKey, VAULT_REVEAL_MAX_ATTEMPTS))) {
+    logSecurityEvent(
+      'vault_update_failed',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: 'rate_limited',
+        userId: user.id,
+        farmId: user.farmId,
+      }),
+    )
+    return c.json({ error: 'Too many vault attempts. Try again later.' }, 429)
+  }
+
   const id = c.req.param('id')
   const body = c.req.valid('json')
   const [existing] = await db
@@ -296,13 +391,17 @@ vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) =
     .limit(1)
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
+  const stepUp = await requireVaultStepUp(user, body, (name) => c.req.header(name), 'update')
+  if (stepUp) return c.json({ error: stepUp.error }, stepUp.status)
+  await resetDurableRateLimit(stepUpKey)
+
   const [updated] = await db
     .update(portalVaultEntries)
     .set({
       ...(body.label !== undefined ? { label: body.label } : {}),
       ...(body.category !== undefined ? { category: body.category } : {}),
       ...(body.loginUrl !== undefined ? { loginUrl: body.loginUrl } : {}),
-      ...(body.loginEmail !== undefined ? { loginEmail: body.loginEmail.toLowerCase() } : {}),
+      ...(body.loginEmail !== undefined ? { loginEmail: body.loginEmail } : {}),
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.password !== undefined
         ? { passwordCiphertext: encryptVaultSecret(body.password) }
@@ -382,12 +481,7 @@ vaultRoutes.delete('/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-const revealSchema = z.object({
-  totpToken: z.string().trim().regex(/^\d{6}$/).optional(),
-  breakGlassPassword: z.string().min(8).max(128).optional(),
-})
-
-vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
+vaultRoutes.post('/:id/reveal', zValidator('json', stepUpSchema), async (c) => {
   const user = c.get('user')
   const canRevealAll = hasPermission(user, 'vault.reveal')
 
@@ -425,48 +519,8 @@ vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
-  if (isBreakGlassEmail(user.email)) {
-    if (!body.breakGlassPassword || !verifyArmedBreakGlassPassword(body.breakGlassPassword)) {
-      logSecurityEvent(
-        'vault_reveal_failed',
-        withAccessMeta((name) => c.req.header(name), {
-          reason: 'break_glass_step_up_failed',
-          entryId: id,
-          userId: user.id,
-        }),
-      )
-      return c.json({ error: 'Armed break-glass password required to reveal' }, 403)
-    }
-  } else {
-    const [owner] = await db
-      .select({ totpEnabled: users.totpEnabled, totpSecret: users.totpSecret })
-      .from(users)
-      .where(eq(users.id, user.id))
-      .limit(1)
-    if (!owner?.totpEnabled || !owner.totpSecret || !body.totpToken) {
-      logSecurityEvent(
-        'vault_reveal_failed',
-        withAccessMeta((name) => c.req.header(name), {
-          reason: 'totp_required',
-          entryId: id,
-          userId: user.id,
-        }),
-      )
-      return c.json({ error: '2FA/TOTP code required to reveal password -> Kindly add a 2FA/TOTP code to your account' }, 403)
-    }
-    const { plaintext } = decryptSecretForVerify(owner.totpSecret)
-    if (!(await verifyTokenForUser(user.id, plaintext, body.totpToken))) {
-      logSecurityEvent(
-        'vault_reveal_failed',
-        withAccessMeta((name) => c.req.header(name), {
-          reason: 'invalid_totp',
-          entryId: id,
-          userId: user.id,
-        }),
-      )
-      return c.json({ error: 'Invalid authentication code' }, 403)
-    }
-  }
+  const stepUp = await requireVaultStepUp(user, body, (name) => c.req.header(name), 'reveal')
+  if (stepUp) return c.json({ error: stepUp.error }, stepUp.status)
 
   let password: string
   try {

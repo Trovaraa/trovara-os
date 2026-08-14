@@ -42,9 +42,18 @@ const form = ref({
   notes: '',
 })
 const revealId = ref<string | null>(null)
+const editingId = ref<string | null>(null)
+const savingEditId = ref<string | null>(null)
 const totpToken = ref('')
 const breakGlassPassword = ref('')
 const revealed = ref<string | null>(null)
+const editForm = ref({
+  label: '',
+  loginUrl: '',
+  loginEmail: '',
+  password: '',
+  notes: '',
+})
 
 const visible = computed(
   () => loading.value || canManage.value || entries.value.length > 0 || auth.isOwner,
@@ -102,6 +111,50 @@ async function createEntry() {
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Save failed'
+  }
+}
+
+function startEdit(entry: VaultEntry) {
+  editingId.value = entry.id
+  revealed.value = null
+  revealId.value = null
+  editForm.value = {
+    label: entry.label,
+    loginUrl: entry.loginUrl,
+    loginEmail: entry.loginEmail,
+    password: '',
+    notes: entry.notes ?? '',
+  }
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+async function saveEdit(entry: VaultEntry) {
+  savingEditId.value = entry.id
+  message.value = null
+  error.value = null
+  try {
+    await api(`/api/vault/${entry.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        label: editForm.value.label,
+        loginUrl: editForm.value.loginUrl,
+        loginEmail: editForm.value.loginEmail,
+        notes: editForm.value.notes || null,
+        ...(editForm.value.password ? { password: editForm.value.password } : {}),
+        totpToken: totpToken.value || undefined,
+        breakGlassPassword: breakGlassPassword.value || undefined,
+      }),
+    })
+    editingId.value = null
+    message.value = 'Entry updated'
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Update failed'
+  } finally {
+    savingEditId.value = null
   }
 }
 
@@ -163,10 +216,10 @@ onMounted(load)
   <div v-if="visible" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
     <h3 class="font-bold text-white text-sm">Portal credential vault</h3>
     <p class="text-xs text-slate-500 mt-1">
-      Human login email/password/URL for provider dashboards. Runtime API keys stay in server
-      environment. Reveal requires TOTP (or armed break-glass password). Share a login with a
-      specific person — for example social media details with a content creator — without giving
-      them the whole vault.
+      Human login email or username, password, and URL for provider dashboards. Runtime API keys
+      stay in server environment. Reveal and admin edits require TOTP (or armed break-glass
+      password). Share a login with a specific person — for example social media details with a
+      content creator — without giving them the whole vault.
     </p>
 
     <p v-if="loading" class="text-xs text-slate-400 mt-4">Loading…</p>
@@ -210,10 +263,70 @@ onMounted(load)
             <button
               v-if="entry.canManage"
               type="button"
+              class="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+              @click="startEdit(entry)"
+            >
+              Edit
+            </button>
+            <button
+              v-if="entry.canManage"
+              type="button"
               class="px-2 py-1 rounded bg-red-900/40 text-red-300 hover:bg-red-900/60"
               @click="remove(entry.id)"
             >
               Delete
+            </button>
+          </div>
+        </div>
+        <div v-if="entry.canManage && editingId === entry.id" class="mt-3 border-t border-slate-800 pt-2 space-y-2">
+          <p class="text-slate-400 font-semibold">Edit entry</p>
+          <input
+            v-model="editForm.label"
+            aria-label="Edit vault entry label"
+            placeholder="Label"
+            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+          />
+          <input
+            v-model="editForm.loginUrl"
+            aria-label="Edit login URL"
+            placeholder="https://…"
+            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+          />
+          <input
+            v-model="editForm.loginEmail"
+            aria-label="Edit login email or username"
+            placeholder="Email or username"
+            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+          />
+          <input
+            v-model="editForm.password"
+            aria-label="New password"
+            type="password"
+            placeholder="New password (leave blank to keep current)"
+            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+          />
+          <textarea
+            v-model="editForm.notes"
+            aria-label="Edit notes"
+            placeholder="Notes (optional)"
+            rows="2"
+            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+          />
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              :disabled="savingEditId === entry.id"
+              @click="saveEdit(entry)"
+            >
+              {{ savingEditId === entry.id ? 'Saving…' : 'Save changes' }}
+            </button>
+            <button
+              type="button"
+              class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+              @click="cancelEdit"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -245,14 +358,17 @@ onMounted(load)
       </li>
     </ul>
 
-    <div v-if="entries.some((entry) => entry.canReveal)" class="mt-4 grid gap-2 sm:grid-cols-2">
+    <div
+      v-if="canManage || entries.some((entry) => entry.canReveal)"
+      class="mt-4 grid gap-2 sm:grid-cols-2"
+    >
       <input
         v-model="totpToken"
-        aria-label="TOTP for reveal"
+        aria-label="TOTP for reveal or edit"
         type="text"
         inputmode="numeric"
         maxlength="6"
-        placeholder="TOTP for reveal"
+        placeholder="TOTP for reveal or edit"
         class="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
       />
       <input
@@ -280,8 +396,15 @@ onMounted(load)
       />
       <input
         v-model="form.loginEmail"
-        aria-label="Login email"
-        placeholder="Login email"
+        aria-label="Login email or username"
+        placeholder="Email or username"
+        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+      />
+      <textarea
+        v-model="form.notes"
+        aria-label="Vault notes"
+        placeholder="Notes (optional)"
+        rows="2"
         class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
       />
       <input

@@ -100,6 +100,7 @@ export const AUDIT_SECURITY_SPLIT = {
     'customer_order_abuse',
     'break_glass_disarmed_attempt',
     'vault_reveal_failed',
+    'vault_update_failed',
   ],
   dual: [
     'staff_user_*',

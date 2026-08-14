@@ -11,10 +11,13 @@ const ENTRY_ID = '33333333-3333-4333-8333-333333333333'
 const selectQueue: Row[][] = []
 const inserted: Array<{ table: string; values: unknown }> = []
 const deleted: string[] = []
+const updated: Row[] = []
 
 let sessionUser: Row = {
   id: OWNER_ID,
   farmId: FARM,
+  email: 'owner@example.com',
+  name: 'Owner',
   role: 'owner',
 }
 
@@ -40,7 +43,8 @@ vi.mock('../db/index.js', () => ({
     insert: (table: unknown) => ({
       values: (values: unknown) => {
         inserted.push({ table: getTableName(table as never), values })
-        return { returning: async () => [Array.isArray(values) ? values[0] : values] }
+        const row = Array.isArray(values) ? values[0] : values
+        return { returning: async () => [{ ...entry(), ...(row as Row) }] }
       },
     }),
     delete: (table: unknown) => ({
@@ -49,7 +53,15 @@ vi.mock('../db/index.js', () => ({
       },
     }),
     update: () => ({
-      set: () => ({ where: () => ({ returning: async () => [] }) }),
+      set: (values: Row) => ({
+        where: () => ({
+          returning: async () => {
+            const row = { ...entry(), ...values }
+            updated.push(row)
+            return [row]
+          },
+        }),
+      }),
     }),
   },
 }))
@@ -65,6 +77,20 @@ vi.mock('../middleware/auth.js', () => ({
 }))
 vi.mock('../lib/audit.js', () => ({ logAudit: vi.fn() }))
 vi.mock('../lib/security-log.js', () => ({ logSecurityEvent: vi.fn() }))
+vi.mock('../lib/registration.js', () => ({
+  isBreakGlassEmail: () => false,
+  verifyArmedBreakGlassPassword: () => false,
+}))
+vi.mock('../lib/totp.js', () => ({
+  verifyTokenForUser: vi.fn(async () => true),
+}))
+vi.mock('../lib/secret-box.js', () => ({
+  decryptSecretForVerify: () => ({ plaintext: 'totp-secret' }),
+}))
+vi.mock('../lib/vault-box.js', () => ({
+  encryptVaultSecret: (value: string) => `cipher:${value}`,
+  decryptVaultSecret: (value: string) => value.replace(/^cipher:/, ''),
+}))
 vi.mock('../middleware/security.js', () => ({
   checkDurableRateLimit: async () => true,
   resetDurableRateLimit: async () => undefined,
@@ -98,7 +124,14 @@ beforeEach(() => {
   selectQueue.length = 0
   inserted.length = 0
   deleted.length = 0
-  sessionUser = { id: OWNER_ID, farmId: FARM, role: 'owner' }
+  updated.length = 0
+  sessionUser = {
+    id: OWNER_ID,
+    farmId: FARM,
+    email: 'owner@example.com',
+    name: 'Owner',
+    role: 'owner',
+  }
 })
 
 describe('vault sharing', () => {
@@ -187,5 +220,63 @@ describe('vault sharing', () => {
       body: JSON.stringify({ userIds: [CREATOR_ID] }),
     })
     expect(response.status).toBe(400)
+  })
+})
+
+describe('vault login identifiers and admin edits', () => {
+  it('accepts a username that is not an email', async () => {
+    const response = await (await app()).request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label: 'Instagram',
+        category: 'social',
+        loginUrl: 'https://instagram.com',
+        loginEmail: 'trovara.social',
+        password: 'secret-pass',
+      }),
+    })
+    expect(response.status).toBe(201)
+    const created = inserted.find((row) => row.table === 'portal_vault_entries')
+    expect(created?.values).toMatchObject({ loginEmail: 'trovara.social' })
+  })
+
+  it('rejects a login identifier with spaces', async () => {
+    const response = await (await app()).request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label: 'Instagram',
+        loginUrl: 'https://instagram.com',
+        loginEmail: 'trovara social',
+        password: 'secret-pass',
+      }),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects an admin edit without TOTP', async () => {
+    selectQueue.push([entry()], [{ totpEnabled: true, totpSecret: 'enc' }])
+    const response = await (await app()).request(`/${ENTRY_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginEmail: 'new.username' }),
+    })
+    expect(response.status).toBe(403)
+    expect(updated).toHaveLength(0)
+  })
+
+  it('lets an admin edit an entry after TOTP', async () => {
+    selectQueue.push([entry()], [{ totpEnabled: true, totpSecret: 'enc' }], [])
+    const response = await (await app()).request(`/${ENTRY_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        loginEmail: 'new.username',
+        totpToken: '123456',
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(updated[0]).toMatchObject({ loginEmail: 'new.username' })
   })
 })
