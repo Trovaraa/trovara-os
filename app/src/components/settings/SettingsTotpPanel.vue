@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 
 defineProps<{
   totpStatus: { enabled: boolean; hasSecret: boolean } | null
@@ -21,8 +22,13 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-    <h3 class="font-bold text-white text-sm">{{ t('settings.founderSecurity') }}</h3>
+  <CollapsibleSection
+    class="mt-6"
+    :title="t('settings.founderSecurity')"
+    :default-open="false"
+    content-class="space-y-4 p-4 sm:p-5"
+    test-id="settings-totp-section"
+  >
     <div class="flex items-center gap-3">
       <span
         class="text-xs font-bold px-2.5 py-1 rounded-full"
@@ -99,5 +105,5 @@ const { t } = useI18n()
       </button>
     </div>
     <p v-if="totpMessage" class="text-xs text-slate-400">{{ totpMessage }}</p>
-  </div>
+  </CollapsibleSection>
 </template>

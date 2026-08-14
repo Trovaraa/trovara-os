@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -564,77 +565,90 @@ onMounted(load)
         </div>
       </div>
 
-      <div
+      <CollapsibleSection
         v-if="summary"
-        class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4"
+        class="mt-4"
+        :title="`${t('finance.paidRevenue')} · ${t('finance.refunds')}`"
+        :default-open="false"
+        test-id="finance-payment-details-section"
       >
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">{{ t('finance.paidRevenue') }}</p>
-          <p class="text-xl font-black text-emerald-400 mt-1">
-            {{ formatAmount(summary.paidRevenue ?? 0, summary.currency) }}
-          </p>
-          <p class="text-xs text-slate-600 mt-2">
-            {{ t('finance.invoiceCount', { count: summary.invoiceCount ?? 0 }) }}
-          </p>
+        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/45 p-5">
+            <p class="text-xs text-slate-500 font-medium">{{ t('finance.paidRevenue') }}</p>
+            <p class="text-xl font-black text-emerald-400 mt-1">
+              {{ formatAmount(summary.paidRevenue ?? 0, summary.currency) }}
+            </p>
+            <p class="text-xs text-slate-600 mt-2">
+              {{ t('finance.invoiceCount', { count: summary.invoiceCount ?? 0 }) }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/45 p-5">
+            <p class="text-xs text-slate-500 font-medium">{{ t('finance.outstandingInvoices') }}</p>
+            <p class="text-xl font-black text-amber-300 mt-1">
+              {{ formatAmount(summary.outstandingInvoices ?? 0, summary.currency) }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/45 p-5">
+            <p class="text-xs text-slate-500 font-medium">{{ t('finance.refunds') }}</p>
+            <p class="text-xl font-black text-orange-300 mt-1">
+              {{ formatAmount(summary.refunds ?? 0, summary.currency) }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/45 p-5">
+            <p class="text-xs text-slate-500 font-medium">{{ t('finance.refundsPending') }}</p>
+            <p class="text-xl font-black text-orange-200 mt-1">
+              {{ formatAmount(summary.refundsPending ?? 0, summary.currency) }}
+            </p>
+          </div>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">{{ t('finance.outstandingInvoices') }}</p>
-          <p class="text-xl font-black text-amber-300 mt-1">
-            {{ formatAmount(summary.outstandingInvoices ?? 0, summary.currency) }}
-          </p>
-        </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">{{ t('finance.refunds') }}</p>
-          <p class="text-xl font-black text-orange-300 mt-1">
-            {{ formatAmount(summary.refunds ?? 0, summary.currency) }}
-          </p>
-        </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <p class="text-xs text-slate-500 font-medium">{{ t('finance.refundsPending') }}</p>
-          <p class="text-xl font-black text-orange-200 mt-1">
-            {{ formatAmount(summary.refundsPending ?? 0, summary.currency) }}
-          </p>
-        </div>
-      </div>
 
-      <div v-if="summary && Object.keys(summary.expensesByCategory).length" class="mt-6">
-        <div class="flex flex-wrap gap-3">
+        <div v-if="Object.keys(summary.expensesByCategory).length" class="mt-6">
+          <div class="flex flex-wrap gap-3">
+            <span
+              v-for="(amount, category) in summary.expensesByCategory"
+              :key="category"
+              class="text-xs bg-slate-800 px-3 py-1.5 rounded-lg text-slate-300 capitalize"
+            >
+              {{ t(`finance.categories.${category}`) }}: {{ formatAmount(amount, summary.currency) }}
+            </span>
+          </div>
+        </div>
+
+        <div
+          v-if="summary.expensesByLabel && Object.keys(summary.expensesByLabel).length"
+          class="mt-3 flex flex-wrap gap-3"
+        >
           <span
-            v-for="(amount, category) in summary.expensesByCategory"
-            :key="category"
-            class="text-xs bg-slate-800 px-3 py-1.5 rounded-lg text-slate-300 capitalize"
+            v-for="(row, labelId) in summary.expensesByLabel"
+            :key="labelId"
+            class="text-xs bg-slate-800/80 px-3 py-1.5 rounded-lg text-farm-gold"
           >
-            {{ t(`finance.categories.${category}`) }}: {{ formatAmount(amount, summary.currency) }}
+            {{ row.name }}: {{ formatAmount(row.total, summary.currency) }}
           </span>
         </div>
-      </div>
 
-      <div
-        v-if="summary?.expensesByLabel && Object.keys(summary.expensesByLabel).length"
-        class="mt-3 flex flex-wrap gap-3"
-      >
-        <span
-          v-for="(row, labelId) in summary.expensesByLabel"
-          :key="labelId"
-          class="text-xs bg-slate-800/80 px-3 py-1.5 rounded-lg text-farm-gold"
+        <p
+          v-if="(summary.pendingExpenseCount ?? 0) > 0 || (summary.unconvertedForeignCount ?? 0) > 0"
+          class="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
         >
-          {{ row.name }}: {{ formatAmount(row.total, summary.currency) }}
-        </span>
-      </div>
+          {{ t('finance.summaryExcludesDrafts', {
+            pending: summary.pendingExpenseCount ?? 0,
+            foreign: summary.unconvertedForeignCount ?? 0,
+          }) }}
+        </p>
+      </CollapsibleSection>
 
-      <p
-        v-if="summary && ((summary.pendingExpenseCount ?? 0) > 0 || (summary.unconvertedForeignCount ?? 0) > 0)"
-        class="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+      <CollapsibleSection
+        class="mt-8"
+        :title="t('finance.expenses')"
+        :default-open="true"
+        test-id="finance-expenses-section"
       >
-        {{ t('finance.summaryExcludesDrafts', {
-          pending: summary.pendingExpenseCount ?? 0,
-          foreign: summary.unconvertedForeignCount ?? 0,
-        }) }}
-      </p>
-
-      <section class="mt-8" aria-labelledby="expenses-heading">
-        <h3 id="expenses-heading" class="font-bold text-white mb-4">{{ t('finance.expenses') }}</h3>
-
+        <template #meta>
+          <span class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+            {{ expenses.length }}
+          </span>
+        </template>
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
             v-for="expense in visibleExpenses"
@@ -921,7 +935,7 @@ onMounted(load)
           <button type="button" class="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-50" :disabled="page === pageCount" @click="page++">{{ t('finance.next') }}</button>
         </nav>
         <p v-if="!expenses.length" class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
-      </section>
+      </CollapsibleSection>
     </template>
   </AppLayout>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import type { RegistrationTokenRow } from '@/composables/useSettingsRegistrationTokens'
 
 defineProps<{
@@ -47,12 +48,14 @@ function formatWhen(iso: string): string {
 </script>
 
 <template>
-  <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-    <div>
-      <h3 class="font-bold text-white text-sm">{{ t('settings.regTokensTitle') }}</h3>
-      <p class="text-xs text-slate-500 mt-1">{{ t('settings.regTokensDesc') }}</p>
-    </div>
-
+  <CollapsibleSection
+    class="mt-6"
+    :title="t('settings.regTokensTitle')"
+    :description="t('settings.regTokensDesc')"
+    :default-open="false"
+    content-class="space-y-4 p-4 sm:p-5"
+    test-id="settings-registration-tokens-section"
+  >
     <div class="flex flex-wrap items-end gap-2">
       <label class="block text-xs text-slate-400">
         {{ t('settings.regTokenLabel') }}
@@ -131,5 +134,5 @@ function formatWhen(iso: string): string {
     <p v-else class="text-xs text-slate-500">{{ t('settings.regTokensEmpty') }}</p>
 
     <p v-if="message" class="text-xs text-slate-400">{{ message }}</p>
-  </div>
+  </CollapsibleSection>
 </template>

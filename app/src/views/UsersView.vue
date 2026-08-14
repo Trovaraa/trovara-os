@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import UsersCreateForm from '@/components/users/UsersCreateForm.vue'
 import UsersEditModal from '@/components/users/UsersEditModal.vue'
 import UsersTable from '@/components/users/UsersTable.vue'
@@ -96,19 +97,31 @@ const {
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('users.loading') }}</div>
 
-    <UsersTable
+    <CollapsibleSection
       v-else
-      :users="users"
-      :toggling="toggling"
-      :deleting="deleting"
-      :delete-error="deleteError"
-      :display-role="displayRole"
-      :can-break-glass-cleanup="canBreakGlassCleanup"
-      @edit="openEdit"
-      @toggle="toggleActive"
-      @delete="deleteUser"
-      @break-glass-admin="breakGlassToggleAdmin"
-    />
+      class="mt-8"
+      :title="t('users.title')"
+      :default-open="true"
+      test-id="users-list-section"
+    >
+      <template #meta>
+        <span class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+          {{ users.length }}
+        </span>
+      </template>
+      <UsersTable
+        :users="users"
+        :toggling="toggling"
+        :deleting="deleting"
+        :delete-error="deleteError"
+        :display-role="displayRole"
+        :can-break-glass-cleanup="canBreakGlassCleanup"
+        @edit="openEdit"
+        @toggle="toggleActive"
+        @delete="deleteUser"
+        @break-glass-admin="breakGlassToggleAdmin"
+      />
+    </CollapsibleSection>
 
     <UsersEditModal
       v-if="editing"

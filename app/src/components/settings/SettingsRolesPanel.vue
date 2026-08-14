@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import { api } from '@/lib/api'
 
 type Permission = {
@@ -127,13 +128,13 @@ const categories = () => {
 </script>
 
 <template>
-  <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-    <h3 class="font-bold text-white text-sm">Roles & permissions</h3>
-    <p class="text-xs text-slate-500 mt-1">
-      Edit what Supervisor, Sales, Field worker, and custom roles can do. Admin always has full
-      access. Grant changes revoke sessions for affected users.
-    </p>
-
+  <CollapsibleSection
+    class="mt-6"
+    title="Roles & permissions"
+    description="Edit role access only when responsibilities change. Admin always has full access, and saved changes revoke affected sessions."
+    :default-open="false"
+    test-id="settings-roles-section"
+  >
     <p v-if="loading" class="text-xs text-slate-400 mt-4">Loading…</p>
     <p v-else-if="error" class="text-xs text-red-400 mt-4">{{ error }}</p>
 
@@ -179,30 +180,42 @@ const categories = () => {
           Admin permissions cannot be edited.
         </p>
         <template v-else>
-          <div v-for="[category, perms] in categories()" :key="category" class="mb-4">
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-              {{ category }}
-            </p>
-            <label
-              v-for="p in perms"
-              :key="p.key"
-              class="flex items-start gap-2 text-xs text-slate-300 py-1"
+          <div class="space-y-2">
+            <details
+              v-for="[category, perms] in categories()"
+              :key="category"
+              class="group overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45"
             >
-              <input
-                type="checkbox"
-                class="mt-0.5"
-                :checked="draft.has(p.key)"
-                @change="toggle(p.key, p.nonDelegable)"
-              />
-              <span>
-                <span class="font-mono text-farm-gold">{{ p.key }}</span>
-                <span class="block text-slate-500">{{ p.description }}</span>
-              </span>
-            </label>
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-300 marker:content-none">
+                <span>{{ category }}</span>
+                <span class="flex items-center gap-2 text-[11px] font-medium normal-case tracking-normal text-slate-500">
+                  {{ perms.length }} permissions
+                  <svg class="h-4 w-4 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
+                </span>
+              </summary>
+              <div class="space-y-1 border-t border-slate-800 px-3 py-2">
+                <label
+                  v-for="p in perms"
+                  :key="p.key"
+                  class="flex items-start gap-2 py-1.5 text-xs text-slate-300"
+                >
+                  <input
+                    type="checkbox"
+                    class="mt-0.5"
+                    :checked="draft.has(p.key)"
+                    @change="toggle(p.key, p.nonDelegable)"
+                  />
+                  <span>
+                    <span class="font-mono text-farm-gold">{{ p.key }}</span>
+                    <span class="block text-slate-500">{{ p.description }}</span>
+                  </span>
+                </label>
+              </div>
+            </details>
           </div>
           <button
             type="button"
-            class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+            class="mt-4 text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
             :disabled="saving"
             @click="save"
           >
@@ -212,5 +225,5 @@ const categories = () => {
         <p v-if="message" class="text-xs text-slate-400 mt-2">{{ message }}</p>
       </div>
     </div>
-  </div>
+  </CollapsibleSection>
 </template>

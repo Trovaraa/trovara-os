@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import type { AssignableFarmRole } from '@/composables/useUsers'
 
 const newEmail = defineModel<string>('newEmail', { required: true })
@@ -29,11 +30,13 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <form
-    class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
-    @submit.prevent="emit('submit')"
+  <CollapsibleSection
+    class="mt-8"
+    :title="t('users.addUser')"
+    :default-open="false"
+    test-id="users-create-section"
   >
-    <h3 class="font-bold text-white text-sm">{{ t('users.addUser') }}</h3>
+    <form class="space-y-4" @submit.prevent="emit('submit')">
     <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <div>
         <label class="block text-xs text-slate-500 mb-1.5">{{ t('users.email') }}</label>
@@ -204,5 +207,6 @@ const { t } = useI18n()
       </button>
       <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
     </div>
-  </form>
+    </form>
+  </CollapsibleSection>
 </template>

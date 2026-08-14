@@ -29,9 +29,15 @@ const loginIdentifierSchema = z
   .trim()
   .min(1)
   .max(320)
-  .refine((value) => !/[\s\u0000-\u001f]/.test(value), {
-    message: 'Login must be an email or username without spaces',
-  })
+  .refine(
+    (value) =>
+      Array.from(value).every(
+        (character) => !/\s/.test(character) && character.charCodeAt(0) >= 0x20,
+      ),
+    {
+      message: 'Login must be an email or username without spaces',
+    },
+  )
   .transform((value) => (value.includes('@') ? value.toLowerCase() : value))
 
 const stepUpSchema = z.object({

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -213,15 +214,19 @@ onMounted(load)
 </script>
 
 <template>
-  <div v-if="visible" class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-    <h3 class="font-bold text-white text-sm">Portal credential vault</h3>
-    <p class="text-xs text-slate-500 mt-1">
-      Human login email or username, password, and URL for provider dashboards. Runtime API keys
-      stay in server environment. Reveal and admin edits require TOTP (or armed break-glass
-      password). Share a login with a specific person — for example social media details with a
-      content creator — without giving them the whole vault.
-    </p>
-
+  <CollapsibleSection
+    v-if="visible"
+    class="mt-6"
+    title="Portal credential vault"
+    description="Manage human portal logins and share individual entries with named staff. Reveal and admin edits require TOTP or an armed break-glass password."
+    :default-open="false"
+    test-id="settings-vault-section"
+  >
+    <template #meta>
+      <span v-if="entries.length" class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+        {{ entries.length }}
+      </span>
+    </template>
     <p v-if="loading" class="text-xs text-slate-400 mt-4">Loading…</p>
     <p v-else-if="error" class="text-xs text-red-400 mt-4">{{ error }}</p>
     <p v-if="message" class="text-xs text-slate-400 mt-2">{{ message }}</p>
@@ -330,31 +335,42 @@ onMounted(load)
             </button>
           </div>
         </div>
-        <div v-if="entry.canManage && candidates.length" class="mt-3 border-t border-slate-800 pt-2">
-          <p class="text-slate-400 font-semibold mb-1">Share with</p>
-          <div class="grid gap-1 sm:grid-cols-2">
-            <label
-              v-for="person in candidates"
-              :key="`${entry.id}-${person.id}`"
-              class="flex items-center gap-2 text-slate-300"
+        <details
+          v-if="entry.canManage && candidates.length"
+          class="group mt-3 overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45"
+        >
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 font-semibold text-slate-300 marker:content-none">
+            <span>Sharing</span>
+            <span class="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+              {{ (shareDraft[entry.id] ?? []).length }} selected
+              <svg class="h-4 w-4 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
+            </span>
+          </summary>
+          <div class="border-t border-slate-800 px-3 py-3">
+            <div class="grid gap-2 sm:grid-cols-2">
+              <label
+                v-for="person in candidates"
+                :key="`${entry.id}-${person.id}`"
+                class="flex items-center gap-2 text-slate-300"
+              >
+                <input
+                  type="checkbox"
+                  :checked="(shareDraft[entry.id] ?? []).includes(person.id)"
+                  @change="toggleShare(entry.id, person.id)"
+                />
+                <span>{{ candidateLabel(person) }}</span>
+              </label>
+            </div>
+            <button
+              type="button"
+              class="mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              :disabled="savingShareId === entry.id"
+              @click="saveShares(entry)"
             >
-              <input
-                type="checkbox"
-                :checked="(shareDraft[entry.id] ?? []).includes(person.id)"
-                @change="toggleShare(entry.id, person.id)"
-              />
-              <span>{{ candidateLabel(person) }}</span>
-            </label>
+              {{ savingShareId === entry.id ? 'Saving…' : 'Save sharing' }}
+            </button>
           </div>
-          <button
-            type="button"
-            class="mt-2 text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
-            :disabled="savingShareId === entry.id"
-            @click="saveShares(entry)"
-          >
-            {{ savingShareId === entry.id ? 'Saving…' : 'Save sharing' }}
-          </button>
-        </div>
+        </details>
       </li>
     </ul>
 
@@ -380,47 +396,52 @@ onMounted(load)
       />
     </div>
 
-    <div v-if="canManage" class="mt-6 border-t border-slate-800 pt-4 space-y-2">
-      <p class="text-xs font-semibold text-slate-400">Add entry</p>
-      <input
-        v-model="form.label"
-        aria-label="Vault entry label"
-        placeholder="Label (e.g. Instagram, Paystack dashboard)"
-        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <input
-        v-model="form.loginUrl"
-        aria-label="Login URL"
-        placeholder="https://…"
-        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <input
-        v-model="form.loginEmail"
-        aria-label="Login email or username"
-        placeholder="Email or username"
-        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <textarea
-        v-model="form.notes"
-        aria-label="Vault notes"
-        placeholder="Notes (optional)"
-        rows="2"
-        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <input
-        v-model="form.password"
-        aria-label="Password"
-        type="password"
-        placeholder="Password"
-        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <button
-        type="button"
-        class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
-        @click="createEntry"
-      >
-        Save to vault
-      </button>
-    </div>
-  </div>
+    <details v-if="canManage" class="group mt-6 overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-semibold text-slate-300 marker:content-none">
+        <span>Add entry</span>
+        <svg class="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
+      </summary>
+      <div class="space-y-2 border-t border-slate-800 p-3">
+        <input
+          v-model="form.label"
+          aria-label="Vault entry label"
+          placeholder="Label (e.g. Instagram, Paystack dashboard)"
+          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+        />
+        <input
+          v-model="form.loginUrl"
+          aria-label="Login URL"
+          placeholder="https://…"
+          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+        />
+        <input
+          v-model="form.loginEmail"
+          aria-label="Login email or username"
+          placeholder="Email or username"
+          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+        />
+        <textarea
+          v-model="form.notes"
+          aria-label="Vault notes"
+          placeholder="Notes (optional)"
+          rows="2"
+          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+        />
+        <input
+          v-model="form.password"
+          aria-label="Password"
+          type="password"
+          placeholder="Password"
+          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+        />
+        <button
+          type="button"
+          class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
+          @click="createEntry"
+        >
+          Save to vault
+        </button>
+      </div>
+    </details>
+  </CollapsibleSection>
 </template>

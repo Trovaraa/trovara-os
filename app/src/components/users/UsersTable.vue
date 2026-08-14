@@ -22,7 +22,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="mt-8">
+  <div>
     <ul class="space-y-3 sm:hidden">
       <li v-for="user in users" :key="`mobile-${user.id}`" class="rounded-xl border border-slate-800 bg-slate-900 p-4">
         <div class="flex items-start justify-between gap-3">
