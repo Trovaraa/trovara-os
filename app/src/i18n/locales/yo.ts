@@ -763,6 +763,7 @@ export default {
     },
     finance: {
       title: 'Ìṣúnná owó',
+      overview: 'Àkótán',
       subtitle: 'Ìnáwó àti àkótán èrè - Admin nìkan',
       loading: 'Ń gbé àwọn dátà ìṣúnná owó…',
       revenue: 'Owó tí ó wọlé',

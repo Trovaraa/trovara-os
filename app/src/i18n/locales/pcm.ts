@@ -764,6 +764,7 @@ export default {
     },
     finance: {
       title: 'Money',
+      overview: 'Summary',
       subtitle: 'Expenses and P&L snapshot - Admin only',
       loading: 'Dey load finance data…',
       revenue: 'Money wey enter',

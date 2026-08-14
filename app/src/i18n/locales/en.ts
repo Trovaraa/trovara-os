@@ -848,6 +848,7 @@ export default {
     },
     finance: {
       title: 'Finance',
+      overview: 'Overview',
       subtitle: 'Expenses and P&L snapshot - Admin only',
       loading: 'Loading finance data…',
       revenue: 'Revenue',

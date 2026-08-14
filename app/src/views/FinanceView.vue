@@ -81,6 +81,7 @@ const updatingIds = ref<Set<string>>(new Set())
 const newLabelName = ref('')
 const addingLabel = ref(false)
 const page = ref(1)
+const activeSection = ref<'overview' | 'expenses'>('overview')
 const PAGE_SIZE = 25
 let loadRequestId = 0
 const pageCount = computed(() => Math.max(1, Math.ceil(expenses.value.length / PAGE_SIZE)))
@@ -229,10 +230,12 @@ function resetForm() {
 
 function startCreate() {
   resetForm()
+  activeSection.value = 'expenses'
   showForm.value = true
 }
 
 function startEdit(expense: Expense) {
+  activeSection.value = 'expenses'
   editingId.value = expense.id
   showForm.value = true
   form.value = {
@@ -353,15 +356,6 @@ onMounted(load)
         <p class="text-slate-400 text-sm mt-1">{{ t('finance.subtitle') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <select
-          v-model="labelFilter"
-          :aria-label="t('finance.labels')"
-          class="rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200"
-          @change="load"
-        >
-          <option value="">{{ t('finance.allLabels') }}</option>
-          <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>
-        </select>
         <button
           v-if="canWrite"
           type="button"
@@ -373,12 +367,44 @@ onMounted(load)
       </div>
     </div>
 
+    <div
+      class="mt-6 inline-flex w-full rounded-2xl border border-slate-800 bg-slate-900/70 p-1 sm:w-auto"
+      role="tablist"
+      :aria-label="t('finance.title')"
+    >
+      <button
+        id="finance-overview-tab"
+        type="button"
+        role="tab"
+        class="min-h-11 flex-1 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors sm:flex-none"
+        :class="activeSection === 'overview' ? 'bg-farm-green text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+        :aria-selected="activeSection === 'overview'"
+        aria-controls="finance-overview-panel"
+        @click="activeSection = 'overview'"
+      >
+        {{ t('finance.overview') }}
+      </button>
+      <button
+        id="finance-expenses-tab"
+        type="button"
+        role="tab"
+        class="min-h-11 flex-1 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors sm:flex-none"
+        :class="activeSection === 'expenses' ? 'bg-farm-green text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+        :aria-selected="activeSection === 'expenses'"
+        aria-controls="finance-expenses-panel"
+        @click="activeSection = 'expenses'"
+      >
+        {{ t('finance.expenses') }}
+        <span class="ml-1 text-xs opacity-80">{{ expenses.length }}</span>
+      </button>
+    </div>
+
     <p v-if="error && !loading" class="mt-4 text-sm text-red-400" role="alert">{{ error }}</p>
     <div v-else-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('finance.loading') }}</div>
 
     <template v-else-if="!error">
       <div
-        v-if="showForm && canWrite"
+        v-if="activeSection === 'expenses' && showForm && canWrite"
         class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4"
       >
         <h3 class="font-bold text-white">
@@ -533,6 +559,12 @@ onMounted(load)
         </div>
       </div>
 
+      <section
+        id="finance-overview-panel"
+        v-show="activeSection === 'overview'"
+        role="tabpanel"
+        aria-labelledby="finance-overview-tab"
+      >
       <div v-if="summary" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
           <p class="text-xs text-slate-500 font-medium">{{ t('finance.revenue') }}</p>
@@ -637,18 +669,31 @@ onMounted(load)
           }) }}
         </p>
       </CollapsibleSection>
+      </section>
 
-      <CollapsibleSection
+      <section
+        id="finance-expenses-panel"
+        v-show="activeSection === 'expenses'"
         class="mt-8"
-        :title="t('finance.expenses')"
-        :default-open="true"
-        test-id="finance-expenses-section"
+        role="tabpanel"
+        aria-labelledby="finance-expenses-tab"
+        data-testid="finance-expenses-section"
       >
-        <template #meta>
-          <span class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-            {{ expenses.length }}
-          </span>
-        </template>
+        <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-xl font-black text-white">{{ t('finance.expenses') }}</h3>
+            <p class="mt-1 text-sm text-slate-500">{{ t('finance.entries', { count: expenses.length }) }}</p>
+          </div>
+          <select
+            v-model="labelFilter"
+            :aria-label="t('finance.labels')"
+            class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+            @change="load"
+          >
+            <option value="">{{ t('finance.allLabels') }}</option>
+            <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>
+          </select>
+        </div>
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
             v-for="expense in visibleExpenses"
@@ -796,19 +841,16 @@ onMounted(load)
           </article>
         </div>
 
-        <div v-if="expenses.length" class="hidden overflow-x-auto rounded-2xl border border-slate-800 md:block">
-        <table class="w-full min-w-[78rem] table-auto text-sm" data-testid="expense-table">
+        <div v-if="expenses.length" class="hidden rounded-2xl border border-slate-800 md:block">
+        <table class="w-full table-fixed text-sm" data-testid="expense-table">
           <thead>
             <tr class="border-b border-slate-800 bg-slate-900/70 text-left text-slate-500">
-              <th class="whitespace-nowrap px-4 py-3 font-semibold">{{ t('finance.date') }}</th>
-              <th class="whitespace-nowrap px-4 py-3 font-semibold">{{ t('finance.category') }}</th>
-              <th class="min-w-64 px-4 py-3 font-semibold">{{ t('finance.description') }}</th>
-              <th class="min-w-40 px-4 py-3 font-semibold">{{ t('finance.labels') }}</th>
-              <th class="min-w-36 px-4 py-3 font-semibold">{{ t('finance.vendor') }}</th>
-              <th class="whitespace-nowrap px-4 py-3 font-semibold">{{ t('finance.approvalStatus') }}</th>
-              <th class="min-w-40 px-4 py-3 font-semibold">{{ t('finance.extraction') }}</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">{{ t('finance.amount') }}</th>
-              <th v-if="hasExpenseActions" class="whitespace-nowrap px-4 py-3 text-right font-semibold">{{ t('finance.actions') }}</th>
+              <th class="w-28 px-4 py-3 font-semibold">{{ t('finance.date') }}</th>
+              <th class="px-4 py-3 font-semibold">{{ t('finance.description') }}</th>
+              <th class="w-44 px-4 py-3 font-semibold">{{ t('finance.vendor') }}</th>
+              <th class="w-28 px-4 py-3 font-semibold">{{ t('finance.approvalStatus') }}</th>
+              <th class="w-40 px-4 py-3 text-right font-semibold">{{ t('finance.amount') }}</th>
+              <th v-if="hasExpenseActions" class="w-40 px-4 py-3 text-right font-semibold">{{ t('finance.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -819,37 +861,42 @@ onMounted(load)
             >
               <td class="whitespace-nowrap px-4 py-4 text-slate-400">
                 {{ formatDate(expense.expenseDate) }}
+                <span class="mt-1 block text-xs text-slate-500">
+                  {{ t(`finance.categories.${expense.category}`) }}
+                </span>
               </td>
-              <td class="whitespace-nowrap px-4 py-4 text-slate-300">{{ t(`finance.categories.${expense.category}`) }}</td>
               <td class="px-4 py-4 text-white">
-                {{ expense.description }}
+                <p class="break-words font-medium">{{ expense.description }}</p>
                 <a
                   v-if="expense.hasAttachment"
                   :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
                   target="_blank"
                   rel="noopener"
-                  class="ml-2 text-xs text-farm-green hover:underline"
+                  class="mt-1 inline-block text-xs text-farm-green hover:underline"
                 >
                   {{ t('finance.attachment') }}
                 </a>
+                <div v-if="(expense.labels ?? []).length" class="mt-2 flex flex-wrap gap-1">
+                  <span
+                    v-for="label in expense.labels ?? []"
+                    :key="label.id"
+                    class="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
+                  >
+                    {{ label.name }}
+                  </span>
+                </div>
               </td>
               <td class="px-4 py-4 text-slate-400">
-                <span v-if="!(expense.labels ?? []).length">-</span>
-                <span
-                  v-for="label in expense.labels ?? []"
-                  :key="label.id"
-                  class="inline-block mr-1 mb-1 text-[11px] bg-slate-800 px-2 py-0.5 rounded"
-                >
-                  {{ label.name }}
-                </span>
-              </td>
-              <td class="px-4 py-4 text-slate-400">
-                <div>{{ expense.vendor ?? '—' }}</div>
+                <div class="break-words">{{ expense.vendor ?? '—' }}</div>
                 <div
                   v-if="expense.source === 'inbound_email' && expense.inboundSenderEmail"
-                  class="mt-1 text-xs text-slate-500"
+                  class="mt-1 break-words text-xs text-slate-500"
                 >
                   {{ expense.inboundSenderName ? `${expense.inboundSenderName} · ` : '' }}{{ expense.inboundSenderEmail }}
+                </div>
+                <div v-if="isInboundAttachment(expense)" class="mt-2 text-xs">
+                  <p class="font-semibold text-slate-300">{{ extractionStatusLabel(expense.extractionStatus) }}</p>
+                  <p class="mt-0.5 text-slate-500">{{ extractionMethodLabel(expense.extractionMethod) }}</p>
                 </div>
               </td>
               <td class="px-4 py-4">
@@ -860,13 +907,6 @@ onMounted(load)
                   {{ statusLabel(expense.approvalStatus) }}
                 </span>
               </td>
-              <td class="px-4 py-4 text-xs">
-                <div v-if="isInboundAttachment(expense)">
-                  <p class="font-semibold text-slate-300">{{ extractionStatusLabel(expense.extractionStatus) }}</p>
-                  <p class="mt-0.5 text-slate-500">{{ extractionMethodLabel(expense.extractionMethod) }}</p>
-                </div>
-                <span v-else class="text-slate-600">—</span>
-              </td>
               <td class="whitespace-nowrap px-4 py-4 text-right">
                 <p class="font-mono text-red-300">{{ formatAmount(expense.amount, expense.currency) }}</p>
                 <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
@@ -875,11 +915,12 @@ onMounted(load)
                   }) }}
                 </p>
               </td>
-              <td v-if="hasExpenseActions" class="whitespace-nowrap px-4 py-4 text-right">
+              <td v-if="hasExpenseActions" class="px-4 py-4 text-right">
+                <div class="flex flex-wrap justify-end gap-x-3 gap-y-2">
                 <button
                   v-if="canRetryExtraction && isInboundAttachment(expense) && expense.approvalStatus === 'pending'"
                   type="button"
-                  class="mr-3 text-xs text-amber-300 hover:underline disabled:opacity-50"
+                  class="text-xs text-amber-300 hover:underline disabled:opacity-50"
                   :disabled="retryingExtractionIds.has(expense.id)"
                   @click="retryExtraction(expense)"
                 >
@@ -888,7 +929,7 @@ onMounted(load)
                 <button
                   v-if="canWrite && expense.currency !== 'NGN'"
                   type="button"
-                  class="mr-3 text-xs text-blue-300 hover:underline disabled:opacity-50"
+                  class="text-xs text-blue-300 hover:underline disabled:opacity-50"
                   :disabled="updatingIds.has(expense.id)"
                   @click="convertCurrency(expense)"
                 >
@@ -897,7 +938,7 @@ onMounted(load)
                 <button
                   v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN'"
                   type="button"
-                  class="mr-3 text-xs text-emerald-300 hover:underline disabled:opacity-50"
+                  class="text-xs text-emerald-300 hover:underline disabled:opacity-50"
                   :disabled="updatingIds.has(expense.id)"
                   @click="updateStatus(expense, 'approved')"
                 >
@@ -906,7 +947,7 @@ onMounted(load)
                 <button
                   v-if="canWrite && expense.approvalStatus === 'pending'"
                   type="button"
-                  class="mr-3 text-xs text-red-300 hover:underline disabled:opacity-50"
+                  class="text-xs text-red-300 hover:underline disabled:opacity-50"
                   :disabled="updatingIds.has(expense.id)"
                   @click="updateStatus(expense, 'rejected')"
                 >
@@ -918,12 +959,13 @@ onMounted(load)
                 <button
                   v-if="canDelete"
                   type="button"
-                  class="ml-3 text-xs text-red-400 hover:underline disabled:opacity-50"
+                  class="text-xs text-red-400 hover:underline disabled:opacity-50"
                   :disabled="updatingIds.has(expense.id)"
                   @click="deleteExpense(expense)"
                 >
                   {{ t('finance.delete') }}
                 </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -935,7 +977,7 @@ onMounted(load)
           <button type="button" class="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-50" :disabled="page === pageCount" @click="page++">{{ t('finance.next') }}</button>
         </nav>
         <p v-if="!expenses.length" class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
-      </CollapsibleSection>
+      </section>
     </template>
   </AppLayout>
 </template>

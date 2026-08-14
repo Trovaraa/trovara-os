@@ -834,6 +834,7 @@ export default {
     },
     finance: {
       title: 'Finances',
+      overview: 'Vue d’ensemble',
       subtitle: 'Dépenses et aperçu du résultat - Administrateur uniquement',
       loading: 'Chargement des données financières…',
       revenue: 'Revenus',
