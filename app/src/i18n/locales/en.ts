@@ -2,7 +2,7 @@
 export default {
     brand: {
       name: 'Trovara OS',
-      tagline: 'Farm operations command center',
+      tagline: 'AI that works the farm',
       farm: 'Trovara Farm',
       workspace: 'Farm workspace',
     },

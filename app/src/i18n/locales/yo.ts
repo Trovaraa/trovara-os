@@ -2,7 +2,7 @@
 export default {
     brand: {
       name: 'Trovara OS',
-      tagline: 'Ilé-iṣẹ́ oko Trovara',
+      tagline: 'AI tí ń ṣiṣẹ́ oko',
       farm: 'Okò Trovara',
       workspace: 'Ibi iṣẹ́ oko',
     },
