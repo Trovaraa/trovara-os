@@ -36,6 +36,7 @@ vi.mock('@/lib/onboarding', () => {
     languagePrompt: 'Language',
     roles: {
       owner: { title: 'Owner', summary: 'Owner summary', duties: ['Review'] },
+      field_worker: { title: 'Field worker', summary: 'Worker summary', duties: ['Report'] },
     },
     welcome: (name: string) => `Welcome ${name}`,
     step: (step: number, total: number) => `${step}/${total}`,
@@ -77,12 +78,39 @@ describe('OnboardingGuide help affordance', () => {
     expect(trigger.title).toBe('Help')
     expect(trigger.textContent).toContain('Help')
     expect(trigger.className).toContain('fixed')
+    expect(trigger.className).toContain('right-4')
+    expect(trigger.className).toContain('bottom-[calc(1rem+env(safe-area-inset-bottom))]')
+    expect(trigger.className).not.toContain('top-3')
+    expect(trigger.className).not.toContain('left-[6.5rem]')
 
     trigger.click()
     await wrapper.vm.$nextTick()
 
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
     expect(document.body.textContent).toContain('Page summary')
+    wrapper.unmount()
+  })
+
+  it('floats above the mobile bottom navigation for field workers', async () => {
+    const OnboardingGuide = (await import('./OnboardingGuide.vue')).default
+    const wrapper = mount(OnboardingGuide, {
+      attachTo: '#mount',
+      props: {
+        userId: 'user-1',
+        userName: 'Ada',
+        role: 'field_worker',
+        pages: [{ to: '/today', labelKey: 'nav.today' }],
+        currentPath: '/today',
+        currentTitle: 'Today',
+      },
+    })
+
+    const trigger = document.querySelector<HTMLButtonElement>('[data-testid="page-help-trigger"]')!
+    expect(trigger.className).toContain('right-4')
+    expect(trigger.className).toContain(
+      'bottom-[calc(5.25rem+env(safe-area-inset-bottom))]',
+    )
+
     wrapper.unmount()
   })
 })
