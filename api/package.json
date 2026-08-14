@@ -38,7 +38,7 @@
     "@types/geoip-country": "^5.0.0",
     "@types/node": "^22.15.21",
     "@types/pdfkit": "^0.17.6",
-    "drizzle-kit": "1.0.0-rc.4",
+    "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "tsx": "^4.23.12",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
