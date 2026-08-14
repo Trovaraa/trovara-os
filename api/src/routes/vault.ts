@@ -6,6 +6,7 @@ import { db } from '../db/index.js'
 import { portalVaultEntries, portalVaultShares, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requirePermission, hasPermission } from '../lib/rbac.js'
+import type { SessionUser } from '../lib/session.js'
 import { encryptVaultSecret, decryptVaultSecret } from '../lib/vault-box.js'
 import { logAudit } from '../lib/audit.js'
 import { logSecurityEvent } from '../lib/security-log.js'
@@ -61,7 +62,7 @@ function metadataRow(
   }
 }
 
-function canViewAllVault(user: { role: string; permissions?: string[] }) {
+function canViewAllVault(user: SessionUser) {
   return hasPermission(user, 'vault.view') || hasPermission(user, 'vault.manage')
 }
 

@@ -22,8 +22,8 @@ export async function ensureFarmSystemRoles(farmId: string): Promise<void> {
 
   for (const roleKey of SYSTEM_ROLE_KEYS) {
     const template = SYSTEM_ROLE_TEMPLATES[roleKey]
-    let roleId = byClone.get(roleKey)
-    if (!roleId) {
+    const existingRoleId = byClone.get(roleKey)
+    if (!existingRoleId) {
       const [created] = await db
         .insert(farmRoles)
         .values({
@@ -33,10 +33,9 @@ export async function ensureFarmSystemRoles(farmId: string): Promise<void> {
           clonedFrom: roleKey,
         })
         .returning({ id: farmRoles.id })
-      roleId = created.id
       if (template.permissions.length) {
         await db.insert(farmRolePermissions).values(
-          template.permissions.map((permissionKey) => ({ roleId: roleId!, permissionKey })),
+          template.permissions.map((permissionKey) => ({ roleId: created.id, permissionKey })),
         )
       }
     } else if (template.permissions.length) {
@@ -45,13 +44,13 @@ export async function ensureFarmSystemRoles(farmId: string): Promise<void> {
       const granted = await db
         .select({ permissionKey: farmRolePermissions.permissionKey })
         .from(farmRolePermissions)
-        .where(eq(farmRolePermissions.roleId, roleId))
+        .where(eq(farmRolePermissions.roleId, existingRoleId))
       const have = new Set(granted.map((row) => row.permissionKey))
       const missing = template.permissions.filter((permissionKey) => !have.has(permissionKey))
       if (missing.length) {
         await db
           .insert(farmRolePermissions)
-          .values(missing.map((permissionKey) => ({ roleId, permissionKey })))
+          .values(missing.map((permissionKey) => ({ roleId: existingRoleId, permissionKey })))
           .onConflictDoNothing()
       }
     }
