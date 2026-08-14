@@ -6,7 +6,7 @@ const roles = ['owner', 'supervisor', 'field_worker', 'sales'] as const
 const routes = [
   '/dashboard', '/today', '/hours', '/advisory', '/worker', '/tasks', '/tasks/post-approval',
   '/field-reports', '/crops', '/livestock', '/inventory', '/assets', '/sales',
-  '/support', '/products', '/customer-insights', '/whatsapp', '/traceability',
+  '/support', '/products', '/customer-insights', '/whatsapp', '/telegram', '/traceability',
   '/events', '/ai', '/reports', '/finance', '/journal', '/brand-kits', '/newsletter',
   '/marketing-leads', '/shop-customers', '/moments', '/careers', '/templates', '/zones',
   '/users', '/settings', '/settings/security', '/settings/audit',

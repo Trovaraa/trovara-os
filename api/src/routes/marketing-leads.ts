@@ -348,8 +348,13 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
 })
 
 function canManageLeads(user: SessionUser): boolean {
-  // Owner + sales (finance.read); supervisors have orders.manage but not lead inbox access.
-  return hasPermission(user, 'finance.read')
+  // Dedicated grant, plus the older sales path (finance.read) so existing
+  // sales roles keep the inbox until they pick up leads.manage.
+  return hasPermission(user, 'leads.manage') || hasPermission(user, 'finance.read')
+}
+
+function canBeLeadAssignee(role: SessionUser['role'], assigneeId: string, actorId: string): boolean {
+  return role === 'owner' || role === 'sales' || assigneeId === actorId
 }
 
 marketingLeadRoutes.get('/', zValidator('query', listSchema), async (c) => {
@@ -410,7 +415,7 @@ marketingLeadRoutes.get('/', zValidator('query', listSchema), async (c) => {
     }).from(users).where(and(
       eq(users.farmId, user.farmId),
       eq(users.active, true),
-      inArray(users.role, ['owner', 'sales']),
+      or(inArray(users.role, ['owner', 'sales']), eq(users.id, user.id)),
     )).orderBy(users.name),
   ])
   const byStatus = Object.fromEntries(leadStatuses.map((status) => [status, 0])) as Record<(typeof leadStatuses)[number], number>
@@ -438,13 +443,14 @@ marketingLeadRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => 
   )).limit(1)
   if (!existing) return c.json({ error: 'Not found' }, 404)
   if (body.assignedToId) {
-    const [assignee] = await db.select({ id: users.id }).from(users).where(and(
+    const [assignee] = await db.select({ id: users.id, role: users.role }).from(users).where(and(
       eq(users.id, body.assignedToId),
       eq(users.farmId, user.farmId),
       eq(users.active, true),
-      inArray(users.role, ['owner', 'sales']),
     )).limit(1)
-    if (!assignee) return c.json({ error: 'Assignee must be an active owner or sales user in this farm' }, 400)
+    if (!assignee || !canBeLeadAssignee(assignee.role, assignee.id, user.id)) {
+      return c.json({ error: 'Assignee must be an active owner, sales user, or you' }, 400)
+    }
   }
   const changes: Partial<typeof marketingLeads.$inferInsert> = { updatedAt: new Date() }
   if (body.status !== undefined) changes.status = body.status

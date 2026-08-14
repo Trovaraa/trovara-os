@@ -285,6 +285,24 @@ export const portalVaultEntries = pgTable(
   (t) => [index('portal_vault_entries_farm_idx').on(t.farmId)],
 )
 
+export const portalVaultShares = pgTable(
+  'portal_vault_shares',
+  {
+    entryId: uuid('entry_id')
+      .references(() => portalVaultEntries.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    sharedById: uuid('shared_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('portal_vault_shares_pk').on(t.entryId, t.userId),
+    index('portal_vault_shares_user_idx').on(t.userId),
+  ],
+)
+
 export const brandAssets = pgTable(
   'brand_assets',
   {

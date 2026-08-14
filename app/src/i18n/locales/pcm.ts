@@ -18,6 +18,7 @@ export default {
       products: 'Products',
       customerInsights: 'Wetin customer dey ask',
       whatsapp: 'WhatsApp',
+      telegram: 'Telegram',
       finance: 'Money',
       hours: 'Hours',
       traceability: 'Track am',
@@ -1615,6 +1616,10 @@ export default {
         telegram: 'Telegram',
         whatsapp: 'WhatsApp',
       },
+    },
+    telegram: {
+      title: 'Telegram',
+      subtitle: 'Link the Trovara butler bot so you fit get alert and reply from Telegram.',
     },
     whatsapp: {
       title: 'WhatsApp Templates',

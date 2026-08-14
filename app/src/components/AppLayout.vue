@@ -91,6 +91,8 @@ const NAV_ICON_PATHS: Record<string, string> = {
     'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   '/whatsapp':
     'M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z',
+  '/telegram':
+    'M12 19l9 2-9-18-9 18 9-2zm0 0v-8',
   '/traceability': 'M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h3m-3 3h3m-3 3h3',
   '/events':
     'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
@@ -183,6 +185,7 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
           { to: '/products', labelKey: 'nav.products' },
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
+          { to: '/telegram', labelKey: 'nav.telegram' },
           { to: '/traceability', labelKey: 'nav.traceability' },
           { to: '/finance', labelKey: 'nav.finance' },
         ],
@@ -224,6 +227,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/customer-insights', labelKey: 'nav.customerInsights' },
         { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
         { to: '/whatsapp', labelKey: 'nav.whatsapp' },
+        { to: '/telegram', labelKey: 'nav.telegram' },
       ],
     },
     {

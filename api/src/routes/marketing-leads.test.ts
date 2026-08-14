@@ -343,4 +343,20 @@ describe('marketing lead staff access', () => {
     const response = await (await staffApp()).request('/')
     expect(response.status).toBe(403)
   })
+
+  it('allows a supervisor with an explicit leads.manage grant', async () => {
+    sessionUser = {
+      ...sessionUser,
+      role: 'supervisor',
+      permissions: ['leads.manage'],
+    }
+    selectQueue.push([], [], [], [{
+      id: sessionUser.id,
+      name: 'Content Creator',
+      role: 'supervisor',
+      active: true,
+    }])
+    const response = await (await staffApp()).request('/')
+    expect(response.status).toBe(200)
+  })
 })

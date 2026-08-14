@@ -7,9 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const auth = useAuthStore()
-const canSendWhatsApp = computed(
-  () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
-)
+const canSendWhatsApp = computed(() => auth.hasPermission('whatsapp.send'))
 
 type StaticTemplate = {
   id: string

@@ -39,6 +39,21 @@ export async function ensureFarmSystemRoles(farmId: string): Promise<void> {
           template.permissions.map((permissionKey) => ({ roleId: roleId!, permissionKey })),
         )
       }
+    } else if (template.permissions.length) {
+      // Additive only: new catalog keys land on existing system roles without
+      // wiping custom grants or bumping permissionsVersion (which revokes sessions).
+      const granted = await db
+        .select({ permissionKey: farmRolePermissions.permissionKey })
+        .from(farmRolePermissions)
+        .where(eq(farmRolePermissions.roleId, roleId))
+      const have = new Set(granted.map((row) => row.permissionKey))
+      const missing = template.permissions.filter((permissionKey) => !have.has(permissionKey))
+      if (missing.length) {
+        await db
+          .insert(farmRolePermissions)
+          .values(missing.map((permissionKey) => ({ roleId, permissionKey })))
+          .onConflictDoNothing()
+      }
     }
   }
 

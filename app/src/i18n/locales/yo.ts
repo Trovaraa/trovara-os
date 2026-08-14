@@ -18,6 +18,7 @@ export default {
       products: 'Ọjà',
       customerInsights: 'Ìbéèrè oníbàárà',
       whatsapp: 'WhatsApp',
+      telegram: 'Telegram',
       finance: 'Owó',
       hours: 'Wákàtí',
       traceability: 'Ìtòlẹsẹ',
@@ -1599,6 +1600,10 @@ export default {
         telegram: 'Telegram',
         whatsapp: 'WhatsApp',
       },
+    },
+    telegram: {
+      title: 'Telegram',
+      subtitle: 'So bọ́ọ̀tù butler Trovara pọ̀ kí o lè gba ìkìlọ̀ kí o sì dáhùn láti Telegram.',
     },
     whatsapp: {
       title: 'Àwọn àpẹẹrẹ WhatsApp',

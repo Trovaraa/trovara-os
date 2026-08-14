@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { portalVaultEntries, users } from '../db/schema.js'
+import { portalVaultEntries, portalVaultShares, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requirePermission, hasPermission } from '../lib/rbac.js'
 import { encryptVaultSecret, decryptVaultSecret } from '../lib/vault-box.js'
@@ -34,7 +34,13 @@ const entrySchema = z.object({
 
 function metadataRow(
   row: typeof portalVaultEntries.$inferSelect,
-  options: { includeNotes: boolean },
+  options: {
+    includeNotes: boolean
+    canManage: boolean
+    canReveal: boolean
+    sharedWithMe: boolean
+    sharedUserIds: string[]
+  },
 ) {
   return {
     id: row.id,
@@ -48,26 +54,175 @@ function metadataRow(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     hasPassword: Boolean(row.passwordCiphertext),
+    canManage: options.canManage,
+    canReveal: options.canReveal,
+    sharedWithMe: options.sharedWithMe,
+    sharedUserIds: options.sharedUserIds,
   }
+}
+
+function canViewAllVault(user: { role: string; permissions?: string[] }) {
+  return hasPermission(user, 'vault.view') || hasPermission(user, 'vault.manage')
+}
+
+async function sharedEntryIdsForUser(farmId: string, userId: string): Promise<string[]> {
+  const shares = await db
+    .select({
+      entryId: portalVaultShares.entryId,
+      farmId: portalVaultEntries.farmId,
+    })
+    .from(portalVaultShares)
+    .innerJoin(portalVaultEntries, eq(portalVaultShares.entryId, portalVaultEntries.id))
+    .where(and(eq(portalVaultShares.userId, userId), eq(portalVaultEntries.farmId, farmId)))
+  return shares.map((row) => row.entryId)
+}
+
+async function isEntrySharedWith(entryId: string, userId: string): Promise<boolean> {
+  const [share] = await db
+    .select({ entryId: portalVaultShares.entryId })
+    .from(portalVaultShares)
+    .where(and(eq(portalVaultShares.entryId, entryId), eq(portalVaultShares.userId, userId)))
+    .limit(1)
+  return Boolean(share)
+}
+
+async function sharesByEntry(entryIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>()
+  if (!entryIds.length) return map
+  const rows = await db
+    .select({
+      entryId: portalVaultShares.entryId,
+      userId: portalVaultShares.userId,
+    })
+    .from(portalVaultShares)
+    .where(inArray(portalVaultShares.entryId, entryIds))
+  for (const row of rows) {
+    const list = map.get(row.entryId) ?? []
+    list.push(row.userId)
+    map.set(row.entryId, list)
+  }
+  return map
 }
 
 vaultRoutes.get('/', async (c) => {
   const user = c.get('user')
-  try {
-    requirePermission(user, 'vault.view')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
   const includeNotes = hasPermission(user, 'vault.manage')
-  const rows = await db
+  const canManage = hasPermission(user, 'vault.manage')
+  const canRevealAll = hasPermission(user, 'vault.reveal')
+  const viewAll = canViewAllVault(user)
+
+  const allRows = await db
     .select()
     .from(portalVaultEntries)
     .where(eq(portalVaultEntries.farmId, user.farmId))
+  const mine = viewAll ? allRows : []
+  const sharedIds = viewAll ? [] : await sharedEntryIdsForUser(user.farmId, user.id)
+  const rows = viewAll ? mine : allRows.filter((row) => sharedIds.includes(row.id))
+  const shareMap = await sharesByEntry(rows.map((row) => row.id))
+
   return c.json({
+    canManage,
+    canRevealAll,
     entries: rows
-      .map((row) => metadataRow(row, { includeNotes }))
+      .map((row) => {
+        const sharedUserIds = shareMap.get(row.id) ?? []
+        const sharedWithMe = sharedUserIds.includes(user.id)
+        return metadataRow(row, {
+          includeNotes,
+          canManage,
+          canReveal: canRevealAll || sharedWithMe,
+          sharedWithMe,
+          sharedUserIds: canManage ? sharedUserIds : sharedWithMe ? [user.id] : [],
+        })
+      })
       .sort((a, b) => a.label.localeCompare(b.label)),
   })
+})
+
+vaultRoutes.get('/share-candidates', async (c) => {
+  const user = c.get('user')
+  try {
+    requirePermission(user, 'vault.manage')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const staff = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      role: users.role,
+      jobTitle: users.jobTitle,
+    })
+    .from(users)
+    .where(and(eq(users.farmId, user.farmId), eq(users.active, true)))
+  return c.json({
+    users: staff
+      .filter((row) => row.id !== user.id)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  })
+})
+
+const sharesSchema = z.object({
+  userIds: z.array(z.string().uuid()).max(200),
+})
+
+vaultRoutes.put('/:id/shares', zValidator('json', sharesSchema), async (c) => {
+  const user = c.get('user')
+  try {
+    requirePermission(user, 'vault.manage')
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const id = c.req.param('id')
+  const [existing] = await db
+    .select({ id: portalVaultEntries.id, label: portalVaultEntries.label })
+    .from(portalVaultEntries)
+    .where(and(eq(portalVaultEntries.id, id), eq(portalVaultEntries.farmId, user.farmId)))
+    .limit(1)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const requested = [...new Set(c.req.valid('json').userIds.filter((userId) => userId !== user.id))]
+  if (requested.length) {
+    const valid = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(eq(users.farmId, user.farmId), eq(users.active, true), inArray(users.id, requested)),
+      )
+    if (valid.length !== requested.length) {
+      return c.json({ error: 'One or more users are not active staff on this farm' }, 400)
+    }
+  }
+
+  await db.delete(portalVaultShares).where(eq(portalVaultShares.entryId, id))
+  if (requested.length) {
+    await db.insert(portalVaultShares).values(
+      requested.map((userId) => ({
+        entryId: id,
+        userId,
+        sharedById: user.id,
+      })),
+    )
+  }
+
+  logSecurityEvent(
+    'vault_entry_updated',
+    withAccessMeta((name) => c.req.header(name), {
+      actorUserId: user.id,
+      entryId: id,
+      sharedUserCount: requested.length,
+      farmId: user.farmId,
+    }),
+  )
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'portal_vault_entry',
+    entityId: id,
+    metadata: { label: existing.label, sharedUserIds: requested },
+  })
+  return c.json({ sharedUserIds: requested })
 })
 
 vaultRoutes.post('/', zValidator('json', entrySchema), async (c) => {
@@ -113,7 +268,15 @@ vaultRoutes.post('/', zValidator('json', entrySchema), async (c) => {
     metadata: { label: created.label, category: created.category },
   })
 
-  return c.json({ entry: metadataRow(created, { includeNotes: true }) }, 201)
+  return c.json({
+    entry: metadataRow(created, {
+      includeNotes: true,
+      canManage: true,
+      canReveal: true,
+      sharedWithMe: false,
+      sharedUserIds: [],
+    }),
+  }, 201)
 })
 
 vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) => {
@@ -170,7 +333,16 @@ vaultRoutes.patch('/:id', zValidator('json', entrySchema.partial()), async (c) =
       passwordRotated: body.password !== undefined,
     },
   })
-  return c.json({ entry: metadataRow(updated, { includeNotes: true }) })
+  const shareMap = await sharesByEntry([id])
+  return c.json({
+    entry: metadataRow(updated, {
+      includeNotes: true,
+      canManage: true,
+      canReveal: true,
+      sharedWithMe: false,
+      sharedUserIds: shareMap.get(id) ?? [],
+    }),
+  })
 })
 
 vaultRoutes.delete('/:id', async (c) => {
@@ -216,11 +388,7 @@ const revealSchema = z.object({
 
 vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
   const user = c.get('user')
-  try {
-    requirePermission(user, 'vault.reveal')
-  } catch {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
+  const canRevealAll = hasPermission(user, 'vault.reveal')
 
   const revealKey = vaultRevealRateKey(user.id)
   if (!(await checkDurableRateLimit(revealKey, VAULT_REVEAL_MAX_ATTEMPTS))) {
@@ -243,6 +411,18 @@ vaultRoutes.post('/:id/reveal', zValidator('json', revealSchema), async (c) => {
     .where(and(eq(portalVaultEntries.id, id), eq(portalVaultEntries.farmId, user.farmId)))
     .limit(1)
   if (!entry) return c.json({ error: 'Not found' }, 404)
+  if (!canRevealAll && !(await isEntrySharedWith(id, user.id))) {
+    logSecurityEvent(
+      'vault_reveal_failed',
+      withAccessMeta((name) => c.req.header(name), {
+        reason: 'not_shared',
+        entryId: id,
+        userId: user.id,
+        farmId: user.farmId,
+      }),
+    )
+    return c.json({ error: 'Forbidden' }, 403)
+  }
 
   if (isBreakGlassEmail(user.email)) {
     if (!body.breakGlassPassword || !verifyArmedBreakGlassPassword(body.breakGlassPassword)) {
