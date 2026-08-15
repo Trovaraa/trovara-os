@@ -22,6 +22,14 @@ export type Recommendation = {
     whatNext: string
     products?: ProductHit[]
     reasonCode?: string
+    prediction?: {
+      mode: 'ai_plan' | 'ai_summary' | 'rule_fallback'
+      confidence: 'high' | 'medium' | 'low' | null
+      evidence: string[]
+      model: string | null
+      searchIntentSource: 'ai' | 'rule'
+      guidanceContext: string[]
+    }
   }
   aiSummary: string | null
   firedAt: string

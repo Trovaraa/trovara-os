@@ -17,7 +17,7 @@ const options: { code: AppLocale; label: string }[] = [
 
 async function setLocale(code: AppLocale) {
   if (locale.value === code) return
-  applyLocale(code)
+  await applyLocale(code)
   // Mirror onto the profile so AI content and TG/WhatsApp messages follow the UI.
   // Best-effort: signed-out, offline, or a rejected write must not revert the switch.
   await auth.savePreferredLocale(code).catch(() => undefined)

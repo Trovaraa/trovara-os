@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '@/lib/api'
 import { clearSensitiveClientData } from '@/lib/client-cleanup'
-import i18n, { persistLocale, type AppLocale } from '@/i18n'
+import i18n, { ensureLocaleLoaded, persistLocale, type AppLocale } from '@/i18n'
 import router from '@/router'
 import { defaultHome } from '@/lib/navigation'
 
@@ -28,10 +28,22 @@ function isAppLocale(value: unknown): value is AppLocale {
 }
 
 /** Apply a locale to the running UI (vue-i18n + localStorage + <html lang>). */
-export function applyLocale(locale: AppLocale) {
+export async function applyLocale(locale: AppLocale): Promise<void> {
+  await ensureLocaleLoaded(locale)
   i18n.global.locale.value = locale
   persistLocale(locale)
   document.documentElement.lang = locale === 'pcm' ? 'en' : locale
+}
+
+async function applyProfileLocale(user: User): Promise<void> {
+  if (!isAppLocale(user.preferredLocale)) return
+  try {
+    await applyLocale(user.preferredLocale)
+  } catch {
+    // A failed translation chunk must not invalidate a valid authenticated
+    // session. Keep the language already loaded on this device and retry on the
+    // next session restore or explicit language switch.
+  }
 }
 
 type LoginSuccessResponse = {
@@ -63,16 +75,6 @@ export const useAuthStore = defineStore('auth', () => {
   const isSales = computed(() => user.value?.role === 'sales')
   const canAccessFinance = computed(() => hasPermission('finance.read'))
 
-  // The profile is the cross-device source of truth for language: it also drives
-  // AI content and Telegram/WhatsApp messages, so the chrome follows it on login
-  // and on session restore rather than whatever this device last cached.
-  watch(
-    () => user.value?.preferredLocale,
-    (locale) => {
-      if (isAppLocale(locale)) applyLocale(locale)
-    },
-  )
-
   /**
    * Mirror a UI language switch onto the profile. Best-effort: signed-out users
    * and failed writes are silently ignored so the switcher never blocks or throws.
@@ -94,6 +96,10 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const data = await api<{ user: User }>('/auth/me')
       user.value = data.user
+      // Session restoration is not complete until the profile language is
+      // available. Awaiting the lazy dictionary avoids an English flash and
+      // makes callers observe one settled authentication state.
+      await applyProfileLocale(data.user)
     } catch {
       user.value = null
     }
@@ -117,6 +123,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       if ('user' in data) {
         user.value = data.user
+        await applyProfileLocale(data.user)
         await fetchMe()
         if (!options?.skipRedirect && user.value) {
           await router.push(defaultHome(user.value.role))

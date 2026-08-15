@@ -130,7 +130,25 @@ const extraRecommendations = computed(() =>
 )
 
 function predictionHasExtra(rec: Recommendation) {
-  return Boolean(rec.aiSummary || rec.payload.products?.length)
+  return Boolean(
+    rec.aiSummary ||
+    rec.payload.products?.length ||
+    rec.payload.prediction?.evidence?.length,
+  )
+}
+
+function predictionModeLabel(rec: Recommendation) {
+  const mode = rec.payload.prediction?.mode
+  if (mode === 'ai_plan') return t('advisory.aiPlan')
+  if (mode === 'ai_summary') return t('advisory.aiSummary')
+  return t('advisory.ruleFallback')
+}
+
+function predictionConfidenceLabel(rec: Recommendation) {
+  const confidence = rec.payload.prediction?.confidence
+  if (!confidence) return ''
+  const level = t(`advisory.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`)
+  return t('advisory.confidence', { level })
 }
 
 const trackTiles = computed(() => {
@@ -449,6 +467,17 @@ onBeforeUnmount(() => {
                 :key="rec.id"
                 class="rounded-2xl border border-slate-800 bg-slate-900 p-4"
               >
+                <div v-if="rec.payload.prediction" class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+                  <span
+                    class="rounded-full border px-2.5 py-1"
+                    :class="rec.payload.prediction.mode === 'ai_plan' ? 'border-farm-green/40 bg-farm-green/10 text-farm-green' : 'border-slate-700 bg-slate-800 text-slate-300'"
+                  >
+                    {{ predictionModeLabel(rec) }}
+                  </span>
+                  <span v-if="predictionConfidenceLabel(rec)" class="rounded-full border border-slate-700 bg-slate-950/60 px-2.5 py-1 text-slate-300">
+                    {{ predictionConfidenceLabel(rec) }}
+                  </span>
+                </div>
                 <p class="text-white font-semibold">{{ rec.payload.happeningNow }}</p>
                 <p class="text-slate-300 text-sm mt-1">{{ rec.payload.whatNext }}</p>
                 <details v-if="predictionHasExtra(rec)" class="mt-2">
@@ -456,6 +485,15 @@ onBeforeUnmount(() => {
                     {{ t('advisory.moreDetail') }}
                   </summary>
                   <p v-if="rec.aiSummary" class="mt-2 text-sm text-slate-400">{{ rec.aiSummary }}</p>
+                  <div v-if="rec.payload.prediction?.evidence?.length" class="mt-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ t('advisory.evidence') }}</p>
+                    <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                      <li v-for="item in rec.payload.prediction.evidence" :key="item">{{ item }}</li>
+                    </ul>
+                  </div>
+                  <p v-if="rec.payload.products?.some((p) => p.source === 'search')" class="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    {{ t('advisory.liveSearch') }}
+                  </p>
                   <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
                     <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
                       <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
@@ -488,6 +526,17 @@ onBeforeUnmount(() => {
                   :key="rec.id"
                   class="rounded-2xl border border-slate-800 bg-slate-950/45 p-4"
                 >
+                  <div v-if="rec.payload.prediction" class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+                    <span
+                      class="rounded-full border px-2.5 py-1"
+                      :class="rec.payload.prediction.mode === 'ai_plan' ? 'border-farm-green/40 bg-farm-green/10 text-farm-green' : 'border-slate-700 bg-slate-800 text-slate-300'"
+                    >
+                      {{ predictionModeLabel(rec) }}
+                    </span>
+                    <span v-if="predictionConfidenceLabel(rec)" class="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-slate-300">
+                      {{ predictionConfidenceLabel(rec) }}
+                    </span>
+                  </div>
                   <p class="text-white font-semibold">{{ rec.payload.happeningNow }}</p>
                   <p class="text-slate-300 text-sm mt-1">{{ rec.payload.whatNext }}</p>
                   <details v-if="predictionHasExtra(rec)" class="mt-2">
@@ -495,6 +544,15 @@ onBeforeUnmount(() => {
                       {{ t('advisory.moreDetail') }}
                     </summary>
                     <p v-if="rec.aiSummary" class="mt-2 text-sm text-slate-400">{{ rec.aiSummary }}</p>
+                    <div v-if="rec.payload.prediction?.evidence?.length" class="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                      <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ t('advisory.evidence') }}</p>
+                      <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                        <li v-for="item in rec.payload.prediction.evidence" :key="item">{{ item }}</li>
+                      </ul>
+                    </div>
+                    <p v-if="rec.payload.products?.some((p) => p.source === 'search')" class="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      {{ t('advisory.liveSearch') }}
+                    </p>
                     <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
                       <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
                         <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>

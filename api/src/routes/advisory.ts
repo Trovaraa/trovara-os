@@ -149,10 +149,9 @@ function payloadReasonCode(payload: unknown): string | null {
  * A staged string in the viewer's language, falling back to the pre-translated
  * table.
  *
- * Stored recommendation prose is always playbook seed text, and `batch.read`
- * hands back the English it was given whenever the translator could not run —
- * which is the same LLM outage that makes these rows seed text in the first
- * place. So English coming back out is the signal to use the table.
+ * Stored recommendation prose may be an AI plan or a playbook seed. When
+ * `batch.read` hands back the English it was given because translation could
+ * not run, a known reason code supplies the safe pre-translated playbook text.
  *
  * This is the rule `seedLine` applies in `advisory-engine.ts`, deliberately:
  * an advisory pushed to a worker over WhatsApp and the same advisory read back
