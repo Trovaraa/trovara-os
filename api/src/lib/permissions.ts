@@ -44,7 +44,7 @@ export const PERMISSION_CATALOG = [
   { key: 'newsletter.manage', category: 'comms', description: 'Manage newsletter' },
   { key: 'ai.use', category: 'comms', description: 'Use the role-scoped Trovara Copilot' },
   { key: 'integrations.view', category: 'comms', description: 'View integration status' },
-  { key: 'journal.manage', category: 'comms', description: 'Manage blog posts' },
+  { key: 'journal.manage', category: 'comms', description: 'Manage journal posts' },
   { key: 'brand.manage', category: 'comms', description: 'Manage brand kit assets and press packs' },
   { key: 'moments.manage', category: 'comms', description: 'Review public Moments gallery submissions' },
   { key: 'careers.manage', category: 'comms', description: 'Manage careers listings for the marketing site' },
