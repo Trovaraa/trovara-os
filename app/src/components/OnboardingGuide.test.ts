@@ -32,6 +32,10 @@ vi.mock('@/lib/onboarding', () => {
     basics: ['One'],
     readyTitle: 'Ready',
     readyBody: 'Ready body',
+    contributionTitle: 'Improve Trovara OS',
+    contributionBody: 'Contributor guidance',
+    contributionSteps: ['Use a branch', 'Open a pull request'],
+    contributionSafety: 'Do not share secrets',
     welcomeBody: 'Welcome body',
     languagePrompt: 'Language',
     roles: {
@@ -88,6 +92,8 @@ describe('OnboardingGuide help affordance', () => {
 
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
     expect(document.body.textContent).toContain('Page summary')
+    expect(document.querySelector('[data-testid="contribution-help"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('Improve Trovara OS')
     wrapper.unmount()
   })
 
@@ -110,6 +116,11 @@ describe('OnboardingGuide help affordance', () => {
     expect(trigger.className).toContain(
       'bottom-[calc(5.25rem+env(safe-area-inset-bottom))]',
     )
+
+    trigger.click()
+    await wrapper.vm.$nextTick()
+
+    expect(document.querySelector('[data-testid="contribution-help"]')).toBeNull()
 
     wrapper.unmount()
   })

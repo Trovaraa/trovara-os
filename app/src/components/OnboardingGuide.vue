@@ -27,6 +27,7 @@ const STORAGE_VERSION = '2026-08-guided-v2'
 const copy = computed(() => onboardingCopy(String(locale.value)))
 const roleGuide = computed(() => copy.value.roles[props.role])
 const currentGuide = computed(() => pageGuide(copy.value, props.currentPath, props.role))
+const canSeeContribution = computed(() => props.role === 'owner' || props.role === 'supervisor')
 const storageKey = computed(() => `trovara_onboarding:${STORAGE_VERSION}:${props.userId}`)
 
 const explainedPages = computed(() =>
@@ -174,6 +175,30 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <span class="text-sm leading-6">{{ action }}</span>
             </li>
           </ol>
+          <details
+            v-if="canSeeContribution"
+            class="group mt-6 rounded-2xl border border-[color:var(--os-border)] bg-[var(--os-canvas)]"
+            data-testid="contribution-help"
+          >
+            <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-black text-farm-green focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green">
+              <span>{{ copy.contributionTitle }}</span>
+              <svg class="h-5 w-5 shrink-0 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+              </svg>
+            </summary>
+            <div class="border-t border-[color:var(--os-border)] px-5 py-5">
+              <p class="text-sm leading-6 text-os-fg-muted">{{ copy.contributionBody }}</p>
+              <ol class="mt-4 space-y-3">
+                <li v-for="(item, index) in copy.contributionSteps" :key="item" class="flex gap-3 text-sm leading-6">
+                  <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-farm-green/15 text-xs font-black text-farm-green">{{ index + 1 }}</span>
+                  <span>{{ item }}</span>
+                </li>
+              </ol>
+              <p class="mt-5 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs font-semibold leading-5 text-red-200">
+                {{ copy.contributionSafety }}
+              </p>
+            </div>
+          </details>
         </div>
 
         <div v-else class="overflow-y-auto px-5 py-6 sm:px-7 sm:py-8">
