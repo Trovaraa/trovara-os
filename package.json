@@ -60,9 +60,9 @@
     },
     "glob": "$glob",
     "happy-dom": "$happy-dom",
-    "ip-address": "10.4.0",
+    "ip-address": "10.5.0",
     "geoip-country": {
-      "ip-address": "10.4.0"
+      "ip-address": "10.5.0"
     },
     "rimraf": "5.0.10"
   }
