@@ -59,6 +59,8 @@ export type OwnerReports = {
         stage: string
         plantedAt: string
         expectedHarvestAt?: string
+        standCount?: number
+        costCentre?: string
       }[]
     }
     livestock: {

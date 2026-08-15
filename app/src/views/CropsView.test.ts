@@ -9,13 +9,14 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, unknown>) =>
+      params?.count === undefined ? key : `${key}:${params.count}`,
     te: () => true,
   }),
 }))
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ canApprove: false }),
+  useAuthStore: () => ({ canApprove: true }),
 }))
 
 const CYCLE = {
@@ -24,6 +25,8 @@ const CYCLE = {
   cropType: 'plantain',
   stage: 'vegetative',
   plantedAt: '2026-02-01T08:00:00.000Z',
+  standCount: 480,
+  costCentre: 'PLANTAIN-2026',
 }
 
 const LIFECYCLE = {
@@ -58,7 +61,12 @@ const LIFECYCLE = {
 async function mountCrops() {
   const CropsView = (await import('./CropsView.vue')).default
   const wrapper = mount(CropsView, {
-    global: { stubs: { AppLayout: { template: '<div><slot /></div>' } } },
+    global: {
+      stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+      },
+    },
   })
   await flushPromises()
   return wrapper
@@ -143,5 +151,50 @@ describe('CropsView lifecycle panel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('crops.lifecycleFailed')
+  })
+
+  it('shows stand count and cost centre on the cycle summary', async () => {
+    const wrapper = await mountCrops()
+
+    expect(wrapper.text()).toContain('480')
+    expect(wrapper.text()).toContain('PLANTAIN-2026')
+  })
+
+  it('prefills stand count from the saved block and submits the cost centre', async () => {
+    api.mockImplementation(async (path: string, options?: RequestInit) => {
+      if (path === '/api/crops' && options?.method === 'POST') return { cropCycle: CYCLE }
+      if (path === '/api/crops') return { cropCycles: [CYCLE] }
+      if (path === '/api/zones/plots') {
+        return {
+          plots: [
+            { id: 'plot-1', name: 'Block A', zoneName: 'North', active: true, plantCount: 650 },
+          ],
+        }
+      }
+      return LIFECYCLE
+    })
+
+    const wrapper = await mountCrops()
+    await wrapper.findAll('button').find((button) => button.text() === 'crops.addCycle')!.trigger('click')
+    await flushPromises()
+
+    const cropType = wrapper.find('input[placeholder="crops.cropTypePlaceholder"]')
+    const costCentre = wrapper.find('input[placeholder="crops.costCentrePlaceholder"]')
+    const stands = wrapper.find('input[placeholder="crops.standsPlaceholder"]')
+    expect((stands.element as HTMLInputElement).value).toBe('650')
+
+    await cropType.setValue('plantain')
+    await costCentre.setValue('PLANTAIN-2027')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const createCall = api.mock.calls.find(
+      ([path, options]) => path === '/api/crops' && (options as RequestInit | undefined)?.method === 'POST',
+    )
+    expect(createCall).toBeDefined()
+    expect(JSON.parse((createCall![1] as RequestInit).body as string)).toMatchObject({
+      standCount: 650,
+      costCentre: 'PLANTAIN-2027',
+    })
   })
 })

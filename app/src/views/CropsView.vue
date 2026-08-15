@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { useAgronomySkipText, type AgronomySkipReason } from '@/composables/useAgronomySkipText'
@@ -22,6 +22,8 @@ type CropCycle = {
   actualHarvestAt?: string
   expectedYieldKg?: number
   actualYieldKg?: number
+  standCount?: number
+  costCentre?: string
   notes?: string
 }
 
@@ -29,6 +31,7 @@ type PlotOption = {
   id: string
   name: string
   zoneName?: string | null
+  plantCount?: number | null
   active?: boolean
 }
 
@@ -92,11 +95,23 @@ const newPlotId = ref('')
 const newPlantedAt = ref(new Date().toISOString().slice(0, 10))
 const newExpectedHarvestAt = ref('')
 const newExpectedYieldKg = ref<number | ''>('')
+const newStandCount = ref<number | ''>('')
+const newCostCentre = ref('')
 const newNotes = ref('')
 const creating = ref(false)
 const createError = ref<string | null>(null)
 
 const activePlots = computed(() => plots.value.filter((p) => p.active !== false))
+const costCentreSuggestions = computed(() =>
+  [...new Set(crops.value.map((cycle) => cycle.costCentre?.trim()).filter(Boolean) as string[])].sort(
+    (a, b) => a.localeCompare(b),
+  ),
+)
+
+watch(newPlotId, (plotId) => {
+  const plot = plots.value.find((item) => item.id === plotId)
+  newStandCount.value = plot?.plantCount && plot.plantCount > 0 ? plot.plantCount : ''
+})
 
 async function load() {
   loading.value = true
@@ -137,6 +152,8 @@ function resetCreateForm() {
   newPlantedAt.value = new Date().toISOString().slice(0, 10)
   newExpectedHarvestAt.value = ''
   newExpectedYieldKg.value = ''
+  newStandCount.value = ''
+  newCostCentre.value = ''
   newNotes.value = ''
   if (activePlots.value[0]) newPlotId.value = activePlots.value[0].id
 }
@@ -157,6 +174,8 @@ async function createCycle() {
           : undefined,
         expectedYieldKg:
           newExpectedYieldKg.value === '' ? undefined : Number(newExpectedYieldKg.value),
+        standCount: newStandCount.value === '' ? undefined : Number(newStandCount.value),
+        costCentre: newCostCentre.value.trim() || undefined,
         notes: newNotes.value.trim() || undefined,
       }),
     })
@@ -247,25 +266,37 @@ const stageColor: Record<string, string> = {
       <p v-if="activePlots.length === 0" class="text-xs text-amber-300">
         {{ t('crops.needPlots') }}
       </p>
+      <p class="text-xs text-slate-400">
+        {{ t('crops.savedBlocksHelp') }}
+        <RouterLink to="/zones" class="font-semibold text-farm-green hover:underline">
+          {{ t('crops.manageBlocks') }}
+        </RouterLink>
+      </p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <input
-          v-model="newCropType"
-          type="text"
-          required
-          maxlength="100"
-          :placeholder="t('crops.cropTypePlaceholder')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
-        />
-        <select
-          v-model="newPlotId"
-          required
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
-        >
-          <option disabled value="">{{ t('crops.selectPlot') }}</option>
-          <option v-for="plot in activePlots" :key="plot.id" :value="plot.id">
-            {{ plotLabel(plot) }}
-          </option>
-        </select>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.cropType') }}</label>
+          <input
+            v-model="newCropType"
+            type="text"
+            required
+            maxlength="100"
+            :placeholder="t('crops.cropTypePlaceholder')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.blockField') }}</label>
+          <select
+            v-model="newPlotId"
+            required
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          >
+            <option disabled value="">{{ t('crops.selectPlot') }}</option>
+            <option v-for="plot in activePlots" :key="plot.id" :value="plot.id">
+              {{ plotLabel(plot) }}
+            </option>
+          </select>
+        </div>
         <div>
           <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.plantedDate') }}</label>
           <input
@@ -283,21 +314,54 @@ const stageColor: Record<string, string> = {
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
           />
         </div>
-        <input
-          v-model.number="newExpectedYieldKg"
-          type="number"
-          min="1"
-          step="1"
-          :placeholder="t('crops.expectedYieldKg')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
-        />
-        <input
-          v-model="newNotes"
-          type="text"
-          maxlength="2000"
-          :placeholder="t('crops.notesOptional')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 sm:col-span-2 lg:col-span-1"
-        />
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.expectedYieldKg') }}</label>
+          <input
+            v-model.number="newExpectedYieldKg"
+            type="number"
+            min="1"
+            step="1"
+            :placeholder="t('crops.expectedYieldKg')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.numberOfStands') }}</label>
+          <input
+            v-model.number="newStandCount"
+            type="number"
+            min="1"
+            step="1"
+            :placeholder="t('crops.standsPlaceholder')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+          <p class="mt-1 text-[11px] text-slate-500">{{ t('crops.standsHelp') }}</p>
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.costCentre') }}</label>
+          <input
+            v-model="newCostCentre"
+            type="text"
+            maxlength="100"
+            list="crop-cost-centres"
+            :placeholder="t('crops.costCentrePlaceholder')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+          <datalist id="crop-cost-centres">
+            <option v-for="costCentre in costCentreSuggestions" :key="costCentre" :value="costCentre" />
+          </datalist>
+          <p class="mt-1 text-[11px] text-slate-500">{{ t('crops.costCentreHelp') }}</p>
+        </div>
+        <div class="sm:col-span-2 lg:col-span-1">
+          <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.notesOptional') }}</label>
+          <input
+            v-model="newNotes"
+            type="text"
+            maxlength="2000"
+            :placeholder="t('crops.notesOptional')"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          />
+        </div>
       </div>
       <p v-if="createError" class="text-sm text-red-400">{{ createError }}</p>
       <button
@@ -340,6 +404,15 @@ const stageColor: Record<string, string> = {
             <p v-if="cycle.expectedYieldKg" class="text-xs text-slate-500 mt-1">
               {{ t('crops.expectedYield') }}: {{ cycle.expectedYieldKg }} kg
               <span v-if="cycle.actualYieldKg"> · {{ t('crops.actual') }}: {{ cycle.actualYieldKg }} kg</span>
+            </p>
+            <p v-if="cycle.standCount || cycle.costCentre" class="text-xs text-slate-500 mt-1">
+              <span v-if="cycle.standCount">
+                {{ t('crops.stands', { count: cycle.standCount }) }}
+              </span>
+              <span v-if="cycle.standCount && cycle.costCentre"> · </span>
+              <span v-if="cycle.costCentre">
+                {{ t('crops.costCentre') }}: {{ cycle.costCentre }}
+              </span>
             </p>
           </div>
           <span

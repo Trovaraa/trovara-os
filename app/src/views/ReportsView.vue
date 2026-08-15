@@ -343,9 +343,17 @@ function auditLocation(metadata: unknown): string {
               <li
                 v-for="cycle in data.reports.cropStatus.cycles"
                 :key="cycle.id"
-                class="text-sm flex justify-between"
+                class="text-sm flex flex-wrap justify-between gap-x-4 gap-y-1"
               >
-                <span class="text-slate-300">{{ cycle.plotName }} - {{ cycle.cropType }}</span>
+                <span class="text-slate-300">
+                  {{ cycle.plotName }} - {{ cycle.cropType }}
+                  <span v-if="cycle.standCount" class="text-slate-500">
+                    · {{ t('reports.stands', { count: cycle.standCount }) }}
+                  </span>
+                  <span v-if="cycle.costCentre" class="text-slate-500">
+                    · {{ t('reports.costCentre') }}: {{ cycle.costCentre }}
+                  </span>
+                </span>
                 <span class="text-slate-500 capitalize">{{ cycle.stage.replace('_', ' ') }}</span>
               </li>
             </ul>

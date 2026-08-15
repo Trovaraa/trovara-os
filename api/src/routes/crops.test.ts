@@ -206,6 +206,8 @@ function cycleRow(overrides: Row = {}): Row {
     actualHarvestAt: null,
     expectedYieldKg: 1200,
     actualYieldKg: null,
+    standCount: 480,
+    costCentre: 'PLANTAIN-2026',
     agronomySkipReason: null,
     notes: ENGLISH_NOTES,
     createdAt: new Date('2026-02-01T08:00:00Z'),
@@ -349,8 +351,35 @@ describe('crop routes', () => {
   it('records the canonical key on the farm event as well', async () => {
     await createCropCycle('noix de coco')
     expect(recordFarmEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ afterValue: { stage: 'planted', cropType: 'coconut' } }),
+      expect.objectContaining({
+        afterValue: expect.objectContaining({ stage: 'planted', cropType: 'coconut' }),
+      }),
     )
+  })
+
+  it('stores the planted stand count and cost centre on the cycle and farm event', async () => {
+    const res = await createCropCycle('plantain', {
+      standCount: 480,
+      costCentre: 'PLANTAIN-2026',
+    })
+
+    expect(res.status).toBe(201)
+    expect(insertedCycle()).toMatchObject({ standCount: 480, costCentre: 'PLANTAIN-2026' })
+    expect(recordFarmEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afterValue: expect.objectContaining({
+          standCount: 480,
+          costCentre: 'PLANTAIN-2026',
+        }),
+      }),
+    )
+  })
+
+  it('rejects non-positive stand counts', async () => {
+    const res = await createCropCycle('plantain', { standCount: 0 })
+
+    expect(res.status).toBe(400)
+    expect(inserted.find((entry) => entry.table === 'crop_cycles')).toBeUndefined()
   })
 
   it('stores a crop with no playbook exactly as it was typed', async () => {
@@ -536,6 +565,8 @@ describe('GET /crops - viewer locale on read', () => {
       stage: 'vegetative',
       plotName: 'Block A',
       expectedYieldKg: 1200,
+      standCount: 480,
+      costCentre: 'PLANTAIN-2026',
     })
     expect(viewerBatchCalls).toHaveBeenCalledWith(
       expect.objectContaining({ texts: [ENGLISH_NOTES] }),
