@@ -5,7 +5,7 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { cropCycles, cropCycleStages, cropCycleTasks, plots, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canAssignTasks } from '../lib/rbac.js'
+import { hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { canAdvanceCropStage, type CropStage } from '../lib/state-machines.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
@@ -200,6 +200,8 @@ const createCropSchema = z.object({
   plantedAt: z.string().datetime(),
   expectedHarvestAt: z.string().datetime().optional(),
   expectedYieldKg: z.number().int().positive().optional(),
+  standCount: z.number().int().positive().optional(),
+  costCentre: z.string().trim().min(1).max(100).optional(),
   notes: z.string().max(2000).optional(),
 })
 
@@ -209,6 +211,8 @@ const updateCropSchema = z.object({
   actualHarvestAt: z.string().datetime().optional(),
   expectedYieldKg: z.number().int().positive().optional(),
   actualYieldKg: z.number().int().nonnegative().optional(),
+  standCount: z.number().int().positive().nullable().optional(),
+  costCentre: z.string().trim().min(1).max(100).nullable().optional(),
   notes: z.string().max(2000).optional(),
   ownerOverride: z.boolean().optional(),
 })
@@ -276,6 +280,8 @@ cropRoutes.get('/', async (c) => {
       actualHarvestAt: cropCycles.actualHarvestAt,
       expectedYieldKg: cropCycles.expectedYieldKg,
       actualYieldKg: cropCycles.actualYieldKg,
+      standCount: cropCycles.standCount,
+      costCentre: cropCycles.costCentre,
       agronomySkipReason: cropCycles.agronomySkipReason,
       notes: cropCycles.notes,
       createdAt: cropCycles.createdAt,
@@ -308,6 +314,8 @@ cropRoutes.get('/:id', async (c) => {
       actualHarvestAt: cropCycles.actualHarvestAt,
       expectedYieldKg: cropCycles.expectedYieldKg,
       actualYieldKg: cropCycles.actualYieldKg,
+      standCount: cropCycles.standCount,
+      costCentre: cropCycles.costCentre,
       agronomySkipReason: cropCycles.agronomySkipReason,
       notes: cropCycles.notes,
       createdAt: cropCycles.createdAt,
@@ -328,7 +336,7 @@ cropRoutes.get('/:id', async (c) => {
 
 cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const body = c.req.valid('json')
 
@@ -366,6 +374,8 @@ cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
       stageEnteredAt: plantedAt,
       expectedHarvestAt: body.expectedHarvestAt ? new Date(body.expectedHarvestAt) : undefined,
       expectedYieldKg: body.expectedYieldKg,
+      standCount: body.standCount,
+      costCentre: body.costCentre,
       notes: canonical.text ?? body.notes,
       ...contentLocaleValues(canonical.locale),
     })
@@ -377,7 +387,12 @@ cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
     entityType: 'crop_cycle',
     entityId: cropCycle.id,
     eventType: cropStageEventType(stage as CropStage),
-    afterValue: { stage, cropType },
+    afterValue: {
+      stage,
+      cropType,
+      standCount: body.standCount ?? null,
+      costCentre: body.costCentre ?? null,
+    },
     metadata: { plotId: body.plotId },
   })
 
@@ -410,7 +425,7 @@ cropRoutes.post('/', zValidator('json', createCropSchema), async (c) => {
 
 cropRoutes.patch('/:id', zValidator('json', updateCropSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const cycleId = c.req.param('id')
   const body = c.req.valid('json')
@@ -460,6 +475,8 @@ cropRoutes.patch('/:id', zValidator('json', updateCropSchema), async (c) => {
   }
   if (body.expectedYieldKg !== undefined) updates.expectedYieldKg = body.expectedYieldKg
   if (body.actualYieldKg !== undefined) updates.actualYieldKg = body.actualYieldKg
+  if (body.standCount !== undefined) updates.standCount = body.standCount
+  if (body.costCentre !== undefined) updates.costCentre = body.costCentre
   if (body.notes !== undefined) {
     updates.notes = canonical.text ?? body.notes
     // Escalates a row to 'pending' but never downgrades one the retry job still
@@ -515,7 +532,7 @@ cropRoutes.patch('/:id', zValidator('json', updateCropSchema), async (c) => {
 
 cropRoutes.delete('/:id', async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const cycleId = c.req.param('id')
 
@@ -618,7 +635,7 @@ cropRoutes.patch(
   zValidator('json', stageDurationSchema),
   async (c) => {
     const user = c.get('user')
-    if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
     const cycleId = c.req.param('id')
     const stageId = c.req.param('stageId')
@@ -701,7 +718,7 @@ cropRoutes.patch(
 
 cropRoutes.post('/:id/lifecycle/tasks', zValidator('json', cycleTaskSchema), async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const cycleId = c.req.param('id')
   const body = c.req.valid('json')
@@ -778,7 +795,7 @@ cropRoutes.patch(
   zValidator('json', updateCycleTaskSchema),
   async (c) => {
     const user = c.get('user')
-    if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
     const cycleId = c.req.param('id')
     const taskId = c.req.param('taskId')
@@ -885,7 +902,7 @@ cropRoutes.patch(
 
 cropRoutes.delete('/:id/lifecycle/tasks/:taskId', async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const cycleId = c.req.param('id')
   const taskId = c.req.param('taskId')
@@ -920,7 +937,7 @@ cropRoutes.delete('/:id/lifecycle/tasks/:taskId', async (c) => {
 
 cropRoutes.post('/:id/agronomy/regenerate', async (c) => {
   const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!hasPermission(user, 'crops.manage')) return c.json({ error: 'Forbidden' }, 403)
 
   const cycleId = c.req.param('id')
 

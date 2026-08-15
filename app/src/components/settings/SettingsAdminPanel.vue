@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 
 defineProps<{
   liveMode: boolean
@@ -29,8 +30,13 @@ const { t } = useI18n()
 
 <template>
   <div class="contents">
-    <div class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-      <h3 class="font-bold text-white text-sm">{{ t('settings.adminActions') }}</h3>
+    <CollapsibleSection
+      class="mt-8"
+      :title="t('settings.adminActions')"
+      :default-open="false"
+      content-class="space-y-4 p-4 sm:p-5"
+      test-id="settings-admin-actions-section"
+    >
       <div class="flex flex-wrap gap-3">
         <button
           v-if="!liveMode"
@@ -78,7 +84,7 @@ const { t } = useI18n()
           https://trovara.farm/privacy
         </a>
       </p>
-    </div>
+    </CollapsibleSection>
 
     <div
       v-if="showResetConfirm"

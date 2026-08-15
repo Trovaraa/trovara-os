@@ -69,6 +69,7 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
     case 'crops.manage':
     case 'livestock.manage':
     case 'whatsapp.send':
+    case 'telegram.send':
     case 'purchase_orders.approve':
       return user.role === 'owner' || user.role === 'supervisor'
     case 'orders.read':
@@ -98,6 +99,7 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
       return true
     case 'audit.export':
     case 'traceability.export':
+    case 'leads.manage':
       return user.role === 'owner' || user.role === 'sales'
     default:
       return false

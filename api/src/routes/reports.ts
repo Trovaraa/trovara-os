@@ -98,6 +98,8 @@ reportRoutes.get('/owner', async (c) => {
         stage: cropCycles.stage,
         plantedAt: cropCycles.plantedAt,
         expectedHarvestAt: cropCycles.expectedHarvestAt,
+        standCount: cropCycles.standCount,
+        costCentre: cropCycles.costCentre,
         plotName: plots.name,
       })
       .from(cropCycles)
@@ -257,6 +259,8 @@ reportRoutes.get('/owner', async (c) => {
           stage: c.stage,
           plantedAt: c.plantedAt,
           expectedHarvestAt: c.expectedHarvestAt,
+          standCount: c.standCount,
+          costCentre: c.costCentre,
         })),
       },
       livestock: {

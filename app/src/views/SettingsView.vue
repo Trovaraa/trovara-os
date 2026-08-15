@@ -337,7 +337,7 @@ onMounted(load)
       <SettingsOpsPanel v-if="auth.isOwner" :billing-status="billingStatus" />
 
       <SettingsRolesPanel v-if="auth.isOwner" />
-      <SettingsVaultPanel v-if="auth.isOwner" />
+      <SettingsVaultPanel />
 
       <SettingsPrivacyPanel
         v-if="auth.isOwner"

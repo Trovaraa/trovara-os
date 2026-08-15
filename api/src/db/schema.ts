@@ -285,6 +285,24 @@ export const portalVaultEntries = pgTable(
   (t) => [index('portal_vault_entries_farm_idx').on(t.farmId)],
 )
 
+export const portalVaultShares = pgTable(
+  'portal_vault_shares',
+  {
+    entryId: uuid('entry_id')
+      .references(() => portalVaultEntries.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    sharedById: uuid('shared_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('portal_vault_shares_pk').on(t.entryId, t.userId),
+    index('portal_vault_shares_user_idx').on(t.userId),
+  ],
+)
+
 export const brandAssets = pgTable(
   'brand_assets',
   {
@@ -1061,28 +1079,39 @@ export const advisorySourceTypeEnum = pgEnum('advisory_source_type', [
   'farm',
 ])
 
-export const cropCycles = pgTable('crop_cycles', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  plotId: uuid('plot_id').references(() => plots.id).notNull(),
-  cropType: text('crop_type').notNull(),
-  stage: cropStageEnum('stage').default('planted').notNull(),
-  plantedAt: timestamp('planted_at', { withTimezone: true }).notNull(),
-  /** When the current stage began; defaults to plantedAt on create. */
-  stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull(),
-  expectedHarvestAt: timestamp('expected_harvest_at', { withTimezone: true }),
-  actualHarvestAt: timestamp('actual_harvest_at', { withTimezone: true }),
-  expectedYieldKg: integer('expected_yield_kg'),
-  actualYieldKg: integer('actual_yield_kg'),
-  /** Why the last lifecycle generation produced nothing. See livestockBatches. */
-  agronomySkipReason: text('agronomy_skip_reason'),
-  notes: text('notes'),
-  sourceLocale: text('source_locale'),
-  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
-  translationAttempts: integer('translation_attempts').default(0).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const cropCycles = pgTable(
+  'crop_cycles',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    plotId: uuid('plot_id').references(() => plots.id).notNull(),
+    cropType: text('crop_type').notNull(),
+    stage: cropStageEnum('stage').default('planted').notNull(),
+    plantedAt: timestamp('planted_at', { withTimezone: true }).notNull(),
+    /** When the current stage began; defaults to plantedAt on create. */
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull(),
+    expectedHarvestAt: timestamp('expected_harvest_at', { withTimezone: true }),
+    actualHarvestAt: timestamp('actual_harvest_at', { withTimezone: true }),
+    expectedYieldKg: integer('expected_yield_kg'),
+    actualYieldKg: integer('actual_yield_kg'),
+    /** Number of planted stands in this cycle; independent of a plot's baseline plant count. */
+    standCount: integer('stand_count'),
+    /** Farm accounting code or name used to group the cycle's costs. */
+    costCentre: text('cost_centre'),
+    /** Why the last lifecycle generation produced nothing. See livestockBatches. */
+    agronomySkipReason: text('agronomy_skip_reason'),
+    notes: text('notes'),
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    check('crop_cycles_stand_count_positive', sql`${t.standCount} IS NULL OR ${t.standCount} > 0`),
+    index('crop_cycles_farm_cost_centre_idx').on(t.farmId, t.costCentre),
+  ],
+)
 
 /**
  * How long each stage of one crop cycle is expected to last.

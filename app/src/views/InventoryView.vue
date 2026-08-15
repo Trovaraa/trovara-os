@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import InventoryProcurementSection from '@/components/inventory/InventoryProcurementSection.vue'
 import { useInventoryProcurement } from '@/composables/useInventoryProcurement'
 import { useAuthStore } from '@/stores/auth'
@@ -439,13 +440,15 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       @receive-purchase-order="receivePurchaseOrder"
     />
 
-    <form
+    <CollapsibleSection
       v-if="canWrite && !loading"
-      class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
-      @submit.prevent="createItem"
+      class="mt-8"
+      :title="t('inventory.addItem')"
+      :default-open="false"
+      test-id="inventory-add-item-section"
     >
-      <h3 class="font-bold text-white text-sm">{{ t('inventory.addItem') }}</h3>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <form class="space-y-4" @submit.prevent="createItem">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <input
           v-model="newItemSku"
           aria-label="SKU"
@@ -497,18 +500,19 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           placeholder="Count tolerance"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
-      </div>
-      <div class="flex items-center gap-3">
-        <button
-          type="submit"
-          :disabled="creatingItem || !newItemName.trim() || !newItemSku.trim()"
-          class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
-        >
-          {{ creatingItem ? t('inventory.addingItem') : t('inventory.addItemBtn') }}
-        </button>
-        <p v-if="createItemError" class="text-xs text-red-400">{{ createItemError }}</p>
-      </div>
-    </form>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            type="submit"
+            :disabled="creatingItem || !newItemName.trim() || !newItemSku.trim()"
+            class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+          >
+            {{ creatingItem ? t('inventory.addingItem') : t('inventory.addItemBtn') }}
+          </button>
+          <p v-if="createItemError" class="text-xs text-red-400">{{ createItemError }}</p>
+        </div>
+      </form>
+    </CollapsibleSection>
 
     <section
       v-if="canWrite"
@@ -629,16 +633,15 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       </div>
     </section>
 
-    <div
+    <CollapsibleSection
       v-if="canSubmitCount && !loading"
-      class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
+      class="mt-8"
+      :title="isFieldWorker ? 'Submit inventory count' : 'Verified inventory count'"
+      description="Submit a count session. Stock updates only after a different Admin or Supervisor verifies it."
+      :default-open="false"
+      content-class="space-y-4 p-4 sm:p-5"
+      test-id="inventory-count-section"
     >
-      <h3 class="font-bold text-white text-sm">
-        {{ isFieldWorker ? 'Submit inventory count' : 'Verified inventory count' }}
-      </h3>
-      <p class="text-xs text-slate-500">
-        Submit a count session. Stock only updates after a different Admin/Supervisor verifies it.
-      </p>
       <input
         v-model="countLocation"
         aria-label="Count location"
@@ -724,15 +727,17 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </div>
       </div>
       <p v-if="countMessage" class="text-xs text-slate-400">{{ countMessage }}</p>
-    </div>
+    </CollapsibleSection>
 
-    <form
+    <CollapsibleSection
       v-if="canWrite && !loading"
-      class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4"
-      @submit.prevent="recordMovement"
+      class="mt-8"
+      :title="t('inventory.recordMovement')"
+      :default-open="false"
+      test-id="inventory-movement-section"
     >
-      <h3 class="font-bold text-white text-sm">{{ t('inventory.recordMovement') }}</h3>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <form class="space-y-4" @submit.prevent="recordMovement">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('inventory.item') }}</label>
           <select
@@ -780,28 +785,87 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
           />
         </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <button
-          type="submit"
-          :disabled="
-            submitting ||
-            !selectedItemId ||
-            delta === '' ||
-            (reasonKind === 'custom' && !reason.trim())
-          "
-          class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {{ submitting ? t('inventory.recording') : t('inventory.recordMovementBtn') }}
-        </button>
-        <p v-if="moveError" class="text-xs text-red-400">{{ moveError }}</p>
-      </div>
-    </form>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            type="submit"
+            :disabled="
+              submitting ||
+              !selectedItemId ||
+              delta === '' ||
+              (reasonKind === 'custom' && !reason.trim())
+            "
+            class="text-sm font-bold px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {{ submitting ? t('inventory.recording') : t('inventory.recordMovementBtn') }}
+          </button>
+          <p v-if="moveError" class="text-xs text-red-400">{{ moveError }}</p>
+        </div>
+      </form>
+    </CollapsibleSection>
 
     <div v-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('inventory.loading') }}</div>
 
-    <div v-else class="mt-8 overflow-x-auto">
-      <table class="w-full text-sm">
+    <div v-else class="mt-8">
+      <div class="space-y-3 md:hidden" data-testid="inventory-cards">
+        <article
+          v-for="item in items"
+          :key="item.id"
+          class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="font-mono text-[11px] text-farm-green">{{ item.sku }}</p>
+              <h3 class="mt-1 break-words font-bold text-white">{{ item.name }}</h3>
+              <p class="mt-1 text-xs capitalize text-slate-500">{{ item.category }}</p>
+            </div>
+            <span
+              class="shrink-0 rounded-full px-2 py-1 text-xs font-bold"
+              :class="item.lowStock ? 'bg-red-900/40 text-red-300' : 'bg-farm-green/20 text-farm-green'"
+            >
+              {{ item.lowStock ? t('inventory.lowStock') : t('inventory.ok') }}
+            </span>
+          </div>
+
+          <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            <div>
+              <dt class="text-xs text-slate-500">{{ t('inventory.quantity') }}</dt>
+              <dd class="mt-1 font-mono text-slate-200">{{ item.quantity }} {{ item.unit }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-slate-500">{{ t('inventory.reorderAt') }}</dt>
+              <dd class="mt-1 font-mono text-slate-300">{{ item.reorderLevel }} {{ item.unit }}</dd>
+            </div>
+            <div class="col-span-2">
+              <dt class="text-xs text-slate-500">{{ t('inventory.linkedProduct') }}</dt>
+              <dd v-if="item.productId" class="mt-1 break-words text-slate-300">
+                <span class="font-mono text-farm-green">{{ item.productSku }}</span>
+                · {{ item.productName }}
+              </dd>
+              <dd v-else class="mt-1 text-slate-600">{{ t('inventory.noProductLink') }}</dd>
+            </div>
+            <div v-if="item.supplier">
+              <dt class="text-xs text-slate-500">{{ t('inventory.supplier') }}</dt>
+              <dd class="mt-1 break-words text-slate-300">{{ item.supplier }}</dd>
+            </div>
+            <div v-if="item.storageLocation">
+              <dt class="text-xs text-slate-500">{{ t('inventory.storage') }}</dt>
+              <dd class="mt-1 break-words text-slate-300">{{ item.storageLocation }}</dd>
+            </div>
+            <div v-if="item.expiryDate">
+              <dt class="text-xs text-slate-500">{{ t('inventory.expiry') }}</dt>
+              <dd class="mt-1 text-slate-300">{{ new Date(item.expiryDate).toLocaleDateString() }}</dd>
+            </div>
+            <div v-if="item.costPerUnit != null">
+              <dt class="text-xs text-slate-500">{{ t('inventory.costPerUnit') }}</dt>
+              <dd class="mt-1 font-mono text-slate-300">{{ item.costPerUnit }}</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="hidden overflow-x-auto md:block">
+        <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-slate-500 border-b border-slate-800">
             <th class="pb-3 font-semibold">SKU / {{ t('inventory.item') }}</th>
@@ -858,7 +922,8 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
 
     <AccessibleDialog :open="openingStockOpen" title-id="opening-stock-title" :close-label="t('dialog.close')" @close="openingStockOpen = false">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 
 type RetentionStatus = {
   config: {
@@ -46,10 +47,14 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-    <h3 class="font-bold text-white text-sm">{{ t('settings.privacy') }}</h3>
-    <p class="text-xs text-slate-500 mt-1">{{ t('settings.privacyDesc') }}</p>
-    <div class="mt-4 space-y-4">
+  <CollapsibleSection
+    class="mt-6"
+    :title="t('settings.privacy')"
+    :description="t('settings.privacyDesc')"
+    :default-open="false"
+    test-id="settings-privacy-section"
+  >
+    <div class="space-y-4">
       <label class="block text-xs text-slate-400">
         {{ t('settings.exportReasonLabel') }}
         <input
@@ -153,5 +158,5 @@ const { t } = useI18n()
     <p v-if="farmExportMessage" class="mt-2 text-xs text-slate-400">{{ farmExportMessage }}</p>
     <p v-if="retentionMessage" class="mt-2 text-xs text-slate-400">{{ retentionMessage }}</p>
     <p v-if="anonymizeMessage" class="mt-2 text-xs text-slate-400">{{ anonymizeMessage }}</p>
-  </div>
+  </CollapsibleSection>
 </template>

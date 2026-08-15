@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import type { SystemStatus } from '@/types/system-status'
 
 defineProps<{
@@ -15,8 +16,12 @@ function formatBackupTime(iso: string | null): string {
 </script>
 
 <template>
-  <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-    <h3 class="font-bold text-white text-sm mb-4">{{ t('settings.systemStatus') }}</h3>
+  <CollapsibleSection
+    class="mt-6"
+    :title="t('settings.systemStatus')"
+    :default-open="false"
+    test-id="settings-system-status-section"
+  >
     <div class="grid grid-cols-2 gap-3 text-sm">
       <div>
         <p class="text-xs text-slate-500">{{ t('settings.api') }}</p>
@@ -64,5 +69,5 @@ function formatBackupTime(iso: string | null): string {
         <p class="font-medium text-slate-300 text-xs font-mono">{{ systemStatus.commit }}</p>
       </div>
     </div>
-  </div>
+  </CollapsibleSection>
 </template>

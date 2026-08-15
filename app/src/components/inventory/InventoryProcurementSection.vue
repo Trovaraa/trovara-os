@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import type {
   PoDraftLine,
   ProcurementItem,
@@ -41,12 +42,14 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <section class="mt-8 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5">
-    <div>
-      <h3 class="font-bold text-white">{{ t('inventory.procurement') }}</h3>
-      <p class="text-xs text-slate-500 mt-1">{{ t('inventory.procurementDesc') }}</p>
-    </div>
-
+  <CollapsibleSection
+    class="mt-8"
+    :title="t('inventory.procurement')"
+    :description="t('inventory.procurementDesc')"
+    :default-open="false"
+    content-class="space-y-5 p-4 sm:p-5"
+    test-id="inventory-procurement-section"
+  >
     <form class="flex flex-col sm:flex-row gap-2" @submit.prevent="emit('create-supplier')">
       <input
         v-model="newSupplierName"
@@ -249,5 +252,5 @@ const { t } = useI18n()
       </button>
     </div>
     <p v-if="poMessage" class="text-xs text-slate-400">{{ poMessage }}</p>
-  </section>
+  </CollapsibleSection>
 </template>

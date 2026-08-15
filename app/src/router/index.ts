@@ -115,6 +115,12 @@ const router = createRouter({
       meta: { requiresAuth: true, anyPermission: ['whatsapp.send', 'whatsapp.configure'] },
     },
     {
+      path: '/telegram',
+      name: 'telegram',
+      component: () => import('@/views/TelegramView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'telegram.send' },
+    },
+    {
       path: '/sales',
       name: 'sales',
       component: () => import('@/views/SalesView.vue'),
@@ -200,8 +206,7 @@ const router = createRouter({
       component: () => import('@/views/MarketingLeadsView.vue'),
       meta: {
         requiresAuth: true,
-        allowedRoles: ['owner', 'sales'],
-        requiredPermission: 'orders.manage',
+        anyPermission: ['leads.manage', 'finance.read'],
       },
     },
     {

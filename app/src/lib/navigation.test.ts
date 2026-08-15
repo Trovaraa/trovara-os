@@ -19,6 +19,20 @@ describe('frontend route access', () => {
     expect(canAccessRoute(delegated, { requiresAuth: true, requiredPermission: 'moments.manage' })).toBe(false)
   })
 
+  it('lets a content role open marketing leads and telegram without a sales role', () => {
+    const creator = user('supervisor', ['leads.manage', 'telegram.send'])
+    expect(
+      canAccessRoute(creator, { requiresAuth: true, anyPermission: ['leads.manage', 'finance.read'] }),
+    ).toBe(true)
+    expect(canAccessRoute(creator, { requiresAuth: true, requiredPermission: 'telegram.send' })).toBe(true)
+    expect(
+      canAccessRoute(user('supervisor', ['brand.manage']), {
+        requiresAuth: true,
+        anyPermission: ['leads.manage', 'finance.read'],
+      }),
+    ).toBe(false)
+  })
+
   it('accepts any permission for count-only inventory access', () => {
     const worker = user('field_worker', ['inventory.count'])
     expect(

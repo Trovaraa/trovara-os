@@ -137,6 +137,53 @@ server {
     proxy_send_timeout 120s;
   }
 
+  # Public JSON APIs — no immutable cache (lists change).
+  # Longer media prefixes win over this for blob caching.
+  location = /public/moments {
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
+    client_max_body_size 12M;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
+  }
+
+  # A trailing-slash-only ^~ /public/moments/ location makes nginx 301
+  # /public/moments → /public/moments/. Keep an exact handler for the slash form.
+  location = /public/moments/ {
+    rewrite ^ /public/moments break;
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
+    client_max_body_size 12M;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    add_header X-Request-ID $request_id always;
+  }
+
+  location ^~ /public/moments/ {
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
+    client_max_body_size 12M;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    add_header X-Request-ID $request_id always;
+  }
+
+  location ^~ /public/journal/media/ {
+    proxy_pass http://trovara_api;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-Request-ID $request_id;
+    client_max_body_size 12M;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    add_header X-Request-ID $request_id always;
+  }
+
   # Public journal media, lot JSON, health — must win over any static-extension
   # regex that would otherwise look for .png/.jpg under the SPA document root.
   location ^~ /public/ {
@@ -144,7 +191,9 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Connection "";
     proxy_set_header X-Request-ID $request_id;
-    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    client_max_body_size 12M;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
     add_header X-Request-ID $request_id always;
   }
 

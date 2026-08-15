@@ -83,8 +83,23 @@ describe('FinanceView expense list', () => {
     })
   })
 
-  it('renders complete mobile cards and a scrollable desktop table', async () => {
+  it('switches directly between overview and expenses without a long-page scroll', async () => {
     const wrapper = await mountView()
+    const tabs = wrapper.findAll('[role="tab"]')
+    const overviewTab = tabs[0]!
+    const expensesTab = tabs[1]!
+    const expensesPanel = wrapper.get('#finance-expenses-panel')
+
+    expect(overviewTab.attributes('aria-selected')).toBe('true')
+    expect(expensesTab.attributes('aria-selected')).toBe('false')
+    expect(expensesPanel.attributes('style')).toContain('display: none')
+
+    await expensesTab.trigger('click')
+
+    expect(overviewTab.attributes('aria-selected')).toBe('false')
+    expect(expensesTab.attributes('aria-selected')).toBe('true')
+    expect(expensesPanel.attributes('style') ?? '').not.toContain('display: none')
+
     const cards = wrapper.get('[data-testid="expense-cards"]')
     const table = wrapper.get('[data-testid="expense-table"]')
 
@@ -98,9 +113,11 @@ describe('FinanceView expense list', () => {
     expect(cards.get('a').attributes('href')).toBe('/api/finance/expense-1/attachment')
     expect(cards.text()).toContain('finance.edit')
 
-    expect(table.classes()).toContain('min-w-[78rem]')
+    expect(table.classes()).toContain('table-fixed')
     expect(table.text()).toContain('Fuel delivery')
     expect(table.text()).toContain('finance.status.pending')
+    expect(table.text()).toContain('finance.edit')
+    expect(table.text()).toContain('finance.delete')
   })
 
   it('opens the edit form from a mobile expense card', async () => {

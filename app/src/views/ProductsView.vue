@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -181,9 +182,13 @@ async function deactivate(p: Product) {
     <p v-if="error" class="mt-4 text-sm text-red-300">{{ error }}</p>
 
     <!-- Add product -->
-    <div class="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <h3 class="font-bold text-white text-sm">{{ t('products.addProduct') }}</h3>
-      <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_2fr_1fr_1fr_auto]">
+    <CollapsibleSection
+      class="mt-6"
+      :title="t('products.addProduct')"
+      :default-open="false"
+      test-id="products-create-section"
+    >
+      <div class="grid gap-3 sm:grid-cols-[1fr_2fr_1fr_1fr_auto]">
         <input
           v-model="newSku"
           aria-label="SKU"
@@ -223,7 +228,7 @@ async function deactivate(p: Product) {
           {{ creating ? t('products.adding') : t('products.add') }}
         </button>
       </div>
-    </div>
+    </CollapsibleSection>
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('products.loading') }}</div>
 

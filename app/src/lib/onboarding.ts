@@ -25,6 +25,10 @@ export type OnboardingCopy = {
   basics: string[]
   readyTitle: string
   readyBody: string
+  contributionTitle: string
+  contributionBody: string
+  contributionSteps: string[]
+  contributionSafety: string
   help: string
   pageHelp: string
   pageHelpBody: string
@@ -75,7 +79,11 @@ const enPages: Record<string, PageGuide> = {
   },
   '/crops': {
     summary: 'Keep crop cycles, planting stages, field activity, and harvest records together.',
-    actions: ['Open the correct crop cycle before recording work.', 'Keep stage and dates current.'],
+    actions: [
+      'Create reusable blocks and fields under Zones, then select them here.',
+      'Record the planted stand count and cost centre when you start a cycle.',
+      'Keep the crop stage and dates current.',
+    ],
   },
   '/livestock': {
     summary: 'Track animal batches, census, feed, health, mortality, and production records.',
@@ -108,6 +116,10 @@ const enPages: Record<string, PageGuide> = {
   '/whatsapp': {
     summary: 'Manage farm WhatsApp communication, language, templates, and customer conversations.',
     actions: ['Check the recipient before sending.', 'Use the customer’s preferred language when possible.'],
+  },
+  '/telegram': {
+    summary: 'Link the Trovara butler bot so staff can get alerts and reply from Telegram.',
+    actions: ['Generate a link code in this page.', 'Send the code to the butler bot within 15 minutes.'],
   },
   '/traceability': {
     summary: 'Connect a product lot to its farm source, harvest, quantity, checks, order, and public QR record.',
@@ -282,7 +294,7 @@ const pcmPages: Record<string, PageGuide> = {
   '/tasks': { summary: 'Create, give, follow and approve work for farm team.', actions: ['Give every task person and due date.', 'Check rejected or waiting work before you create another one.'] },
   '/tasks/post-approval': { summary: 'Final check after work don approve, to find missing proof or strange change.', actions: ['Check history and proof.', 'Report anything wey no match field result.'] },
   '/field-reports': { summary: 'Report wetin you see for field: problem, loss, danger, pest, sickness or any issue.', actions: ['Choose correct farm area.', 'Add clear note and picture if e go help.'] },
-  '/crops': { summary: 'Keep crop cycle, planting stage, field work and harvest record together.', actions: ['Open correct crop cycle.', 'Keep stage and date correct.'] },
+  '/crops': { summary: 'Keep crop cycle, planting stage, field work and harvest record together.', actions: ['Create and save block or field for Zones, then select am here.', 'Put number of stands and cost centre when you start cycle.', 'Keep stage and date correct.'] },
   '/livestock': { summary: 'Track animal batch, count, feed, health, death and production.', actions: ['Use correct batch.', 'Record sickness or loss quickly.'] },
   '/inventory': { summary: 'Track everything wey enter or commot from store with SKU, unit and leakage warning.', actions: ['Choose correct SKU and unit.', 'Record real movement; no change stock to hide difference.'] },
   '/assets': { summary: 'Track tools and machines, who use dem, fault, inspection and repair.', actions: ['Choose correct equipment.', 'Report damage before another person use am.'] },
@@ -291,6 +303,7 @@ const pcmPages: Record<string, PageGuide> = {
   '/products': { summary: 'Official product list: SKU, selling unit, price and whether sales open.', actions: ['One SKU must mean one product and pack size.', 'Product page no be where stock movement happen.'] },
   '/customer-insights': { summary: 'Show questions wey customers dey ask many times so farm fit improve.', actions: ['Look for repeated question.', 'Use am improve product information or service.'] },
   '/whatsapp': { summary: 'Manage farm WhatsApp message, language, template and customer talk.', actions: ['Check person before you send.', 'Use customer language if you fit.'] },
+  '/telegram': { summary: 'Link Trovara butler bot so staff fit get alert and reply from Telegram.', actions: ['Generate link code for this page.', 'Send the code give the butler bot before e expire.'] },
   '/traceability': { summary: 'Join product lot with farm source, harvest, amount, checks, order and QR record.', actions: ['Use correct lot code.', 'No change dispatched lot without recorded reason.'] },
   '/events': { summary: 'Audit history: who change wetin, when dem change am and old/new record.', actions: ['Filter by date, person or record.', 'Use am investigate; no be place to edit history.'] },
   '/ai': { summary: 'Ask farm assistant about work, stock, animal or crop. You fit use photo or voice too.', actions: ['Explain problem with simple words.', 'Check suggested task before you confirm am.'] },
@@ -392,7 +405,7 @@ const yoPages: Record<string, PageGuide> = {
   '/tasks': { summary: 'Ṣẹ̀dá, yan, tọ́pa àti fọwọ́sí iṣẹ́ fún ẹgbẹ́ oko.', actions: ['Fi ẹni tó ni iṣẹ́ àti ọjọ́ ìparí sí gbogbo iṣẹ́.', 'Ṣàyẹ̀wò iṣẹ́ tí a kọ̀ tàbí tó ń dúró kí o tó ṣẹ̀dá tuntun.'] },
   '/tasks/post-approval': { summary: 'Àyẹ̀wò ìkẹyìn lẹ́yìn ìfọwọ́sí láti rí ẹ̀rí tó sọnù tàbí ìyípadà àjèjì.', actions: ['Ṣàyẹ̀wò ìtàn iṣẹ́ àti ẹ̀rí.', 'Jábọ̀ ohun tí kò bá abajade oko mu.'] },
   '/field-reports': { summary: 'Jábọ̀ àkíyèsí oko, ìṣòro, àdánù, ewu, kòkòrò tàbí àìsàn.', actions: ['Yan agbègbè oko tó tọ́.', 'Kọ àlàyé kedere, kí o fi fọ́tò kún un bí ó bá wúlò.'] },
-  '/crops': { summary: 'Pa ìyíká irugbin, ìpele gbígbìn, iṣẹ́ oko àti ìkórè mọ́ pọ̀.', actions: ['Ṣí ìyíká irugbin tó tọ́.', 'Mú ìpele àti ọjọ́ ṣiṣẹ́ déédéé.'] },
+  '/crops': { summary: 'Pa ìyíká irugbin, ìpele gbígbìn, iṣẹ́ oko àti ìkórè mọ́ pọ̀.', actions: ['Ṣẹ̀dá block tàbí ilẹ̀ ní Zones, kí o sì yan án níbí.', 'Kọ iye àwọn igi ọ̀gbìn àti àmì ibi ìnáwó sílẹ̀ nígbà tí o bá bẹ̀rẹ̀ àyíká.', 'Mú ìpele àti ọjọ́ ṣiṣẹ́ déédéé.'] },
   '/livestock': { summary: 'Tọ́pa ẹgbẹ́ ẹranko, iye, oúnjẹ, ìlera, ikú àti iṣelọpọ.', actions: ['Lo ẹgbẹ́ tó tọ́.', 'Kọ àìsàn tàbí àdánù sílẹ̀ kíákíá.'] },
   '/inventory': { summary: 'Tọ́pa ohun tó wọlé àti tó jáde ní ilé ìpamọ́ pẹ̀lú SKU, ìwọ̀n àti ìkìlọ̀ ìyàtọ̀.', actions: ['Yan SKU àti ìwọ̀n tó tọ́.', 'Kọ ìrìn ọjà gidi; má ṣe yí stock padà láti bo ìyàtọ̀.'] },
   '/assets': { summary: 'Tọ́pa irinṣẹ́ àti ẹ̀rọ, lílò, àbùkù, àyẹ̀wò àti àtúnṣe.', actions: ['Yan ohun èlò tó tọ́.', 'Jábọ̀ àbùkù kí ẹlòmíràn tó lò ó.'] },
@@ -401,6 +414,7 @@ const yoPages: Record<string, PageGuide> = {
   '/products': { summary: 'Àtòjọ ọja àṣẹ: SKU, ìwọ̀n títà, iye owó àti bóyá títà ṣí.', actions: ['SKU kan gbọ́dọ̀ dúró fún ọja àti ìdì kan.', 'Ojú-ewé ọja kì í ṣe ibi ìrìn stock.'] },
   '/customer-insights': { summary: 'Ó fi àwọn ìbéèrè tí oníbàárà ń tún béèrè hàn kí oko lè mú ìṣẹ́ àti alaye dára.', actions: ['Wá ìbéèrè tó ń tún padà.', 'Lo àpẹẹrẹ náà láti mú iṣẹ́ dára.'] },
   '/whatsapp': { summary: 'Ṣàkóso ìfiranṣẹ́ WhatsApp oko, èdè, àwòrán ìfiranṣẹ́ àti ìjíròrò oníbàárà.', actions: ['Ṣàyẹ̀wò ẹni tí o fẹ́ ránṣẹ́ sí.', 'Lo èdè tí oníbàárà fẹ́ bí ó bá ṣeé ṣe.'] },
+  '/telegram': { summary: 'So bọ́ọ̀tù butler Trovara pọ̀ kí òṣìṣẹ́ lè gba ìkìlọ̀ kí wọ́n sì dáhùn láti Telegram.', actions: ['Ṣẹ̀dá kóòdù ìsopọ̀ lórí ojú-ewé yìí.', 'Fi kóòdù náà ránṣẹ́ sí bọ́ọ̀tù náà kí ó tó parí.'] },
   '/traceability': { summary: 'So lot ọja pọ̀ mọ́ orísun oko, ìkórè, iye, àyẹ̀wò, ọ̀dà àti àkọsílẹ̀ QR.', actions: ['Lo kóòdù lot tó tọ́.', 'Má yí lot tí a ti rán padà láìkọ ìdí.'] },
   '/events': { summary: 'Ìtàn àyẹ̀wò: ẹni tó yí nǹkan padà, ìgbà tó ṣe é, àti àkọsílẹ̀ àtijọ́/tuntun.', actions: ['Ṣàlẹ̀mọ́ pẹ̀lú ọjọ́, ènìyàn tàbí àkọsílẹ̀.', 'Lo ó fún ìwádìí, kì í ṣe fún pípa ìtàn padà.'] },
   '/ai': { summary: 'Béèrè lọ́wọ́ olùrànlọ́wọ́ oko nípa iṣẹ́, stock, ẹranko tàbí irugbin; o tún lè lo fọ́tò tàbí ohùn.', actions: ['Ṣàlàyé ìṣòro ní ọ̀rọ̀ rọrùn.', 'Ṣàyẹ̀wò iṣẹ́ tí ó dábàá kí o tó fọwọ́sí.'] },
@@ -502,7 +516,7 @@ const frPages: Record<string, PageGuide> = {
   '/tasks': { summary: 'Créez, assignez, suivez et approuvez le travail de l’équipe.', actions: ['Ajoutez un responsable et une échéance.', 'Vérifiez les tâches rejetées ou en attente avant d’en créer une autre.'] },
   '/tasks/post-approval': { summary: 'Contrôle final du travail approuvé pour repérer une preuve manquante ou un changement suspect.', actions: ['Vérifiez l’historique et les preuves.', 'Signalez ce qui ne correspond pas au résultat terrain.'] },
   '/field-reports': { summary: 'Signalez une observation, un problème, une perte, un danger, un ravageur ou une maladie.', actions: ['Choisissez la bonne zone.', 'Ajoutez une note claire et une photo si utile.'] },
-  '/crops': { summary: 'Regroupe les cycles, stades, activités et récoltes des cultures.', actions: ['Ouvrez le bon cycle.', 'Gardez les stades et les dates à jour.'] },
+  '/crops': { summary: 'Regroupe les cycles, stades, activités et récoltes des cultures.', actions: ['Créez les blocs et parcelles dans Zones, puis sélectionnez-les ici.', 'Saisissez le nombre de plants et le centre de coûts au début du cycle.', 'Gardez les stades et les dates à jour.'] },
   '/livestock': { summary: 'Suivez les lots d’animaux, les effectifs, l’alimentation, la santé, la mortalité et la production.', actions: ['Utilisez le bon lot.', 'Enregistrez rapidement toute maladie ou perte.'] },
   '/inventory': { summary: 'Suivez les entrées et sorties avec SKU, unité et alertes de rapprochement.', actions: ['Choisissez le bon SKU et la bonne unité.', 'Enregistrez le mouvement réel; ne modifiez jamais le stock pour cacher un écart.'] },
   '/assets': { summary: 'Suivez outils et machines, utilisation, inspection, panne et entretien.', actions: ['Choisissez le bon équipement.', 'Signalez une panne avant une nouvelle utilisation.'] },
@@ -511,6 +525,7 @@ const frPages: Record<string, PageGuide> = {
   '/products': { summary: 'Catalogue contrôlé : SKU, unité de vente, prix et disponibilité commerciale.', actions: ['Un SKU correspond à un produit et un conditionnement.', 'Le catalogue ne remplace pas les mouvements de stock.'] },
   '/customer-insights': { summary: 'Regroupe les questions fréquentes pour améliorer les produits et la communication.', actions: ['Repérez les questions répétées.', 'Utilisez-les pour améliorer les informations ou le service.'] },
   '/whatsapp': { summary: 'Gérez les messages WhatsApp, les langues, les modèles et les échanges clients.', actions: ['Vérifiez le destinataire.', 'Utilisez si possible la langue préférée du client.'] },
+  '/telegram': { summary: 'Liez le bot butler Trovara pour les alertes et les réponses depuis Telegram.', actions: ['Générez un code de liaison sur cette page.', 'Envoyez le code au bot dans les 15 minutes.'] },
   '/traceability': { summary: 'Relie un lot à sa ferme, sa récolte, sa quantité, ses contrôles, sa commande et son QR public.', actions: ['Utilisez le bon code de lot.', 'Ne modifiez pas un lot expédié sans motif enregistré.'] },
   '/events': { summary: 'Journal d’audit : qui a changé quoi, quand, et les valeurs avant/après.', actions: ['Filtrez par date, personne ou dossier.', 'Utilisez cette page pour enquêter, pas pour modifier l’historique.'] },
   '/ai': { summary: 'Interrogez l’assistant sur le travail, le stock, les animaux ou les cultures, avec texte, voix ou photo.', actions: ['Décrivez simplement le problème.', 'Vérifiez toute tâche proposée avant de la confirmer.'] },
@@ -618,6 +633,10 @@ const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> &
     basics: ['Use the menu arrow to make the desktop menu smaller or larger.', 'Use the language buttons at any time; your choice is saved to your profile.', 'Tap the Help button on any page for a plain explanation of that page.'],
     readyTitle: 'You are ready to begin',
     readyBody: 'Start with the page your role opens. Read before you save, and ask a supervisor whenever the real farm result does not match the screen.',
+    contributionTitle: 'Help improve Trovara OS',
+    contributionBody: 'For an Administrator or Supervisor who has been authorised to support software improvements.',
+    contributionSteps: ['Describe the problem and the expected result before changing code.', 'Work in a local test copy on a separate Git branch—never edit production directly.', 'Run the checks and open a pull request so another person can review the change.'],
+    contributionSafety: 'Never share production passwords, .env values, database access, SSH keys, or break-glass credentials.',
     help: 'Help', pageHelp: 'About this page', pageHelpBody: 'Here is what this page is for and the safest way to use it.', pageRoleLead: (roleTitle) => `${roleTitle === 'Administrator' ? 'As an' : 'As a'} ${roleTitle}, follow the steps below for this page.`, fullGuide: 'Show full guide', start: 'Start guide', next: 'Next', back: 'Back', finish: 'Start using Trovara OS', skip: 'Skip for now', close: 'Close', step: (current, total) => `Step ${current} of ${total}`,
     roles: {
       owner: { title: 'Administrator', summary: 'You oversee the whole farm system and control access, setup, approvals, records, and business reporting.', duties: ['Set up users and farm structure.', 'Review exceptions and approvals.', 'Protect permissions, finance, and audit records.'] },
@@ -633,7 +652,7 @@ const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> &
     welcome: (name) => `Welcome, ${name}`,
     welcomeBody: 'Trovara OS go guide you. You no need sabi the system before you start.',
     languagePrompt: 'Choose language wey you understand pass. The guide and OS go follow am.',
-    assignedRole: 'Your assigned role', roleHeading: 'Wetin your role mean', roleBody: 'Your role decide pages wey you fit see and work wey you fit do.', yourPages: 'Your pages and wetin dem do', pagesBody: 'Na these pages your role fit use. Tap Help for any page if you forget wetin e do.', basicsTitle: 'Three things to remember', basics: ['Use menu arrow make desktop menu small or big.', 'You fit change language anytime; the system go save your choice.', 'Tap Help for any page to see simple explanation.'], readyTitle: 'You don ready', readyBody: 'Start from the first page for your role. Read before you save, and ask supervisor if wetin happen for farm no match screen.',     help: 'Help', pageHelp: 'About this page', pageHelpBody: 'See wetin this page do and safe way to use am.', pageRoleLead: (roleTitle) => `As ${roleTitle}, follow the steps below for this page.`, fullGuide: 'Show full guide', start: 'Start guide', next: 'Next', back: 'Back', finish: 'Start to use Trovara OS', skip: 'Skip for now', close: 'Close', step: (current, total) => `Step ${current} of ${total}`,
+    assignedRole: 'Your assigned role', roleHeading: 'Wetin your role mean', roleBody: 'Your role decide pages wey you fit see and work wey you fit do.', yourPages: 'Your pages and wetin dem do', pagesBody: 'Na these pages your role fit use. Tap Help for any page if you forget wetin e do.', basicsTitle: 'Three things to remember', basics: ['Use menu arrow make desktop menu small or big.', 'You fit change language anytime; the system go save your choice.', 'Tap Help for any page to see simple explanation.'], readyTitle: 'You don ready', readyBody: 'Start from the first page for your role. Read before you save, and ask supervisor if wetin happen for farm no match screen.', contributionTitle: 'Help improve Trovara OS', contributionBody: 'This part na for Admin or Supervisor wey get permission to support software work.', contributionSteps: ['Explain the problem and wetin suppose happen before you change code.', 'Work for local test copy and separate Git branch—no edit production direct.', 'Run checks and open pull request make another person review the change.'], contributionSafety: 'No share production password, .env value, database access, SSH key or break-glass login.', help: 'Help', pageHelp: 'About this page', pageHelpBody: 'See wetin this page do and safe way to use am.', pageRoleLead: (roleTitle) => `As ${roleTitle}, follow the steps below for this page.`, fullGuide: 'Show full guide', start: 'Start guide', next: 'Next', back: 'Back', finish: 'Start to use Trovara OS', skip: 'Skip for now', close: 'Close', step: (current, total) => `Step ${current} of ${total}`,
     roles: {
       owner: { title: 'Admin', summary: 'You dey look the whole farm system and control access, setup, approval, record and business report.', duties: ['Set up users and farm places.', 'Check warning and approval.', 'Protect permission, money and audit record.'] },
       supervisor: { title: 'Supervisor', summary: 'You arrange daily farm work and check say field record match wetin really happen.', duties: ['Give and check work.', 'Check crop, animal, stock and field report.', 'Report loss, risk and strange difference.'] },
@@ -648,7 +667,7 @@ const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> &
     welcome: (name) => `Káàbọ̀, ${name}`,
     welcomeBody: 'Trovara OS yóò tọ́ ọ sọ́nà. Kò pọn dandan kí o mọ ètò náà kí o tó bẹ̀rẹ̀.',
     languagePrompt: 'Yan èdè tí o lóye jù. Ìtọ́sọ́nà àti OS yóò máa lo èdè náà.',
-    assignedRole: 'Ipa tí a yàn fún ọ', roleHeading: 'Ohun tí ipa rẹ túmọ̀ sí', roleBody: 'Ipa rẹ ló pinnu ojú-ewé tí o lè rí àti iṣẹ́ tí o lè ṣe.', yourPages: 'Àwọn ojú-ewé rẹ àti iṣẹ́ wọn', pagesBody: 'Àwọn ojú-ewé wọ̀nyí ni ipa rẹ lè lò. Tẹ Ìrànlọ́wọ́ lórí ojú-ewé kankan bí o bá gbàgbé iṣẹ́ rẹ̀.', basicsTitle: 'Ohun mẹ́ta láti rántí', basics: ['Lo ọfà àkójọ láti dín tàbí fa àkójọ kọ̀ǹpútà.', 'O lè yí èdè padà nígbàkigbà; a ó fi yíyan rẹ pamọ́.', 'Tẹ Ìrànlọ́wọ́ lórí ojú-ewé kankan fún àlàyé tó rọrùn.'], readyTitle: 'O ti ṣetán', readyBody: 'Bẹ̀rẹ̀ ní ojú-ewé àkọ́kọ́ fún ipa rẹ. Ka ohun gbogbo kí o tó fi pamọ́, kí o sì béèrè lọ́wọ́ supervisor bí ohun tó ṣẹlẹ̀ ní oko kò bá ohun tó wà lójú ìbòjú mu.',     help: 'Ìrànlọ́wọ́', pageHelp: 'Nípa ojú-ewé yìí', pageHelpBody: 'Ohun tí ojú-ewé yìí ń ṣe àti ọ̀nà ààbò láti lò ó.', pageRoleLead: (roleTitle) => `Gẹ́gẹ́ bí ${roleTitle}, tẹ̀lé àwọn ìgbésẹ̀ ní ìsàlẹ̀ fún ojú-ewé yìí.`, fullGuide: 'Fi gbogbo ìtọ́sọ́nà hàn', start: 'Bẹ̀rẹ̀ ìtọ́sọ́nà', next: 'Tẹ̀síwájú', back: 'Padà', finish: 'Bẹ̀rẹ̀ lílo Trovara OS', skip: 'Fò ó fún báyìí', close: 'Pa á', step: (current, total) => `Ìgbésẹ̀ ${current} nínú ${total}`,
+    assignedRole: 'Ipa tí a yàn fún ọ', roleHeading: 'Ohun tí ipa rẹ túmọ̀ sí', roleBody: 'Ipa rẹ ló pinnu ojú-ewé tí o lè rí àti iṣẹ́ tí o lè ṣe.', yourPages: 'Àwọn ojú-ewé rẹ àti iṣẹ́ wọn', pagesBody: 'Àwọn ojú-ewé wọ̀nyí ni ipa rẹ lè lò. Tẹ Ìrànlọ́wọ́ lórí ojú-ewé kankan bí o bá gbàgbé iṣẹ́ rẹ̀.', basicsTitle: 'Ohun mẹ́ta láti rántí', basics: ['Lo ọfà àkójọ láti dín tàbí fa àkójọ kọ̀ǹpútà.', 'O lè yí èdè padà nígbàkigbà; a ó fi yíyan rẹ pamọ́.', 'Tẹ Ìrànlọ́wọ́ lórí ojú-ewé kankan fún àlàyé tó rọrùn.'], readyTitle: 'O ti ṣetán', readyBody: 'Bẹ̀rẹ̀ ní ojú-ewé àkọ́kọ́ fún ipa rẹ. Ka ohun gbogbo kí o tó fi pamọ́, kí o sì béèrè lọ́wọ́ supervisor bí ohun tó ṣẹlẹ̀ ní oko kò bá ohun tó wà lójú ìbòjú mu.', contributionTitle: 'Ṣe ìrànwọ́ láti mú Trovara OS dára síi', contributionBody: 'Apá yìí jẹ́ fún Olùṣàkóso tàbí Alábòójútó tí a fún láṣẹ láti ran iṣẹ́ software lọ́wọ́.', contributionSteps: ['Ṣàlàyé ìṣòro àti ohun tí ó yẹ kí ó ṣẹlẹ̀ kí o tó yí code padà.', 'Ṣiṣẹ́ lórí ẹ̀dà ìdánwò local àti Git branch ọ̀tọ̀—má ṣe yí production padà tààrà.', 'Ṣe àwọn àyẹ̀wò, kí o sì ṣí pull request fún ẹlòmíràn láti ṣàyẹ̀wò.'], contributionSafety: 'Má ṣe pín password production, iye .env, database access, SSH key tàbí break-glass login.', help: 'Ìrànlọ́wọ́', pageHelp: 'Nípa ojú-ewé yìí', pageHelpBody: 'Ohun tí ojú-ewé yìí ń ṣe àti ọ̀nà ààbò láti lò ó.', pageRoleLead: (roleTitle) => `Gẹ́gẹ́ bí ${roleTitle}, tẹ̀lé àwọn ìgbésẹ̀ ní ìsàlẹ̀ fún ojú-ewé yìí.`, fullGuide: 'Fi gbogbo ìtọ́sọ́nà hàn', start: 'Bẹ̀rẹ̀ ìtọ́sọ́nà', next: 'Tẹ̀síwájú', back: 'Padà', finish: 'Bẹ̀rẹ̀ lílo Trovara OS', skip: 'Fò ó fún báyìí', close: 'Pa á', step: (current, total) => `Ìgbésẹ̀ ${current} nínú ${total}`,
     roles: {
       owner: { title: 'Olùṣàkóso', summary: 'Ìwọ ń bojú tó gbogbo ètò oko, àṣẹ, ìṣètò, ìfọwọ́sí, àkọsílẹ̀ àti ìròyìn.', duties: ['Ṣètò àwọn olumulo àti ibi oko.', 'Ṣàyẹ̀wò ìkìlọ̀ àti ìfọwọ́sí.', 'Dáàbò bo àṣẹ, owó àti ìtàn àyẹ̀wò.'] },
       supervisor: { title: 'Alábòójútó', summary: 'Ìwọ ń ṣètò iṣẹ́ ojoojúmọ́, o sì ń jẹ́rìí pé àkọsílẹ̀ bá ohun tó ṣẹlẹ̀ ní oko mu.', duties: ['Yan àti ṣàyẹ̀wò iṣẹ́.', 'Ṣàyẹ̀wò irugbin, ẹranko, stock àti ìròyìn oko.', 'Jábọ̀ àdánù, ewu àti ìyàtọ̀ àjèjì.'] },
@@ -663,7 +682,7 @@ const copies: Record<AppLocale, Omit<OnboardingCopy, 'pages' | 'fallbackPage'> &
     welcome: (name) => `Bienvenue, ${name}`,
     welcomeBody: 'Trovara OS vous guidera. Vous n’avez pas besoin de connaître le système avant de commencer.',
     languagePrompt: 'Choisissez la langue que vous comprenez le mieux. Le guide et l’application la suivront.',
-    assignedRole: 'Votre rôle attribué', roleHeading: 'Ce que signifie votre rôle', roleBody: 'Votre rôle détermine les pages visibles et les actions autorisées.', yourPages: 'Vos pages expliquées', pagesBody: 'Voici les pages disponibles pour votre rôle. Ouvrez Aide sur n’importe quelle page si vous oubliez sa fonction.', basicsTitle: 'Trois choses à retenir', basics: ['Utilisez la flèche du menu pour réduire ou agrandir le menu sur ordinateur.', 'Changez de langue à tout moment; votre choix est enregistré.', 'Touchez Aide sur une page pour obtenir une explication simple.'], readyTitle: 'Vous êtes prêt', readyBody: 'Commencez par la page d’accueil de votre rôle. Lisez avant d’enregistrer et demandez au superviseur si la réalité du terrain ne correspond pas à l’écran.',     help: 'Aide', pageHelp: 'À propos de cette page', pageHelpBody: 'Voici la fonction de cette page et la manière la plus sûre de l’utiliser.', pageRoleLead: (roleTitle) => `En tant que ${roleTitle}, suivez les étapes ci-dessous pour cette page.`, fullGuide: 'Voir le guide complet', start: 'Commencer le guide', next: 'Suivant', back: 'Retour', finish: 'Commencer avec Trovara OS', skip: 'Passer pour le moment', close: 'Fermer', step: (current, total) => `Étape ${current} sur ${total}`,
+    assignedRole: 'Votre rôle attribué', roleHeading: 'Ce que signifie votre rôle', roleBody: 'Votre rôle détermine les pages visibles et les actions autorisées.', yourPages: 'Vos pages expliquées', pagesBody: 'Voici les pages disponibles pour votre rôle. Ouvrez Aide sur n’importe quelle page si vous oubliez sa fonction.', basicsTitle: 'Trois choses à retenir', basics: ['Utilisez la flèche du menu pour réduire ou agrandir le menu sur ordinateur.', 'Changez de langue à tout moment; votre choix est enregistré.', 'Touchez Aide sur une page pour obtenir une explication simple.'], readyTitle: 'Vous êtes prêt', readyBody: 'Commencez par la page d’accueil de votre rôle. Lisez avant d’enregistrer et demandez au superviseur si la réalité du terrain ne correspond pas à l’écran.', contributionTitle: 'Aider à améliorer Trovara OS', contributionBody: 'Cette section est réservée aux administrateurs ou superviseurs autorisés à contribuer au logiciel.', contributionSteps: ['Décrivez le problème et le résultat attendu avant de modifier le code.', 'Travaillez sur une copie locale de test et une branche Git distincte—ne modifiez jamais directement la production.', 'Exécutez les contrôles et ouvrez une pull request pour faire relire le changement.'], contributionSafety: 'Ne partagez jamais les mots de passe de production, les valeurs .env, l’accès à la base de données, les clés SSH ou les accès d’urgence.', help: 'Aide', pageHelp: 'À propos de cette page', pageHelpBody: 'Voici la fonction de cette page et la manière la plus sûre de l’utiliser.', pageRoleLead: (roleTitle) => `En tant que ${roleTitle}, suivez les étapes ci-dessous pour cette page.`, fullGuide: 'Voir le guide complet', start: 'Commencer le guide', next: 'Suivant', back: 'Retour', finish: 'Commencer avec Trovara OS', skip: 'Passer pour le moment', close: 'Fermer', step: (current, total) => `Étape ${current} sur ${total}`,
     roles: {
       owner: { title: 'Administrateur', summary: 'Vous supervisez tout le système et contrôlez les accès, réglages, approbations, dossiers et rapports.', duties: ['Configurer les utilisateurs et la ferme.', 'Examiner alertes et approbations.', 'Protéger les droits, les finances et l’audit.'] },
       supervisor: { title: 'Superviseur', summary: 'Vous coordonnez le travail quotidien et vérifiez que les données correspondent au terrain.', duties: ['Assigner et contrôler le travail.', 'Vérifier cultures, animaux, stock et rapports.', 'Signaler pertes, risques et écarts inhabituels.'] },
