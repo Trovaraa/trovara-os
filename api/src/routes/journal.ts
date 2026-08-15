@@ -1,10 +1,12 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
+import { getCookie, setCookie } from 'hono/cookie'
 import { zValidator } from '@hono/zod-validator'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { journalPosts } from '../db/schema.js'
+import { journalComments, journalPostLikes, journalPosts } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import { triggerJournalBuildHook } from '../lib/journal-build-hook.js'
@@ -18,6 +20,8 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 // A marketing rebuild reads the list, each post body, and each cover image in
 // one burst. Keep that legitimate static-export flow below the per-IP ceiling.
 const PUBLIC_RATE = { max: 300, windowMs: 60_000 }
+const JOURNAL_VISITOR_COOKIE = 'trovara_journal_visitor'
+const JOURNAL_VISITOR_PATTERN = /^[A-Za-z0-9_-]{32,64}$/
 
 export function normalizeJournalSlug(value: string): string {
   return value
@@ -70,6 +74,18 @@ const mediaSchema = z.object({
   dataUrl: z.string().max(3_400_000),
 })
 
+const commentSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    body: z.string().trim().min(2).max(1200),
+    honey: z.string().max(500).optional(),
+  })
+  .strict()
+
+const commentReviewSchema = z
+  .object({ status: z.enum(['approved', 'rejected']) })
+  .strict()
+
 function validCoverUrl(farmId: string, value: string | null | undefined): boolean {
   if (value == null) return true
   const prefix = `/public/journal/media/${farmId}/`
@@ -79,6 +95,38 @@ function validCoverUrl(farmId: string, value: string | null | undefined): boolea
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505'
+}
+
+function visitorIdentity(c: Context): { token: string; hash: string } {
+  const existing = getCookie(c, JOURNAL_VISITOR_COOKIE)
+  const token = existing && JOURNAL_VISITOR_PATTERN.test(existing) ? existing : randomBytes(32).toString('base64url')
+  if (token !== existing) {
+    setCookie(c, JOURNAL_VISITOR_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: 365 * 24 * 60 * 60,
+    })
+  }
+  return { token, hash: createHash('sha256').update(token).digest('hex') }
+}
+
+async function publishedPostForSlug(farmId: string, rawSlug: string) {
+  const slug = normalizeJournalSlug(rawSlug)
+  if (!slug) return null
+  const [post] = await db
+    .select({ id: journalPosts.id, slug: journalPosts.slug })
+    .from(journalPosts)
+    .where(
+      and(
+        eq(journalPosts.farmId, farmId),
+        eq(journalPosts.slug, slug),
+        eq(journalPosts.published, true),
+      ),
+    )
+    .limit(1)
+  return post ?? null
 }
 
 async function slugExists(farmId: string, slug: string, exceptId?: string): Promise<boolean> {
@@ -137,6 +185,78 @@ journalRoutes.get('/:id', async (c) => {
   if (!post) return c.json({ error: 'Not found' }, 404)
   return c.json({ post })
 })
+
+journalRoutes.get('/:id/engagement', async (c) => {
+  const user = c.get('user')
+  if (!hasPermission(user, 'journal.manage')) return c.json({ error: 'Forbidden' }, 403)
+  const postId = c.req.param('id')
+  const [post] = await db
+    .select({ id: journalPosts.id })
+    .from(journalPosts)
+    .where(and(eq(journalPosts.id, postId), eq(journalPosts.farmId, user.farmId)))
+    .limit(1)
+  if (!post) return c.json({ error: 'Not found' }, 404)
+
+  const [likes, comments] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(journalPostLikes)
+      .where(and(eq(journalPostLikes.farmId, user.farmId), eq(journalPostLikes.postId, postId))),
+    db
+      .select({
+        id: journalComments.id,
+        authorName: journalComments.authorName,
+        body: journalComments.body,
+        status: journalComments.status,
+        createdAt: journalComments.createdAt,
+        moderatedAt: journalComments.moderatedAt,
+      })
+      .from(journalComments)
+      .where(and(eq(journalComments.farmId, user.farmId), eq(journalComments.postId, postId)))
+      .orderBy(desc(journalComments.createdAt))
+      .limit(200),
+  ])
+
+  return c.json({ likeCount: Number(likes[0]?.count ?? 0), comments })
+})
+
+journalRoutes.patch(
+  '/comments/:commentId',
+  requireJournalManage,
+  zValidator('json', commentReviewSchema),
+  async (c) => {
+    const user = c.get('user')
+    const commentId = c.req.param('commentId')
+    const status = c.req.valid('json').status
+    const [existing] = await db
+      .select({ id: journalComments.id, postId: journalComments.postId })
+      .from(journalComments)
+      .where(and(eq(journalComments.id, commentId), eq(journalComments.farmId, user.farmId)))
+      .limit(1)
+    if (!existing) return c.json({ error: 'Not found' }, 404)
+
+    const [comment] = await db
+      .update(journalComments)
+      .set({
+        status,
+        moderatedById: user.id,
+        moderatedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(journalComments.id, commentId), eq(journalComments.farmId, user.farmId)))
+      .returning()
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: status === 'approved' ? 'approve' : 'reject',
+      entityType: 'journal_comment',
+      entityId: commentId,
+      access: requestAccessMeta((name) => c.req.header(name)),
+      metadata: { postId: existing.postId },
+    })
+    return c.json({ comment })
+  },
+)
 
 async function requireJournalManage(c: Context<{ Variables: AppVariables }>, next: Next) {
   // Permission before Zod so unauthorized callers get 403, not a schema 400.
@@ -336,6 +456,21 @@ async function publicRateLimit(c: {
   return result.allowed
 }
 
+async function publicActionRateLimit(
+  c: {
+    req: { header: (name: string) => string | undefined }
+    header: (name: string, value: string) => void
+  },
+  action: string,
+  max: number,
+  windowMs: number,
+) {
+  const ip = clientIpFromHeaders((name) => c.req.header(name)) ?? 'unknown'
+  const result = await checkDurableRateLimit(`public-journal:${action}:${ip}`, max, windowMs)
+  if (!result.allowed) c.header('Retry-After', String(result.retryAfterSec))
+  return result.allowed
+}
+
 publicJournalRoutes.get('/', async (c) => {
   if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const farm = await resolveCustomerFarm()
@@ -381,6 +516,112 @@ publicJournalRoutes.get('/media/:farmId/:filename', async (c) => {
     return c.json({ error: 'Not found' }, 404)
   }
 })
+
+publicJournalRoutes.get('/:slug/engagement', async (c) => {
+  if (!(await publicActionRateLimit(c, 'engagement', 120, 60_000))) {
+    return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  }
+  const farm = await resolveCustomerFarm()
+  if (!farm) return c.json({ error: 'Journal is not available yet.' }, 503)
+  const post = await publishedPostForSlug(farm.id, c.req.param('slug'))
+  if (!post) return c.json({ error: 'Not found' }, 404)
+  const { hash } = visitorIdentity(c)
+
+  const [likes, viewerLike, comments] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(journalPostLikes)
+      .where(and(eq(journalPostLikes.farmId, farm.id), eq(journalPostLikes.postId, post.id))),
+    db
+      .select({ id: journalPostLikes.id })
+      .from(journalPostLikes)
+      .where(and(eq(journalPostLikes.postId, post.id), eq(journalPostLikes.visitorHash, hash)))
+      .limit(1),
+    db
+      .select({
+        id: journalComments.id,
+        authorName: journalComments.authorName,
+        body: journalComments.body,
+        createdAt: journalComments.createdAt,
+      })
+      .from(journalComments)
+      .where(
+        and(
+          eq(journalComments.farmId, farm.id),
+          eq(journalComments.postId, post.id),
+          eq(journalComments.status, 'approved'),
+        ),
+      )
+      .orderBy(desc(journalComments.createdAt))
+      .limit(100),
+  ])
+
+  return c.json({
+    likeCount: Number(likes[0]?.count ?? 0),
+    liked: Boolean(viewerLike[0]),
+    comments,
+  })
+})
+
+publicJournalRoutes.post('/:slug/like', async (c) => {
+  if (!(await publicActionRateLimit(c, 'like', 30, 60_000))) {
+    return c.json({ error: 'Too many requests - try again shortly.' }, 429)
+  }
+  const farm = await resolveCustomerFarm()
+  if (!farm) return c.json({ error: 'Journal is not available yet.' }, 503)
+  const post = await publishedPostForSlug(farm.id, c.req.param('slug'))
+  if (!post) return c.json({ error: 'Not found' }, 404)
+  const { hash } = visitorIdentity(c)
+  const [existing] = await db
+    .select({ id: journalPostLikes.id })
+    .from(journalPostLikes)
+    .where(and(eq(journalPostLikes.postId, post.id), eq(journalPostLikes.visitorHash, hash)))
+    .limit(1)
+
+  if (existing) {
+    await db
+      .delete(journalPostLikes)
+      .where(and(eq(journalPostLikes.id, existing.id), eq(journalPostLikes.farmId, farm.id)))
+  } else {
+    await db
+      .insert(journalPostLikes)
+      .values({ farmId: farm.id, postId: post.id, visitorHash: hash })
+      .onConflictDoNothing()
+  }
+
+  const [likes] = await db
+    .select({ count: count() })
+    .from(journalPostLikes)
+    .where(and(eq(journalPostLikes.farmId, farm.id), eq(journalPostLikes.postId, post.id)))
+  return c.json({ liked: !existing, likeCount: Number(likes?.count ?? 0) })
+})
+
+publicJournalRoutes.post(
+  '/:slug/comments',
+  zValidator('json', commentSchema),
+  async (c) => {
+    if (!(await publicActionRateLimit(c, 'comment', 3, 10 * 60_000))) {
+      return c.json({ error: 'Too many comments - please wait before trying again.' }, 429)
+    }
+    const body = c.req.valid('json')
+    // Honeypots receive the same accepted response, without writing spam.
+    if (body.honey?.trim()) return c.json({ ok: true, status: 'pending' }, 202)
+    const farm = await resolveCustomerFarm()
+    if (!farm) return c.json({ error: 'Journal is not available yet.' }, 503)
+    const post = await publishedPostForSlug(farm.id, c.req.param('slug'))
+    if (!post) return c.json({ error: 'Not found' }, 404)
+    const { hash } = visitorIdentity(c)
+    await db.insert(journalComments).values({
+      farmId: farm.id,
+      postId: post.id,
+      visitorHash: hash,
+      authorName: body.name,
+      body: body.body,
+      status: 'pending',
+    })
+    return c.json({ ok: true, status: 'pending' }, 202)
+  },
+)
 
 publicJournalRoutes.get('/:slug', async (c) => {
   if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)

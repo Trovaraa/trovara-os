@@ -104,8 +104,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <button
       v-if="!disabled && !open"
       type="button"
-      class="fixed right-0 top-[42%] z-50 inline-flex h-12 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-farm-gold/45 bg-[var(--os-shell)] text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-[var(--os-shell-muted)] focus:outline-none focus:ring-2 focus:ring-farm-gold sm:right-4 sm:top-auto sm:w-auto sm:translate-y-0 sm:gap-2 sm:rounded-full sm:border-r sm:px-4 md:right-6"
-      :class="role === 'field_worker' ? 'sm:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-6' : 'sm:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:bottom-6'"
+      class="fixed right-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-full border border-farm-gold/45 bg-[var(--os-shell)] text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-[var(--os-shell-muted)] focus:outline-none focus:ring-2 focus:ring-farm-gold sm:right-4 sm:w-auto sm:gap-2 sm:px-4 md:bottom-6 md:right-6"
+      :class="role === 'field_worker' ? 'bottom-[calc(5.25rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(0.75rem+env(safe-area-inset-bottom))] sm:bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
       :aria-label="copy.help"
       :title="copy.help"
       data-testid="page-help-trigger"

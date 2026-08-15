@@ -533,6 +533,7 @@ export const journalPosts = pgTable(
   },
   (t) => [
     uniqueIndex('journal_posts_farm_slug_uq').on(t.farmId, t.slug),
+    uniqueIndex('journal_posts_farm_id_uq').on(t.farmId, t.id),
     index('journal_posts_farm_created_idx').on(t.farmId, t.createdAt),
     index('journal_posts_public_idx')
       .on(t.farmId, t.publishedAt)
@@ -543,6 +544,74 @@ export const journalPosts = pgTable(
       sql`(${t.published} = false) or (${t.publishedAt} is not null)`,
     ),
     check('journal_posts_tags_array', sql`jsonb_typeof(${t.tags}) = 'array'`),
+  ],
+)
+
+/**
+ * Anonymous Journal reactions use a browser-generated, high-entropy token.
+ * Only its SHA-256 hash is stored so a database export cannot be used to track
+ * a reader outside Trovara. The composite foreign key prevents cross-farm
+ * engagement records even if a route regression supplies a mismatched farm.
+ */
+export const journalPostLikes = pgTable(
+  'journal_post_likes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    postId: uuid('post_id')
+      .references(() => journalPosts.id, { onDelete: 'cascade' })
+      .notNull(),
+    visitorHash: text('visitor_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('journal_post_likes_post_visitor_uq').on(t.postId, t.visitorHash),
+    index('journal_post_likes_farm_post_idx').on(t.farmId, t.postId),
+    foreignKey({
+      name: 'journal_post_likes_post_farm_fk',
+      columns: [t.farmId, t.postId],
+      foreignColumns: [journalPosts.farmId, journalPosts.id],
+    }).onDelete('cascade'),
+  ],
+)
+
+export const journalComments = pgTable(
+  'journal_comments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    postId: uuid('post_id')
+      .references(() => journalPosts.id, { onDelete: 'cascade' })
+      .notNull(),
+    visitorHash: text('visitor_hash').notNull(),
+    authorName: text('author_name').notNull(),
+    body: text('body').notNull(),
+    status: text('status').default('pending').notNull(),
+    moderatedById: uuid('moderated_by_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    moderatedAt: timestamp('moderated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('journal_comments_farm_post_status_idx').on(t.farmId, t.postId, t.status),
+    index('journal_comments_farm_created_idx').on(t.farmId, t.createdAt),
+    check(
+      'journal_comments_status_check',
+      sql`${t.status} in ('pending', 'approved', 'rejected')`,
+    ),
+    check('journal_comments_author_name_length', sql`char_length(${t.authorName}) between 1 and 80`),
+    check('journal_comments_body_length', sql`char_length(${t.body}) between 2 and 1200`),
+    foreignKey({
+      name: 'journal_comments_post_farm_fk',
+      columns: [t.farmId, t.postId],
+      foreignColumns: [journalPosts.farmId, journalPosts.id],
+    }).onDelete('cascade'),
   ],
 )
 
