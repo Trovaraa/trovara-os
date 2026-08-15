@@ -689,7 +689,7 @@ export const marketingLeads = pgTable(
     ),
     check(
       'marketing_leads_survey_followup_shape',
-      sql`${t.leadType} <> 'survey_followup' or ((${t.email} is not null or ${t.phone} is not null) and ${t.subjectKey} is not null and ${t.subjectLabel} is not null)`,
+      sql`${t.leadType}::text <> 'survey_followup' or ((${t.email} is not null or ${t.phone} is not null) and ${t.subjectKey} is not null and ${t.subjectLabel} is not null)`,
     ),
     check('marketing_leads_submission_count_positive', sql`${t.submissionCount} >= 1`),
   ],

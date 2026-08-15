@@ -2,7 +2,7 @@ DO $$ BEGIN
   ALTER TABLE marketing_leads
     ADD CONSTRAINT marketing_leads_survey_followup_shape
     CHECK (
-      lead_type <> 'survey_followup'
+      lead_type::text <> 'survey_followup'
       OR (
         (email IS NOT NULL OR phone IS NOT NULL)
         AND subject_key IS NOT NULL
