@@ -112,6 +112,7 @@ export const newsletterDeliveryStatusEnum = pgEnum('newsletter_delivery_status',
 export const marketingLeadTypeEnum = pgEnum('marketing_lead_type', [
   'contact',
   'product_waitlist',
+  'survey_followup',
 ])
 export const marketingLeadStatusEnum = pgEnum('marketing_lead_status', [
   'new',
@@ -261,6 +262,104 @@ export const farmRolePermissions = pgTable(
     permissionKey: text('permission_key').notNull(),
   },
   (t) => [uniqueIndex('farm_role_permissions_pk').on(t.roleId, t.permissionKey)],
+)
+
+export const permissionTeams = pgTable(
+  'permission_teams',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('permission_teams_farm_name_uq').on(t.farmId, t.name)],
+)
+
+export const permissionTeamPermissions = pgTable(
+  'permission_team_permissions',
+  {
+    teamId: uuid('team_id')
+      .references(() => permissionTeams.id, { onDelete: 'cascade' })
+      .notNull(),
+    permissionKey: text('permission_key').notNull(),
+  },
+  (t) => [uniqueIndex('permission_team_permissions_pk').on(t.teamId, t.permissionKey)],
+)
+
+export const permissionTeamMembers = pgTable(
+  'permission_team_members',
+  {
+    teamId: uuid('team_id')
+      .references(() => permissionTeams.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('permission_team_members_pk').on(t.teamId, t.userId),
+    index('permission_team_members_user_idx').on(t.userId),
+  ],
+)
+
+export const userPermissionOverrides = pgTable(
+  'user_permission_overrides',
+  {
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    permissionKey: text('permission_key').notNull(),
+    effect: text('effect').notNull(),
+    updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('user_permission_overrides_pk').on(t.userId, t.permissionKey),
+    index('user_permission_overrides_farm_idx').on(t.farmId),
+    check('user_permission_overrides_effect_check', sql`${t.effect} in ('allow', 'deny')`),
+  ],
+)
+
+export const operationGuidelines = pgTable(
+  'operation_guidelines',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    category: text('category').notNull(),
+    body: text('body').notNull(),
+    audience: text('audience').default('all').notNull(),
+    status: text('status').default('draft').notNull(),
+    version: integer('version').default(1).notNull(),
+    reviewDueAt: timestamp('review_due_at', { withTimezone: true }),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('operation_guidelines_farm_status_idx').on(t.farmId, t.status),
+    check(
+      'operation_guidelines_audience_check',
+      sql`${t.audience} in ('all', 'management', 'finance', 'operations', 'sales')`,
+    ),
+    check(
+      'operation_guidelines_status_check',
+      sql`${t.status} in ('draft', 'approved', 'archived')`,
+    ),
+  ],
 )
 
 export const portalVaultEntries = pgTable(
@@ -588,7 +687,46 @@ export const marketingLeads = pgTable(
       'marketing_leads_waitlist_shape',
       sql`${t.leadType} <> 'product_waitlist' or (${t.productKey} is not null and ${t.productLabel} is not null and (${t.email} is not null or ${t.phone} is not null))`,
     ),
+    check(
+      'marketing_leads_survey_followup_shape',
+      sql`${t.leadType} <> 'survey_followup' or ((${t.email} is not null or ${t.phone} is not null) and ${t.subjectKey} is not null and ${t.subjectLabel} is not null)`,
+    ),
     check('marketing_leads_submission_count_positive', sql`${t.submissionCount} >= 1`),
+  ],
+)
+
+export const customerSurveyResponses = pgTable(
+  'customer_survey_responses',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    surveyKey: text('survey_key').notNull(),
+    answers: jsonb('answers').$type<Record<string, unknown>>().notNull(),
+    followUp: text('follow_up').notNull(),
+    name: text('name'),
+    email: text('email'),
+    phone: text('phone'),
+    normalizedContact: text('normalized_contact'),
+    leadId: uuid('lead_id').references(() => marketingLeads.id, { onDelete: 'set null' }),
+    source: text('source').notNull(),
+    utmSource: text('utm_source'),
+    utmMedium: text('utm_medium'),
+    utmCampaign: text('utm_campaign'),
+    referrer: text('referrer'),
+    consentAt: timestamp('consent_at', { withTimezone: true }).notNull(),
+    consentVersion: text('consent_version').notNull(),
+    privacyNoticeUrl: text('privacy_notice_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('customer_survey_responses_farm_created_idx').on(t.farmId, t.createdAt),
+    index('customer_survey_responses_farm_follow_up_idx').on(t.farmId, t.followUp),
+    index('customer_survey_responses_farm_survey_idx').on(t.farmId, t.surveyKey),
+    check('customer_survey_responses_follow_up_check', sql`${t.followUp} in ('yes', 'maybe', 'no')`),
+    check(
+      'customer_survey_responses_follow_up_contact',
+      sql`${t.followUp} = 'no' or ${t.normalizedContact} is not null`,
+    ),
   ],
 )
 
@@ -886,6 +1024,12 @@ export const attendanceSessions = pgTable(
     taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     notes: text('notes'),
     workSummary: text('work_summary'),
+    workDate: date('work_date'),
+    submittedMinutes: integer('submitted_minutes'),
+    approvalStatus: text('approval_status').default('approved').notNull(),
+    approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
     sourceLocale: text('source_locale'),
     translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
     translationAttempts: integer('translation_attempts').default(0).notNull(),
@@ -899,6 +1043,17 @@ export const attendanceSessions = pgTable(
       .where(sql`${t.clockOutAt} is null`),
     index('attendance_sessions_farm_clock_in_idx').on(t.farmId, t.clockInAt),
     index('attendance_sessions_task_idx').on(t.taskId).where(sql`${t.taskId} is not null`),
+    uniqueIndex('attendance_sessions_user_work_date_uq')
+      .on(t.farmId, t.userId, t.workDate)
+      .where(sql`${t.workDate} is not null`),
+    check(
+      'attendance_sessions_approval_status_check',
+      sql`${t.approvalStatus} in ('pending', 'approved', 'rejected')`,
+    ),
+    check(
+      'attendance_sessions_submitted_minutes_check',
+      sql`${t.submittedMinutes} is null or (${t.submittedMinutes} >= 15 and ${t.submittedMinutes} <= 960)`,
+    ),
     check('attendance_sessions_wage_nonnegative', sql`${t.monthlyWageSnapshotNgn} >= 0`),
     check(
       'attendance_sessions_time_order',
@@ -1096,7 +1251,7 @@ export const cropCycles = pgTable(
     actualYieldKg: integer('actual_yield_kg'),
     /** Number of planted stands in this cycle; independent of a plot's baseline plant count. */
     standCount: integer('stand_count'),
-    /** Farm accounting code or name used to group the cycle's costs. */
+    /** Stable Finance cost-centre code (legacy free-text values remain readable). */
     costCentre: text('cost_centre'),
     /** Why the last lifecycle generation produced nothing. See livestockBatches. */
     agronomySkipReason: text('agronomy_skip_reason'),
@@ -1858,6 +2013,7 @@ export const expenses = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    costCentreCode: text('cost_centre_code'),
     category: expenseCategoryEnum('category').notNull(),
     description: text('description').notNull(),
     amount: integer('amount').notNull(),
@@ -1871,6 +2027,10 @@ export const expenses = pgTable(
     vendor: text('vendor'),
     receiptRef: text('receipt_ref'),
     source: text('source').default('manual').notNull(),
+    importBatchId: uuid('import_batch_id'),
+    importSourceFilename: text('import_source_filename'),
+    importRowNumber: integer('import_row_number'),
+    importFingerprint: text('import_fingerprint'),
     inboundMessageId: text('inbound_message_id'),
     /** Parsed From: address for inbound_email drafts (ack goes here on approve). */
     inboundSenderEmail: text('inbound_sender_email'),
@@ -1893,10 +2053,18 @@ export const expenses = pgTable(
   },
   (t) => [
     uniqueIndex('expenses_farm_id_uq').on(t.farmId, t.id),
+    index('expenses_farm_cost_centre_idx').on(t.farmId, t.costCentreCode),
+    uniqueIndex('expenses_farm_import_fingerprint_uq')
+      .on(t.farmId, t.importFingerprint)
+      .where(sql`${t.importFingerprint} is not null`),
     uniqueIndex('expenses_inbound_message_uq')
       .on(t.farmId, t.inboundMessageId)
       .where(sql`${t.inboundMessageId} is not null`),
-    check('expenses_source_check', sql`${t.source} in ('manual', 'inbound_email')`),
+    check('expenses_source_check', sql`${t.source} in ('manual', 'inbound_email', 'import')`),
+    check(
+      'expenses_cost_centre_check',
+      sql`${t.costCentreCode} is null or ${t.costCentreCode} in ('CC01', 'CC10', 'CC20', 'CC30', 'CC40', 'CC50', 'CC60', 'CC70', 'CC80')`,
+    ),
     check(
       'expenses_extraction_method_check',
       sql`${t.extractionMethod} is null or ${t.extractionMethod} in ('heuristic', 'pdf_text', 'llm_text', 'llm_vision', 'none')`,

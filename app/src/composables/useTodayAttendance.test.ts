@@ -41,7 +41,8 @@ describe('useTodayAttendance', () => {
     expect(attendance.canClockSelf.value).toBe(false)
   })
 
-  it('scopes open attendance to the current user for managers', async () => {
+  it('scopes today submission to the current user for managers', async () => {
+    const today = new Date().toISOString().slice(0, 10)
     api.mockResolvedValueOnce({
       sessions: [
         {
@@ -51,6 +52,7 @@ describe('useTodayAttendance', () => {
           clockInAt: '2026-08-10T07:00:00.000Z',
           clockOutAt: null,
           payableMinutes: 0,
+          workDate: today,
         },
         {
           id: 'manager-closed',
@@ -59,18 +61,19 @@ describe('useTodayAttendance', () => {
           clockInAt: '2026-08-10T08:00:00.000Z',
           clockOutAt: '2026-08-10T09:00:00.000Z',
           payableMinutes: 60,
+          workDate: today,
         },
       ],
     }).mockResolvedValueOnce({ plots: [] })
     const { useTodayAttendance } = await import('./useTodayAttendance')
     const attendance = useTodayAttendance(() => 'owner', () => 'manager-1')
     await attendance.loadAttendance()
-    expect(attendance.openAttendance.value).toBeNull()
+    expect(attendance.myTodaySubmission.value?.id).toBe('manager-closed')
   })
 
-  it('clockInNow posts then refreshes', async () => {
+  it('submits hours with a required work summary then refreshes', async () => {
     api
-      .mockResolvedValueOnce({}) // clock-in
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({
         sessions: [
           {
@@ -84,27 +87,27 @@ describe('useTodayAttendance', () => {
       })
     const { useTodayAttendance } = await import('./useTodayAttendance')
     const attendance = useTodayAttendance(() => 'field_worker')
-    attendance.attendanceNotes.value = 'Block 1'
-    await attendance.clockInNow()
+    attendance.hoursValue.value = '7.5'
+    attendance.workSummary.value = 'Weeded Block 1 and checked irrigation.'
+    await attendance.submitHoursNow()
     expect(api).toHaveBeenCalledWith(
-      '/api/attendance/clock-in',
+      '/api/attendance/submit-hours',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(attendance.attendance.value).toHaveLength(1)
+    expect(attendance.workSummary.value).toBe('')
   })
 
-  it('sends the optional daily summary when clocking out', async () => {
+  it('reviews a submitted entry', async () => {
     api.mockResolvedValueOnce({}).mockResolvedValueOnce({ sessions: [] })
     const { useTodayAttendance } = await import('./useTodayAttendance')
-    const attendance = useTodayAttendance(() => 'field_worker')
-    attendance.workSummary.value = 'Weeded rows 3–6 and checked irrigation.'
+    const attendance = useTodayAttendance(() => 'owner')
+    const session = { id: 'entry-1' } as never
+    await attendance.reviewHoursNow(session, 'approved')
 
-    await attendance.clockOutNow()
-
-    expect(api).toHaveBeenNthCalledWith(1, '/api/attendance/clock-out', {
+    expect(api).toHaveBeenNthCalledWith(1, '/api/attendance/entry-1/review', {
       method: 'POST',
-      body: JSON.stringify({ workSummary: 'Weeded rows 3–6 and checked irrigation.' }),
+      body: JSON.stringify({ decision: 'approved', rejectionReason: null }),
     })
-    expect(attendance.workSummary.value).toBe('')
   })
 })

@@ -53,8 +53,9 @@ export async function computePlotProfitability(farmId: string): Promise<PlotProf
       .from(attendanceSessions)
       .where(
         and(
-          eq(attendanceSessions.farmId, farmId),
-          isNotNull(attendanceSessions.clockOutAt),
+      eq(attendanceSessions.farmId, farmId),
+      isNotNull(attendanceSessions.clockOutAt),
+      eq(attendanceSessions.approvalStatus, 'approved'),
         ),
       ),
     db.select().from(harvestLots).where(eq(harvestLots.farmId, farmId)),

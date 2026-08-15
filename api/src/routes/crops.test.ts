@@ -207,7 +207,7 @@ function cycleRow(overrides: Row = {}): Row {
     expectedYieldKg: 1200,
     actualYieldKg: null,
     standCount: 480,
-    costCentre: 'PLANTAIN-2026',
+    costCentre: 'CC10',
     agronomySkipReason: null,
     notes: ENGLISH_NOTES,
     createdAt: new Date('2026-02-01T08:00:00Z'),
@@ -360,16 +360,16 @@ describe('crop routes', () => {
   it('stores the planted stand count and cost centre on the cycle and farm event', async () => {
     const res = await createCropCycle('plantain', {
       standCount: 480,
-      costCentre: 'PLANTAIN-2026',
+      costCentre: 'CC10',
     })
 
     expect(res.status).toBe(201)
-    expect(insertedCycle()).toMatchObject({ standCount: 480, costCentre: 'PLANTAIN-2026' })
+    expect(insertedCycle()).toMatchObject({ standCount: 480, costCentre: 'CC10' })
     expect(recordFarmEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         afterValue: expect.objectContaining({
           standCount: 480,
-          costCentre: 'PLANTAIN-2026',
+          costCentre: 'CC10',
         }),
       }),
     )
@@ -566,7 +566,7 @@ describe('GET /crops - viewer locale on read', () => {
       plotName: 'Block A',
       expectedYieldKg: 1200,
       standCount: 480,
-      costCentre: 'PLANTAIN-2026',
+      costCentre: 'CC10',
     })
     expect(viewerBatchCalls).toHaveBeenCalledWith(
       expect.objectContaining({ texts: [ENGLISH_NOTES] }),

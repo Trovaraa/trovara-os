@@ -34,6 +34,18 @@ import { filterAndGroupExpensesByLabel } from '../lib/expense-label-report.js'
 import { extractInvoiceFields } from '../lib/invoice-extract.js'
 import { convertToNgn, FxAmountOverflowError } from '../lib/currency-fx.js'
 import { maybeSendInboundApprovalAck } from '../lib/finance-inbound-ack.js'
+import {
+  COST_CENTRES,
+  COST_CENTRE_CODES,
+  isCostCentreCode,
+} from '../lib/cost-centres.js'
+import {
+  createFinanceImportToken,
+  financeImportFingerprint,
+  IMPORT_CATEGORIES,
+  previewFinanceImport,
+  verifyFinanceImportToken,
+} from '../lib/finance-import.js'
 
 const EXPENSE_CATEGORIES = [
   'inputs',
@@ -47,6 +59,7 @@ const EXPENSE_CATEGORIES = [
 ] as const
 
 const createExpenseSchema = z.object({
+  costCentreCode: z.enum(COST_CENTRE_CODES),
   category: z.enum(EXPENSE_CATEGORIES),
   description: z.string().min(1).max(500),
   amount: z.number().int().min(0),
@@ -59,6 +72,24 @@ const createExpenseSchema = z.object({
 })
 
 const updateExpenseSchema = createExpenseSchema.partial()
+
+const financeImportRowSchema = z.object({
+  rowNumber: z.number().int().positive(),
+  included: z.boolean(),
+  expenseDate: z.string().datetime(),
+  description: z.string().trim().min(1).max(500),
+  category: z.enum(IMPORT_CATEGORIES),
+  amount: z.number().int().min(0),
+  currency: z.string().trim().min(1).max(10),
+  vendor: z.string().trim().max(200),
+  receiptRef: z.string().trim().max(200),
+  costCentreCode: z.enum(COST_CENTRE_CODES),
+})
+
+const financeImportCommitSchema = z.object({
+  token: z.string().min(20).max(4000),
+  rows: z.array(financeImportRowSchema).min(1).max(500),
+})
 
 const EXPENSE_TEXT_FIELDS = ['description'] as const
 
@@ -258,6 +289,97 @@ financeRoutes.get('/labels', async (c) => {
   return c.json({ labels })
 })
 
+financeRoutes.get('/cost-centres', async (c) => {
+  // The catalogue itself is operational metadata, not financial data. Crop
+  // managers also use these stable codes when opening a crop cycle.
+  return c.json({ costCentres: COST_CENTRES })
+})
+
+financeRoutes.post('/imports/preview', async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user || !hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
+  try {
+    const form = await c.req.formData()
+    const upload = form.get('file')
+    if (!(upload instanceof File)) return c.json({ error: 'Choose an Excel, CSV, or PDF file' }, 400)
+    if (upload.size === 0 || upload.size > 10 * 1024 * 1024) return c.json({ error: 'File must be between 1 byte and 10 MB' }, 400)
+    const buffer = Buffer.from(await upload.arrayBuffer())
+    const preview = await previewFinanceImport(upload.name, buffer)
+    const token = createFinanceImportToken({
+      farmId: user.farmId,
+      userId: user.id,
+      filename: upload.name.slice(0, 255),
+      fileHash: preview.fileHash,
+    })
+    return c.json({ token, filename: upload.name, rows: preview.rows })
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'IMPORT_PREVIEW_FAILED'
+    const messages: Record<string, string> = {
+      UNSUPPORTED_IMPORT_FILE: 'Only .xlsx, .csv, and .pdf files are supported',
+      IMPORT_HEADERS_NOT_FOUND: 'Could not find a header row. Include Date, Description, and Amount columns.',
+      IMPORT_REQUIRED_HEADERS_MISSING: 'The file needs Date, Description, and Amount columns.',
+      IMPORT_HAS_NO_DATA_ROWS: 'No transaction rows were found in this file.',
+      IMPORT_HAS_NO_WORKSHEET: 'The workbook has no worksheet.',
+      PDF_TRANSACTIONS_NOT_DETECTED: 'No clear transaction rows were found in the PDF. Use Excel or CSV for best results.',
+      FINANCE_IMPORT_SECRET_NOT_CONFIGURED: 'Finance imports are not configured on this server.',
+    }
+    return c.json({ error: messages[code] ?? 'The file could not be read' }, code === 'FINANCE_IMPORT_SECRET_NOT_CONFIGURED' ? 503 : 400)
+  }
+})
+
+financeRoutes.post('/imports/commit', zValidator('json', financeImportCommitSchema), async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user || !hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
+  try {
+    const { token, rows } = c.req.valid('json')
+    const payload = verifyFinanceImportToken(token, user.farmId, user.id)
+    const selected = rows.filter((row) => row.included)
+    if (!selected.length) return c.json({ error: 'Select at least one row to import' }, 400)
+    const batchId = randomUUID()
+    const authorLocale = await authorLocaleForUserId(user.id)
+    const values = []
+    for (const row of selected) {
+      const canonical = await canonicalDescription(row.description, user.farmId, authorLocale)
+      values.push({
+        farmId: user.farmId,
+        costCentreCode: row.costCentreCode,
+        category: row.category,
+        description: canonical.english ?? row.description,
+        amount: row.amount,
+        currency: row.currency,
+        vendor: row.vendor || null,
+        receiptRef: row.receiptRef || null,
+        source: 'import',
+        importBatchId: batchId,
+        importSourceFilename: payload.filename,
+        importRowNumber: row.rowNumber,
+        importFingerprint: financeImportFingerprint(payload.fileHash, row),
+        sourceLocale: canonical.sourceLocale,
+        translationStatus: canonical.translationStatus,
+        approvalStatus: 'approved',
+        recordedById: user.id,
+        expenseDate: new Date(row.expenseDate),
+      })
+    }
+    const inserted = await db.insert(expenses).values(values).onConflictDoNothing().returning({ id: expenses.id })
+    const duplicates = values.length - inserted.length
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'finance_import_commit',
+      entityType: 'expense_import',
+      entityId: batchId,
+      metadata: { filename: payload.filename, selected: values.length, imported: inserted.length, duplicates },
+    })
+    return c.json({ batchId, imported: inserted.length, duplicates })
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'IMPORT_COMMIT_FAILED'
+    if (code === 'INVALID_IMPORT_TOKEN') return c.json({ error: 'This preview expired. Upload the file again.' }, 400)
+    if (code === 'FINANCE_IMPORT_SECRET_NOT_CONFIGURED') return c.json({ error: 'Finance imports are not configured on this server.' }, 503)
+    throw error
+  }
+})
+
 financeRoutes.post(
   '/labels',
   zValidator(
@@ -302,6 +424,14 @@ financeRoutes.get('/', async (c) => {
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
   const labelFilter = c.req.query('labelId')
+  const costCentreFilter = c.req.query('costCentreCode')
+  if (
+    costCentreFilter &&
+    costCentreFilter !== 'unassigned' &&
+    !isCostCentreCode(costCentreFilter)
+  ) {
+    return c.json({ error: 'Invalid cost centre' }, 400)
+  }
   let expenseIdsFilter: string[] | null = null
   if (labelFilter) {
     const links = await db
@@ -313,7 +443,7 @@ financeRoutes.get('/', async (c) => {
     if (expenseIdsFilter.length === 0) return c.json({ expenses: [] })
   }
 
-  const rows = await db
+  const allRows = await db
     .select()
     .from(expenses)
     .where(
@@ -322,6 +452,14 @@ financeRoutes.get('/', async (c) => {
         : eq(expenses.farmId, user.farmId),
     )
     .orderBy(desc(expenses.expenseDate))
+
+  const rows = costCentreFilter
+    ? allRows.filter((expense) =>
+        costCentreFilter === 'unassigned'
+          ? expense.costCentreCode == null
+          : expense.costCentreCode === costCentreFilter,
+      )
+    : allRows
 
   const viewerLocale = await preferredLocaleForUser(user.id)
   const localized = await localizeRows(rows, EXPENSE_TEXT_FIELDS, user.farmId, viewerLocale)
@@ -341,6 +479,14 @@ financeRoutes.get('/summary', async (c) => {
   if (!user) return c.json({ error: 'Forbidden' }, 403)
 
   const labelFilter = c.req.query('labelId')
+  const costCentreFilter = c.req.query('costCentreCode')
+  if (
+    costCentreFilter &&
+    costCentreFilter !== 'unassigned' &&
+    !isCostCentreCode(costCentreFilter)
+  ) {
+    return c.json({ error: 'Invalid cost centre' }, 400)
+  }
 
   const [orderRows, expenseRows, paidAttempts, unpaidOrders, refundRows, invoiceCountRow, labelAgg] =
     await Promise.all([
@@ -393,11 +539,18 @@ financeRoutes.get('/summary', async (c) => {
         .where(and(eq(expenses.farmId, user.farmId), eq(expenseLabels.farmId, user.farmId))),
     ])
 
-  const statusScopedExpenses = filterAndGroupExpensesByLabel(
+  const labelScopedExpenses = filterAndGroupExpensesByLabel(
     expenseRows,
     labelAgg,
     labelFilter,
   ).expenses
+  const statusScopedExpenses = costCentreFilter
+    ? labelScopedExpenses.filter((expense) =>
+        costCentreFilter === 'unassigned'
+          ? expense.costCentreCode == null
+          : expense.costCentreCode === costCentreFilter,
+      )
+    : labelScopedExpenses
   const reportableExpenses = statusScopedExpenses.filter(
     (expense) => expense.approvalStatus === 'approved' && expense.currency === 'NGN',
   )
@@ -415,6 +568,28 @@ financeRoutes.get('/summary', async (c) => {
     acc[e.category] = (acc[e.category] ?? 0) + e.amount
     return acc
   }, {})
+
+  const expensesByCostCentre = Object.fromEntries(
+    COST_CENTRES.map((costCentre) => [
+      costCentre.code,
+      {
+        total: 0,
+        expenseCount: 0,
+      },
+    ]),
+  ) as Record<string, { total: number; expenseCount: number }>
+  let unassignedCostCentreTotal = 0
+  let unassignedCostCentreCount = 0
+  for (const expense of filteredExpenses) {
+    const code = expense.costCentreCode
+    if (code && expensesByCostCentre[code]) {
+      expensesByCostCentre[code].total += expense.amount
+      expensesByCostCentre[code].expenseCount += 1
+    } else {
+      unassignedCostCentreTotal += expense.amount
+      unassignedCostCentreCount += 1
+    }
+  }
 
   const deliveredRevenue = ngnOrders
     .filter((o) => o.status === 'delivered')
@@ -460,6 +635,9 @@ financeRoutes.get('/summary', async (c) => {
       orderCount: ngnOrders.length,
       expenseCount: filteredExpenses.length,
       expensesByCategory,
+      expensesByCostCentre,
+      unassignedCostCentreTotal,
+      unassignedCostCentreCount,
       expensesByLabel,
     },
   })
@@ -685,6 +863,7 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
         .insert(expenses)
         .values({
           farmId: user.farmId,
+          costCentreCode: body.costCentreCode,
           category: body.category,
           description: canonical.english ?? body.description,
           sourceLocale: canonical.sourceLocale,
@@ -715,7 +894,11 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
     action: 'create',
     entityType: 'expense',
     entityId: expense.id,
-    metadata: { category: expense.category, amount: expense.amount },
+    metadata: {
+      category: expense.category,
+      costCentreCode: expense.costCentreCode,
+      amount: expense.amount,
+    },
   })
 
   const labelMap = await labelsForExpenses([expense.id])
@@ -753,11 +936,18 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
   ) {
     return c.json({ error: 'Convert this expense to NGN before approving it' }, 409)
   }
+  if (
+    body.approvalStatus === 'approved' &&
+    !(body.costCentreCode ?? existing.costCentreCode)
+  ) {
+    return c.json({ error: 'Assign a cost centre before approving this expense' }, 409)
+  }
 
   const viewerLocale = await preferredLocaleForUser(user.id)
   const authorLocale = authorLocaleHint(viewerLocale)
 
   const updates: Partial<typeof existing> = {}
+  if (body.costCentreCode !== undefined) updates.costCentreCode = body.costCentreCode
   if (body.category !== undefined) updates.category = body.category
   if (body.amount !== undefined) updates.amount = body.amount
   if (body.currency !== undefined) {

@@ -35,6 +35,8 @@ type PlotOption = {
   active?: boolean
 }
 
+type CostCentre = { code: string; name: string; covers: string }
+
 type LifecycleStage = {
   id: string
   stage: string
@@ -81,6 +83,7 @@ const STAGE_ORDER = [
 
 const crops = ref<CropCycle[]>([])
 const plots = ref<PlotOption[]>([])
+const costCentres = ref<CostCentre[]>([])
 const loading = ref(true)
 const updating = ref<string | null>(null)
 
@@ -102,11 +105,12 @@ const creating = ref(false)
 const createError = ref<string | null>(null)
 
 const activePlots = computed(() => plots.value.filter((p) => p.active !== false))
-const costCentreSuggestions = computed(() =>
-  [...new Set(crops.value.map((cycle) => cycle.costCentre?.trim()).filter(Boolean) as string[])].sort(
-    (a, b) => a.localeCompare(b),
-  ),
-)
+function costCentreLabel(code: string) {
+  const key = `finance.costCentreNames.${code}`
+  const translated = t(key)
+  const fallback = costCentres.value.find((costCentre) => costCentre.code === code)?.name ?? code
+  return `${code} · ${translated === key ? fallback : translated}`
+}
 
 watch(newPlotId, (plotId) => {
   const plot = plots.value.find((item) => item.id === plotId)
@@ -116,12 +120,14 @@ watch(newPlotId, (plotId) => {
 async function load() {
   loading.value = true
   try {
-    const [cropData, plotData] = await Promise.all([
+    const [cropData, plotData, costCentreData] = await Promise.all([
       api<{ cropCycles: CropCycle[] }>('/api/crops'),
       api<{ plots: PlotOption[] }>('/api/zones/plots'),
+      api<{ costCentres: CostCentre[] }>('/api/finance/cost-centres'),
     ])
     crops.value = cropData.cropCycles
     plots.value = plotData.plots
+    costCentres.value = costCentreData.costCentres
     if (!newPlotId.value && activePlots.value[0]) {
       newPlotId.value = activePlots.value[0].id
     }
@@ -339,17 +345,15 @@ const stageColor: Record<string, string> = {
         </div>
         <div>
           <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.costCentre') }}</label>
-          <input
+          <select
             v-model="newCostCentre"
-            type="text"
-            maxlength="100"
-            list="crop-cost-centres"
-            :placeholder="t('crops.costCentrePlaceholder')"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
-          />
-          <datalist id="crop-cost-centres">
-            <option v-for="costCentre in costCentreSuggestions" :key="costCentre" :value="costCentre" />
-          </datalist>
+          >
+            <option value="">{{ t('crops.costCentrePlaceholder') }}</option>
+            <option v-for="costCentre in costCentres" :key="costCentre.code" :value="costCentre.code">
+              {{ costCentreLabel(costCentre.code) }}
+            </option>
+          </select>
           <p class="mt-1 text-[11px] text-slate-500">{{ t('crops.costCentreHelp') }}</p>
         </div>
         <div class="sm:col-span-2 lg:col-span-1">
@@ -411,7 +415,7 @@ const stageColor: Record<string, string> = {
               </span>
               <span v-if="cycle.standCount && cycle.costCentre"> · </span>
               <span v-if="cycle.costCentre">
-                {{ t('crops.costCentre') }}: {{ cycle.costCentre }}
+                {{ t('crops.costCentre') }}: {{ costCentreLabel(cycle.costCentre) }}
               </span>
             </p>
           </div>

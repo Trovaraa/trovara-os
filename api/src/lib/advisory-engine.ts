@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, ne, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   advisoryRecommendations,
@@ -532,6 +532,7 @@ export async function runAdvisoryEngine(farmId: string): Promise<{ created: numb
 }
 
 export async function listOpenRecommendations(farmId: string, limit = 20) {
+  const weatherCutoff = new Date(Date.now() - 36 * 60 * 60 * 1000)
   return db
     .select()
     .from(advisoryRecommendations)
@@ -539,6 +540,10 @@ export async function listOpenRecommendations(farmId: string, limit = 20) {
       and(
         eq(advisoryRecommendations.farmId, farmId),
         inArray(advisoryRecommendations.status, ['pending', 'notified', 'accepted']),
+        or(
+          ne(advisoryRecommendations.sourceType, 'weather'),
+          gte(advisoryRecommendations.firedAt, weatherCutoff),
+        ),
       ),
     )
     .orderBy(desc(advisoryRecommendations.firedAt))
@@ -701,13 +706,21 @@ export async function listAdvisorySubjects(farmId: string): Promise<AdvisorySubj
 }
 
 export async function recommendationStats(farmId: string) {
+  const weatherCutoff = new Date(Date.now() - 36 * 60 * 60 * 1000)
   const rows = await db
     .select({
       status: advisoryRecommendations.status,
       count: sql<number>`count(*)::int`.mapWith(Number),
     })
     .from(advisoryRecommendations)
-    .where(eq(advisoryRecommendations.farmId, farmId))
+    .where(and(
+      eq(advisoryRecommendations.farmId, farmId),
+      or(
+        inArray(advisoryRecommendations.status, ['completed', 'ignored']),
+        ne(advisoryRecommendations.sourceType, 'weather'),
+        gte(advisoryRecommendations.firedAt, weatherCutoff),
+      ),
+    ))
     .groupBy(advisoryRecommendations.status)
 
   const byStatus: Record<string, number> = {}

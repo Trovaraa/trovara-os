@@ -78,7 +78,7 @@ function formatSubjectTitle(s: Subject) {
             </li>
           </ul>
           <div v-if="tipBucket === 'open'" class="mt-3 flex flex-wrap gap-2">
-            <button type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="emit('set-status', rec.id, 'accepted')">
+            <button v-if="rec.status !== 'accepted'" type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="emit('set-status', rec.id, 'accepted')">
               {{ t('advisory.accept') }}
             </button>
             <button type="button" class="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold text-white" @click="emit('set-status', rec.id, 'completed')">
@@ -124,7 +124,7 @@ function formatSubjectTitle(s: Subject) {
     </template>
 
     <template v-else>
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
         <button
           type="button"
           class="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:bg-slate-800/60 min-h-[44px] transition-colors"
@@ -146,6 +146,7 @@ function formatSubjectTitle(s: Subject) {
           <p class="text-slate-500 text-xs mt-2">{{ t('advisory.tapToView') }}</p>
         </button>
       </div>
+      <div class="grid gap-6 lg:grid-cols-2">
       <div>
         <h3 class="text-white font-bold mb-2">{{ t('advisory.insights') }}</h3>
         <ul class="divide-y divide-slate-800 rounded-2xl border border-slate-800 bg-slate-900">
@@ -185,6 +186,7 @@ function formatSubjectTitle(s: Subject) {
             </button>
           </li>
         </ul>
+      </div>
       </div>
     </template>
   </section>

@@ -19,6 +19,9 @@ type HoursSession = {
   taskTitle: string | null
   notes: string | null
   workSummary: string | null
+  workDate: string | null
+  approvalStatus: string
+  rejectionReason: string | null
 }
 
 type HoursPerson = {
@@ -49,6 +52,12 @@ function formatDuration(minutes: number) {
 function formatWhen(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString()
+}
+
+function statusClasses(status: string) {
+  if (status === 'approved') return 'text-emerald-300 bg-emerald-500/10'
+  if (status === 'rejected') return 'text-red-300 bg-red-500/10'
+  return 'text-amber-300 bg-amber-500/10'
 }
 
 async function load() {
@@ -148,11 +157,12 @@ watch(range, load)
             >
               <div class="flex flex-wrap justify-between gap-2">
                 <p class="text-slate-300">
-                  {{ formatWhen(session.clockInAt) }}
-                  →
-                  {{ formatWhen(session.clockOutAt) }}
+                  {{ session.workDate ? new Date(`${session.workDate}T12:00:00`).toLocaleDateString() : formatWhen(session.clockInAt) }}
                 </p>
-                <p class="text-farm-gold font-semibold">{{ formatDuration(session.payableMinutes) }}</p>
+                <div class="flex items-center gap-2">
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-bold capitalize" :class="statusClasses(session.approvalStatus)">{{ session.approvalStatus }}</span>
+                  <p class="text-farm-gold font-semibold">{{ formatDuration(session.payableMinutes) }}</p>
+                </div>
               </div>
               <p v-if="session.plotName || session.taskTitle" class="text-xs text-slate-500 mt-1">
                 <span v-if="session.plotName">{{ session.plotName }}</span>
@@ -163,6 +173,7 @@ watch(range, load)
               <p v-if="session.workSummary" class="text-xs text-slate-400 mt-1">
                 {{ session.workSummary }}
               </p>
+              <p v-if="session.rejectionReason" class="text-xs text-red-300 mt-1">Returned: {{ session.rejectionReason }}</p>
             </div>
           </div>
         </div>

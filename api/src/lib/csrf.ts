@@ -47,6 +47,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   // with per-IP limits, strict validation, and honeypots.
   '/public/leads/contact',
   '/public/leads/waitlist',
+  '/public/surveys',
   // Public Moments gallery upload (protected by rate-limit + honeypot)
   '/public/moments',
   '/health',

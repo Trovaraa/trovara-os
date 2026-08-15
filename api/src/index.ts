@@ -26,6 +26,8 @@ import { startCustomerTelegramPolling } from './lib/customer-telegram-inbound.js
 import { resumeBrandAssetProcessing } from './lib/brand-processing.js'
 import { userRoutes } from './routes/users.js'
 import { roleRoutes } from './routes/roles.js'
+import { permissionTeamRoutes } from './routes/permission-teams.js'
+import { operationGuidelineRoutes } from './routes/operation-guidelines.js'
 import { vaultRoutes } from './routes/vault.js'
 import { eventRoutes } from './routes/events.js'
 import { publicRoutes } from './routes/public.js'
@@ -57,6 +59,10 @@ import {
   marketingLeadRoutes,
   publicMarketingLeadRoutes,
 } from './routes/marketing-leads.js'
+import {
+  customerSurveyRoutes,
+  publicCustomerSurveyRoutes,
+} from './routes/customer-surveys.js'
 import { momentsRoutes, publicMomentsRoutes } from './routes/moments.js'
 import { shopCustomerRoutes } from './routes/shop-customers.js'
 import { newsletterConfigMissing } from './lib/newsletter-resend.js'
@@ -100,6 +106,7 @@ app.route('/api/journal', journalRoutes)
 app.route('/api/brand', brandRoutes)
 app.route('/api/newsletter', newsletterRoutes)
 app.route('/api/marketing-leads', marketingLeadRoutes)
+app.route('/api/customer-surveys', customerSurveyRoutes)
 app.route('/api/moments', momentsRoutes)
 app.route('/api/careers', careersRoutes)
 app.route('/api/shop-customers', shopCustomerRoutes)
@@ -122,6 +129,7 @@ app.route('/public/journal', publicJournalRoutes)
 app.route('/public/brand', publicBrandRoutes)
 app.route('/public/newsletter', publicNewsletterRoutes)
 app.route('/public/leads', publicMarketingLeadRoutes)
+app.route('/public/surveys', publicCustomerSurveyRoutes)
 app.route('/public/moments', publicMomentsRoutes)
 app.route('/public/careers', publicCareersRoutes)
 app.route('/shop', customerShopRoutes)
@@ -129,6 +137,8 @@ app.route('/api/templates', templateRoutes)
 app.route('/api/zones', zoneRoutes)
 app.route('/api/users', userRoutes)
 app.route('/api/roles', roleRoutes)
+app.route('/api/permission-teams', permissionTeamRoutes)
+app.route('/api/operation-guidelines', operationGuidelineRoutes)
 app.route('/api/vault', vaultRoutes)
 app.route('/api/events', eventRoutes)
 app.route('/api/onboarding', onboardingRoutes)

@@ -30,6 +30,7 @@
     "pdfkit": "^0.19.1",
     "postgres": "^3.4.7",
     "qrcode": "^1.5.4",
+    "read-excel-file": "^9.3.10",
     "resend": "^6.19.0",
     "unpdf": "^1.8.0",
     "zod": "^3.24.4"

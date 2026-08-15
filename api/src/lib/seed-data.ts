@@ -627,7 +627,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         expectedHarvestAt: new Date(now + 365 * 86400000),
         expectedYieldKg: 2400,
         standCount: 480,
-        costCentre: 'COCONUT-2026',
+        costCentre: 'CC20',
         notes: 'Year-one coconut seedlings - Block A',
       },
       {
@@ -640,7 +640,7 @@ async function insertDemoContentForFarm(farmId: string): Promise<void> {
         expectedHarvestAt: new Date(now + 60 * 86400000),
         expectedYieldKg: 1800,
         standCount: 320,
-        costCentre: 'PLANTAIN-2026',
+        costCentre: 'CC10',
         notes: 'Second ratoon - Block B',
       },
     ])

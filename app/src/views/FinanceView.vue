@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
+import FinanceImportPanel from '@/components/finance/FinanceImportPanel.vue'
 import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -10,9 +11,11 @@ const { t, locale } = useI18n()
 const auth = useAuthStore()
 
 type ExpenseLabel = { id: string; name: string; slug: string }
+type CostCentre = { code: string; name: string; covers: string }
 
 type Expense = {
   id: string
+  costCentreCode?: string | null
   category: string
   description: string
   amount: number
@@ -53,6 +56,9 @@ type Summary = {
   rejectedExpenseCount?: number
   unconvertedForeignCount?: number
   expensesByCategory: Record<string, number>
+  expensesByCostCentre?: Record<string, { total: number; expenseCount: number }>
+  unassignedCostCentreTotal?: number
+  unassignedCostCentreCount?: number
   expensesByLabel?: Record<string, { name: string; slug: string; total: number }>
 }
 
@@ -69,13 +75,16 @@ const CATEGORIES = [
 
 const expenses = ref<Expense[]>([])
 const labels = ref<ExpenseLabel[]>([])
+const costCentres = ref<CostCentre[]>([])
 const summary = ref<Summary | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const labelFilter = ref('')
+const costCentreFilter = ref('')
 const editingId = ref<string | null>(null)
 const showForm = ref(false)
+const showImport = ref(false)
 const retryingExtractionIds = ref<Set<string>>(new Set())
 const updatingIds = ref<Set<string>>(new Set())
 const newLabelName = ref('')
@@ -90,6 +99,7 @@ const visibleExpenses = computed(() =>
 )
 
 const form = ref({
+  costCentreCode: '',
   category: 'other' as (typeof CATEGORIES)[number],
   description: '',
   amount: '',
@@ -111,6 +121,23 @@ const editingExpense = computed(() =>
 const hasExpenseActions = computed(
   () => canWrite.value || canDelete.value || canRetryExtraction.value,
 )
+const selectedCostCentre = computed(
+  () => costCentres.value.find((costCentre) => costCentre.code === form.value.costCentreCode) ?? null,
+)
+
+function costCentreName(code?: string | null) {
+  if (!code) return t('finance.unassignedCostCentre')
+  const key = `finance.costCentreNames.${code}`
+  const translated = t(key)
+  if (translated !== key) return translated
+  return costCentres.value.find((costCentre) => costCentre.code === code)?.name ?? code
+}
+
+function costCentreCovers(costCentre: CostCentre) {
+  const key = `finance.costCentreCovers.${costCentre.code}`
+  const translated = t(key)
+  return translated !== key ? translated : costCentre.covers
+}
 
 function formatAmount(amount: number, currency = 'NGN') {
   return new Intl.NumberFormat(locale?.value ?? 'en', { style: 'currency', currency }).format(amount)
@@ -217,6 +244,7 @@ async function deleteExpense(expense: Expense) {
 function resetForm() {
   editingId.value = null
   form.value = {
+    costCentreCode: '',
     category: 'other',
     description: '',
     amount: '',
@@ -239,6 +267,7 @@ function startEdit(expense: Expense) {
   editingId.value = expense.id
   showForm.value = true
   form.value = {
+    costCentreCode: expense.costCentreCode ?? '',
     category: (CATEGORIES.includes(expense.category as (typeof CATEGORIES)[number])
       ? expense.category
       : 'other') as (typeof CATEGORIES)[number],
@@ -257,17 +286,22 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const query = labelFilter.value ? `?labelId=${encodeURIComponent(labelFilter.value)}` : ''
-    const [expenseData, summaryData, labelData] = await Promise.all([
+    const search = new URLSearchParams()
+    if (labelFilter.value) search.set('labelId', labelFilter.value)
+    if (costCentreFilter.value) search.set('costCentreCode', costCentreFilter.value)
+    const query = search.size ? `?${search.toString()}` : ''
+    const [expenseData, summaryData, labelData, costCentreData] = await Promise.all([
       api<{ expenses: Expense[] }>(`/api/finance${query}`),
       api<{ summary: Summary }>(`/api/finance/summary${query}`),
       api<{ labels: ExpenseLabel[] }>('/api/finance/labels'),
+      api<{ costCentres: CostCentre[] }>('/api/finance/cost-centres'),
     ])
     if (requestId !== loadRequestId) return
     expenses.value = expenseData.expenses
     page.value = 1
     summary.value = summaryData.summary
     labels.value = labelData.labels
+    costCentres.value = costCentreData.costCentres
   } catch (e) {
     if (requestId !== loadRequestId) return
     error.value = e instanceof Error ? e.message : t('finance.loadFailed')
@@ -283,7 +317,9 @@ async function saveExpense() {
   try {
     const amount = Math.round(Number(form.value.amount))
     if (!Number.isFinite(amount) || amount < 0) throw new Error(t('finance.invalidAmount'))
+    if (!form.value.costCentreCode) throw new Error(t('finance.costCentreRequired'))
     const payload = {
+      costCentreCode: form.value.costCentreCode,
       category: form.value.category,
       description: form.value.description.trim(),
       amount,
@@ -359,6 +395,14 @@ onMounted(load)
         <button
           v-if="canWrite"
           type="button"
+          class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-bold text-slate-200"
+          @click="activeSection = 'expenses'; showImport = !showImport"
+        >
+          {{ t('financeImport.open') }}
+        </button>
+        <button
+          v-if="canWrite"
+          type="button"
           class="rounded-xl bg-farm-green px-4 py-2 text-sm font-bold text-white"
           @click="startCreate"
         >
@@ -403,6 +447,13 @@ onMounted(load)
     <div v-else-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('finance.loading') }}</div>
 
     <template v-else-if="!error">
+      <FinanceImportPanel
+        v-if="activeSection === 'expenses' && showImport && canWrite"
+        class="mt-6"
+        :cost-centres="costCentres"
+        :categories="CATEGORIES"
+        @imported="load"
+      />
       <div
         v-if="activeSection === 'expenses' && showForm && canWrite"
         class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4"
@@ -411,6 +462,26 @@ onMounted(load)
           {{ editingId ? t('finance.editExpense') : t('finance.addExpense') }}
         </h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
+            <span>{{ t('finance.costCentre') }}</span>
+            <select
+              v-model="form.costCentreCode"
+              required
+              class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
+            >
+              <option value="" disabled>{{ t('finance.selectCostCentre') }}</option>
+              <option
+                v-for="costCentre in costCentres"
+                :key="costCentre.code"
+                :value="costCentre.code"
+              >
+                {{ costCentre.code }} · {{ costCentreName(costCentre.code) }}
+              </option>
+            </select>
+            <span v-if="selectedCostCentre" class="block text-xs text-slate-500">
+              {{ costCentreCovers(selectedCostCentre) }}
+            </span>
+          </label>
           <label class="text-sm text-slate-400 space-y-1">
             <span>{{ t('finance.category') }}</span>
             <select v-model="form.category" class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100">
@@ -544,7 +615,7 @@ onMounted(load)
           <button
             type="button"
             class="rounded-xl bg-farm-green px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-            :disabled="saving || !form.description.trim()"
+            :disabled="saving || !form.description.trim() || !form.costCentreCode"
             @click="saveExpense"
           >
             {{ t('finance.save') }}
@@ -600,7 +671,57 @@ onMounted(load)
       <CollapsibleSection
         v-if="summary"
         class="mt-4"
-        :title="`${t('finance.paidRevenue')} · ${t('finance.refunds')}`"
+        :title="t('finance.costCentreTotals')"
+        :description="t('finance.costCentreTotalsHint')"
+        :default-open="true"
+        test-id="finance-cost-centre-section"
+      >
+        <div class="overflow-hidden rounded-2xl border border-slate-800">
+          <div
+            v-for="costCentre in costCentres"
+            :key="costCentre.code"
+            class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-b border-slate-800 px-4 py-3 last:border-b-0 sm:grid-cols-[4rem_1fr_auto] sm:items-center"
+          >
+            <span class="font-mono text-xs font-bold text-farm-gold">{{ costCentre.code }}</span>
+            <div class="min-w-0">
+              <p class="font-semibold text-slate-100">{{ costCentreName(costCentre.code) }}</p>
+              <p class="text-xs text-slate-500">{{ costCentreCovers(costCentre) }}</p>
+            </div>
+            <div class="col-span-2 text-left sm:col-span-1 sm:text-right">
+              <p class="font-mono font-bold text-red-300">
+                {{ formatAmount(summary.expensesByCostCentre?.[costCentre.code]?.total ?? 0, summary.currency) }}
+              </p>
+              <p class="text-xs text-slate-500">
+                {{ t('finance.entries', { count: summary.expensesByCostCentre?.[costCentre.code]?.expenseCount ?? 0 }) }}
+              </p>
+            </div>
+          </div>
+          <div
+            v-if="(summary.unassignedCostCentreCount ?? 0) > 0"
+            class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 bg-amber-500/10 px-4 py-3 sm:grid-cols-[4rem_1fr_auto] sm:items-center"
+          >
+            <span class="font-mono text-xs font-bold text-amber-300">—</span>
+            <div>
+              <p class="font-semibold text-amber-200">{{ t('finance.unassignedCostCentre') }}</p>
+              <p class="text-xs text-amber-200/70">{{ t('finance.unassignedCostCentreHint') }}</p>
+            </div>
+            <div class="col-span-2 text-left sm:col-span-1 sm:text-right">
+              <p class="font-mono font-bold text-amber-200">
+                {{ formatAmount(summary.unassignedCostCentreTotal ?? 0, summary.currency) }}
+              </p>
+              <p class="text-xs text-amber-200/70">
+                {{ t('finance.entries', { count: summary.unassignedCostCentreCount ?? 0 }) }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        v-if="summary"
+        class="mt-4"
+        :title="t('finance.paymentDetails')"
+        :description="t('finance.paymentDetailsHint')"
         :default-open="false"
         test-id="finance-payment-details-section"
       >
@@ -684,15 +805,29 @@ onMounted(load)
             <h3 class="text-xl font-black text-white">{{ t('finance.expenses') }}</h3>
             <p class="mt-1 text-sm text-slate-500">{{ t('finance.entries', { count: expenses.length }) }}</p>
           </div>
-          <select
-            v-model="labelFilter"
-            :aria-label="t('finance.labels')"
-            class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-            @change="load"
-          >
-            <option value="">{{ t('finance.allLabels') }}</option>
-            <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>
-          </select>
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <select
+              v-model="costCentreFilter"
+              :aria-label="t('finance.costCentre')"
+              class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+              @change="load"
+            >
+              <option value="">{{ t('finance.allCostCentres') }}</option>
+              <option v-for="costCentre in costCentres" :key="costCentre.code" :value="costCentre.code">
+                {{ costCentre.code }} · {{ costCentreName(costCentre.code) }}
+              </option>
+              <option value="unassigned">{{ t('finance.unassignedCostCentre') }}</option>
+            </select>
+            <select
+              v-model="labelFilter"
+              :aria-label="t('finance.labels')"
+              class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+              @change="load"
+            >
+              <option value="">{{ t('finance.allLabels') }}</option>
+              <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>
+            </select>
+          </div>
         </div>
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
@@ -706,6 +841,12 @@ onMounted(load)
                   {{ formatDate(expense.expenseDate) }} · {{ t(`finance.categories.${expense.category}`) }}
                 </p>
                 <h4 class="mt-1 break-words font-bold text-white">{{ expense.description }}</h4>
+                <p
+                  class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-semibold"
+                  :class="expense.costCentreCode ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/10 text-amber-300'"
+                >
+                  {{ expense.costCentreCode ? `${expense.costCentreCode} · ${costCentreName(expense.costCentreCode)}` : costCentreName(null) }}
+                </p>
               </div>
               <div class="shrink-0 text-right">
                 <p class="font-mono text-sm font-bold text-red-300">
@@ -803,13 +944,21 @@ onMounted(load)
                 {{ t('finance.convertToNgn') }}
               </button>
               <button
-                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN'"
+                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && expense.costCentreCode"
                 type="button"
                 class="min-h-9 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green disabled:opacity-50"
                 :disabled="updatingIds.has(expense.id)"
                 @click="updateStatus(expense, 'approved')"
               >
                 {{ t('finance.approve') }}
+              </button>
+              <button
+                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && !expense.costCentreCode"
+                type="button"
+                class="min-h-9 rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300"
+                @click="startEdit(expense)"
+              >
+                {{ t('finance.assignCostCentre') }}
               </button>
               <button
                 v-if="canWrite && expense.approvalStatus === 'pending'"
@@ -867,6 +1016,12 @@ onMounted(load)
               </td>
               <td class="px-4 py-4 text-white">
                 <p class="break-words font-medium">{{ expense.description }}</p>
+                <p
+                  class="mt-1 text-xs font-semibold"
+                  :class="expense.costCentreCode ? 'text-slate-400' : 'text-amber-300'"
+                >
+                  {{ expense.costCentreCode ? `${expense.costCentreCode} · ${costCentreName(expense.costCentreCode)}` : costCentreName(null) }}
+                </p>
                 <a
                   v-if="expense.hasAttachment"
                   :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
@@ -936,13 +1091,21 @@ onMounted(load)
                   {{ t('finance.convertToNgn') }}
                 </button>
                 <button
-                  v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN'"
+                  v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && expense.costCentreCode"
                   type="button"
                   class="text-xs text-emerald-300 hover:underline disabled:opacity-50"
                   :disabled="updatingIds.has(expense.id)"
                   @click="updateStatus(expense, 'approved')"
                 >
                   {{ t('finance.approve') }}
+                </button>
+                <button
+                  v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && !expense.costCentreCode"
+                  type="button"
+                  class="text-xs text-amber-300 hover:underline"
+                  @click="startEdit(expense)"
+                >
+                  {{ t('finance.assignCostCentre') }}
                 </button>
                 <button
                   v-if="canWrite && expense.approvalStatus === 'pending'"

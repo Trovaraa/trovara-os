@@ -161,6 +161,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/operations-library',
+      name: 'operations-library',
+      component: () => import('@/views/OperationsLibraryView.vue'),
+      meta: { requiresAuth: true, anyPermission: ['knowledge.read', 'knowledge.write'] },
+    },
+    {
       path: '/traceability',
       name: 'traceability',
       component: () => import('@/views/TraceabilityView.vue'),
@@ -206,7 +212,16 @@ const router = createRouter({
       component: () => import('@/views/MarketingLeadsView.vue'),
       meta: {
         requiresAuth: true,
-        anyPermission: ['leads.manage', 'finance.read'],
+        requiredPermission: 'leads.manage',
+      },
+    },
+    {
+      path: '/customer-surveys',
+      name: 'customer-surveys',
+      component: () => import('@/views/CustomerSurveysView.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredPermission: 'leads.manage',
       },
     },
     {

@@ -28,6 +28,7 @@ vi.mock('vue-i18n', () => ({
 
 const expense = {
   id: 'expense-1',
+  costCentreCode: 'CC10',
   category: 'transport',
   description: 'Fuel delivery',
   amount: 12500,
@@ -52,7 +53,17 @@ const summary = {
   orderCount: 2,
   expenseCount: 1,
   expensesByCategory: {},
+  expensesByCostCentre: { CC10: { total: 12500, expenseCount: 1 } },
+  unassignedCostCentreTotal: 0,
+  unassignedCostCentreCount: 0,
 }
+
+const costCentres = [
+  { code: 'CC01', name: 'Corporate / Admin', covers: 'General Trovara overhead' },
+  { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
+  { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
+  { code: 'CC40', name: 'Poultry', covers: 'Project Feather' },
+]
 
 async function mountView() {
   const FinanceView = (await import('./FinanceView.vue')).default
@@ -68,6 +79,7 @@ describe('FinanceView expense list', () => {
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path === '/api/finance') return { expenses: [expense] }
       if (path === '/api/finance/summary') return { summary }
+      if (path === '/api/finance/cost-centres') return { costCentres }
       if (path === '/api/finance/labels' && options?.method === 'POST') {
         return { label: { id: 'label-2', name: 'Travel', slug: 'travel' } }
       }
@@ -104,6 +116,7 @@ describe('FinanceView expense list', () => {
     const table = wrapper.get('[data-testid="expense-table"]')
 
     expect(cards.text()).toContain('Fuel delivery')
+    expect(cards.text()).toContain('CC10')
     expect(cards.text()).toContain('Ikeja Fuel Depot')
     expect(cards.text()).toContain('Operations')
     expect(cards.text()).toContain('finance.status.pending')
@@ -115,6 +128,7 @@ describe('FinanceView expense list', () => {
 
     expect(table.classes()).toContain('table-fixed')
     expect(table.text()).toContain('Fuel delivery')
+    expect(table.text()).toContain('CC10')
     expect(table.text()).toContain('finance.status.pending')
     expect(table.text()).toContain('finance.edit')
     expect(table.text()).toContain('finance.delete')
@@ -204,6 +218,7 @@ describe('FinanceView expense list', () => {
     api.mockImplementation(async (path: string) => {
       if (path === '/api/finance') return { expenses: [foreignExpense] }
       if (path === '/api/finance/summary') return { summary }
+      if (path === '/api/finance/cost-centres') return { costCentres }
       if (path === '/api/finance/labels') return { labels: expense.labels }
       if (path === '/api/finance/expense-1/convert-currency') {
         return { expense: { ...foreignExpense, amount: 31000, currency: 'NGN' } }
@@ -223,5 +238,27 @@ describe('FinanceView expense list', () => {
     expect(api).toHaveBeenCalledWith('/api/finance/expense-1/convert-currency', {
       method: 'POST',
     })
+  })
+
+  it('describes online payments without naming a checkout provider', async () => {
+    const wrapper = await mountView()
+    const details = wrapper.get('[data-testid="finance-payment-details-section"]')
+
+    expect(details.text()).toContain('finance.paymentDetails')
+    expect(details.text()).toContain('finance.paymentDetailsHint')
+    expect(details.text()).toContain('finance.paidRevenue')
+    expect(details.text()).not.toMatch(/Paystack/i)
+    expect(details.get('button').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('shows the workbook cost-centre rollup in a collapsible section', async () => {
+    const wrapper = await mountView()
+    const section = wrapper.get('[data-testid="finance-cost-centre-section"]')
+
+    expect(section.get('button').attributes('aria-expanded')).toBe('true')
+    expect(section.text()).toContain('CC01')
+    expect(section.text()).toContain('Corporate / Admin')
+    expect(section.text()).toContain('CC10')
+    expect(section.text()).toContain('Plantain')
   })
 })

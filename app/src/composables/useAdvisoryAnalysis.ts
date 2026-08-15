@@ -35,7 +35,10 @@ export type Subject =
       cropType: string
       plotName?: string
       stage: string
+      plantedAt: string
+      stageEnteredAt: string
       dayInStage: number
+      totalStageDays: number | null
       daysUntilNextHint: number | null
       nextHint: string | null
     }
@@ -44,6 +47,8 @@ export type Subject =
       id: string
       label: string
       species: string
+      batchType: string | null
+      acquiredAt: string
       dayInCycle: number
       daysUntilNextHint: number | null
       nextHint: string | null

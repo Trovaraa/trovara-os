@@ -15,12 +15,13 @@ const options: { code: AppLocale; label: string }[] = [
   { code: 'fr', label: 'FR' },
 ]
 
-function setLocale(code: AppLocale) {
+async function setLocale(code: AppLocale) {
   if (locale.value === code) return
   applyLocale(code)
   // Mirror onto the profile so AI content and TG/WhatsApp messages follow the UI.
   // Best-effort: signed-out, offline, or a rejected write must not revert the switch.
-  auth.savePreferredLocale(code).catch(() => undefined)
+  await auth.savePreferredLocale(code).catch(() => undefined)
+  window.dispatchEvent(new CustomEvent('trovara:locale-preference-saved', { detail: code }))
 }
 
 function cycleLocale() {

@@ -167,6 +167,7 @@ const ENGLISH_TO_FRENCH: Record<string, string> = {
 
 /** A create whose vendor, receipt reference and money must survive untouched. */
 const FRENCH_EXPENSE = {
+  costCentreCode: 'CC01' as const,
   category: 'utilities' as const,
   description: 'Carburant pour le générateur pendant la panne',
   amount: 125000,
@@ -180,6 +181,7 @@ function expenseRow(overrides: Row = {}): Row {
   return {
     id: 'expense-1',
     farmId: 'farm-1',
+    costCentreCode: 'CC01',
     category: 'utilities',
     description: 'Fuel for the generator during the outage',
     amount: 125000,
@@ -385,6 +387,20 @@ describe('POST /finance - canonical English on write', () => {
 })
 
 describe('PATCH /finance/:id - canonical English on write', () => {
+  it('requires a cost centre before a pending expense can be approved', async () => {
+    queueSelect('expenses', [
+      expenseRow({ costCentreCode: null, approvalStatus: 'pending' }),
+    ])
+
+    const res = await patch('/finance/expense-1', { approvalStatus: 'approved' })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: 'Assign a cost centre before approving this expense',
+    })
+    expect(updates).toHaveLength(0)
+  })
+
   it('does not approve an unconverted foreign-currency expense', async () => {
     queueSelect('expenses', [expenseRow({ amount: 20, currency: 'USD', approvalStatus: 'pending' })])
 
@@ -649,6 +665,22 @@ describe('POST /finance/:id/retry-extraction', () => {
 })
 
 describe('GET /finance - viewer locale on read', () => {
+  it('returns the stable cost-centre catalogue from the Finance workbook', async () => {
+    const res = await (await app()).request('/finance/cost-centres')
+    const body = (await res.json()) as { costCentres: Row[] }
+
+    expect(res.status).toBe(200)
+    expect(body.costCentres).toHaveLength(9)
+    expect(body.costCentres).toEqual(
+      expect.arrayContaining([
+        { code: 'CC01', name: 'Corporate / Admin', covers: 'General Trovara overhead' },
+        { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
+        { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
+        { code: 'CC40', name: 'Poultry', covers: 'Project Feather' },
+      ]),
+    )
+  })
+
   it('translates every description in one batched call', async () => {
     queueSelect('expenses', [
       expenseRow(),
@@ -714,6 +746,35 @@ describe('GET /finance - viewer locale on read', () => {
 })
 
 describe('GET /finance/summary - money only', () => {
+  it('groups approved expenses by cost centre and keeps legacy rows visible', async () => {
+    queueSelect('orders', [])
+    queueSelect('expenses', [
+      expenseRow({ id: 'plantain-1', costCentreCode: 'CC10', amount: 60000 }),
+      expenseRow({ id: 'plantain-2', costCentreCode: 'CC10', amount: 15000 }),
+      expenseRow({ id: 'poultry-1', costCentreCode: 'CC40', amount: 25000 }),
+      expenseRow({ id: 'legacy-1', costCentreCode: null, amount: 5000 }),
+    ])
+    queueSelect('payment_attempts', [])
+    queueSelect('orders', [])
+    queueSelect('payment_refunds', [])
+    queueSelect('invoices', [])
+    queueSelect('expense_label_links', [])
+
+    const res = await (await app()).request('/finance/summary')
+    const body = (await res.json()) as { summary: Row }
+
+    expect(res.status).toBe(200)
+    expect(body.summary.expensesByCostCentre).toMatchObject({
+      CC10: { total: 75000, expenseCount: 2 },
+      CC40: { total: 25000, expenseCount: 1 },
+      CC20: { total: 0, expenseCount: 0 },
+    })
+    expect(body.summary).toMatchObject({
+      unassignedCostCentreTotal: 5000,
+      unassignedCostCentreCount: 1,
+    })
+  })
+
   it('excludes pending, rejected, and unconverted foreign expenses from NGN P&L', async () => {
     queueSelect('orders', [])
     queueSelect('expenses', [
