@@ -16,6 +16,10 @@ import { publicFinanceInboundRoutes } from './routes/finance-inbound.js'
 import { careersRoutes, publicCareersRoutes } from './routes/careers.js'
 import { traceabilityRoutes } from './routes/traceability.js'
 import { assetRoutes } from './routes/assets.js'
+import { maintenanceRoutes } from './routes/maintenance.js'
+import { contractorRoutes } from './routes/contractors.js'
+import { anomalyRoutes } from './routes/anomalies.js'
+import { scanningRoutes } from './routes/scanning.js'
 import { customerInsightsRoutes } from './routes/customer-insights.js'
 import { aiRoutes } from './routes/ai.js'
 import { whatsappRoutes } from './routes/whatsapp.js'
@@ -120,6 +124,10 @@ app.route('/api/finance', financeRoutes)
 app.route('/public/finance', publicFinanceInboundRoutes)
 app.route('/api/traceability', traceabilityRoutes)
 app.route('/api/assets', assetRoutes)
+app.route('/api/maintenance', maintenanceRoutes)
+app.route('/api/contractors', contractorRoutes)
+app.route('/api/anomalies', anomalyRoutes)
+app.route('/api/scanning', scanningRoutes)
 app.route('/api/ai', aiRoutes)
 app.route('/api/whatsapp', whatsappRoutes)
 app.route('/api/telegram', telegramRoutes)

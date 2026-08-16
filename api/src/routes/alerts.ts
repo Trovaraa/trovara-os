@@ -31,6 +31,7 @@ import {
 import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 import { deliverCriticalAlert } from '../lib/notifications.js'
+import { runAnomalyObservationMode } from '../lib/anomaly-observations.js'
 
 const cronSchema = z.object({
   farmId: z.string().uuid().optional(),
@@ -198,6 +199,12 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
 
   const alerts = await checkProactiveAlerts(auth.user.farmId)
   const advisory = await runAdvisoryEngine(auth.user.farmId)
+  // Observation mode is deliberately silent: it records evidence-backed
+  // signals for later human review and never changes the source records.
+  const anomalyObservation = await runAnomalyObservationMode(auth.user.farmId).catch((error) => {
+    console.error('Anomaly observation run failed:', error instanceof Error ? error.message : error)
+    return { mode: 'observation' as const, candidates: 0, created: 0, refreshed: 0, notified: false, sourceRecordsChanged: false }
+  })
   const farmName = await resolveFarmName(auth.user.farmId)
   const renderPush = ({ locale }: NotifyLocaleContext) =>
     renderProactiveAlertPush(locale, farmName, alerts)
@@ -282,6 +289,7 @@ alertsRoutes.post('/run-proactive', zValidator('json', cronSchema), async (c) =>
     alertsCount: alerts.length,
     alerts,
     advisoryCreated: advisory.created,
+    anomalyObservation,
     notified: {
       owner: {
         telegram: tg.notified,

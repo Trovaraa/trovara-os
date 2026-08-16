@@ -84,10 +84,20 @@ function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
       // Broad staff defaults — match field-worker template minimums.
       return true
     case 'assets.count':
+    case 'maintenance.complete':
+    case 'scan.use':
     case 'census.create':
     case 'livestock.log':
     case 'field_reports.create':
       return user.role === 'owner' || user.role === 'supervisor' || user.role === 'field_worker'
+    case 'maintenance.read':
+    case 'maintenance.write':
+    case 'contractors.read':
+    case 'contractors.write':
+    case 'anomalies.review':
+      return user.role === 'owner' || user.role === 'supervisor'
+    case 'anomalies.read':
+      return user.role === 'owner' || user.role === 'supervisor' || user.role === 'sales'
     case 'inventory.read':
     case 'users.view':
       return user.role === 'owner' || user.role === 'supervisor'

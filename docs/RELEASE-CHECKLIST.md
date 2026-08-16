@@ -11,17 +11,28 @@ The OS holds the live data and contracts those pages depend on.
 3. Confirm production environment preflight, off-server backup destination, and
    restore timer are healthy.
 4. Deploy OS. Verify `/health`, `/ready`, and `/RELEASE.json`; its SHA must match
-   the selected Git object.
-5. Smoke-test public endpoints used by marketing (Journal, Moments, Careers,
+   the selected Git object. The deploy also writes the private release ledger.
+5. When Operations Library code or infrastructure changed, prove that a clean
+   text PDF completes scan/extraction, an EICAR test file is quarantined, an
+   image-only PDF completes OCR and review, and a failed replacement index
+   leaves the prior generation retrievable. Run the multilingual retrieval
+   suite and require zero permission leaks.
+6. Confirm the encrypted backup contains the clean-object snapshot and perform
+   the documented authorised-source restore check. Never log object credentials
+   or the application encryption key in release evidence.
+7. Smoke-test public endpoints used by marketing (Journal, Moments, Careers,
    shop, lots, newsletter, contacts).
-6. Deploy marketing only after step 5. Purge/invalidate caches if applicable.
-7. Recheck both origins and record the OS SHA, tag, marketing deploy identifier,
-   operator, and time in the release record.
+8. Deploy marketing only after step 7. Purge/invalidate caches if applicable.
+9. Recheck both origins and record the OS SHA, tag, marketing deploy identifier,
+   operator, and time in the release record. Review it with
+   `npm run release:history -- 20`.
 
 `npm run release:coordinated -- [deploy flags]` automates the ordering. It runs
 the OS deployment and verifies the embedded SHA before invoking the optional,
 operator-configured `MARKETING_DEPLOY_COMMAND`. It does not edit the marketing
 repository or hardcode a deployment provider.
 
-If the OS check fails, stop. Prefer rolling the OS forward when you can; do not
-deploy a marketing build that assumes an OS contract that is not live yet.
+If the OS check fails, stop. Prefer rolling the OS forward when you can. When a
+known compatible release must be restored, follow [`ROLLBACK.md`](./ROLLBACK.md)
+and keep the database forward-only. Do not deploy a marketing build that assumes
+an OS contract that is not live yet.

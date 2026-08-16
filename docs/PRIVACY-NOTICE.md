@@ -150,6 +150,12 @@ farm. Any farm context supplied to the assistant is filtered using the user's
 current role permissions. A user may clear a conversation or archive it in the
 application.
 
+The user may rate an assistant answer and optionally provide a correction.
+Trovara stores that feedback with the exact message. A correction may guide
+later answers in the same private conversation and may be reviewed in aggregate
+to evaluate or improve the service. Raw ratings and corrections do not
+automatically train or fine-tune the production model.
+
 AI output may be incomplete or incorrect. Trovara requires human confirmation
 before AI-generated suggestions create or change operational records. Trovara
 does not currently make legal, employment, credit, or similarly significant
@@ -224,8 +230,9 @@ Current or proposed retention rules include:
 - expired application sessions: removed after `SESSION_RETENTION_DAYS` (default 7) via the scheduled retention job;
 - task photo and voice evidence: controlled by `DATA_RETENTION_DAYS` and the
   scheduled retention job;
-- signed-in staff Copilot messages and their uploaded evidence: removed after
-  `DATA_RETENTION_DAYS` by the scheduled retention job;
+- signed-in staff Copilot messages, answer feedback, optional corrections, and
+  uploaded evidence: removed after `DATA_RETENTION_DAYS` by the scheduled
+  retention job;
 - Butler chat message text in operational logs: redacted (not deleted) after
   `DATA_RETENTION_DAYS`;
 - customer contact phone numbers on inactive bot contacts: nulled after

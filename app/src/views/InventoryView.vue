@@ -14,6 +14,7 @@ const { t } = useI18n()
 type Item = {
   id: string
   sku: string
+  scanCode?: string | null
   name: string
   category: string
   unit: string
@@ -84,6 +85,7 @@ const openingMessage = ref<string | null>(null)
 
 const newItemName = ref('')
 const newItemSku = ref('')
+const newItemScanCode = ref('')
 const newItemCategory = ref('supplies')
 const newItemUnit = ref<'kg' | 'bags' | 'liters' | 'units' | 'crates'>('units')
 const newVarianceTolerance = ref(0)
@@ -278,6 +280,7 @@ async function createItem() {
       method: 'POST',
       body: JSON.stringify({
         sku: newItemSku.value.trim().toUpperCase(),
+        scanCode: newItemScanCode.value.trim() || null,
         name: newItemName.value.trim(),
         category: newItemCategory.value.trim() || 'supplies',
         unit: newItemUnit.value,
@@ -286,6 +289,7 @@ async function createItem() {
       }),
     })
     newItemSku.value = ''
+    newItemScanCode.value = ''
     newItemName.value = ''
     newItemCategory.value = 'supplies'
     newItemUnit.value = 'units'
@@ -448,7 +452,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
       test-id="inventory-add-item-section"
     >
       <form class="space-y-4" @submit.prevent="createItem">
-        <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <input
           v-model="newItemSku"
           aria-label="SKU"
@@ -456,6 +460,13 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           maxlength="40"
           placeholder="SKU"
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white uppercase"
+        />
+        <input
+          v-model="newItemScanCode"
+          aria-label="Barcode or scan code"
+          maxlength="200"
+          placeholder="Barcode / scan code (optional)"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input
           v-model="newItemName"
@@ -816,6 +827,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
               <p class="font-mono text-[11px] text-farm-green">{{ item.sku }}</p>
+              <p v-if="item.scanCode" class="mt-0.5 font-mono text-[10px] text-slate-500">{{ item.scanCode }}</p>
               <h3 class="mt-1 break-words font-bold text-white">{{ item.name }}</h3>
               <p class="mt-1 text-xs capitalize text-slate-500">{{ item.category }}</p>
             </div>

@@ -43,6 +43,8 @@ import {
   createFinanceImportToken,
   financeImportFingerprint,
   IMPORT_CATEGORIES,
+  IMPORT_SHEET_CLASSIFICATIONS,
+  inspectFinanceImport,
   previewFinanceImport,
   verifyFinanceImportToken,
 } from '../lib/finance-import.js'
@@ -75,21 +77,34 @@ const updateExpenseSchema = createExpenseSchema.partial()
 
 const financeImportRowSchema = z.object({
   rowNumber: z.number().int().positive(),
+  sourceSheet: z.string().trim().min(1).max(200),
+  sourceRecordId: z.string().trim().max(100),
+  sourceRowHash: z.string().regex(/^[a-f0-9]{64}$/),
   included: z.boolean(),
   expenseDate: z.string().datetime(),
   description: z.string().trim().min(1).max(500),
   category: z.enum(IMPORT_CATEGORIES),
   amount: z.number().int().min(0),
+  amountDerivedFromFormula: z.boolean(),
+  amountReviewed: z.boolean(),
   currency: z.string().trim().min(1).max(10),
   vendor: z.string().trim().max(200),
+  payer: z.string().trim().max(200),
+  fundingStatus: z.string().trim().max(50),
+  projectPhase: z.string().trim().max(200),
   receiptRef: z.string().trim().max(200),
   costCentreCode: z.enum(COST_CENTRE_CODES),
 })
 
 const financeImportCommitSchema = z.object({
-  token: z.string().min(20).max(4000),
+  token: z.string().min(20).max(20_000),
   rows: z.array(financeImportRowSchema).min(1).max(500),
 })
+
+const financeImportSheetSelectionsSchema = z.array(z.object({
+  name: z.string().trim().min(1).max(200),
+  classification: z.enum(IMPORT_SHEET_CLASSIFICATIONS),
+})).min(1).max(50)
 
 const EXPENSE_TEXT_FIELDS = ['description'] as const
 
@@ -295,7 +310,7 @@ financeRoutes.get('/cost-centres', async (c) => {
   return c.json({ costCentres: COST_CENTRES })
 })
 
-financeRoutes.post('/imports/preview', async (c) => {
+financeRoutes.post('/imports/inspect', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user || !hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
   try {
@@ -304,14 +319,53 @@ financeRoutes.post('/imports/preview', async (c) => {
     if (!(upload instanceof File)) return c.json({ error: 'Choose an Excel, CSV, or PDF file' }, 400)
     if (upload.size === 0 || upload.size > 10 * 1024 * 1024) return c.json({ error: 'File must be between 1 byte and 10 MB' }, 400)
     const buffer = Buffer.from(await upload.arrayBuffer())
-    const preview = await previewFinanceImport(upload.name, buffer)
+    const inspection = await inspectFinanceImport(upload.name, buffer)
+    return c.json({ filename: upload.name, ...inspection })
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'IMPORT_INSPECTION_FAILED'
+    const messages: Record<string, string> = {
+      UNSUPPORTED_IMPORT_FILE: 'Only .xlsx, .csv, and .pdf files are supported',
+      IMPORT_FILE_TYPE_MISMATCH: 'The file contents do not match its filename extension.',
+      IMPORT_HAS_NO_WORKSHEET: 'The workbook has no worksheet.',
+    }
+    return c.json({ error: messages[code] ?? 'The workbook could not be inspected' }, 400)
+  }
+})
+
+financeRoutes.post('/imports/preview', async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user || !hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
+  try {
+    const form = await c.req.formData()
+    const upload = form.get('file')
+    if (!(upload instanceof File)) return c.json({ error: 'Choose an Excel, CSV, or PDF file' }, 400)
+    if (upload.size === 0 || upload.size > 10 * 1024 * 1024) return c.json({ error: 'File must be between 1 byte and 10 MB' }, 400)
+    const selectionsText = form.get('sheetSelections')
+    if (typeof selectionsText !== 'string') return c.json({ error: 'Classify each sheet before previewing transactions.' }, 400)
+    const sheetSelections = financeImportSheetSelectionsSchema.parse(JSON.parse(selectionsText))
+    const expectedTotalText = form.get('expectedTotal')
+    if (typeof expectedTotalText !== 'string' || !expectedTotalText.trim()) return c.json({ error: 'Enter the workbook total before previewing transactions.' }, 400)
+    const expectedTotal = Number(expectedTotalText)
+    if (!Number.isInteger(expectedTotal) || expectedTotal < 0) return c.json({ error: 'Enter the workbook total before previewing transactions.' }, 400)
+    const buffer = Buffer.from(await upload.arrayBuffer())
+    const preview = await previewFinanceImport(upload.name, buffer, { sheetSelections, expectedTotal })
     const token = createFinanceImportToken({
       farmId: user.farmId,
       userId: user.id,
       filename: upload.name.slice(0, 255),
       fileHash: preview.fileHash,
+      sourceSheets: preview.sourceSheets,
+      formulaRefs: preview.formulaRefs,
+      expectedTotal: preview.expectedTotal,
     })
-    return c.json({ token, filename: upload.name, rows: preview.rows })
+    return c.json({
+      token,
+      filename: upload.name,
+      rows: preview.rows,
+      expectedTotal: preview.expectedTotal,
+      selectedTotal: preview.selectedTotal,
+      variance: preview.variance,
+    })
   } catch (error) {
     const code = error instanceof Error ? error.message : 'IMPORT_PREVIEW_FAILED'
     const messages: Record<string, string> = {
@@ -320,6 +374,9 @@ financeRoutes.post('/imports/preview', async (c) => {
       IMPORT_REQUIRED_HEADERS_MISSING: 'The file needs Date, Description, and Amount columns.',
       IMPORT_HAS_NO_DATA_ROWS: 'No transaction rows were found in this file.',
       IMPORT_HAS_NO_WORKSHEET: 'The workbook has no worksheet.',
+      IMPORT_EXPENSE_SHEET_REQUIRED: 'Classify at least one sheet as expenses.',
+      IMPORT_SHEET_NOT_FOUND: 'A selected sheet is no longer present in the workbook.',
+      IMPORT_EXPECTED_TOTAL_INVALID: 'Enter a valid workbook total.',
       PDF_TRANSACTIONS_NOT_DETECTED: 'No clear transaction rows were found in the PDF. Use Excel or CSV for best results.',
       FINANCE_IMPORT_SECRET_NOT_CONFIGURED: 'Finance imports are not configured on this server.',
     }
@@ -335,6 +392,17 @@ financeRoutes.post('/imports/commit', zValidator('json', financeImportCommitSche
     const payload = verifyFinanceImportToken(token, user.farmId, user.id)
     const selected = rows.filter((row) => row.included)
     if (!selected.length) return c.json({ error: 'Select at least one row to import' }, 400)
+    if (selected.some((row) => !payload.sourceSheets.includes(row.sourceSheet))) {
+      return c.json({ error: 'A row does not belong to a sheet selected during preview.' }, 400)
+    }
+    const selectedTotal = selected.reduce((sum, row) => sum + row.amount, 0)
+    if (selectedTotal !== payload.expectedTotal) {
+      return c.json({ error: `Selected rows total NGN ${selectedTotal.toLocaleString('en-NG')}; expected NGN ${payload.expectedTotal.toLocaleString('en-NG')}. Resolve the difference before importing.` }, 409)
+    }
+    const formulaRefs = new Set(payload.formulaRefs)
+    if (selected.some((row) => formulaRefs.has(`${row.sourceSheet}!${row.rowNumber}`) && !row.amountReviewed)) {
+      return c.json({ error: 'Review every formula-derived amount before importing.' }, 409)
+    }
     const batchId = randomUUID()
     const authorLocale = await authorLocaleForUserId(user.id)
     const values = []
@@ -352,8 +420,16 @@ financeRoutes.post('/imports/commit', zValidator('json', financeImportCommitSche
         source: 'import',
         importBatchId: batchId,
         importSourceFilename: payload.filename,
+        importSourceSheet: row.sourceSheet,
+        importSourceHash: payload.fileHash,
+        importSourceRecordId: row.sourceRecordId || null,
+        importSourceRowHash: row.sourceRowHash,
         importRowNumber: row.rowNumber,
-        importFingerprint: financeImportFingerprint(payload.fileHash, row),
+        importFingerprint: financeImportFingerprint(row),
+        importAmountDerived: formulaRefs.has(`${row.sourceSheet}!${row.rowNumber}`),
+        payer: row.payer || null,
+        fundingStatus: row.fundingStatus || null,
+        projectPhase: row.projectPhase || null,
         sourceLocale: canonical.sourceLocale,
         translationStatus: canonical.translationStatus,
         approvalStatus: 'approved',
@@ -369,7 +445,15 @@ financeRoutes.post('/imports/commit', zValidator('json', financeImportCommitSche
       action: 'finance_import_commit',
       entityType: 'expense_import',
       entityId: batchId,
-      metadata: { filename: payload.filename, selected: values.length, imported: inserted.length, duplicates },
+      metadata: {
+        filename: payload.filename,
+        fileHash: payload.fileHash,
+        sourceSheets: payload.sourceSheets,
+        expectedTotal: payload.expectedTotal,
+        selected: values.length,
+        imported: inserted.length,
+        duplicates,
+      },
     })
     return c.json({ batchId, imported: inserted.length, duplicates })
   } catch (error) {

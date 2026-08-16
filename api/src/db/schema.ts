@@ -16,6 +16,7 @@ import {
   check,
   primaryKey,
   foreignKey,
+  vector,
 } from 'drizzle-orm/pg-core'
 
 export const userRoleEnum = pgEnum('user_role', ['owner', 'supervisor', 'field_worker', 'sales'])
@@ -346,6 +347,8 @@ export const operationGuidelines = pgTable(
     createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
+    activeVersionId: uuid('active_version_id'),
+    activeIndexGenerationId: uuid('active_index_generation_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -357,9 +360,220 @@ export const operationGuidelines = pgTable(
     ),
     check(
       'operation_guidelines_status_check',
-      sql`${t.status} in ('draft', 'approved', 'archived')`,
+      sql`${t.status} in ('draft', 'indexing', 'approved', 'archived')`,
     ),
   ],
+)
+
+export const operationGuidelineDocuments = pgTable(
+  'operation_guideline_documents',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    guidelineId: uuid('guideline_id').references(() => operationGuidelines.id, {
+      onDelete: 'set null',
+    }),
+    originalFilename: text('original_filename').notNull(),
+    storageKey: text('storage_key').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    storageBucket: text('storage_bucket'),
+    cleanStorageKey: text('clean_storage_key'),
+    extractionStatus: text('extraction_status').default('queued').notNull(),
+    scanStatus: text('scan_status').default('queued').notNull(),
+    scanResult: text('scan_result'),
+    scannedAt: timestamp('scanned_at', { withTimezone: true }),
+    ocrStatus: text('ocr_status').default('pending').notNull(),
+    ocrConfidence: numeric('ocr_confidence', { precision: 5, scale: 2 }),
+    extractedText: text('extracted_text').default('').notNull(),
+    extractionWarnings: jsonb('extraction_warnings').$type<string[]>().default([]).notNull(),
+    uploadedById: uuid('uploaded_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('operation_guideline_documents_farm_status_idx').on(t.farmId, t.extractionStatus),
+    index('operation_guideline_documents_farm_hash_idx').on(t.farmId, t.sha256),
+    check(
+      'operation_guideline_documents_status_check',
+      sql`${t.extractionStatus} in ('queued', 'scanning', 'extracting', 'needs_review', 'draft_created', 'failed', 'quarantined', 'discarded')`,
+    ),
+    check('operation_guideline_documents_scan_status_check', sql`${t.scanStatus} in ('queued', 'scanning', 'clean', 'infected', 'error')`),
+    check('operation_guideline_documents_ocr_status_check', sql`${t.ocrStatus} in ('pending', 'not_needed', 'processing', 'completed', 'failed')`),
+  ],
+)
+
+export const operationGuidelineVersions = pgTable(
+  'operation_guideline_versions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    guidelineId: uuid('guideline_id').references(() => operationGuidelines.id, { onDelete: 'cascade' }).notNull(),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    category: text('category').notNull(),
+    body: text('body').notNull(),
+    audience: text('audience').notNull(),
+    contentSha256: text('content_sha256').notNull(),
+    sourceDocumentId: uuid('source_document_id').references(() => operationGuidelineDocuments.id, { onDelete: 'set null' }),
+    approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('operation_guideline_versions_guideline_version_uq').on(t.guidelineId, t.version),
+    index('operation_guideline_versions_farm_guideline_idx').on(t.farmId, t.guidelineId),
+  ],
+)
+
+export const operationGuidelineIndexGenerations = pgTable(
+  'operation_guideline_index_generations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    guidelineId: uuid('guideline_id').references(() => operationGuidelines.id, { onDelete: 'cascade' }).notNull(),
+    versionId: uuid('version_id').references(() => operationGuidelineVersions.id, { onDelete: 'cascade' }).notNull(),
+    status: text('status').default('building').notNull(),
+    embeddingModel: text('embedding_model').notNull(),
+    chunkCount: integer('chunk_count').default(0).notNull(),
+    validationError: text('validation_error'),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('operation_guideline_index_generations_farm_status_idx').on(t.farmId, t.status),
+    check('operation_guideline_index_generations_status_check', sql`${t.status} in ('building', 'validated', 'active', 'failed', 'retired')`),
+  ],
+)
+
+export const operationGuidelineChunks = pgTable(
+  'operation_guideline_chunks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .references(() => farms.id, { onDelete: 'cascade' })
+      .notNull(),
+    guidelineId: uuid('guideline_id')
+      .references(() => operationGuidelines.id, { onDelete: 'cascade' })
+      .notNull(),
+    documentId: uuid('document_id').references(() => operationGuidelineDocuments.id, {
+      onDelete: 'set null',
+    }),
+    versionId: uuid('version_id').references(() => operationGuidelineVersions.id, { onDelete: 'cascade' }),
+    generationId: uuid('generation_id').references(() => operationGuidelineIndexGenerations.id, { onDelete: 'cascade' }),
+    guidelineVersion: integer('guideline_version').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    heading: text('heading'),
+    sourcePage: integer('source_page'),
+    content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    embeddingModel: text('embedding_model').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('operation_guideline_chunks_version_chunk_uq').on(
+      t.guidelineId,
+      t.guidelineVersion,
+      t.chunkIndex,
+    ),
+    index('operation_guideline_chunks_farm_guideline_idx').on(t.farmId, t.guidelineId),
+    index('operation_guideline_chunks_embedding_hnsw_idx').using(
+      'hnsw',
+      t.embedding.op('vector_cosine_ops'),
+    ),
+  ],
+)
+
+export const knowledgeJobs = pgTable(
+  'knowledge_jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    type: text('type').notNull(),
+    status: text('status').default('queued').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().default({}).notNull(),
+    progress: integer('progress').default(0).notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    runAfter: timestamp('run_after', { withTimezone: true }).defaultNow().notNull(),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    lockedBy: text('locked_by'),
+    lastError: text('last_error'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('knowledge_jobs_claim_idx').on(t.status, t.runAfter, t.createdAt),
+    index('knowledge_jobs_farm_type_idx').on(t.farmId, t.type),
+    check('knowledge_jobs_type_check', sql`${t.type} in ('document_process', 'guideline_index', 'retrieval_evaluation')`),
+    check('knowledge_jobs_status_check', sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'dead_letter')`),
+    check('knowledge_jobs_progress_check', sql`${t.progress} between 0 and 100`),
+  ],
+)
+
+export const knowledgeEvaluationCases = pgTable(
+  'knowledge_evaluation_cases',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    question: text('question').notNull(),
+    expectedGuidelineId: uuid('expected_guideline_id').references(() => operationGuidelines.id, { onDelete: 'cascade' }).notNull(),
+    expectedText: text('expected_text'),
+    audience: text('audience').default('all').notNull(),
+    language: text('language').default('en').notNull(),
+    active: boolean('active').default(true).notNull(),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('knowledge_evaluation_cases_farm_active_idx').on(t.farmId, t.active)],
+)
+
+export const knowledgeEvaluationRuns = pgTable(
+  'knowledge_evaluation_runs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    status: text('status').default('queued').notNull(),
+    embeddingModel: text('embedding_model').notNull(),
+    totalCases: integer('total_cases').default(0).notNull(),
+    passedCases: integer('passed_cases').default(0).notNull(),
+    meanReciprocalRank: numeric('mean_reciprocal_rank', { precision: 7, scale: 6 }),
+    permissionLeaks: integer('permission_leaks').default(0).notNull(),
+    averageLatencyMs: integer('average_latency_ms'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('knowledge_evaluation_runs_farm_created_idx').on(t.farmId, t.createdAt),
+    check('knowledge_evaluation_runs_status_check', sql`${t.status} in ('queued', 'running', 'succeeded', 'failed')`),
+  ],
+)
+
+export const knowledgeEvaluationResults = pgTable(
+  'knowledge_evaluation_results',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').references(() => knowledgeEvaluationRuns.id, { onDelete: 'cascade' }).notNull(),
+    caseId: uuid('case_id').references(() => knowledgeEvaluationCases.id, { onDelete: 'cascade' }).notNull(),
+    retrievedGuidelineIds: jsonb('retrieved_guideline_ids').$type<string[]>().default([]).notNull(),
+    expectedRank: integer('expected_rank'),
+    passed: boolean('passed').default(false).notNull(),
+    permissionLeak: boolean('permission_leak').default(false).notNull(),
+    latencyMs: integer('latency_ms').notNull(),
+    details: jsonb('details').$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('knowledge_evaluation_results_run_case_uq').on(t.runId, t.caseId)],
 )
 
 export const portalVaultEntries = pgTable(
@@ -1140,6 +1354,8 @@ export const inventoryItems = pgTable(
     // product per farm so dispatch/harvest can move finished-goods automatically.
     productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
     sku: text('sku').notNull(),
+    /** Optional manufacturer barcode or farm QR identifier. SKU remains canonical. */
+    scanCode: text('scan_code'),
     name: text('name').notNull(),
     category: text('category').notNull(),
     unit: inventoryUnitEnum('unit').notNull(),
@@ -1161,6 +1377,9 @@ export const inventoryItems = pgTable(
   },
   (t) => [
     uniqueIndex('inventory_items_farm_sku_uq').on(t.farmId, t.sku),
+    uniqueIndex('inventory_items_farm_scan_code_uq')
+      .on(t.farmId, t.scanCode)
+      .where(sql`${t.scanCode} is not null`),
     uniqueIndex('inventory_items_farm_product_uq')
       .on(t.farmId, t.productId)
       .where(sql`${t.productId} is not null`),
@@ -1918,17 +2137,89 @@ export const aiMessages = pgTable(
     attachmentUrl: text('attachment_url'),
     model: text('model'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    feedbackRating: text('feedback_rating'),
+    feedbackNote: text('feedback_note'),
+    feedbackAt: timestamp('feedback_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('ai_messages_conversation_created_idx').on(t.conversationId, t.createdAt),
+    index('ai_messages_farm_feedback_idx').on(t.farmId, t.feedbackRating, t.feedbackAt),
     check('ai_messages_role_check', sql`${t.role} in ('user', 'assistant')`),
+    check(
+      'ai_messages_feedback_rating_check',
+      sql`${t.feedbackRating} is null or ${t.feedbackRating} in ('up', 'down')`,
+    ),
   ],
 )
 
 // Register of equipment/tools/PPE the farm owns. Founders + supervisors define
 // entries; daily state is tracked in asset_logs. Pool model: one row per item
 // type with a quantity_owned; assigned_to_id optionally ties PPE to a worker.
+export const contractors = pgTable(
+  'contractors',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    name: text('name').notNull(),
+    company: text('company'),
+    specialty: text('specialty').notNull(),
+    phone: text('phone'),
+    email: text('email'),
+    status: text('status').default('active').notNull(),
+    insuranceExpiresAt: timestamp('insurance_expires_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('contractors_farm_status_idx').on(t.farmId, t.status),
+    check('contractors_status_check', sql`${t.status} in ('active', 'inactive', 'blocked')`),
+  ],
+)
+
+export const contractorEngagements = pgTable(
+  'contractor_engagements',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    contractorId: uuid('contractor_id')
+      .references(() => contractors.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    deliverables: text('deliverables'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date'),
+    rateType: text('rate_type').default('fixed').notNull(),
+    agreedAmountMinor: integer('agreed_amount_minor').default(0).notNull(),
+    paidAmountMinor: integer('paid_amount_minor').default(0).notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    costCentreCode: text('cost_centre_code'),
+    status: text('status').default('planned').notNull(),
+    approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('contractor_engagements_farm_status_idx').on(t.farmId, t.status),
+    index('contractor_engagements_contractor_idx').on(t.contractorId, t.startDate),
+    check(
+      'contractor_engagements_status_check',
+      sql`${t.status} in ('planned', 'active', 'completed', 'cancelled')`,
+    ),
+    check(
+      'contractor_engagements_rate_type_check',
+      sql`${t.rateType} in ('fixed', 'daily', 'hourly')`,
+    ),
+    check(
+      'contractor_engagements_amounts_check',
+      sql`${t.agreedAmountMinor} >= 0 and ${t.paidAmountMinor} >= 0 and ${t.paidAmountMinor} <= ${t.agreedAmountMinor}`,
+    ),
+  ],
+)
+
 export const assets = pgTable('assets', {
   id: uuid('id').defaultRandom().primaryKey(),
   farmId: uuid('farm_id').references(() => farms.id).notNull(),
@@ -1939,6 +2230,8 @@ export const assets = pgTable('assets', {
   quantityOwned: integer('quantity_owned').default(0).notNull(),
   trackingMode: text('tracking_mode').default('pool').notNull(),
   assetTag: text('asset_tag'),
+  /** Optional manufacturer barcode or farm QR identifier. Asset tag remains human-facing. */
+  scanCode: text('scan_code'),
   manufacturer: text('manufacturer'),
   model: text('model'),
   serialNumber: text('serial_number'),
@@ -1963,7 +2256,11 @@ export const assets = pgTable('assets', {
   createdById: uuid('created_by_id').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+}, (t) => [
+  uniqueIndex('assets_farm_scan_code_uq')
+    .on(t.farmId, t.scanCode)
+    .where(sql`${t.scanCode} is not null`),
+])
 
 export const assetEvents = pgTable('asset_events', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -2007,6 +2304,54 @@ export const assetLogs = pgTable('asset_logs', {
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const maintenanceWorkOrders = pgTable(
+  'maintenance_work_orders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+    contractorId: uuid('contractor_id').references(() => contractors.id, { onDelete: 'set null' }),
+    assignedToId: uuid('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    serviceType: text('service_type').default('preventive').notNull(),
+    priority: text('priority').default('normal').notNull(),
+    status: text('status').default('open').notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    meterReading: integer('meter_reading'),
+    checklist: jsonb('checklist').$type<string[]>().default([]).notNull(),
+    completedChecklist: jsonb('completed_checklist').$type<string[]>().default([]).notNull(),
+    completionNotes: text('completion_notes'),
+    partsUsed: text('parts_used'),
+    estimatedCostMinor: integer('estimated_cost_minor'),
+    actualCostMinor: integer('actual_cost_minor'),
+    downtimeMinutes: integer('downtime_minutes'),
+    evidenceUrl: text('evidence_url'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    completedById: uuid('completed_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('maintenance_work_orders_farm_status_due_idx').on(t.farmId, t.status, t.dueAt),
+    index('maintenance_work_orders_asset_idx').on(t.assetId, t.createdAt),
+    check(
+      'maintenance_work_orders_status_check',
+      sql`${t.status} in ('open', 'in_progress', 'completed', 'cancelled')`,
+    ),
+    check(
+      'maintenance_work_orders_priority_check',
+      sql`${t.priority} in ('low', 'normal', 'high', 'urgent')`,
+    ),
+    check(
+      'maintenance_work_orders_service_type_check',
+      sql`${t.serviceType} in ('preventive', 'inspection', 'repair', 'replacement')`,
+    ),
+  ],
+)
 
 export const fieldReports = pgTable(
   'field_reports',
@@ -2098,8 +2443,16 @@ export const expenses = pgTable(
     source: text('source').default('manual').notNull(),
     importBatchId: uuid('import_batch_id'),
     importSourceFilename: text('import_source_filename'),
+    importSourceSheet: text('import_source_sheet'),
+    importSourceHash: text('import_source_hash'),
+    importSourceRecordId: text('import_source_record_id'),
+    importSourceRowHash: text('import_source_row_hash'),
     importRowNumber: integer('import_row_number'),
     importFingerprint: text('import_fingerprint'),
+    importAmountDerived: boolean('import_amount_derived').default(false).notNull(),
+    payer: text('payer'),
+    fundingStatus: text('funding_status'),
+    projectPhase: text('project_phase'),
     inboundMessageId: text('inbound_message_id'),
     /** Parsed From: address for inbound_email drafts (ack goes here on approve). */
     inboundSenderEmail: text('inbound_sender_email'),
@@ -2123,6 +2476,7 @@ export const expenses = pgTable(
   (t) => [
     uniqueIndex('expenses_farm_id_uq').on(t.farmId, t.id),
     index('expenses_farm_cost_centre_idx').on(t.farmId, t.costCentreCode),
+    index('expenses_farm_import_source_hash_idx').on(t.farmId, t.importSourceHash),
     uniqueIndex('expenses_farm_import_fingerprint_uq')
       .on(t.farmId, t.importFingerprint)
       .where(sql`${t.importFingerprint} is not null`),
@@ -2483,6 +2837,48 @@ export const inventoryShrinkAlerts = pgTable(
       .on(t.farmId, t.itemId, t.alertType)
       .where(sql`${t.status} <> 'resolved'`),
     index('inventory_shrink_alerts_farm_status_created_idx').on(t.farmId, t.status, t.createdAt),
+  ],
+)
+
+/**
+ * Review-only signals produced by deterministic anomaly rules. These rows are
+ * observations, not accusations or source-of-truth mutations. Human review
+ * feedback is retained so thresholds can be calibrated without training the LLM.
+ */
+export const anomalyObservations = pgTable(
+  'anomaly_observations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    observationType: text('observation_type').notNull(),
+    category: text('category').notNull(),
+    title: text('title').notNull(),
+    summary: text('summary').notNull(),
+    severity: text('severity').default('medium').notNull(),
+    confidence: integer('confidence').default(50).notNull(),
+    entityType: text('entity_type'),
+    entityId: uuid('entity_id'),
+    sourceRule: text('source_rule').notNull(),
+    evidence: jsonb('evidence').$type<Record<string, unknown>>().default({}).notNull(),
+    status: text('status').default('observed').notNull(),
+    reviewedById: uuid('reviewed_by_id').references(() => users.id, { onDelete: 'set null' }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewNote: text('review_note'),
+    firstObservedAt: timestamp('first_observed_at', { withTimezone: true }).defaultNow().notNull(),
+    lastObservedAt: timestamp('last_observed_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('anomaly_observations_farm_open_fingerprint_uq')
+      .on(t.farmId, t.fingerprint)
+      .where(sql`${t.status} = 'observed'`),
+    index('anomaly_observations_farm_status_last_idx').on(t.farmId, t.status, t.lastObservedAt),
+    check('anomaly_observations_category_check', sql`${t.category} in ('inventory', 'finance', 'maintenance')`),
+    check('anomaly_observations_severity_check', sql`${t.severity} in ('low', 'medium', 'high')`),
+    check('anomaly_observations_confidence_check', sql`${t.confidence} between 0 and 100`),
+    check('anomaly_observations_status_check', sql`${t.status} in ('observed', 'explained', 'confirmed', 'false_positive')`),
   ],
 )
 

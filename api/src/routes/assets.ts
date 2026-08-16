@@ -50,6 +50,7 @@ const createAssetSchema = z.object({
   quantityOwned: z.number().int().min(0).default(0),
   trackingMode: z.enum(['pool', 'individual']).default('pool'),
   assetTag: z.string().trim().max(100).nullable().optional(),
+  scanCode: z.string().trim().max(200).nullable().optional(),
   manufacturer: z.string().trim().max(200).nullable().optional(),
   model: z.string().trim().max(200).nullable().optional(),
   serialNumber: z.string().trim().max(200).nullable().optional(),
@@ -227,6 +228,7 @@ assetRoutes.get('/', async (c) => {
       quantityOwned: assets.quantityOwned,
       trackingMode: assets.trackingMode,
       assetTag: assets.assetTag,
+      scanCode: assets.scanCode,
       manufacturer: assets.manufacturer,
       model: assets.model,
       serialNumber: assets.serialNumber,
@@ -344,6 +346,7 @@ assetRoutes.post('/', zValidator('json', createAssetSchema), async (c) => {
       quantityOwned: body.quantityOwned,
       trackingMode: body.trackingMode,
       assetTag: body.assetTag ?? null,
+      scanCode: body.scanCode ?? null,
       manufacturer: body.manufacturer ?? null,
       model: body.model ?? null,
       serialNumber: body.serialNumber ?? null,
@@ -424,6 +427,7 @@ assetRoutes.patch('/:id', zValidator('json', updateAssetSchema), async (c) => {
   if (body.quantityOwned !== undefined) updates.quantityOwned = body.quantityOwned
   if (body.trackingMode !== undefined) updates.trackingMode = body.trackingMode
   if (body.assetTag !== undefined) updates.assetTag = body.assetTag
+  if (body.scanCode !== undefined) updates.scanCode = body.scanCode
   if (body.manufacturer !== undefined) updates.manufacturer = body.manufacturer
   if (body.model !== undefined) updates.model = body.model
   if (body.serialNumber !== undefined) updates.serialNumber = body.serialNumber

@@ -179,6 +179,24 @@ const router = createRouter({
       meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
+      path: '/maintenance',
+      name: 'maintenance',
+      component: () => import('@/views/MaintenanceView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'maintenance.read' },
+    },
+    {
+      path: '/scan',
+      name: 'scan',
+      component: () => import('@/views/ScannerView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'scan.use' },
+    },
+    {
+      path: '/contractors',
+      name: 'contractors',
+      component: () => import('@/views/ContractorsView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'contractors.read' },
+    },
+    {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
@@ -187,6 +205,12 @@ const router = createRouter({
         requiredPermission: 'reports.read',
         anyPermission: ['tasks.approve', 'finance.read', 'audit.export'],
       },
+    },
+    {
+      path: '/anomalies',
+      name: 'anomalies',
+      component: () => import('@/views/AnomaliesView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'anomalies.read' },
     },
     {
       path: '/journal',

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getTableName } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createFinanceImportToken } from '../lib/finance-import.js'
 
 type Row = Record<string, unknown>
 
@@ -901,5 +902,82 @@ describe('GET /finance/summary - money only', () => {
         'label-recurring': { name: 'Recurring', slug: 'recurring', total: 100000 },
       },
     })
+  })
+})
+
+describe('POST /finance/imports/commit - workbook controls', () => {
+  const importRow = {
+    rowNumber: 6,
+    sourceSheet: 'Statement of costs',
+    sourceRecordId: '1',
+    sourceRowHash: 'a'.repeat(64),
+    included: true,
+    expenseDate: '2025-08-13T12:00:00.000Z',
+    description: 'Preliminary site visit',
+    category: 'other',
+    amount: 177000,
+    amountDerivedFromFormula: false,
+    amountReviewed: true,
+    currency: 'NGN',
+    vendor: 'Farm consultant',
+    payer: 'Bamidele Afolabi',
+    fundingStatus: 'Unfunded',
+    projectPhase: 'Pre 16/11',
+    receiptRef: '',
+    costCentreCode: 'CC01',
+  }
+
+  function importToken(expectedTotal: number, formulaRefs: string[] = []) {
+    return createFinanceImportToken({
+      farmId: 'farm-1',
+      userId: 'user-owner',
+      filename: 'Farm Project Funding position v2(1).xlsx',
+      fileHash: 'b'.repeat(64),
+      sourceSheets: ['Statement of costs'],
+      formulaRefs,
+      expectedTotal,
+    })
+  }
+
+  it('blocks confirmation when selected rows do not reconcile', async () => {
+    const response = await post('/finance/imports/commit', {
+      token: importToken(52685300),
+      rows: [importRow],
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('expected NGN 52,685,300') })
+    expect(inserted.some((entry) => entry.table === 'expenses')).toBe(false)
+  })
+
+  it('requires explicit review for a formula-derived source amount', async () => {
+    const response = await post('/finance/imports/commit', {
+      token: importToken(177000, ['Statement of costs!6']),
+      rows: [{ ...importRow, amountDerivedFromFormula: true, amountReviewed: false }],
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'Review every formula-derived amount before importing.' })
+  })
+
+  it('preserves workbook provenance and captured ledger fields', async () => {
+    const response = await post('/finance/imports/commit', {
+      token: importToken(177000),
+      rows: [importRow],
+    })
+
+    expect(response.status).toBe(200)
+    const values = inserted.find((entry) => entry.table === 'expenses')?.values as unknown as Row[]
+    expect(values[0]).toMatchObject({
+      importSourceFilename: 'Farm Project Funding position v2(1).xlsx',
+      importSourceSheet: 'Statement of costs',
+      importSourceHash: 'b'.repeat(64),
+      importSourceRowHash: 'a'.repeat(64),
+      importRowNumber: 6,
+      payer: 'Bamidele Afolabi',
+      fundingStatus: 'Unfunded',
+      projectPhase: 'Pre 16/11',
+    })
+    expect(values[0]?.importFingerprint).toMatch(/^[a-f0-9]{64}$/)
   })
 })

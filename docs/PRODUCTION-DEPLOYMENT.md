@@ -124,6 +124,9 @@ BACKUP_MAX_AGE_HOURS=26
 # BRAND_UPLOAD_MAX_DURATION_SEC=600
 
 LLM_DAILY_BUDGET_PER_FARM=500
+# Uses the same OPENAI_API_KEY / LLM_BASE_URL as Copilot. The current vector
+# schema is fixed at 1,536 dimensions.
+EMBEDDING_MODEL=text-embedding-3-small
 MAX_CUSTOMER_ORDER_VALUE_KOBO=50000000
 MAX_CUSTOMER_ORDERS_PER_DAY=5
 CUSTOMER_FARM_ID=<Trovara production farm UUID>
@@ -385,7 +388,10 @@ freshness verification (remote rclone delivery optional when Mac pulls are the
 second copy), migrations, frontend
 release, service restart, and health/readiness checks on the VM. It embeds
 `RELEASE.json` at the release root and web root and includes `docs/` in the
-deployed artifact. It refuses uncommitted or untracked source.
+deployed artifact. A systemd drop-in pins the same SHA for the API process, and
+the deploy fails unless the API and frontend both report it. Successful deploys
+append to the private `.release-history/history.jsonl` ledger. It refuses
+uncommitted or untracked source.
 
 **Never use `./deploy.sh --skip-backup` on the live farm database.** That flag is
 only for disposable demo databases.
@@ -394,7 +400,48 @@ only for disposable demo databases.
 
 Drizzle applies folders under `api/drizzle/` in **timestamp** order (not only by
 the `00NN` label). Current tip is
-`20260811173000_0054_payment_status_idempotency`.
+`20260816140000_0074_knowledge_pipeline_hardening`.
+
+Migration `0072` requires pgvector. When production uses this repository's
+Docker database, set `USE_DOCKER_PG_TOOLS=1`; the deploy script takes its normal
+verified backup, pulls `pgvector/pgvector:0.8.6-pg17`, recreates only the DB
+container on the existing named volume, waits for health, then migrates. This is
+a same-major PostgreSQL 17 image change, but the verified backup remains
+mandatory.
+
+For a host-managed PostgreSQL 17 database, install the pgvector server package
+for that exact PostgreSQL major before deploying. Confirm availability without
+changing data:
+
+```bash
+psql "$DATABASE_URL" -P pager=off \
+  -c "SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';"
+```
+
+Do not run migration `0072` until that query returns `vector`; otherwise
+`CREATE EXTENSION vector` will fail and the deployment will stop before restart.
+
+Migration `0074` adds the durable document/index queue, immutable approved
+versions, side-by-side vector generations, and retrieval evaluation records.
+After migration, deploy the `knowledge-worker` with ClamAV, OCRmyPDF/Tesseract,
+and private S3-compatible storage. The API may accept an upload while the worker
+is offline, but the document remains quarantined and cannot become guidance.
+
+For the repository Docker stack, generate independent values and add them to
+the production `.env` before `docker compose up -d --build`:
+
+```bash
+openssl rand -hex 24   # KNOWLEDGE_STORAGE_ACCESS_KEY
+openssl rand -hex 32   # KNOWLEDGE_STORAGE_SECRET_KEY
+openssl rand -hex 32   # KNOWLEDGE_STORAGE_ENCRYPTION_KEY
+```
+
+Do not rotate `KNOWLEDGE_STORAGE_ENCRYPTION_KEY` until every existing object has
+been decrypted and re-encrypted under a documented key-rotation procedure.
+With `USE_DOCKER_KNOWLEDGE_SERVICES=1`, `deploy.sh` starts SeaweedFS and ClamAV
+before the encrypted backup, applies migrations, and only then starts the
+worker. This prevents a first deployment from processing jobs against an old
+schema.
 
 Note: there are two folders whose label contains `0027`
 (`…_0027_trovara_os_advisory` and `…_0027_registration_tokens`). Both are
@@ -405,6 +452,7 @@ After deploy, confirm:
 
 ```bash
 psql "$DATABASE_URL" -P pager=off -c "SELECT id FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 5;"
+psql "$DATABASE_URL" -P pager=off -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
 ```
 
 (Exact journal table name may vary with Drizzle version; if that query fails,
@@ -482,9 +530,15 @@ Then verify:
 - forgot-password email delivery (when email provider is configured);
 - Paystack test charge + webhook (when keys are configured).
 
-## 7. Rollback warning
+## 7. Application rollback
+
+Use [`ROLLBACK.md`](./ROLLBACK.md) for the guarded exact-SHA rollback command,
+release ledger, compatibility checks, and verification steps. Application
+rollback redeploys an older Git object with `--skip-migrate`; it never reverses
+the production database.
 
 After an owner successfully verifies TOTP, legacy plaintext secrets are
 re-encrypted. New task evidence is also stored as authenticated file URLs.
-Older application releases cannot read those values. Prefer rolling forward; a
-rollback may require resetting owner TOTP and retaining the new evidence route.
+Older application releases cannot necessarily read those values. Prefer rolling
+forward; a rollback may require resetting owner TOTP and retaining newer
+evidence, vault, and order routes.

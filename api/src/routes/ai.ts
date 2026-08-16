@@ -54,6 +54,7 @@ import {
   getAiConversation,
   listAiConversations,
   loadAiConversationContext,
+  recordAiMessageFeedback,
   requireAiConversation,
 } from '../lib/ai-conversations.js'
 import {
@@ -348,6 +349,33 @@ aiRoutes.post('/conversations/:id/archive', async (c) => {
   return c.json({ ok: true })
 })
 
+const messageFeedbackSchema = z.object({
+  rating: z.enum(['up', 'down']).nullable(),
+  note: z.string().trim().max(500).nullable().optional(),
+})
+
+aiRoutes.patch('/messages/:messageId/feedback', zValidator('json', messageFeedbackSchema), async (c) => {
+  const user = c.get('user')
+  requirePermission(user, 'ai.use')
+  const { rating, note } = c.req.valid('json')
+  const message = await recordAiMessageFeedback({
+    user,
+    messageId: c.req.param('messageId'),
+    rating,
+    note,
+  })
+  if (!message) return c.json({ error: 'Assistant message not found' }, 404)
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'update',
+    entityType: 'ai_message_feedback',
+    entityId: message.id,
+    metadata: { rating },
+  })
+  return c.json({ message })
+})
+
 aiRoutes.get('/actions/capabilities', (c) => {
   const user = c.get('user')
   requirePermission(user, 'ai.use')
@@ -359,16 +387,16 @@ aiRoutes.post('/actions/:draftId/confirm', async (c) => {
   requirePermission(user, 'ai.use')
   const result = await confirmAiAction(user, c.req.param('draftId'))
   if (!result.ok) return c.json({ error: result.error }, 403)
-  if (result.conversationId) {
-    await appendAiMessage({
+  const message = result.conversationId
+    ? await appendAiMessage({
       user,
       conversationId: result.conversationId,
       role: 'assistant',
       content: result.result,
       metadata: { actionType: result.actionType, confirmed: true },
     })
-  }
-  return c.json(result)
+    : null
+  return c.json({ ...result, message })
 })
 
 aiRoutes.post('/actions/:draftId/cancel', async (c) => {
@@ -376,16 +404,16 @@ aiRoutes.post('/actions/:draftId/cancel', async (c) => {
   requirePermission(user, 'ai.use')
   const cancelled = await cancelAiAction(user, c.req.param('draftId'))
   if (!cancelled) return c.json({ error: 'Draft expired, already used, or unavailable.' }, 404)
-  if (cancelled.conversationId) {
-    await appendAiMessage({
+  const message = cancelled.conversationId
+    ? await appendAiMessage({
       user,
       conversationId: cancelled.conversationId,
       role: 'assistant',
       content: 'Cancelled. Nothing was changed.',
       metadata: { cancelled: true },
     })
-  }
-  return c.json({ ok: true })
+    : null
+  return c.json({ ok: true, message })
 })
 
 aiRoutes.get('/briefing', async (c) => {
@@ -668,7 +696,7 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
       const answer = action.draft
         ? `${action.draft.preview}\n\nReview this draft, then choose Confirm or Cancel. Nothing has been changed yet.`
         : action.error ?? 'This action could not be prepared.'
-      await appendAiMessage({
+      const assistantMessage = await appendAiMessage({
         user,
         conversationId: conversation.id,
         role: 'assistant',
@@ -683,36 +711,39 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
         question: safeQuestion,
         conversationId: conversation.id,
         actionDraft: action.draft ?? null,
+        message: assistantMessage,
       })
     }
   }
 
   if (!isLlmConfigured()) {
     const answer = webCopilotLlmOffMessage(locale)
-    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
+    const assistantMessage = await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
       answer,
       question,
       conversationId: conversation.id,
+      message: assistantMessage,
     })
   }
 
   const budget = checkLlmBudget(user.farmId)
   if (!budget.allowed) {
     const answer = webCopilotUnavailableMessage(locale)
-    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
+    const assistantMessage = await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
       budgetExceeded: true,
       answer,
       question,
       conversationId: conversation.id,
+      message: assistantMessage,
     })
   }
 
   try {
-    const context = await buildFarmContext(user, locale)
+    const context = await buildFarmContext(user, locale, safeQuestion)
     const systemPrompt = buildButlerPrompt(context, { replyLocale: locale })
 
     let result: { text: string; model: string }
@@ -743,13 +774,14 @@ aiRoutes.post('/ask', zValidator('json', askSchema), async (c) => {
     })
   } catch {
     const answer = webCopilotUnavailableMessage(locale)
-    await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
+    const assistantMessage = await appendAiMessage({ user, conversationId: conversation.id, role: 'assistant', content: answer })
     return c.json({
       placeholder: true,
       error: 'AI service temporarily unavailable',
       answer,
       question,
       conversationId: conversation.id,
+      message: assistantMessage,
     })
   }
 })
