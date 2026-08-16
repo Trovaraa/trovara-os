@@ -409,6 +409,11 @@ container on the existing named volume, waits for health, then migrates. This is
 a same-major PostgreSQL 17 image change, but the verified backup remains
 mandatory.
 
+The Docker database binds to `127.0.0.1:${PGPORT:-5432}`. If a host-managed
+PostgreSQL cluster already owns port 5432, set `PGPORT` to an unused localhost
+port (for example `5433`) and use the same port in `DATABASE_URL`. Do not stop or
+replace an unrelated host database to free port 5432.
+
 For a host-managed PostgreSQL 17 database, install the pgvector server package
 for that exact PostgreSQL major before deploying. Confirm availability without
 changing data:
