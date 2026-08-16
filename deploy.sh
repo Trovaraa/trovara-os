@@ -233,13 +233,17 @@ cd "$REMOTE_DIR"
 RELEASE_HISTORY_DIR="$RELEASE_HISTORY_DIR"
 mkdir -p "\$RELEASE_HISTORY_DIR"
 chmod 0750 "\$RELEASE_HISTORY_DIR"
-PREVIOUS_RELEASE_SHA="\$(node -e '
+# Web root parents are 0770 trovara-os; ubuntu cannot traverse them. Read via sudo.
+read_release_sha() {
+  sudo node -e '
 const fs = require("node:fs");
 try {
   const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).sha || "";
   if (/^[a-f0-9]{7,40}$/i.test(value)) process.stdout.write(value);
 } catch {}
-' "$WEB_ROOT/RELEASE.json")"
+' "\$1"
+}
+PREVIOUS_RELEASE_SHA="\$(read_release_sha "$WEB_ROOT/RELEASE.json" || true)"
 
 export NVM_DIR="\${NVM_DIR:-\$HOME/.nvm}"
 if [[ ! -s "\$NVM_DIR/nvm.sh" ]]; then
@@ -370,9 +374,7 @@ for attempt in \$(seq 1 15); do
      curl -fsS http://127.0.0.1:3000/ready >/dev/null; then
     API_RELEASE_SHA="\$(curl -fsS http://127.0.0.1:3000/health | node -e \
       "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).deploymentSha||''))")"
-    FRONTEND_RELEASE_SHA="\$(node -e \
-      "const fs=require('node:fs');process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],'utf8')).sha||'')" \
-      "$WEB_ROOT/RELEASE.json")"
+    FRONTEND_RELEASE_SHA="\$(read_release_sha "$WEB_ROOT/RELEASE.json")"
     if [[ "\$API_RELEASE_SHA" == "$RELEASE_SHA" && "\$FRONTEND_RELEASE_SHA" == "$RELEASE_SHA" ]]; then
       echo "  OK — API and frontend report $RELEASE_SHA"
       HEALTH_OK=1
