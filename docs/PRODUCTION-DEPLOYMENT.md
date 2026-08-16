@@ -403,9 +403,10 @@ the `00NN` label). Current tip is
 `20260816140000_0074_knowledge_pipeline_hardening`.
 
 Migration `0072` requires pgvector. When production uses this repository's
-Docker database, set `USE_DOCKER_PG_TOOLS=1`; the deploy script takes its normal
-verified backup, pulls `pgvector/pgvector:0.8.6-pg17`, recreates only the DB
-container on the existing named volume, waits for health, then migrates. This is
+Docker database, set `USE_DOCKER_PG_TOOLS=1`; the deploy script starts that
+container (and recreates it on the existing named volume when the image or
+published port changed) before the verified backup and migrate. It pulls
+`pgvector/pgvector:0.8.6-pg17`. This is
 a same-major PostgreSQL 17 image change, but the verified backup remains
 mandatory.
 

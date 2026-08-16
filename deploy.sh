@@ -307,6 +307,12 @@ if [[ "\${USE_DOCKER_KNOWLEDGE_SERVICES:-1}" == "1" ]]; then
   docker compose up -d --wait object-storage clamav
 fi
 
+if [[ "\${USE_DOCKER_PG_TOOLS:-0}" == "1" ]]; then
+  echo "==> [vm] ensuring Docker PostgreSQL is running for backup and migrate"
+  docker compose pull db
+  docker compose up -d --wait db
+fi
+
 if [[ "$SKIP_BACKUP" -eq 0 ]]; then
   echo "==> [vm] production backup (encrypt, verify, manifest; remote delivery optional)"
   npm run backup:production
@@ -316,11 +322,6 @@ else
 fi
 
 if [[ "$SKIP_MIGRATE" -eq 0 ]]; then
-  if [[ "\${USE_DOCKER_PG_TOOLS:-0}" == "1" ]]; then
-    echo "==> [vm] ensuring Docker PostgreSQL includes pgvector"
-    docker compose pull db
-    docker compose up -d --wait db
-  fi
   echo "==> [vm] db:migrate"
   npm run db:migrate
 else
