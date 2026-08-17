@@ -17,6 +17,8 @@ let sessionUser: Row = {
 const sendConfirmationEmail = vi.fn(async (_subscriber: Row, _token: string) => 'email-id')
 const sendWelcomeEmail = vi.fn(async (_subscriber: Row, _version: string) => 'welcome-id')
 const upsertResendContact = vi.fn(async (_subscriber: Row) => 'contact-id')
+const verifyResendWebhook = vi.fn()
+const recordNewsletterCampaignDeliveryEvent = vi.fn(async () => undefined)
 
 function promiseChain<T>(value: T) {
   return {
@@ -92,7 +94,11 @@ vi.mock('../lib/newsletter-resend.js', () => ({
   sendConfirmationEmail,
   sendWelcomeEmail,
   upsertResendContact,
-  verifyResendWebhook: vi.fn(),
+  verifyResendWebhook,
+}))
+
+vi.mock('../lib/newsletter-campaigns.js', () => ({
+  recordNewsletterCampaignDeliveryEvent,
 }))
 
 vi.mock('../lib/rate-limit.js', () => ({
@@ -126,9 +132,42 @@ beforeEach(() => {
     farmId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     role: 'owner',
   }
+  process.env.RESEND_WEBHOOK_SECRET = 'whsec_test'
 })
 
 describe('public newsletter routes', () => {
+  it('records provider delivery events for a newsletter broadcast', async () => {
+    verifyResendWebhook.mockReturnValueOnce({
+      type: 'email.delivered',
+      data: {
+        broadcast_id: 'broadcast-1',
+        created_at: '2026-08-17T16:20:00.000Z',
+        email_id: 'email-1',
+        message_id: 'message-1',
+        from: 'Trovara <hello@trovara.farm>',
+        to: ['ada@example.com'],
+        subject: 'New from the Trovara Journal',
+      },
+    })
+    const response = await (await publicApp()).request('/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'svix-id': 'msg_test',
+        'svix-timestamp': '1234567890',
+        'svix-signature': 'v1,test',
+      },
+      body: JSON.stringify({ type: 'email.delivered' }),
+    })
+    expect(response.status).toBe(200)
+    expect(recordNewsletterCampaignDeliveryEvent).toHaveBeenCalledWith({
+      farmId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      broadcastId: 'broadcast-1',
+      eventType: 'email.delivered',
+      recipients: ['ada@example.com'],
+    })
+  })
+
   it('requires explicit phone consent', async () => {
     const response = await (await publicApp()).request('/subscribe', {
       method: 'POST',

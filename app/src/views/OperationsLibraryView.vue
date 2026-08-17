@@ -15,6 +15,8 @@ type Guideline = {
   status: 'draft' | 'indexing' | 'approved' | 'archived'
   version: number
   reviewDueAt: string | null
+  ownerId: string | null
+  ownerName: string | null
   authorName: string | null
   updatedAt: string
   activeVersionId: string | null
@@ -35,10 +37,12 @@ type DocumentPreview = {
 
 type EvaluationCase = { id: string; question: string; expectedGuidelineId: string; audience: string; language: string }
 type EvaluationRun = { id: string; status: string; totalCases: number; passedCases: number; meanReciprocalRank: string | null; permissionLeaks: number; averageLatencyMs: number | null; createdAt: string }
+type OwnerOption = { id: string; name: string }
 
 const auth = useAuthStore()
 const { t } = useI18n()
 const guidelines = ref<Guideline[]>([])
+const owners = ref<OwnerOption[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const uploading = ref(false)
@@ -50,7 +54,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const evaluationCases = ref<EvaluationCase[]>([])
 const evaluationRuns = ref<EvaluationRun[]>([])
 const evaluationForm = ref({ question: '', expectedGuidelineId: '', expectedText: '', audience: 'all', language: 'en' })
-const form = ref({ title: '', category: '', audience: 'all', body: '', reviewDueAt: '' })
+const form = ref({ title: '', category: '', ownerId: '', audience: 'all', body: '', reviewDueAt: '' })
 const canWrite = computed(() => auth.hasPermission('knowledge.write'))
 const canApprove = computed(() => auth.hasPermission('knowledge.approve'))
 
@@ -59,6 +63,9 @@ async function load() {
   error.value = null
   try {
     guidelines.value = (await api<{ guidelines: Guideline[] }>('/api/operation-guidelines')).guidelines
+    if (canWrite.value) {
+      owners.value = (await api<{ owners: OwnerOption[] }>('/api/operation-guidelines/owners')).owners
+    }
     if (canApprove.value) {
       const [cases, runs] = await Promise.all([
         api<{ cases: EvaluationCase[] }>('/api/operation-guidelines/evaluations/cases'),
@@ -82,7 +89,7 @@ async function create() {
         ? `/api/operation-guidelines/imports/${documentPreview.value.id}/create-draft`
         : '/api/operation-guidelines'
     await api(path, { method: editingId.value ? 'PATCH' : 'POST', body: JSON.stringify({ ...form.value, reviewDueAt: form.value.reviewDueAt ? new Date(`${form.value.reviewDueAt}T12:00:00.000Z`).toISOString() : null }) })
-    form.value = { title: '', category: '', audience: 'all', body: '', reviewDueAt: '' }
+    form.value = { title: '', category: '', ownerId: auth.user?.id ?? '', audience: 'all', body: '', reviewDueAt: '' }
     editingId.value = null
     documentPreview.value = null
     showForm.value = false
@@ -107,6 +114,7 @@ function editGuideline(guideline: Guideline) {
   form.value = {
     title: guideline.title,
     category: guideline.category,
+    ownerId: guideline.ownerId ?? '',
     audience: guideline.audience,
     body: guideline.body,
     reviewDueAt: guideline.reviewDueAt?.slice(0, 10) ?? '',
@@ -123,12 +131,15 @@ async function closeForm() {
   showForm.value = false
   editingId.value = null
   documentPreview.value = null
-  form.value = { title: '', category: '', audience: 'all', body: '', reviewDueAt: '' }
+  form.value = { title: '', category: '', ownerId: auth.user?.id ?? '', audience: 'all', body: '', reviewDueAt: '' }
 }
 
 function toggleForm() {
   if (showForm.value) void closeForm()
-  else showForm.value = true
+  else {
+    if (!form.value.ownerId) form.value.ownerId = auth.user?.id ?? ''
+    showForm.value = true
+  }
 }
 
 async function uploadDocument(event: Event) {
@@ -153,6 +164,7 @@ async function uploadDocument(event: Event) {
     form.value = {
       title: preview.filename.replace(/\.(pdf|docx)$/i, '').replace(/[-_]+/g, ' '),
       category: '',
+      ownerId: auth.user?.id ?? '',
       audience: 'all',
       body: preview.extractedText,
       reviewDueAt: '',
@@ -212,6 +224,7 @@ onMounted(load)
       </div>
       <label class="text-xs text-slate-400">{{ t('operationsLibrary.titleLabel') }}<input v-model="form.title" required minlength="3" maxlength="160" class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white" /></label>
       <label class="text-xs text-slate-400">{{ t('operationsLibrary.category') }}<input v-model="form.category" required maxlength="80" :placeholder="t('operationsLibrary.categoryPlaceholder')" class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white" /></label>
+      <label class="text-xs text-slate-400">{{ t('operationsLibrary.ownerLabel') }}<select v-model="form.ownerId" required class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white"><option value="" disabled>{{ t('operationsLibrary.chooseOwner') }}</option><option v-for="owner in owners" :key="owner.id" :value="owner.id">{{ owner.name }}</option></select><span class="mt-1 block text-[11px] leading-4 text-slate-500">{{ t('operationsLibrary.ownerHelp') }}</span></label>
       <label class="text-xs text-slate-400">{{ t('operationsLibrary.audienceLabel') }}<select v-model="form.audience" class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white"><option value="all">{{ t('operationsLibrary.everyone') }}</option><option value="management">{{ t('operationsLibrary.management') }}</option><option value="finance">{{ t('operationsLibrary.finance') }}</option><option value="operations">{{ t('operationsLibrary.operations') }}</option><option value="sales">{{ t('operationsLibrary.sales') }}</option></select></label>
       <label class="text-xs text-slate-400">{{ t('operationsLibrary.reviewDue') }}<input v-model="form.reviewDueAt" type="date" class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white" /></label>
       <label class="text-xs text-slate-400 sm:col-span-2">{{ t('operationsLibrary.guideline') }}<textarea v-model="form.body" required minlength="20" maxlength="250000" rows="14" :placeholder="t('operationsLibrary.guidelinePlaceholder')" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-white" /></label>
@@ -225,7 +238,7 @@ onMounted(load)
         <div class="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-300">{{ guideline.body }}</div>
         <a v-if="guideline.sourceDocument" class="mt-4 inline-flex min-h-10 items-center text-sm font-bold text-emerald-300 underline underline-offset-4" :href="resolveApiUrl(`/api/operation-guidelines/documents/${guideline.sourceDocument.id}/download`)">{{ t('operationsLibrary.downloadSource', { filename: guideline.sourceDocument.filename }) }}</a>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4 text-xs text-slate-500">
-          <span>{{ guideline.authorName ?? t('operationsLibrary.formerMember') }} · {{ t('operationsLibrary.audience', { audience: audienceLabel(guideline.audience) }) }}</span>
+          <span>{{ t('operationsLibrary.owner', { owner: guideline.ownerName ?? t('operationsLibrary.unassignedOwner') }) }} · {{ t('operationsLibrary.documentedBy', { author: guideline.authorName ?? t('operationsLibrary.formerMember') }) }} · {{ t('operationsLibrary.audience', { audience: audienceLabel(guideline.audience) }) }}</span>
           <div class="flex gap-2"><button v-if="canWrite && guideline.status !== 'archived'" type="button" class="min-h-10 rounded-lg bg-slate-800 px-3 font-bold text-slate-300" @click="editGuideline(guideline)">{{ t('operationsLibrary.edit') }}</button><button v-if="canApprove && guideline.status === 'draft'" type="button" class="min-h-10 rounded-lg bg-emerald-500/15 px-3 font-bold text-emerald-300" @click="changeStatus(guideline, 'approve')">{{ t('operationsLibrary.approve') }}</button><button v-if="canApprove && guideline.status !== 'archived'" type="button" class="min-h-10 rounded-lg bg-slate-800 px-3 font-bold text-slate-300" @click="changeStatus(guideline, 'archive')">{{ t('operationsLibrary.archive') }}</button></div>
         </div>
       </CollapsibleSection>

@@ -156,7 +156,7 @@ export async function sendNewsletterBroadcast(params: {
   previewText?: string | null
   html: string
   text: string
-}): Promise<string> {
+}): Promise<{ id: string; status: string; sentAt: string | null }> {
   const response = await externalOperation(() =>
     resendClient().broadcasts.create({
       segmentId: requiredConfig('RESEND_NEWSLETTER_SEGMENT_ID'),
@@ -170,7 +170,19 @@ export async function sendNewsletterBroadcast(params: {
     }),
   )
   if (response.error) throw new Error(response.error.message)
-  return response.data.id
+  const provider = await getNewsletterBroadcast(response.data.id)
+  return { id: response.data.id, status: provider.status, sentAt: provider.sentAt }
+}
+
+export async function getNewsletterBroadcast(
+  broadcastId: string,
+): Promise<{ status: string; sentAt: string | null }> {
+  const response = await externalOperation(() => resendClient().broadcasts.get(broadcastId))
+  if (response.error) throw new Error(response.error.message)
+  return {
+    status: response.data.status,
+    sentAt: response.data.sent_at,
+  }
 }
 
 export function verifyResendWebhook(

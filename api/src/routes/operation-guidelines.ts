@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index.js'
 import {
   knowledgeEvaluationCases,
@@ -25,6 +26,7 @@ const guidelineSchema = z.object({
   category: z.string().trim().min(2).max(80),
   body: z.string().trim().min(20).max(250000),
   audience: z.enum(['all', 'management', 'finance', 'operations', 'sales']).default('all'),
+  ownerId: z.string().uuid().optional(),
   reviewDueAt: z.string().datetime().nullable().optional(),
 })
 
@@ -39,20 +41,43 @@ const evaluationCaseSchema = z.object({
 export const operationGuidelineRoutes = new Hono<{ Variables: AppVariables }>()
 operationGuidelineRoutes.use('*', authMiddleware)
 
+const guidelineAuthor = alias(users, 'operation_guideline_author')
+const guidelineOwner = alias(users, 'operation_guideline_owner')
+
+async function isAssignableGuidelineOwner(farmId: string, ownerId: string): Promise<boolean> {
+  const [owner] = await db.select({ id: users.id }).from(users).where(and(
+    eq(users.id, ownerId),
+    eq(users.farmId, farmId),
+    eq(users.active, true),
+  )).limit(1)
+  return Boolean(owner)
+}
+
 operationGuidelineRoutes.get('/', async (c) => {
   const user = c.get('user')
   if (!hasPermission(user, 'knowledge.read') && !hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
   const rows = await db
-    .select({ guideline: operationGuidelines, authorName: users.name, documentId: operationGuidelineDocuments.id, documentFilename: operationGuidelineDocuments.originalFilename })
+    .select({ guideline: operationGuidelines, authorName: guidelineAuthor.name, ownerName: guidelineOwner.name, documentId: operationGuidelineDocuments.id, documentFilename: operationGuidelineDocuments.originalFilename })
     .from(operationGuidelines)
-    .leftJoin(users, eq(operationGuidelines.createdById, users.id))
+    .leftJoin(guidelineAuthor, eq(operationGuidelines.createdById, guidelineAuthor.id))
+    .leftJoin(guidelineOwner, eq(operationGuidelines.ownerId, guidelineOwner.id))
     .leftJoin(operationGuidelineDocuments, eq(operationGuidelineDocuments.guidelineId, operationGuidelines.id))
     .where(eq(operationGuidelines.farmId, user.farmId))
     .orderBy(desc(operationGuidelines.updatedAt))
   const canApprove = hasPermission(user, 'knowledge.approve')
   return c.json({ guidelines: rows
     .filter(({ guideline }) => canApprove || guideline.status === 'approved' || guideline.createdById === user.id)
-    .map(({ guideline, authorName, documentId, documentFilename }) => ({ ...guideline, authorName, sourceDocument: documentId ? { id: documentId, filename: documentFilename } : null })) })
+    .map(({ guideline, authorName, ownerName, documentId, documentFilename }) => ({ ...guideline, authorName, ownerName, sourceDocument: documentId ? { id: documentId, filename: documentFilename } : null })) })
+})
+
+operationGuidelineRoutes.get('/owners', async (c) => {
+  const user = c.get('user')
+  if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
+  const owners = await db.select({ id: users.id, name: users.name }).from(users).where(and(
+    eq(users.farmId, user.farmId),
+    eq(users.active, true),
+  )).orderBy(users.name)
+  return c.json({ owners })
 })
 
 operationGuidelineRoutes.post('/imports/preview', async (c) => {
@@ -135,8 +160,10 @@ operationGuidelineRoutes.post('/imports/:id/create-draft', zValidator('json', gu
   if (document.scanStatus !== 'clean' || document.extractionStatus !== 'needs_review' || document.guidelineId) return c.json({ error: 'This document has not completed safe processing or has already been used' }, 409)
   if (document.uploadedById !== user.id && !hasPermission(user, 'knowledge.approve')) return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
+  const ownerId = body.ownerId ?? user.id
+  if (!await isAssignableGuidelineOwner(user.farmId, ownerId)) return c.json({ error: 'Choose an active owner from this farm' }, 400)
   const guideline = await db.transaction(async (tx) => {
-    const [created] = await tx.insert(operationGuidelines).values({ farmId: user.farmId, title: body.title, category: body.category, body: body.body, audience: body.audience, reviewDueAt: body.reviewDueAt ? new Date(body.reviewDueAt) : null, createdById: user.id }).returning()
+    const [created] = await tx.insert(operationGuidelines).values({ farmId: user.farmId, title: body.title, category: body.category, body: body.body, audience: body.audience, ownerId, reviewDueAt: body.reviewDueAt ? new Date(body.reviewDueAt) : null, createdById: user.id }).returning()
     await tx.update(operationGuidelineDocuments).set({ guidelineId: created.id, extractionStatus: 'draft_created', updatedAt: new Date() }).where(eq(operationGuidelineDocuments.id, document.id))
     return created
   })
@@ -178,7 +205,9 @@ operationGuidelineRoutes.post('/', zValidator('json', guidelineSchema), async (c
   const user = c.get('user')
   if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
-  const [guideline] = await db.insert(operationGuidelines).values({ farmId: user.farmId, title: body.title, category: body.category, body: body.body, audience: body.audience, reviewDueAt: body.reviewDueAt ? new Date(body.reviewDueAt) : null, createdById: user.id }).returning()
+  const ownerId = body.ownerId ?? user.id
+  if (!await isAssignableGuidelineOwner(user.farmId, ownerId)) return c.json({ error: 'Choose an active owner from this farm' }, 400)
+  const [guideline] = await db.insert(operationGuidelines).values({ farmId: user.farmId, title: body.title, category: body.category, body: body.body, audience: body.audience, ownerId, reviewDueAt: body.reviewDueAt ? new Date(body.reviewDueAt) : null, createdById: user.id }).returning()
   await logAudit({ farmId: user.farmId, userId: user.id, action: 'operation_guideline_create', entityType: 'operation_guideline', entityId: guideline.id })
   return c.json({ guideline }, 201)
 })
@@ -191,6 +220,7 @@ operationGuidelineRoutes.patch('/:id', zValidator('json', guidelineSchema.partia
   if (!existing) return c.json({ error: 'Guideline not found' }, 404)
   if (existing.createdById !== user.id && !hasPermission(user, 'knowledge.approve')) return c.json({ error: 'Forbidden' }, 403)
   const body = c.req.valid('json')
+  if (body.ownerId && !await isAssignableGuidelineOwner(user.farmId, body.ownerId)) return c.json({ error: 'Choose an active owner from this farm' }, 400)
   const [guideline] = await db.update(operationGuidelines).set({ ...body, reviewDueAt: body.reviewDueAt === undefined ? existing.reviewDueAt : body.reviewDueAt ? new Date(body.reviewDueAt) : null, status: 'draft', approvedAt: null, approvedById: null, version: existing.version + 1, updatedAt: new Date() }).where(eq(operationGuidelines.id, id)).returning()
   return c.json({ guideline })
 })
@@ -204,7 +234,7 @@ operationGuidelineRoutes.post('/:id/approve', async (c) => {
   const documentId = await findGuidelineDocumentId(existing.id)
   if (documentId && existing.createdById === user.id && user.role !== 'owner') return c.json({ error: 'A different manager must approve an imported document' }, 409)
   const approvedAt = new Date()
-  const contentSha256 = createHash('sha256').update([existing.title, existing.category, existing.audience, existing.body].join('\n')).digest('hex')
+  const contentSha256 = createHash('sha256').update([existing.title, existing.category, existing.audience, existing.ownerId ?? '', existing.body].join('\n')).digest('hex')
   let approved: {
     guideline: typeof existing
     version: typeof operationGuidelineVersions.$inferSelect
@@ -222,6 +252,7 @@ operationGuidelineRoutes.post('/:id/approve', async (c) => {
         category: existing.category,
         body: existing.body,
         audience: existing.audience,
+        ownerId: existing.ownerId,
         contentSha256,
         sourceDocumentId: documentId,
         approvedById: user.id,

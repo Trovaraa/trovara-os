@@ -344,6 +344,7 @@ export const operationGuidelines = pgTable(
     status: text('status').default('draft').notNull(),
     version: integer('version').default(1).notNull(),
     reviewDueAt: timestamp('review_due_at', { withTimezone: true }),
+    ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
     createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
@@ -417,6 +418,7 @@ export const operationGuidelineVersions = pgTable(
     category: text('category').notNull(),
     body: text('body').notNull(),
     audience: text('audience').notNull(),
+    ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
     contentSha256: text('content_sha256').notNull(),
     sourceDocumentId: uuid('source_document_id').references(() => operationGuidelineDocuments.id, { onDelete: 'set null' }),
     approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
@@ -939,6 +941,7 @@ export const newsletterCampaigns = pgTable(
     ctaUrl: text('cta_url'),
     status: text('status').default('draft').notNull(),
     providerBroadcastId: text('provider_broadcast_id'),
+    providerStatus: text('provider_status'),
     recipientCount: integer('recipient_count').default(0).notNull(),
     deliveredCount: integer('delivered_count').default(0).notNull(),
     failedCount: integer('failed_count').default(0).notNull(),
@@ -960,7 +963,9 @@ export const newsletterCampaigns = pgTable(
     check('newsletter_campaigns_audience_check', sql`${t.audienceType} in ('newsletter', 'product_waitlist')`),
     check('newsletter_campaigns_status_check', sql`${t.status} in ('draft', 'sending', 'sent', 'partial', 'failed')`),
     check('newsletter_campaigns_product_shape', sql`(${t.audienceType} = 'product_waitlist') = (${t.productKey} is not null)`),
-    check('newsletter_campaigns_journal_shape', sql`(${t.campaignType} = 'journal') = (${t.journalPostId} is not null)`),
+    // Keep a sent Journal campaign as audit history even if its source post is
+    // later deleted. Non-Journal campaigns must never point at a Journal post.
+    check('newsletter_campaigns_journal_shape', sql`${t.campaignType} = 'journal' or ${t.journalPostId} is null`),
     check('newsletter_campaigns_counts_check', sql`${t.recipientCount} >= 0 and ${t.deliveredCount} >= 0 and ${t.failedCount} >= 0`),
   ],
 )
@@ -971,6 +976,7 @@ export const newsletterCampaignDeliveries = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     campaignId: uuid('campaign_id').references(() => newsletterCampaigns.id, { onDelete: 'cascade' }).notNull(),
     farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    newsletterSubscriberId: uuid('newsletter_subscriber_id').references(() => newsletterSubscribers.id, { onDelete: 'set null' }),
     marketingLeadId: uuid('marketing_lead_id').references(() => marketingLeads.id, { onDelete: 'set null' }),
     recipientEmail: text('recipient_email').notNull(),
     recipientName: text('recipient_name').notNull(),
@@ -983,7 +989,8 @@ export const newsletterCampaignDeliveries = pgTable(
   (t) => [
     uniqueIndex('newsletter_campaign_deliveries_campaign_email_uq').on(t.campaignId, t.recipientEmail),
     index('newsletter_campaign_deliveries_farm_campaign_idx').on(t.farmId, t.campaignId),
-    check('newsletter_campaign_deliveries_status_check', sql`${t.status} in ('pending', 'sent', 'failed')`),
+    check('newsletter_campaign_deliveries_status_check', sql`${t.status} in ('pending', 'sent', 'delivered', 'delayed', 'failed')`),
+    check('newsletter_campaign_deliveries_recipient_source_check', sql`not (${t.newsletterSubscriberId} is not null and ${t.marketingLeadId} is not null)`),
     check('newsletter_campaign_deliveries_email_normalized', sql`${t.recipientEmail} = lower(${t.recipientEmail})`),
   ],
 )

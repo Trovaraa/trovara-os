@@ -41,6 +41,7 @@ type NewsletterCampaign = {
   failedCount: number
   lastError: string | null
   providerBroadcastId: string | null
+  providerStatus: string | null
   sentAt: string | null
   createdAt: string
 }
@@ -115,6 +116,10 @@ function formatDate(value: string | null | undefined): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
+}
+
+function pendingDeliveryCount(campaign: NewsletterCampaign): number {
+  return Math.max(0, campaign.recipientCount - campaign.deliveredCount - campaign.failedCount)
 }
 
 function clearMessages() {
@@ -423,10 +428,23 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
               <p class="truncate font-bold text-white">{{ campaign.subject }}</p>
               <span class="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-300">{{ campaign.status }}</span>
             </div>
-            <p class="mt-1 text-xs text-slate-400">
-              {{ campaign.providerBroadcastId
-                ? t('newsletter.broadcastAccepted', { total: campaign.recipientCount })
-                : t('newsletter.campaignResult', { sent: campaign.deliveredCount, total: campaign.recipientCount, failed: campaign.failedCount }) }} · {{ formatDate(campaign.sentAt || campaign.createdAt) }}
+            <template v-if="campaign.providerBroadcastId">
+              <p class="mt-1 text-xs text-slate-400">
+                {{ t('newsletter.broadcastAccepted', { total: campaign.recipientCount }) }} ·
+                {{ t('newsletter.providerStatus', { status: campaign.providerStatus || campaign.status }) }} ·
+                {{ formatDate(campaign.sentAt || campaign.createdAt) }}
+              </p>
+              <p class="mt-1 text-xs text-slate-400">
+                {{ t('newsletter.broadcastDelivery', {
+                  delivered: campaign.deliveredCount,
+                  total: campaign.recipientCount,
+                  pending: pendingDeliveryCount(campaign),
+                  failed: campaign.failedCount,
+                }) }}
+              </p>
+            </template>
+            <p v-else class="mt-1 text-xs text-slate-400">
+              {{ t('newsletter.campaignResult', { sent: campaign.deliveredCount, total: campaign.recipientCount, failed: campaign.failedCount }) }} · {{ formatDate(campaign.sentAt || campaign.createdAt) }}
             </p>
             <p v-if="campaign.lastError" class="mt-1 text-xs text-red-300">{{ campaign.lastError }}</p>
           </div>

@@ -271,10 +271,17 @@ be retried from the owner API.
    https://os.trovara.farm/public/newsletter/webhook
    ```
 
-   Subscribe it to exactly these events:
+   Subscribe it to exactly these events. The delivery events drive the
+   per-campaign delivered, delayed, and failed counts shown in Trovara OS:
 
    ```text
    contact.updated
+   email.sent
+   email.scheduled
+   email.delivered
+   email.delivery_delayed
+   email.failed
+   email.suppressed
    email.bounced
    email.complained
    ```
