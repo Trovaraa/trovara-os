@@ -8,6 +8,7 @@ type Block =
   | { kind: 'ul'; items: Segment[][] }
   | { kind: 'ol'; items: Segment[][] }
   | { kind: 'p'; lines: Segment[][] }
+  | { kind: 'h'; level: number; text: Segment[] }
   | { kind: 'table'; headers: Segment[][]; rows: Segment[][][] }
 
 // Inline parser: **bold** and `code`. Never uses v-html, so input stays safe.
@@ -48,8 +49,9 @@ const blocks = computed<Block[]>(() => {
   const lines = raw.split('\n')
   const result: Block[] = []
 
-  const bulletRe = /^\s*[-•*]\s+(.*)$/
-  const orderedRe = /^\s*\d+[.)]\s+(.*)$/
+    const bulletRe = /^\s*[-•*]\s+(.*)$/
+    const orderedRe = /^\s*\d+[.)]\s+(.*)$/
+    const headingRe = /^(#{1,6})\s+(.*)$/
 
   let paragraph: Segment[][] = []
   const flushParagraph = () => {
@@ -86,6 +88,13 @@ const blocks = computed<Block[]>(() => {
       continue
     }
 
+    const heading = line.match(headingRe)
+    if (heading) {
+      flushParagraph()
+      result.push({ kind: 'h', level: heading[1]!.length, text: parseInline(heading[2] ?? '') })
+      continue
+    }
+
     const bullet = line.match(bulletRe)
     if (bullet) {
       flushParagraph()
@@ -116,7 +125,22 @@ const blocks = computed<Block[]>(() => {
 <template>
   <div class="space-y-2">
     <template v-for="(block, bIdx) in blocks" :key="bIdx">
-      <ul v-if="block.kind === 'ul'" class="list-disc pl-5 space-y-1">
+      <p
+        v-if="block.kind === 'h'"
+        class="font-black text-white"
+        :class="block.level <= 2 ? 'text-base' : 'text-sm'"
+      >
+        <template v-for="(seg, sIdx) in block.text" :key="sIdx">
+          <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
+          <code
+            v-else-if="seg.type === 'code'"
+            class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+          >{{ seg.value }}</code>
+          <span v-else>{{ seg.value }}</span>
+        </template>
+      </p>
+
+      <ul v-else-if="block.kind === 'ul'" class="list-disc pl-5 space-y-1">
         <li v-for="(item, iIdx) in block.items" :key="iIdx">
           <template v-for="(seg, sIdx) in item" :key="sIdx">
             <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>

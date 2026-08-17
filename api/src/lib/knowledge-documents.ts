@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { readFile, unlink } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import mammoth from 'mammoth'
+import { htmlToGuidelineMarkdown, isMarkdownTableBlock } from './knowledge-html.js'
 import { extractPdfPlainText } from './invoice-extract.js'
 import { getEvidenceStorageRoot } from './evidence-store.js'
 import {
@@ -77,9 +78,12 @@ export async function extractKnowledgeDocument(
     }
   } else {
     mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    const result = await mammoth.extractRawText({ buffer })
-    raw = result.value
+    const result = await mammoth.convertToHtml({ buffer })
+    raw = htmlToGuidelineMarkdown(result.value)
     warnings.push(...result.messages.map((message) => message.message).filter(Boolean).slice(0, 10))
+    if (raw.includes('| --- |')) {
+      warnings.push('Word tables were kept as formatted tables. Check column labels against the source file.')
+    }
   }
 
   let text = normalizeExtractedText(raw)
@@ -149,9 +153,43 @@ export async function deleteKnowledgeDocument(farmId: string, storageKey: string
 
 export type KnowledgeChunkDraft = { chunkIndex: number; heading: string | null; content: string }
 
+function splitPreservingTables(body: string): string[] {
+  const lines = normalizeExtractedText(body).split('\n')
+  const blocks: string[] = []
+  let buffer: string[] = []
+  let inTable = false
+
+  const flush = () => {
+    const text = buffer.join('\n').trim()
+    if (text) blocks.push(text)
+    buffer = []
+  }
+
+  for (const line of lines) {
+    const tableLine = /^\s*\|.+\|\s*$/.test(line)
+    if (tableLine) {
+      if (!inTable) flush()
+      inTable = true
+      buffer.push(line)
+      continue
+    }
+    if (inTable) {
+      flush()
+      inTable = false
+    }
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+    buffer.push(line)
+  }
+  flush()
+  return blocks.flatMap((block) => (isMarkdownTableBlock(block) ? [block] : block.split(/\n{2,}/).filter(Boolean)))
+}
+
 /** Split reviewed guideline text into stable, overlapping chunks for semantic retrieval. */
 export function splitGuidelineIntoChunks(body: string, targetChars = 1_200): KnowledgeChunkDraft[] {
-  const paragraphs = normalizeExtractedText(body).split(/\n{2,}/).filter(Boolean)
+  const paragraphs = splitPreservingTables(body)
   const chunks: KnowledgeChunkDraft[] = []
   let current = ''
   let heading: string | null = null
@@ -160,16 +198,21 @@ export function splitGuidelineIntoChunks(body: string, targetChars = 1_200): Kno
     const content = current.trim()
     if (!content) return
     chunks.push({ chunkIndex: chunks.length, heading, content })
-    const overlap = content.slice(-180)
+    const overlap = isMarkdownTableBlock(content) ? '' : content.slice(-180)
     current = overlap.includes(' ') ? overlap.slice(overlap.indexOf(' ') + 1) : ''
   }
 
   for (const paragraph of paragraphs) {
-    const looksLikeHeading = paragraph.length <= 100 && !/[.!?]$/.test(paragraph)
-    if (looksLikeHeading) heading = paragraph
+    const table = isMarkdownTableBlock(paragraph)
+    const looksLikeHeading = !table && paragraph.length <= 100 && !/[.!?]$/.test(paragraph)
+    if (looksLikeHeading) heading = paragraph.replace(/^#{1,6}\s+/, '')
     if (current && current.length + paragraph.length + 2 > targetChars) flush()
     current += `${current ? '\n\n' : ''}${paragraph}`
-    while (current.length > targetChars * 1.6) {
+    if (table && current.length > targetChars) {
+      flush()
+      continue
+    }
+    while (!table && current.length > targetChars * 1.6) {
       const cutAt = current.lastIndexOf(' ', targetChars)
       const cut = cutAt > targetChars * 0.6 ? cutAt : targetChars
       const rest = current.slice(cut).trim()

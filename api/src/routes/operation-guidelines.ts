@@ -17,7 +17,7 @@ import {
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
-import { deleteKnowledgeDocument, inspectKnowledgeDocument, MAX_KNOWLEDGE_DOCUMENT_BYTES, readKnowledgeDocument, storeKnowledgeDocument } from '../lib/knowledge-documents.js'
+import { deleteKnowledgeDocument, extractKnowledgeDocument, inspectKnowledgeDocument, MAX_KNOWLEDGE_DOCUMENT_BYTES, readKnowledgeDocument, storeKnowledgeDocument } from '../lib/knowledge-documents.js'
 import { findGuidelineDocumentId, removeGuidelineFromIndex } from '../lib/knowledge-index.js'
 import { embeddingModel } from '../lib/embeddings.js'
 
@@ -182,6 +182,50 @@ operationGuidelineRoutes.delete('/imports/:id', async (c) => {
   await deleteKnowledgeDocument(user.farmId, document.storageKey)
   if (document.cleanStorageKey) await deleteKnowledgeDocument(user.farmId, document.cleanStorageKey)
   return c.json({ deleted: true })
+})
+
+operationGuidelineRoutes.post('/documents/:id/reextract', async (c) => {
+  const user = c.get('user')
+  if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
+  const [document] = await db.select().from(operationGuidelineDocuments).where(and(
+    eq(operationGuidelineDocuments.id, c.req.param('id')),
+    eq(operationGuidelineDocuments.farmId, user.farmId),
+  )).limit(1)
+  if (!document) return c.json({ error: 'Document not found' }, 404)
+  if (document.scanStatus !== 'clean') return c.json({ error: 'Document is quarantined or still processing' }, 409)
+  const storageKey = document.cleanStorageKey || document.storageKey
+  if (!storageKey) return c.json({ error: 'The original file is no longer available' }, 409)
+  if (document.uploadedById !== user.id && !hasPermission(user, 'knowledge.approve')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const file = await readKnowledgeDocument(user.farmId, storageKey)
+  let extracted
+  try {
+    extracted = await extractKnowledgeDocument(file, document.originalFilename)
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Could not re-read the source document' }, 422)
+  }
+  await db.update(operationGuidelineDocuments).set({
+    extractedText: extracted.text,
+    extractionWarnings: extracted.warnings,
+    updatedAt: new Date(),
+  }).where(eq(operationGuidelineDocuments.id, document.id))
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'operation_guideline_document_reextract',
+    entityType: 'operation_guideline_document',
+    entityId: document.id,
+    metadata: { guidelineId: document.guidelineId, filename: document.originalFilename },
+  })
+  return c.json({
+    document: {
+      id: document.id,
+      filename: document.originalFilename,
+      extractedText: extracted.text,
+      warnings: extracted.warnings,
+    },
+  })
 })
 
 operationGuidelineRoutes.get('/documents/:id/download', async (c) => {
