@@ -43,4 +43,12 @@ describe('htmlToGuidelineMarkdown', () => {
     expect(markdown).toContain('Safe')
     expect(markdown).not.toMatch(/<!--|<style|<script/i)
   })
+
+  it('strips script and style end tags that include whitespace', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<script>alert(1)</script ><style>p{}</style ><p>Safe</p>',
+    )
+    expect(markdown).toBe('Safe')
+    expect(markdown).not.toMatch(/alert|p\{\}/i)
+  })
 })

@@ -78,8 +78,8 @@ function convertTable(tableHtml: string): string {
 /** Turn Mammoth HTML into reviewable markdown, keeping Word tables as GFM tables. */
 export function htmlToGuidelineMarkdown(html: string): string {
   let value = replaceUntilStable(html, /<!--[\s\S]*?-->/g)
-  value = replaceUntilStable(value, /<style\b[^>]*>[\s\S]*?<\/style>/gi)
-  value = replaceUntilStable(value, /<script\b[^>]*>[\s\S]*?<\/script>/gi)
+  value = replaceUntilStable(value, /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi)
+  value = replaceUntilStable(value, /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi)
   value = value.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (table) => `\n\n${convertTable(table)}\n\n`)
   value = value.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => {
     const text = inlineMarkdown(inner)
