@@ -1,73 +1,87 @@
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
+import { parseFragment, type DefaultTreeAdapterTypes } from 'parse5'
+
+type ChildNode = DefaultTreeAdapterTypes.ChildNode
+type Element = DefaultTreeAdapterTypes.Element
+type ParentNode = DefaultTreeAdapterTypes.ParentNode
+
+type RenderContext = {
+  tableCell?: boolean
 }
 
-export function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
-    .replace(/&([a-z]+);/gi, (match, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? match)
+const OMITTED_ELEMENTS = new Set(['script', 'style', 'template', 'noscript', 'iframe', 'object', 'embed'])
+
+function isElement(node: ChildNode): node is Element {
+  return 'tagName' in node
 }
 
-function inlineMarkdown(html: string): string {
-  let value = html
-  value = value.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_, _tag, inner: string) => {
-    const text = stripTags(inner)
-    return text ? `**${text}**` : ''
+function childrenOf(node: ParentNode | Element): ChildNode[] {
+  return 'childNodes' in node ? node.childNodes : []
+}
+
+function escapeMarkdownText(value: string, tableCell = false): string {
+  let escaped = value.replace(/\\/g, '\\\\')
+  if (tableCell) escaped = escaped.replace(/\|/g, '\\|')
+  return escaped.replace(/([`*_[\]<>])/g, '\\$1')
+}
+
+function containsControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 31 || code === 127
   })
-  value = value.replace(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href: string, inner: string) => {
-    const text = stripTags(inner)
-    if (!text) return ''
-    return /^https?:\/\//i.test(href) ? `[${text}](${href})` : text
-  })
-  return stripTags(value)
 }
 
-function replaceUntilStable(value: string, pattern: RegExp, replacement = ''): string {
-  let previous = ''
-  let current = value
-  while (current !== previous) {
-    previous = current
-    current = current.replace(new RegExp(pattern.source, pattern.flags), replacement)
+function safeHttpUrl(value: string): string | null {
+  if (!value || value.length > 2_048 || containsControlCharacter(value)) return null
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
+    return url.href
+  } catch {
+    return null
   }
-  return current
 }
 
-function stripTags(html: string): string {
-  return decodeHtmlEntities(
-    replaceUntilStable(
-      html.replace(/<br\s*\/?>/gi, ' ').replace(/<\/(?:p|div|h[1-6])>/gi, ' '),
-      /<[^>]+>/g,
-      ' ',
-    ),
-  )
-    .replace(/\s+/g, ' ')
-    .trim()
+function renderChildren(node: ParentNode | Element, context: RenderContext = {}): string {
+  return childrenOf(node)
+    .map((child) => renderNode(child, context))
+    .join('')
 }
 
-function escapeTableCell(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
+function attribute(element: Element, name: string): string | null {
+  return element.attrs.find((item) => item.name.toLowerCase() === name)?.value ?? null
 }
 
-function convertTable(tableHtml: string): string {
-  const rows = [...tableHtml.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+function descendantRows(element: Element): Element[] {
+  const rows: Element[] = []
+  const visit = (node: ChildNode) => {
+    if (!isElement(node)) return
+    if (node.tagName === 'table' && node !== element) return
+    if (node.tagName === 'tr') {
+      rows.push(node)
+      return
+    }
+    node.childNodes.forEach(visit)
+  }
+  element.childNodes.forEach(visit)
+  return rows
+}
+
+function renderTable(table: Element): string {
+  const rows = descendantRows(table)
     .map((row) =>
-      [...row[1]!.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => {
-        const text = escapeTableCell(inlineMarkdown(cell[1]!))
-        return text || ' '
-      }),
+      row.childNodes
+        .filter((node): node is Element => isElement(node) && ['td', 'th'].includes(node.tagName))
+        .map((cell) => renderChildren(cell, { tableCell: true }).replace(/\s+/g, ' ').trim() || ' '),
     )
     .filter((row) => row.length > 0)
+
   if (!rows.length) return ''
   const width = Math.max(...rows.map((row) => row.length))
   const padded = rows.map((row) => [...row, ...Array.from({ length: width - row.length }, () => ' ')])
   const [header, ...body] = padded
   if (!header) return ''
+
   return [
     `| ${header.join(' | ')} |`,
     `| ${header.map(() => '---').join(' | ')} |`,
@@ -75,29 +89,49 @@ function convertTable(tableHtml: string): string {
   ].join('\n')
 }
 
+function renderNode(node: ChildNode, context: RenderContext = {}): string {
+  if ('value' in node) return escapeMarkdownText(node.value, context.tableCell)
+  if (!isElement(node) || OMITTED_ELEMENTS.has(node.tagName)) return ''
+
+  const tag = node.tagName.toLowerCase()
+  if (tag === 'table') return `\n\n${renderTable(node)}\n\n`
+  if (/^h[1-6]$/.test(tag)) {
+    const text = renderChildren(node, context).replace(/\s+/g, ' ').trim()
+    const level = Math.min(Number(tag.slice(1)), 3)
+    return text ? `\n\n${'#'.repeat(level)} ${text}\n\n` : '\n\n'
+  }
+  if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article') {
+    const text = renderChildren(node, context).trim()
+    return text ? `${text}\n\n` : '\n'
+  }
+  if (tag === 'br') return context.tableCell ? ' ' : '\n'
+  if (tag === 'li') {
+    const text = renderChildren(node, context).replace(/\s+/g, ' ').trim()
+    return text ? `- ${text}\n` : ''
+  }
+  if (tag === 'ul' || tag === 'ol') return `\n${renderChildren(node, context)}\n`
+  if (tag === 'strong' || tag === 'b') {
+    const text = renderChildren(node, context).trim()
+    return text ? `**${text}**` : ''
+  }
+  if (tag === 'em' || tag === 'i') {
+    const text = renderChildren(node, context).trim()
+    return text ? `*${text}*` : ''
+  }
+  if (tag === 'a') {
+    const text = renderChildren(node, context).replace(/\s+/g, ' ').trim()
+    if (!text) return ''
+    const href = safeHttpUrl(attribute(node, 'href') ?? '')
+    return href ? `[${text}](<${href}>)` : text
+  }
+
+  return renderChildren(node, context)
+}
+
 /** Turn Mammoth HTML into reviewable markdown, keeping Word tables as GFM tables. */
 export function htmlToGuidelineMarkdown(html: string): string {
-  let value = replaceUntilStable(html, /<!--[\s\S]*?-->/g)
-  value = replaceUntilStable(value, /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi)
-  value = replaceUntilStable(value, /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi)
-  value = value.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (table) => `\n\n${convertTable(table)}\n\n`)
-  value = value.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => {
-    const text = inlineMarkdown(inner)
-    return text ? `\n\n${'#'.repeat(Math.min(Number(level), 3))} ${text}\n\n` : '\n\n'
-  })
-  value = value.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_, inner: string) => `- ${inlineMarkdown(inner)}\n`)
-  value = value.replace(/<\/?(?:ul|ol)\b[^>]*>/gi, '\n')
-  value = value.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_, inner: string) => {
-    const text = inlineMarkdown(inner)
-    return text ? `${text}\n\n` : '\n'
-  })
-  value = value.replace(/<br\s*\/?>/gi, '\n')
-  value = value.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_, _tag, inner: string) => {
-    const text = inlineMarkdown(inner)
-    return text ? `**${text}**` : ''
-  })
-  value = replaceUntilStable(value, /<[^>]+>/g)
-  return decodeHtmlEntities(value)
+  const fragment = parseFragment(html)
+  return renderChildren(fragment)
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{4,}/g, '\n\n\n')

@@ -51,4 +51,29 @@ describe('htmlToGuidelineMarkdown', () => {
     expect(markdown).toBe('Safe')
     expect(markdown).not.toMatch(/alert|p\{\}/i)
   })
+
+  it('strips malformed executable elements instead of filtering HTML with regular expressions', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<script>alert(1)</script\t\n data-test><iframe src="https://example.com">bad</iframe><p>Safe</p>',
+    )
+    expect(markdown).toBe('Safe')
+    expect(markdown).not.toMatch(/alert|iframe|bad/i)
+  })
+
+  it('escapes entity-encoded HTML and rejects unsafe link protocols', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<p>&lt;img src=x onerror=alert(1)&gt; <a href="javascript:alert(1)">Open</a></p>',
+    )
+    expect(markdown).toContain('\\<img src=x onerror=alert(1)\\> Open')
+    expect(markdown).not.toContain('javascript:')
+  })
+
+  it('keeps safe links without exposing URL credentials', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<p><a href="https://example.com/guideline">Safe</a> <a href="https://user:pass@example.com/">Secret</a></p>',
+    )
+    expect(markdown).toContain('[Safe](<https://example.com/guideline>)')
+    expect(markdown).toContain('Secret')
+    expect(markdown).not.toContain('user:pass')
+  })
 })
