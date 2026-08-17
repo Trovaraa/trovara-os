@@ -1,18 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const isLlmConfigured = vi.fn(() => true)
-const completeChat = vi.fn(async () => ({ text: 'This is a poultry investor brief.\n- First revenue in 8-12 weeks.', model: 'gpt-4o-mini' }))
-const checkLlmBudget = vi.fn(() => ({ allowed: true, used: 0, limit: 500 }))
-const consumeLlmBudget = vi.fn()
+const completeChat = vi.fn(async (_system: string, _user: string) => ({
+  text: 'This is a poultry investor brief.\n- First revenue in 8-12 weeks.',
+  model: 'gpt-4o-mini',
+}))
+const checkLlmBudget = vi.fn((_farmId: string) => ({ allowed: true, used: 0, limit: 500 }))
+const consumeLlmBudget = vi.fn((_farmId: string) => {})
 
 vi.mock('./llm.js', () => ({
   isLlmConfigured: () => isLlmConfigured(),
-  completeChat: (...args: unknown[]) => completeChat(...args),
+  completeChat: (system: string, user: string) => completeChat(system, user),
 }))
 
 vi.mock('./llm-budget.js', () => ({
-  checkLlmBudget: (...args: unknown[]) => checkLlmBudget(...args),
-  consumeLlmBudget: (...args: unknown[]) => consumeLlmBudget(...args),
+  checkLlmBudget: (farmId: string) => checkLlmBudget(farmId),
+  consumeLlmBudget: (farmId: string) => consumeLlmBudget(farmId),
 }))
 
 const { briefGuidelineContent, prepareGuidelineTextForBrief } = await import('./knowledge-brief.js')
@@ -50,7 +53,7 @@ describe('briefGuidelineContent', () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.brief).toContain('poultry investor brief')
     expect(completeChat).toHaveBeenCalledTimes(1)
-    const [system, user] = completeChat.mock.calls[0] as [string, string]
+    const [system, user] = completeChat.mock.calls[0]
     expect(system).toContain('Use ONLY the document text')
     expect(system).toContain('English')
     expect(user).toContain('Project Feather')
