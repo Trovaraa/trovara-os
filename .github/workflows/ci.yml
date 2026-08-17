@@ -20,8 +20,8 @@ jobs:
       DATABASE_URL: postgresql://trovara:test@127.0.0.1:5432/trovara_os_test
     services:
       postgres:
-        # Pin by digest (postgres:16 / 16.14 as of 2026-07-16 multi-arch index)
-        image: postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
+        # Match production PostgreSQL 17 with pgvector pre-installed.
+        image: pgvector/pgvector@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
           POSTGRES_USER: trovara
           POSTGRES_PASSWORD: test
@@ -75,7 +75,7 @@ jobs:
       DATABASE_URL: postgresql://trovara:test@127.0.0.1:5432/trovara_os_upgrade
     services:
       postgres:
-        image: postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
+        image: pgvector/pgvector@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
           POSTGRES_USER: trovara
           POSTGRES_PASSWORD: test
