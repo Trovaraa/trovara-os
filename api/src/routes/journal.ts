@@ -10,6 +10,7 @@ import { journalComments, journalPostLikes, journalPosts } from '../db/schema.js
 import { logAudit } from '../lib/audit.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import { triggerJournalBuildHook } from '../lib/journal-build-hook.js'
+import { createJournalAnnouncement, dispatchNewsletterCampaign } from '../lib/newsletter-campaigns.js'
 import { readJournalMedia, storeJournalMedia } from '../lib/journal-media.js'
 import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { clientIpFromHeaders } from '../lib/client-ip.js'
@@ -373,6 +374,7 @@ journalRoutes.patch(
     const nextPublished = body.published ?? existing.published
     const changedPublication = nextPublished !== existing.published
     const publishedAt = nextPublished ? existing.publishedAt ?? new Date() : null
+    let newsletterNotification: 'queued' | 'already_created' | null = null
 
     try {
       const [post] = await db
@@ -406,8 +408,26 @@ journalRoutes.patch(
           access: requestAccessMeta((name) => c.req.header(name)),
         })
       }
+      if (changedPublication && nextPublished) {
+        const announcement = await createJournalAnnouncement({
+          farmId: user.farmId,
+          journalPostId: postId,
+          userId: user.id,
+        })
+        if (announcement?.created) {
+          newsletterNotification = 'queued'
+          void dispatchNewsletterCampaign(announcement.campaignId, user.farmId).catch((error) => {
+            console.warn(
+              `Journal subscriber notification failed for post ${postId}:`,
+              error instanceof Error ? error.message : error,
+            )
+          })
+        } else if (announcement) {
+          newsletterNotification = 'already_created'
+        }
+      }
       if (nextPublished || existing.published) triggerJournalBuildHook(postId)
-      return c.json({ post })
+      return c.json({ post, newsletterNotification })
     } catch (error) {
       if (isUniqueViolation(error)) return c.json({ error: 'Slug already exists' }, 409)
       throw error

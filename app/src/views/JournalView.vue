@@ -239,8 +239,9 @@ async function savePost(published?: boolean) {
   clearMessages()
   try {
     let post: JournalPost
+    let newsletterNotification: 'queued' | 'already_created' | null = null
     if (selectedPost.value) {
-      const data = await api<{ post: JournalPost }>(`/api/journal/${selectedPost.value.id}`, {
+      const data = await api<{ post: JournalPost; newsletterNotification?: 'queued' | 'already_created' | null }>(`/api/journal/${selectedPost.value.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           ...payload(),
@@ -248,6 +249,7 @@ async function savePost(published?: boolean) {
         }),
       })
       post = data.post
+      newsletterNotification = data.newsletterNotification ?? null
     } else {
       const created = await api<{ post: JournalPost }>('/api/journal', {
         method: 'POST',
@@ -255,11 +257,12 @@ async function savePost(published?: boolean) {
       })
       post = created.post
       if (published === true) {
-        const publishedResult = await api<{ post: JournalPost }>(`/api/journal/${post.id}`, {
+        const publishedResult = await api<{ post: JournalPost; newsletterNotification?: 'queued' | 'already_created' | null }>(`/api/journal/${post.id}`, {
           method: 'PATCH',
           body: JSON.stringify({ published: true }),
         })
         post = publishedResult.post
+        newsletterNotification = publishedResult.newsletterNotification ?? null
       }
     }
     replacePost(post)
@@ -268,7 +271,9 @@ async function savePost(published?: boolean) {
     else engagement.value = null
     notice.value =
       published === true
-        ? t('journal.publishedNotice')
+        ? newsletterNotification === 'queued'
+          ? t('journal.publishedAndNotifiedNotice')
+          : t('journal.publishedNotice')
         : published === false
           ? t('journal.unpublishedNotice')
           : t('journal.savedNotice')

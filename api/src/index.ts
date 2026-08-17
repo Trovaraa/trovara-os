@@ -59,6 +59,7 @@ import { customerShopRoutes } from './routes/customer-shop.js'
 import { journalRoutes, publicJournalRoutes } from './routes/journal.js'
 import { brandRoutes, publicBrandRoutes } from './routes/brand.js'
 import { newsletterRoutes, publicNewsletterRoutes } from './routes/newsletter.js'
+import { newsletterCampaignRoutes } from './routes/newsletter-campaigns.js'
 import {
   marketingLeadRoutes,
   publicMarketingLeadRoutes,
@@ -109,6 +110,7 @@ app.route('/api/support', supportRoutes)
 app.route('/api/journal', journalRoutes)
 app.route('/api/brand', brandRoutes)
 app.route('/api/newsletter', newsletterRoutes)
+app.route('/api/newsletter-campaigns', newsletterCampaignRoutes)
 app.route('/api/marketing-leads', marketingLeadRoutes)
 app.route('/api/customer-surveys', customerSurveyRoutes)
 app.route('/api/moments', momentsRoutes)

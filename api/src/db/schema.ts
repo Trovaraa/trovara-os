@@ -923,6 +923,71 @@ export const newsletterWebhookEvents = pgTable(
   ],
 )
 
+export const newsletterCampaigns = pgTable(
+  'newsletter_campaigns',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    campaignType: text('campaign_type').notNull(),
+    audienceType: text('audience_type').notNull(),
+    productKey: text('product_key'),
+    journalPostId: uuid('journal_post_id').references(() => journalPosts.id, { onDelete: 'set null' }),
+    subject: text('subject').notNull(),
+    previewText: text('preview_text'),
+    bodyText: text('body_text').notNull(),
+    ctaLabel: text('cta_label'),
+    ctaUrl: text('cta_url'),
+    status: text('status').default('draft').notNull(),
+    providerBroadcastId: text('provider_broadcast_id'),
+    recipientCount: integer('recipient_count').default(0).notNull(),
+    deliveredCount: integer('delivered_count').default(0).notNull(),
+    failedCount: integer('failed_count').default(0).notNull(),
+    lastError: text('last_error'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('newsletter_campaigns_farm_created_idx').on(t.farmId, t.createdAt),
+    uniqueIndex('newsletter_campaigns_journal_once_uq')
+      .on(t.farmId, t.journalPostId)
+      .where(sql`${t.journalPostId} is not null`),
+    uniqueIndex('newsletter_campaigns_provider_broadcast_uq')
+      .on(t.providerBroadcastId)
+      .where(sql`${t.providerBroadcastId} is not null`),
+    check('newsletter_campaigns_type_check', sql`${t.campaignType} in ('journal', 'marketing', 'product_availability')`),
+    check('newsletter_campaigns_audience_check', sql`${t.audienceType} in ('newsletter', 'product_waitlist')`),
+    check('newsletter_campaigns_status_check', sql`${t.status} in ('draft', 'sending', 'sent', 'partial', 'failed')`),
+    check('newsletter_campaigns_product_shape', sql`(${t.audienceType} = 'product_waitlist') = (${t.productKey} is not null)`),
+    check('newsletter_campaigns_journal_shape', sql`(${t.campaignType} = 'journal') = (${t.journalPostId} is not null)`),
+    check('newsletter_campaigns_counts_check', sql`${t.recipientCount} >= 0 and ${t.deliveredCount} >= 0 and ${t.failedCount} >= 0`),
+  ],
+)
+
+export const newsletterCampaignDeliveries = pgTable(
+  'newsletter_campaign_deliveries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    campaignId: uuid('campaign_id').references(() => newsletterCampaigns.id, { onDelete: 'cascade' }).notNull(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'restrict' }).notNull(),
+    marketingLeadId: uuid('marketing_lead_id').references(() => marketingLeads.id, { onDelete: 'set null' }),
+    recipientEmail: text('recipient_email').notNull(),
+    recipientName: text('recipient_name').notNull(),
+    status: text('status').default('pending').notNull(),
+    lastError: text('last_error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('newsletter_campaign_deliveries_campaign_email_uq').on(t.campaignId, t.recipientEmail),
+    index('newsletter_campaign_deliveries_farm_campaign_idx').on(t.farmId, t.campaignId),
+    check('newsletter_campaign_deliveries_status_check', sql`${t.status} in ('pending', 'sent', 'failed')`),
+    check('newsletter_campaign_deliveries_email_normalized', sql`${t.recipientEmail} = lower(${t.recipientEmail})`),
+  ],
+)
+
 export const marketingLeads = pgTable(
   'marketing_leads',
   {

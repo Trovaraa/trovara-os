@@ -53,6 +53,26 @@ sync, or unsubscribe while retaining consent history using
 `POST /api/newsletter/:id/sync`, and `PATCH /api/newsletter/:id/status`.
 Re-subscribing requires the subscriber to submit and confirm the public form.
 
+Owner-only campaign endpoints are under `/api/newsletter-campaigns`:
+
+- `GET /` lists the 100 most recent campaigns and their provider/delivery state.
+- `GET /audience?audienceType=newsletter` counts confirmed subscribers that are
+  synchronized to the configured Resend Segment.
+- `GET /audience?audienceType=product_waitlist&productKey=plantain` counts unique
+  email contacts who explicitly joined that product waitlist and have recorded
+  consent.
+- `POST /` validates the message, records the campaign, and sends it after the
+  OS user confirms the final recipient count in the UI.
+- `POST /:id/send` retries a failed newsletter broadcast or only failed/pending
+  recipients of a product-availability campaign.
+
+Changing a Journal post from draft to published creates one idempotent Journal
+campaign and queues a Resend Broadcast to the confirmed newsletter Segment.
+Editing an already-published post or unpublishing/republishing it cannot create
+a second announcement for that post. Campaign history and provider acceptance
+are shown on the Newsletter page; Resend remains the source of truth for
+individual broadcast delivery and unsubscribe handling.
+
 ---
 
 ## Marketing contacts and product waitlists
@@ -60,6 +80,9 @@ Re-subscribing requires the subscriber to submit and confirm the public form.
 Trovara OS is the source of truth for website enquiries and product waitlists.
 These records are separate from newsletter consent and are never added to
 newsletter subscribers, Resend Contacts, or a Resend Segment.
+They may receive a one-time product-availability follow-up only for the exact
+product waitlist they joined. That requested follow-up is sent directly and is
+not treated as newsletter membership or a general marketing opt-in.
 
 The public, per-IP rate-limited routes are:
 

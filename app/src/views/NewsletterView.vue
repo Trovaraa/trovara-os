@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
@@ -27,6 +27,24 @@ type NewsletterResponse = {
   summary: NewsletterSummary
 }
 
+type CampaignAudience = 'newsletter' | 'product_waitlist'
+type CampaignStatus = 'draft' | 'sending' | 'sent' | 'partial' | 'failed'
+type NewsletterCampaign = {
+  id: string
+  campaignType: 'journal' | 'marketing' | 'product_availability'
+  audienceType: CampaignAudience
+  productKey: string | null
+  subject: string
+  status: CampaignStatus
+  recipientCount: number
+  deliveredCount: number
+  failedCount: number
+  lastError: string | null
+  providerBroadcastId: string | null
+  sentAt: string | null
+  createdAt: string
+}
+
 const { t, locale } = useI18n()
 const subscribers = ref<NewsletterSubscriber[]>([])
 const summary = ref<NewsletterSummary>({
@@ -41,6 +59,27 @@ const notice = ref<string | null>(null)
 const search = ref('')
 const statusFilter = ref<'all' | SubscriberStatus>('all')
 const activeAction = ref<string | null>(null)
+const campaigns = ref<NewsletterCampaign[]>([])
+const campaignSending = ref(false)
+const audienceLoading = ref(false)
+const audienceCount = ref(0)
+const campaignForm = reactive({
+  audienceType: 'newsletter' as CampaignAudience,
+  productKey: 'plantain',
+  subject: '',
+  previewText: '',
+  bodyText: '',
+  ctaLabel: '',
+  ctaUrl: '',
+})
+
+const products = [
+  { key: 'plantain', label: 'Plantain' },
+  { key: 'coconut', label: 'Coconut' },
+  { key: 'poultry', label: 'Pasture-raised Chicken' },
+  { key: 'eggs', label: 'Pasture-raised Eggs' },
+  { key: 'palm-oil', label: 'Palm Oil' },
+]
 
 const statuses: SubscriberStatus[] = ['confirmed', 'pending', 'unsubscribed', 'suppressed']
 
@@ -99,6 +138,89 @@ async function loadSubscribers() {
     error.value = e instanceof Error ? e.message : t('newsletter.loadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadCampaigns() {
+  try {
+    const data = await api<{ campaigns: NewsletterCampaign[] }>('/api/newsletter-campaigns')
+    campaigns.value = data.campaigns ?? []
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.campaignLoadFailed')
+  }
+}
+
+async function loadAudienceCount() {
+  audienceLoading.value = true
+  try {
+    const params = new URLSearchParams({ audienceType: campaignForm.audienceType })
+    if (campaignForm.audienceType === 'product_waitlist') params.set('productKey', campaignForm.productKey)
+    const data = await api<{ recipientCount: number }>(`/api/newsletter-campaigns/audience?${params}`)
+    audienceCount.value = data.recipientCount ?? 0
+  } catch {
+    audienceCount.value = 0
+  } finally {
+    audienceLoading.value = false
+  }
+}
+
+async function sendCampaign() {
+  if (campaignSending.value || !campaignForm.subject.trim() || !campaignForm.bodyText.trim()) return
+  if (!audienceCount.value) {
+    error.value = t('newsletter.noCampaignRecipients')
+    return
+  }
+  const audienceLabel = campaignForm.audienceType === 'newsletter'
+    ? t('newsletter.confirmedAudience')
+    : products.find((product) => product.key === campaignForm.productKey)?.label ?? campaignForm.productKey
+  if (!window.confirm(t('newsletter.sendCampaignConfirm', { count: audienceCount.value, audience: audienceLabel }))) return
+
+  campaignSending.value = true
+  clearMessages()
+  try {
+    await api('/api/newsletter-campaigns', {
+      method: 'POST',
+      body: JSON.stringify({
+        audienceType: campaignForm.audienceType,
+        ...(campaignForm.audienceType === 'product_waitlist' ? { productKey: campaignForm.productKey } : {}),
+        subject: campaignForm.subject.trim(),
+        ...(campaignForm.previewText.trim() ? { previewText: campaignForm.previewText.trim() } : {}),
+        bodyText: campaignForm.bodyText.trim(),
+        ...(campaignForm.ctaLabel.trim() && campaignForm.ctaUrl.trim()
+          ? { ctaLabel: campaignForm.ctaLabel.trim(), ctaUrl: campaignForm.ctaUrl.trim() }
+          : {}),
+      }),
+    })
+    Object.assign(campaignForm, {
+      subject: '',
+      previewText: '',
+      bodyText: '',
+      ctaLabel: '',
+      ctaUrl: '',
+    })
+    notice.value = t('newsletter.campaignSent', { count: audienceCount.value })
+    await Promise.all([loadCampaigns(), loadSubscribers(), loadAudienceCount()])
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.campaignSendFailed')
+    await loadCampaigns()
+  } finally {
+    campaignSending.value = false
+  }
+}
+
+async function retryCampaign(campaign: NewsletterCampaign) {
+  if (campaignSending.value || !window.confirm(t('newsletter.retryCampaignConfirm'))) return
+  campaignSending.value = true
+  clearMessages()
+  try {
+    await api(`/api/newsletter-campaigns/${campaign.id}/send`, { method: 'POST' })
+    notice.value = t('newsletter.campaignRetried')
+    await loadCampaigns()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.campaignSendFailed')
+    await loadCampaigns()
+  } finally {
+    campaignSending.value = false
   }
 }
 
@@ -178,7 +300,12 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(loadSubscribers)
+watch(
+  () => [campaignForm.audienceType, campaignForm.productKey],
+  () => void loadAudienceCount(),
+)
+
+onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCount()]))
 </script>
 
 <template>
@@ -224,6 +351,89 @@ onMounted(loadSubscribers)
       >
         <p class="text-xs font-semibold text-slate-400">{{ statusLabel(status) }}</p>
         <p class="mt-1 text-2xl font-black text-os-fg">{{ summary[status] }}</p>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-6">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 class="text-lg font-black text-white">{{ t('newsletter.campaignTitle') }}</h3>
+          <p class="mt-1 max-w-3xl text-sm text-slate-400">{{ t('newsletter.campaignSubtitle') }}</p>
+        </div>
+        <p class="rounded-full border border-farm-green/30 bg-farm-green/10 px-3 py-1.5 text-xs font-bold text-farm-green">
+          {{ audienceLoading ? t('newsletter.countingAudience') : t('newsletter.recipientCount', { count: audienceCount }) }}
+        </p>
+      </div>
+
+      <form class="mt-5 grid gap-4" @submit.prevent="sendCampaign">
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="text-sm font-semibold text-slate-300">
+            {{ t('newsletter.audience') }}
+            <select v-model="campaignForm.audienceType" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none">
+              <option value="newsletter">{{ t('newsletter.confirmedAudience') }}</option>
+              <option value="product_waitlist">{{ t('newsletter.productAudience') }}</option>
+            </select>
+          </label>
+          <label v-if="campaignForm.audienceType === 'product_waitlist'" class="text-sm font-semibold text-slate-300">
+            {{ t('newsletter.product') }}
+            <select v-model="campaignForm.productKey" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none">
+              <option v-for="product in products" :key="product.key" :value="product.key">{{ product.label }}</option>
+            </select>
+          </label>
+          <label class="text-sm font-semibold text-slate-300" :class="campaignForm.audienceType !== 'product_waitlist' ? 'md:col-start-2' : ''">
+            {{ t('newsletter.emailSubject') }}
+            <input v-model="campaignForm.subject" required maxlength="200" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.emailSubjectPlaceholder')" />
+          </label>
+        </div>
+        <label class="text-sm font-semibold text-slate-300">
+          {{ t('newsletter.previewText') }}
+          <input v-model="campaignForm.previewText" maxlength="240" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.previewTextPlaceholder')" />
+        </label>
+        <label class="text-sm font-semibold text-slate-300">
+          {{ t('newsletter.message') }}
+          <textarea v-model="campaignForm.bodyText" required maxlength="10000" rows="6" class="mt-1.5 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.messagePlaceholder')" />
+        </label>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="text-sm font-semibold text-slate-300">
+            {{ t('newsletter.ctaLabel') }}
+            <input v-model="campaignForm.ctaLabel" maxlength="80" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.ctaLabelPlaceholder')" />
+          </label>
+          <label class="text-sm font-semibold text-slate-300">
+            {{ t('newsletter.ctaUrl') }}
+            <input v-model="campaignForm.ctaUrl" type="url" maxlength="1000" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" placeholder="https://trovara.farm/..." />
+          </label>
+        </div>
+        <p class="text-xs text-slate-500">{{ t('newsletter.sendSafetyNote') }}</p>
+        <div>
+          <button type="submit" class="rounded-lg bg-farm-green px-4 py-2.5 text-sm font-black text-slate-950 hover:bg-farm-green/90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="campaignSending || audienceLoading || !audienceCount">
+            {{ campaignSending ? t('newsletter.sendingCampaign') : t('newsletter.sendCampaign') }}
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section v-if="campaigns.length" class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80">
+      <div class="border-b border-slate-800 p-4 sm:p-5">
+        <h3 class="font-black text-white">{{ t('newsletter.recentCampaigns') }}</h3>
+      </div>
+      <div class="divide-y divide-slate-800">
+        <article v-for="campaign in campaigns.slice(0, 12)" :key="campaign.id" class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="truncate font-bold text-white">{{ campaign.subject }}</p>
+              <span class="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-300">{{ campaign.status }}</span>
+            </div>
+            <p class="mt-1 text-xs text-slate-400">
+              {{ campaign.providerBroadcastId
+                ? t('newsletter.broadcastAccepted', { total: campaign.recipientCount })
+                : t('newsletter.campaignResult', { sent: campaign.deliveredCount, total: campaign.recipientCount, failed: campaign.failedCount }) }} · {{ formatDate(campaign.sentAt || campaign.createdAt) }}
+            </p>
+            <p v-if="campaign.lastError" class="mt-1 text-xs text-red-300">{{ campaign.lastError }}</p>
+          </div>
+          <button v-if="campaign.status === 'failed' || campaign.status === 'partial'" type="button" class="rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/10 disabled:opacity-50" :disabled="campaignSending" @click="retryCampaign(campaign)">
+            {{ t('newsletter.retryCampaign') }}
+          </button>
+        </article>
       </div>
     </section>
 

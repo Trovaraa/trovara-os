@@ -150,6 +150,29 @@ export async function upsertResendContact(subscriber: NewsletterContact): Promis
   return contactId
 }
 
+export async function sendNewsletterBroadcast(params: {
+  name: string
+  subject: string
+  previewText?: string | null
+  html: string
+  text: string
+}): Promise<string> {
+  const response = await externalOperation(() =>
+    resendClient().broadcasts.create({
+      segmentId: requiredConfig('RESEND_NEWSLETTER_SEGMENT_ID'),
+      from: requiredConfig('RESEND_FROM'),
+      name: params.name,
+      subject: params.subject,
+      previewText: params.previewText ?? undefined,
+      html: params.html,
+      text: params.text,
+      send: true,
+    }),
+  )
+  if (response.error) throw new Error(response.error.message)
+  return response.data.id
+}
+
 export function verifyResendWebhook(
   payload: string,
   headers: { id: string; timestamp: string; signature: string },
@@ -173,4 +196,3 @@ export function inboundWebhookConfigMissing(): string[] {
     (name) => !process.env[name]?.trim(),
   )
 }
-
