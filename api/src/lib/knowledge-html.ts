@@ -28,22 +28,37 @@ function inlineMarkdown(html: string): string {
   return stripTags(value)
 }
 
+function replaceUntilStable(value: string, pattern: RegExp, replacement = ''): string {
+  let previous = ''
+  let current = value
+  while (current !== previous) {
+    previous = current
+    current = current.replace(new RegExp(pattern.source, pattern.flags), replacement)
+  }
+  return current
+}
+
 function stripTags(html: string): string {
   return decodeHtmlEntities(
-    html
-      .replace(/<br\s*\/?>/gi, ' ')
-      .replace(/<\/(?:p|div|h[1-6])>/gi, ' ')
-      .replace(/<[^>]+>/g, ' '),
+    replaceUntilStable(
+      html.replace(/<br\s*\/?>/gi, ' ').replace(/<\/(?:p|div|h[1-6])>/gi, ' '),
+      /<[^>]+>/g,
+      ' ',
+    ),
   )
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function escapeTableCell(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
 }
 
 function convertTable(tableHtml: string): string {
   const rows = [...tableHtml.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
     .map((row) =>
       [...row[1]!.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => {
-        const text = inlineMarkdown(cell[1]!).replace(/\|/g, '\\|')
+        const text = escapeTableCell(inlineMarkdown(cell[1]!))
         return text || ' '
       }),
     )
@@ -62,7 +77,9 @@ function convertTable(tableHtml: string): string {
 
 /** Turn Mammoth HTML into reviewable markdown, keeping Word tables as GFM tables. */
 export function htmlToGuidelineMarkdown(html: string): string {
-  let value = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+  let value = replaceUntilStable(html, /<!--[\s\S]*?-->/g)
+  value = replaceUntilStable(value, /<style\b[^>]*>[\s\S]*?<\/style>/gi)
+  value = replaceUntilStable(value, /<script\b[^>]*>[\s\S]*?<\/script>/gi)
   value = value.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (table) => `\n\n${convertTable(table)}\n\n`)
   value = value.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => {
     const text = inlineMarkdown(inner)
@@ -79,7 +96,7 @@ export function htmlToGuidelineMarkdown(html: string): string {
     const text = inlineMarkdown(inner)
     return text ? `**${text}**` : ''
   })
-  value = value.replace(/<[^>]+>/g, '')
+  value = replaceUntilStable(value, /<[^>]+>/g)
   return decodeHtmlEntities(value)
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')

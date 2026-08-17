@@ -19,7 +19,9 @@ export type GuidelineBriefResult =
 /** Keep tables and headings; strip control chars and obvious prompt wrappers. */
 export function prepareGuidelineTextForBrief(value: string): string {
   return (value ?? '')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    // Keep newlines and tabs; drop the other ASCII controls before the model sees them.
+    // eslint-disable-next-line no-control-regex -- control-char scrubbing is the point
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ')
     .replace(/<\s*\/?\s*(system|assistant|developer|tool)\s*>/gi, ' ')
     .replace(/(^|\n)\s*(system|developer)\s*:\s*/gi, '\n')
     .trim()

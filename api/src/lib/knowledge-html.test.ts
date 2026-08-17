@@ -28,4 +28,19 @@ describe('htmlToGuidelineMarkdown', () => {
     expect(markdown).toContain('- **Phase 1**')
     expect(markdown).not.toContain('<')
   })
+
+  it('escapes backslashes and pipes inside table cells', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<table><tr><td>A|B</td><td>C\\D</td></tr><tr><td>1</td><td>2</td></tr></table>',
+    )
+    expect(markdown).toContain('| A\\|B | C\\\\D |')
+  })
+
+  it('does not leave nested comments, style, or script markup', () => {
+    const markdown = htmlToGuidelineMarkdown(
+      '<!--<!-- --> --><style>p{}<style>p{}</style></style><script>alert(1)<script>alert(1)</script></script><p>Safe</p>',
+    )
+    expect(markdown).toContain('Safe')
+    expect(markdown).not.toMatch(/<!--|<style|<script/i)
+  })
 })
