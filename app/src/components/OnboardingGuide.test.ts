@@ -82,9 +82,9 @@ describe('OnboardingGuide help affordance', () => {
     expect(trigger.title).toBe('Help')
     expect(trigger.textContent).toContain('Help')
     expect(trigger.className).toContain('fixed')
-    expect(trigger.className).toContain('right-4')
+    expect(trigger.className).toContain('right-3')
     expect(trigger.className).toContain('bottom-[calc(1rem+env(safe-area-inset-bottom))]')
-    expect(trigger.className).not.toContain('top-3')
+    expect(trigger.className).not.toContain('top-')
     expect(trigger.className).not.toContain('left-[6.5rem]')
 
     trigger.click()
@@ -112,7 +112,7 @@ describe('OnboardingGuide help affordance', () => {
     })
 
     const trigger = document.querySelector<HTMLButtonElement>('[data-testid="page-help-trigger"]')!
-    expect(trigger.className).toContain('right-4')
+    expect(trigger.className).toContain('right-3')
     expect(trigger.className).toContain(
       'bottom-[calc(5.25rem+env(safe-area-inset-bottom))]',
     )

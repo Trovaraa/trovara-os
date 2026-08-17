@@ -100,8 +100,9 @@ mailboxes; otherwise active Owner/Sales users are used, excluding break-glass.
 | GET | `/ready` | No | - | `200` when the database is reachable; otherwise `503` |
 
 The deployed frontend also serves `/RELEASE.json` with the immutable Git SHA,
-optional exact tag, and release timestamp. It is deployment metadata, not an API
-route.
+optional exact tag, release timestamp, and deploy/rollback operation. It is
+deployment metadata, not an API route. `/health` and `/ready` report the same
+SHA; deployment fails when API and frontend identities differ.
 
 Authenticated owners can read `GET /system-status`. Its sanitized operations
 fields include backup report/delivery state and restore-test status, age, and
@@ -582,6 +583,16 @@ Customer WhatsApp/Telegram order conversations also accept `4`, `complaint`,
 | POST | `/api/finance/` | Yes | owner | `{ expense }` |
 | PATCH | `/api/finance/:id` | Yes | owner | `{ expense }` |
 | DELETE | `/api/finance/:id` | Yes | owner | `{ ok: true }` |
+| POST | `/api/finance/imports/inspect` | Yes | `finance.write` | List workbook sheets, suggested classifications, row counts, and a detected ledger total |
+| POST | `/api/finance/imports/preview` | Yes | `finance.write` | Parse only sheets the user classified as expenses and return editable rows plus reconciliation data |
+| POST | `/api/finance/imports/commit` | Yes | `finance.write` | Import valid selected rows only when they reconcile to the signed expected total |
+
+Workbook imports preserve filename, SHA-256 file hash, sheet, source row number,
+source-row hash, payer, funding status, and project phase. Missing dates, missing
+expense categories/cost centres, and unreviewed formula-derived amounts block
+confirmation. Duplicate fingerprints are based on stable expense content, not
+the source filename or file hash, so the same expense is rejected across revised
+copies of a workbook.
 
 ### Resend finance inbound (`/public/finance/inbound`)
 
@@ -637,6 +648,7 @@ so older field clients can continue syncing while they are upgraded.
 | GET | `/api/ai/conversations/:id` | Yes | `ai.use` | Owned conversation and persisted messages |
 | DELETE | `/api/ai/conversations/:id/messages` | Yes | `ai.use` | Clear owned conversation messages and stored attachments |
 | POST | `/api/ai/conversations/:id/archive` | Yes | `ai.use` | Archive owned conversation |
+| PATCH | `/api/ai/messages/:messageId/feedback` | Yes | `ai.use` | Save/clear thumbs feedback and an optional correction on the caller's own assistant message |
 | POST | `/api/ai/ask` | Yes | `ai.use` | Permission-filtered answer or reviewable action draft |
 | GET | `/api/ai/actions/capabilities` | Yes | `ai.use` | Action types allowed by the user's current grants |
 | POST | `/api/ai/actions/:draftId/confirm` | Yes | `ai.use` + action permission | Revalidate and execute an owned action draft |
@@ -653,11 +665,63 @@ Web Copilot conversations are scoped by both `farm_id` and `user_id`; another us
 open, clear, archive, confirm, or cancel them. The API builds model history from persisted server
 messages and ignores client-supplied history as a source of authority. Uploaded photos are stored
 as private evidence references rather than retaining data URLs in the database.
+Answer feedback is stored on the exact assistant message. A sanitized correction from a thumbs-down
+is available only to later turns in that same owned conversation. Ratings are evaluation evidence;
+they do not automatically retrain the configured model or change server permissions.
 
 AI never grants an operation by itself. Explicit commands may prepare typed drafts for tasks,
 inventory, zones/plots, livestock logs, census, asset counts, field reports, and customer support.
 The required OS permission is checked when the draft is prepared and again when it is confirmed.
 Sales can use permitted order/support actions but cannot change inventory through AI.
+
+See [`AI-DATA-GROUNDING.md`](./AI-DATA-GROUNDING.md) for the storage, upload,
+permission, and anomaly-observation boundaries used to build AI context.
+
+---
+
+## Operations Library (`/api/operation-guidelines`)
+
+| Method | Path | Permission | Purpose |
+|--------|------|------------|---------|
+| GET | `/api/operation-guidelines` | `knowledge.read` or `knowledge.write` | List visible guidelines and protected source metadata |
+| POST | `/api/operation-guidelines` | `knowledge.write` | Create a manual draft |
+| PATCH | `/api/operation-guidelines/:id` | `knowledge.write` | Edit a permitted guideline as a new draft; the previous approved version remains live |
+| POST | `/api/operation-guidelines/:id/approve` | `knowledge.approve` | Snapshot an immutable approved version and queue a new vector-index generation; returns `202` |
+| POST | `/api/operation-guidelines/:id/archive` | `knowledge.approve` | Archive the guide and remove it from retrieval |
+| GET | `/api/operation-guidelines/:id/versions` | `knowledge.read` or `knowledge.write` | List immutable approved-version metadata |
+| POST | `/api/operation-guidelines/imports/preview` | `knowledge.write` | Encrypt a PDF/DOCX up to 10 MB into quarantine and queue scanning/extraction; returns `202` |
+| GET | `/api/operation-guidelines/imports/:id` | uploader or `knowledge.approve` | Poll malware-scan, OCR and extraction status |
+| POST | `/api/operation-guidelines/imports/:id/create-draft` | `knowledge.write` | Save corrected extraction as a linked draft |
+| DELETE | `/api/operation-guidelines/imports/:id` | uploader or `knowledge.approve` | Discard an unused preview and its private file |
+| GET | `/api/operation-guidelines/documents/:id/download` | same-farm, guideline-aware | Download the protected source document |
+| GET | `/api/operation-guidelines/evaluations/cases` | `knowledge.approve` | List retrieval-quality test cases |
+| POST | `/api/operation-guidelines/evaluations/cases` | `knowledge.approve` | Create a retrieval-quality test case |
+| GET | `/api/operation-guidelines/evaluations/runs` | `knowledge.approve` | List recent evaluation runs and metrics |
+| POST | `/api/operation-guidelines/evaluations/runs` | `knowledge.approve` | Queue the active retrieval test suite; returns `202` |
+
+Uploads are unavailable to users and Farm AI until ClamAV returns clean and a
+consultant reviews extracted/OCR text. Scanner failures fail closed. Imported
+documents require another manager to approve them, except an owner may approve
+their own upload. Approval preserves an immutable snapshot and queues indexing;
+the earlier active generation remains live if embedding or validation fails.
+Retrieval is always limited by farm, guideline audience, and the current user's
+resolved role/team/individual permissions. See
+[`OPERATIONS-LIBRARY-PIPELINE.md`](./OPERATIONS-LIBRARY-PIPELINE.md).
+
+---
+
+## Anomaly observations (`/api/anomalies`)
+
+| Method | Path | Auth | Permission | Purpose |
+|--------|------|------|------------|---------|
+| GET | `/api/anomalies?status=observed` | Yes | `anomalies.read` | List farm-scoped observations by review status |
+| POST | `/api/anomalies/run` | Yes | `anomalies.review` | Run deterministic observation rules without notifications or source writes |
+| PATCH | `/api/anomalies/:id/review` | Yes | `anomalies.review` | Record `explained`, `confirmed`, or `false_positive` with a required note |
+
+This endpoint is intentionally observation-only. Rows include the rule version,
+confidence, source entity, evidence, and review outcome. They do not prove
+misconduct and never alter the inventory, expense, maintenance, or user records
+that produced the signal.
 
 ---
 

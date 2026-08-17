@@ -26,6 +26,10 @@ EVIDENCE_STORAGE_ROOT="${EVIDENCE_STORAGE_ROOT:-$ROOT_DIR/api/data/evidence}"
 mkdir -p "$BACKUP_DIR"
 mkdir -p "$EVIDENCE_STORAGE_ROOT"
 
+# S3-compatible Operations Library objects are already application-encrypted.
+# Snapshot clean objects into the evidence tree before the encrypted archive is built.
+npm --prefix "$ROOT_DIR" run snapshot-knowledge >/dev/null
+
 shopt -s nullglob
 before_candidates=("$BACKUP_DIR"/*.sql)
 shopt -u nullglob

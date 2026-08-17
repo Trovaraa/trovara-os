@@ -161,6 +161,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/operations-library',
+      name: 'operations-library',
+      component: () => import('@/views/OperationsLibraryView.vue'),
+      meta: { requiresAuth: true, anyPermission: ['knowledge.read', 'knowledge.write'] },
+    },
+    {
       path: '/traceability',
       name: 'traceability',
       component: () => import('@/views/TraceabilityView.vue'),
@@ -173,6 +179,24 @@ const router = createRouter({
       meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor', 'field_worker'] },
     },
     {
+      path: '/maintenance',
+      name: 'maintenance',
+      component: () => import('@/views/MaintenanceView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'maintenance.read' },
+    },
+    {
+      path: '/scan',
+      name: 'scan',
+      component: () => import('@/views/ScannerView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'scan.use' },
+    },
+    {
+      path: '/contractors',
+      name: 'contractors',
+      component: () => import('@/views/ContractorsView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'contractors.read' },
+    },
+    {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
@@ -181,6 +205,12 @@ const router = createRouter({
         requiredPermission: 'reports.read',
         anyPermission: ['tasks.approve', 'finance.read', 'audit.export'],
       },
+    },
+    {
+      path: '/anomalies',
+      name: 'anomalies',
+      component: () => import('@/views/AnomaliesView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'anomalies.read' },
     },
     {
       path: '/journal',
@@ -206,7 +236,16 @@ const router = createRouter({
       component: () => import('@/views/MarketingLeadsView.vue'),
       meta: {
         requiresAuth: true,
-        anyPermission: ['leads.manage', 'finance.read'],
+        requiredPermission: 'leads.manage',
+      },
+    },
+    {
+      path: '/customer-surveys',
+      name: 'customer-surveys',
+      component: () => import('@/views/CustomerSurveysView.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredPermission: 'leads.manage',
       },
     },
     {

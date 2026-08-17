@@ -148,6 +148,15 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/public/leads/waitlist')).toBe(true)
     expect(isCsrfExemptPath('/public/leads')).toBe(false)
     expect(isCsrfExemptPath('/public/leads/contact/extra')).toBe(false)
+    expect(isCsrfExemptPath('/public/surveys')).toBe(true)
+    expect(isCsrfExemptPath('/public/surveys/extra')).toBe(false)
+  })
+
+  it('exempts only the anonymous Journal engagement mutations', () => {
+    expect(isCsrfExemptPath('/public/journal/field-note/like')).toBe(true)
+    expect(isCsrfExemptPath('/public/journal/field-note/comments')).toBe(true)
+    expect(isCsrfExemptPath('/public/journal/field-note')).toBe(false)
+    expect(isCsrfExemptPath('/public/journal/field-note/comments/extra')).toBe(false)
   })
 
   it('exempts customer shop unauthenticated routes', () => {

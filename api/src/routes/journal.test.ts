@@ -11,7 +11,14 @@ let sessionUser: Row = {
   name: 'Admin',
 }
 const selectQueue: Row[][] = []
+const tableSelectQueues = new Map<string, Row[][]>()
 const inserts: Row[] = []
+
+function queueSelect(table: string, rows: Row[]) {
+  const queue = tableSelectQueues.get(table) ?? []
+  queue.push(rows)
+  tableSelectQueues.set(table, queue)
+}
 
 vi.mock('../db/index.js', () => ({
   db: {
@@ -21,7 +28,9 @@ vi.mock('../db/index.js', () => ({
       const same = () => chain
       Object.assign(chain, {
         from: (table: unknown) => {
-          if (tableName(table) === 'journal_posts') rows = selectQueue.shift() ?? []
+          const name = tableName(table)
+          if (name === 'journal_posts') rows = selectQueue.shift() ?? []
+          else rows = tableSelectQueues.get(name)?.shift() ?? []
           return chain
         },
         where: same,
@@ -35,7 +44,10 @@ vi.mock('../db/index.js', () => ({
     insert: () => ({
       values: (values: Row) => {
         inserts.push(values)
-        return { returning: async () => [{ id: 'post-new', ...values }] }
+        return {
+          returning: async () => [{ id: 'post-new', ...values }],
+          onConflictDoNothing: async () => undefined,
+        }
       },
     }),
     update: () => ({ set: () => ({ where: () => ({ returning: async () => [] }) }) }),
@@ -94,6 +106,7 @@ const validPost = {
 beforeEach(() => {
   vi.clearAllMocks()
   selectQueue.length = 0
+  tableSelectQueues.clear()
   inserts.length = 0
   sessionUser = {
     id: '11111111-1111-4111-8111-111111111111',
@@ -198,5 +211,56 @@ describe('journal routes', () => {
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'examplefileexamplefileex.jpg',
     )
+  })
+
+  it('returns a visitor-specific like state and only the supplied public comments', async () => {
+    selectQueue.push([{ id: 'post-public', slug: 'published-post' }])
+    queueSelect('journal_post_likes', [{ count: 2 }])
+    queueSelect('journal_post_likes', [{ id: 'like-1' }])
+    queueSelect('journal_comments', [
+      {
+        id: 'comment-1',
+        authorName: 'Ada',
+        body: 'I enjoyed this field note.',
+        createdAt: new Date('2026-08-15T12:00:00Z'),
+      },
+    ])
+
+    const response = await (await publicApp()).request('/published-post/engagement')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toContain('trovara_journal_visitor=')
+    await expect(response.json()).resolves.toMatchObject({
+      likeCount: 2,
+      liked: true,
+      comments: [{ id: 'comment-1', authorName: 'Ada' }],
+    })
+  })
+
+  it('accepts a public comment as pending without exposing the visitor token', async () => {
+    selectQueue.push([{ id: 'post-public', slug: 'published-post' }])
+    const response = await (await publicApp()).request('/published-post/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Ada', body: 'Please share more harvest updates.' }),
+    })
+    expect(response.status).toBe(202)
+    expect(inserts.at(-1)).toMatchObject({
+      postId: 'post-public',
+      authorName: 'Ada',
+      status: 'pending',
+    })
+    expect(inserts.at(-1)?.visitorHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(await response.json())).not.toContain('visitor')
+  })
+
+  it('silently accepts honeypot comments without storing them', async () => {
+    const response = await (await publicApp()).request('/published-post/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bot', body: 'Spam link', honey: 'filled' }),
+    })
+    expect(response.status).toBe(202)
+    expect(inserts).toHaveLength(0)
+    expect(selectQueue).toHaveLength(0)
   })
 })

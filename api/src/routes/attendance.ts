@@ -10,6 +10,8 @@ import {
   clockOut,
   listHoursSummary,
   listToday,
+  reviewHours,
+  submitHours,
   supervisorCorrect,
   type HoursSummaryRange,
 } from '../lib/attendance-service.js'
@@ -38,6 +40,17 @@ const correctionSchema = allocationSchema
 const summaryQuerySchema = z.object({
   range: z.enum(['day', 'week', 'month', 'ytd']).default('week'),
   userId: z.string().uuid().optional(),
+})
+
+const submitHoursSchema = allocationSchema.extend({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  submittedMinutes: z.number().int().min(15).max(960),
+  workSummary: z.string().trim().min(3).max(2000),
+})
+
+const reviewHoursSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  rejectionReason: z.string().trim().max(500).nullable().optional(),
 })
 
 export const attendanceRoutes = new Hono<{ Variables: AppVariables }>()
@@ -118,6 +131,22 @@ attendanceRoutes.post('/clock-out', zValidator('json', clockOutSchema), async (c
   }
 })
 
+attendanceRoutes.post('/submit-hours', zValidator('json', submitHoursSchema), async (c) => {
+  try {
+    return c.json(await submitHours(c.get('user'), c.req.valid('json')), 201)
+  } catch (error) {
+    return attendanceError(c, error)
+  }
+})
+
+attendanceRoutes.post('/:id/review', zValidator('json', reviewHoursSchema), async (c) => {
+  try {
+    return c.json({ session: await reviewHours(c.get('user'), c.req.param('id'), c.req.valid('json')) })
+  } catch (error) {
+    return attendanceError(c, error)
+  }
+})
+
 attendanceRoutes.patch(
   '/:id',
   zValidator('json', correctionSchema),
@@ -148,6 +177,14 @@ function attendanceError(c: Context, error: unknown) {
     INVALID_TASK: 'Invalid task',
     ALLOCATION_MISMATCH: 'Task does not belong to the selected block',
     INVALID_TIME_RANGE: 'Clock-out cannot be before clock-in',
+    INVALID_WORK_DATE: 'Enter a valid work date',
+    WORK_DATE_OUT_OF_RANGE: 'Work dates can be today or within the allowed backfill period',
+    INVALID_HOURS: 'Hours must be between 15 minutes and 16 hours',
+    WORK_SUMMARY_REQUIRED: 'Describe what you spent time on',
+    ALREADY_SUBMITTED: 'Hours have already been submitted for this date',
+    NOT_PENDING: 'This hours entry is no longer awaiting review',
+    SELF_APPROVAL_FORBIDDEN: 'You cannot approve your own hours',
+    REJECTION_REASON_REQUIRED: 'Give a reason when returning an hours entry',
   }
   return c.json({ error: messages[code] ?? code }, 400)
 }

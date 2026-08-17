@@ -3,6 +3,7 @@ import { db } from '../db/index.js'
 import { aiConversations, aiMessages } from '../db/schema.js'
 import type { SessionUser } from './session.js'
 import { deleteEvidenceByUrl } from './evidence-store.js'
+import { sanitizeForLlm } from './sanitize-input.js'
 
 const MAX_MESSAGES = 100
 const MAX_CONTEXT_MESSAGES = 12
@@ -22,6 +23,9 @@ export type AiConversationMessage = {
   attachmentUrl: string | null
   model: string | null
   metadata: Record<string, unknown> | null
+  feedbackRating: 'up' | 'down' | null
+  feedbackNote: string | null
+  feedbackAt: string | null
   createdAt: string
 }
 
@@ -43,6 +47,12 @@ function message(row: typeof aiMessages.$inferSelect): AiConversationMessage {
     attachmentUrl: row.attachmentUrl,
     model: row.model,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    feedbackRating:
+      row.feedbackRating === 'up' || row.feedbackRating === 'down'
+        ? row.feedbackRating
+        : null,
+    feedbackNote: row.feedbackNote,
+    feedbackAt: row.feedbackAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   }
 }
@@ -158,10 +168,77 @@ export async function appendAiMessage(input: {
   return message(row)
 }
 
+export type AiContextRow = {
+  role: string
+  content: string
+  feedbackRating: string | null
+  feedbackNote: string | null
+}
+
+/**
+ * A correction on a negatively rated answer can guide the rest of this user's
+ * current thread. It is deliberately not global training data and never changes
+ * another user's answer context.
+ */
+export function conversationRowsToModelHistory(rows: AiContextRow[]) {
+  return rows
+    .flatMap((row) => {
+      const history: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        {
+          role: row.role === 'assistant' ? 'assistant' : 'user',
+          content: row.content,
+        },
+      ]
+      if (row.role === 'assistant' && row.feedbackRating === 'down' && row.feedbackNote) {
+        const correction = sanitizeForLlm(row.feedbackNote).trim().slice(0, 500)
+        if (correction) {
+          history.push({
+            role: 'user',
+            content: `Feedback on the previous answer: ${correction}`,
+          })
+        }
+      }
+      return history
+    })
+    .slice(-MAX_CONTEXT_MESSAGES)
+}
+
+export async function recordAiMessageFeedback(input: {
+  user: SessionUser
+  messageId: string
+  rating: 'up' | 'down' | null
+  note?: string | null
+}) {
+  const note =
+    input.rating === 'down' ? input.note?.trim().slice(0, 500) || null : null
+  const [row] = await db
+    .update(aiMessages)
+    .set({
+      feedbackRating: input.rating,
+      feedbackNote: note,
+      feedbackAt: input.rating ? new Date() : null,
+    })
+    .where(
+      and(
+        eq(aiMessages.id, input.messageId),
+        eq(aiMessages.farmId, input.user.farmId),
+        eq(aiMessages.userId, input.user.id),
+        eq(aiMessages.role, 'assistant'),
+      ),
+    )
+    .returning()
+  return row ? message(row) : null
+}
+
 /** History for the model, excluding the latest user turn supplied separately. */
 export async function loadAiConversationContext(user: SessionUser, conversationId: string) {
   const rows = await db
-    .select({ role: aiMessages.role, content: aiMessages.content })
+    .select({
+      role: aiMessages.role,
+      content: aiMessages.content,
+      feedbackRating: aiMessages.feedbackRating,
+      feedbackNote: aiMessages.feedbackNote,
+    })
     .from(aiMessages)
     .where(
       and(
@@ -172,10 +249,7 @@ export async function loadAiConversationContext(user: SessionUser, conversationI
     )
     .orderBy(desc(aiMessages.createdAt))
     .limit(MAX_CONTEXT_MESSAGES)
-  return rows.reverse().map((row) => ({
-    role: row.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-    content: row.content,
-  }))
+  return conversationRowsToModelHistory(rows.reverse())
 }
 
 export async function clearAiConversation(user: SessionUser, conversationId: string) {

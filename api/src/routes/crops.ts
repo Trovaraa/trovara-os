@@ -6,6 +6,7 @@ import { db } from '../db/index.js'
 import { cropCycles, cropCycleStages, cropCycleTasks, plots, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { hasPermission } from '../lib/rbac.js'
+import { COST_CENTRE_CODES } from '../lib/cost-centres.js'
 import { logAudit } from '../lib/audit.js'
 import { canAdvanceCropStage, type CropStage } from '../lib/state-machines.js'
 import { recordFarmEvent } from '../lib/farm-events.js'
@@ -201,7 +202,7 @@ const createCropSchema = z.object({
   expectedHarvestAt: z.string().datetime().optional(),
   expectedYieldKg: z.number().int().positive().optional(),
   standCount: z.number().int().positive().optional(),
-  costCentre: z.string().trim().min(1).max(100).optional(),
+  costCentre: z.enum(COST_CENTRE_CODES).optional(),
   notes: z.string().max(2000).optional(),
 })
 
@@ -212,7 +213,7 @@ const updateCropSchema = z.object({
   expectedYieldKg: z.number().int().positive().optional(),
   actualYieldKg: z.number().int().nonnegative().optional(),
   standCount: z.number().int().positive().nullable().optional(),
-  costCentre: z.string().trim().min(1).max(100).nullable().optional(),
+  costCentre: z.enum(COST_CENTRE_CODES).nullable().optional(),
   notes: z.string().max(2000).optional(),
   ownerOverride: z.boolean().optional(),
 })

@@ -15,6 +15,12 @@ export type AttendanceSession = {
   taskTitle: string | null
   notes: string | null
   workSummary: string | null
+  workDate: string | null
+  submittedMinutes: number | null
+  approvalStatus: 'pending' | 'approved' | 'rejected'
+  approvedById: string | null
+  approvedAt: string | null
+  rejectionReason: string | null
   correctedById: string | null
   correctedAt: string | null
   payableMinutes: number
@@ -37,8 +43,9 @@ export function useTodayAttendance(
   const attendanceError = ref<string | null>(null)
   const selectedPlotId = ref('')
   const selectedTaskId = ref('')
-  const attendanceNotes = ref('')
   const workSummary = ref('')
+  const workDate = ref(new Date().toISOString().slice(0, 10))
+  const hoursValue = ref('')
   const correctingId = ref<string | null>(null)
   const correctionClockIn = ref('')
   const correctionClockOut = ref('')
@@ -50,15 +57,10 @@ export function useTodayAttendance(
     return role === 'owner' || role === 'supervisor'
   })
   const canClockSelf = computed(() => SELF_ATTENDANCE_ROLES.has(getRole() ?? ''))
-  // Managers load farm-wide sessions; personal clock state must stay scoped to self.
-  const openAttendance = computed(() => {
+  const myTodaySubmission = computed(() => {
     const userId = getUserId()
-    return (
-      attendance.value.find(
-        (session) =>
-          session.clockOutAt === null && (userId ? session.userId === userId : true),
-      ) ?? null
-    )
+    const today = new Date().toISOString().slice(0, 10)
+    return attendance.value.find((session) => session.userId === userId && session.workDate === today) ?? null
   })
 
   async function refresh() {
@@ -76,18 +78,25 @@ export function useTodayAttendance(
     plots.value = plotData.plots.filter((plot) => plot.active)
   }
 
-  async function clockInNow() {
+  async function submitHoursNow() {
     attendanceBusy.value = true
     attendanceError.value = null
     try {
-      await api('/api/attendance/clock-in', {
+      const hours = Number(hoursValue.value)
+      if (!Number.isFinite(hours) || hours < 0.25 || hours > 16) throw new Error(t('hoursEntry.invalidHours'))
+      if (!workSummary.value.trim()) throw new Error(t('hoursEntry.summaryRequired'))
+      await api('/api/attendance/submit-hours', {
         method: 'POST',
         body: JSON.stringify({
+          workDate: workDate.value,
+          submittedMinutes: Math.round(hours * 60),
           plotId: selectedPlotId.value || null,
           taskId: selectedTaskId.value || null,
-          notes: attendanceNotes.value.trim() || null,
+          workSummary: workSummary.value.trim(),
         }),
       })
+      hoursValue.value = ''
+      workSummary.value = ''
       await refresh()
     } catch (e) {
       attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
@@ -96,15 +105,19 @@ export function useTodayAttendance(
     }
   }
 
-  async function clockOutNow() {
+  async function reviewHoursNow(session: AttendanceSession, decision: 'approved' | 'rejected') {
     attendanceBusy.value = true
     attendanceError.value = null
     try {
-      await api('/api/attendance/clock-out', {
+      let rejectionReason: string | null = null
+      if (decision === 'rejected') {
+        rejectionReason = window.prompt(t('hoursEntry.returnQuestion'))?.trim() || null
+        if (!rejectionReason) return
+      }
+      await api(`/api/attendance/${session.id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ workSummary: workSummary.value.trim() || null }),
+        body: JSON.stringify({ decision, rejectionReason }),
       })
-      workSummary.value = ''
       await refresh()
     } catch (e) {
       attendanceError.value = e instanceof Error ? e.message : t('today.attendanceActionFailed')
@@ -162,8 +175,9 @@ export function useTodayAttendance(
     attendanceError,
     selectedPlotId,
     selectedTaskId,
-    attendanceNotes,
     workSummary,
+    workDate,
+    hoursValue,
     correctingId,
     correctionClockIn,
     correctionClockOut,
@@ -171,11 +185,11 @@ export function useTodayAttendance(
     showAttendance,
     canManageAttendance,
     canClockSelf,
-    openAttendance,
+    myTodaySubmission,
     loadAttendance,
     refresh,
-    clockInNow,
-    clockOutNow,
+    submitHoursNow,
+    reviewHoursNow,
     startCorrection,
     saveCorrection,
     formatMinutes,

@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:17.2-alpine
+    # Same PostgreSQL major version, with the pgvector extension pre-installed.
+    image: pgvector/pgvector:0.8.6-pg17
     container_name: trovara-os-db
     restart: unless-stopped
     environment:
@@ -8,8 +9,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-trovara_os}
     ports:
-      # Dev only: bound to localhost so host API can connect
-      - "127.0.0.1:5432:5432"
+      # Bound to localhost so the host API can connect. PGPORT avoids a
+      # collision when a host-managed PostgreSQL cluster already owns 5432.
+      - "127.0.0.1:${PGPORT:-5432}:5432"
     volumes:
       - trovara_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,5 +20,68 @@ services:
       timeout: 5s
       retries: 10
 
+  object-storage:
+    # Apache-2.0, S3-compatible storage for encrypted private source files.
+    # Pin above 4.30: earlier versions contain GHSA-w62w-66v9-vvgv.
+    image: chrislusf/seaweedfs:4.40
+    container_name: trovara-os-object-storage
+    restart: unless-stopped
+    command: mini -dir=/data
+    environment:
+      AWS_ACCESS_KEY_ID: ${KNOWLEDGE_STORAGE_ACCESS_KEY:?Set KNOWLEDGE_STORAGE_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${KNOWLEDGE_STORAGE_SECRET_KEY:?Set KNOWLEDGE_STORAGE_SECRET_KEY in .env}
+      S3_BUCKET: ${KNOWLEDGE_STORAGE_BUCKET:-trovara-knowledge}
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - trovara_object_data:/data
+
+  clamav:
+    image: clamav/clamav:1.5.3
+    # The official 1.5 image currently publishes amd64 only. Docker Desktop /
+    # OrbStack can emulate it on Apple Silicon; production x86_64 runs natively.
+    platform: linux/amd64
+    container_name: trovara-os-clamav
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - trovara_clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  knowledge-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-worker
+    container_name: trovara-os-knowledge-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-trovara}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-trovara_os}
+      KNOWLEDGE_STORAGE_ENDPOINT: http://object-storage:8333
+      KNOWLEDGE_STORAGE_REGION: ${KNOWLEDGE_STORAGE_REGION:-us-east-1}
+      KNOWLEDGE_STORAGE_BUCKET: ${KNOWLEDGE_STORAGE_BUCKET:-trovara-knowledge}
+      KNOWLEDGE_STORAGE_ACCESS_KEY: ${KNOWLEDGE_STORAGE_ACCESS_KEY:?Set KNOWLEDGE_STORAGE_ACCESS_KEY in .env}
+      KNOWLEDGE_STORAGE_SECRET_KEY: ${KNOWLEDGE_STORAGE_SECRET_KEY:?Set KNOWLEDGE_STORAGE_SECRET_KEY in .env}
+      KNOWLEDGE_STORAGE_ENCRYPTION_KEY: ${KNOWLEDGE_STORAGE_ENCRYPTION_KEY:?Set KNOWLEDGE_STORAGE_ENCRYPTION_KEY in .env}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      OCR_COMMAND: ocrmypdf
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+      object-storage:
+        condition: service_started
+
 volumes:
   trovara_pg_data:
+  trovara_object_data:
+  trovara_clamav_data:

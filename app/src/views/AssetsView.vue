@@ -37,6 +37,7 @@ type Asset = {
   category: string
   unit: string
   quantityOwned: number
+  scanCode?: string | null
   assignedToId: string | null
   assignedToName: string | null
   notes: string | null
@@ -65,6 +66,7 @@ const newCategory = ref('tool')
 const newUnit = ref('unit')
 const newQty = ref<number | ''>('')
 const newAssetTag = ref('')
+const newScanCode = ref('')
 const newLocation = ref('')
 const newTrackingMode = ref<'pool' | 'individual'>('pool')
 const newManufacturer = ref('')
@@ -141,6 +143,7 @@ async function createAsset() {
         quantityOwned: newQty.value === '' ? 0 : Number(newQty.value),
         trackingMode: newTrackingMode.value,
         assetTag: newAssetTag.value.trim() || undefined,
+        scanCode: newScanCode.value.trim() || undefined,
         manufacturer: newManufacturer.value.trim() || undefined,
         model: newModel.value.trim() || undefined,
         serialNumber: newSerialNumber.value.trim() || undefined,
@@ -157,6 +160,7 @@ async function createAsset() {
     newName.value = ''
     newQty.value = ''
     newAssetTag.value = ''
+    newScanCode.value = ''
     newLocation.value = ''
     newTrackingMode.value = 'pool'
     newManufacturer.value = ''
@@ -320,6 +324,11 @@ function formatDate(value: string): string {
         <input
           v-model="newAssetTag"
           :placeholder="t('assets.assetTag')"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+        />
+        <input
+          v-model="newScanCode"
+          placeholder="Barcode / scan code (optional)"
           class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <input

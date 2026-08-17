@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import ReportsDigestPanel from '@/components/reports/ReportsDigestPanel.vue'
 import ReportsPlotProfitabilityPanel from '@/components/reports/ReportsPlotProfitabilityPanel.vue'
 import { useReportsData } from '@/composables/useReportsData'
@@ -111,9 +112,11 @@ function auditLocation(metadata: unknown): string {
         <!-- Exception Digest -->
         <ReportsDigestPanel v-if="digest" :digest="digest" />
 
-        <!-- Manager Action List -->
-        <section v-if="actionList" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 class="font-bold text-white mb-4">{{ t('reports.actionListTitle') }}</h3>
+        <CollapsibleSection
+          v-if="actionList"
+          :title="t('reports.actionListTitle')"
+          :default-open="false"
+        >
           <ul v-if="actionList.actions.length" class="space-y-2">
             <li
               v-for="item in actionList.actions.slice(0, 10)"
@@ -125,19 +128,21 @@ function auditLocation(metadata: unknown): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noActions') }}</p>
-        </section>
+        </CollapsibleSection>
 
-        <!-- Inventory shrink / leakage -->
-        <section v-if="inventoryShrink" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.shrinkTitle') }}</h3>
+        <CollapsibleSection
+          v-if="inventoryShrink"
+          :title="t('reports.shrinkTitle')"
+          :default-open="false"
+        >
+          <template #meta>
             <span class="text-xs text-slate-500">
               {{ t('reports.lastDays', { count: inventoryShrink.periodDays }) }} ·
               <span :class="inventoryShrink.flaggedCount ? 'text-amber-300' : 'text-farm-green'">
                 {{ t('reports.shrinkFlagged', { count: inventoryShrink.flaggedCount }) }}
               </span>
             </span>
-          </div>
+          </template>
           <ul v-if="inventoryShrink.items.length" class="space-y-2">
             <li
               v-for="item in inventoryShrink.items.slice(0, 10)"
@@ -163,14 +168,16 @@ function auditLocation(metadata: unknown): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.shrinkNone') }}</p>
-        </section>
+        </CollapsibleSection>
 
-        <!-- Inventory Burn Rate -->
-        <section v-if="burnRate" class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.burnRateTitle') }}</h3>
+        <CollapsibleSection
+          v-if="burnRate"
+          :title="t('reports.burnRateTitle')"
+          :default-open="false"
+        >
+          <template #meta>
             <span class="text-xs text-slate-500">{{ t('reports.lastDays', { count: burnRate.periodDays }) }}</span>
-          </div>
+          </template>
           <ul v-if="burnRate.items.length" class="space-y-2">
             <li
               v-for="item in burnRate.items.slice(0, 8)"
@@ -189,7 +196,7 @@ function auditLocation(metadata: unknown): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noInventoryTracked') }}</p>
-        </section>
+        </CollapsibleSection>
       </template>
 
       <!-- Plot Profitability (finance) -->
@@ -200,9 +207,7 @@ function auditLocation(metadata: unknown): string {
       />
 
       <template v-if="data">
-        <!-- 1. Daily Operations -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 class="font-bold text-white mb-4">{{ t('reports.dailyOpsTitle') }}</h3>
+        <CollapsibleSection :title="t('reports.dailyOpsTitle')" :default-open="true">
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <div class="bg-slate-800/50 rounded-xl p-3">
               <p class="text-xs text-slate-500">{{ t('reports.totalTasks') }}</p>
@@ -230,19 +235,20 @@ function auditLocation(metadata: unknown): string {
               {{ String(status).replace('_', ' ') }}: {{ count }}
             </span>
           </div>
-        </section>
+        </CollapsibleSection>
 
-        <!-- 2. Tasks Overdue -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.tasksOverdueTitle') }}</h3>
+        <CollapsibleSection
+          :title="t('reports.tasksOverdueTitle')"
+          :default-open="data.reports.tasksOverdue.count > 0"
+        >
+          <template #meta>
             <span
               class="text-xs font-bold px-2.5 py-1 rounded-full"
               :class="data.reports.tasksOverdue.count ? 'bg-red-900/40 text-red-300' : 'bg-farm-green/20 text-farm-green'"
             >
               {{ t('reports.overdueCount', { count: data.reports.tasksOverdue.count }) }}
             </span>
-          </div>
+          </template>
           <ul v-if="data.reports.tasksOverdue.tasks.length" class="space-y-3">
             <li
               v-for="task in data.reports.tasksOverdue.tasks"
@@ -261,19 +267,17 @@ function auditLocation(metadata: unknown): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noOverdueTasks') }}</p>
-        </section>
+        </CollapsibleSection>
 
-        <!-- 3. Inventory -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.inventoryTitle') }}</h3>
+        <CollapsibleSection :title="t('reports.inventoryTitle')" :default-open="false">
+          <template #meta>
             <span class="text-xs text-slate-500">
               {{ t('reports.itemsCount', { count: data.reports.inventory.totalItems }) }} ·
               <span :class="data.reports.inventory.lowStockCount ? 'text-red-400' : 'text-farm-green'">
                 {{ t('reports.lowStockCount', { count: data.reports.inventory.lowStockCount }) }}
               </span>
             </span>
-          </div>
+          </template>
           <div class="grid lg:grid-cols-2 gap-6">
             <ul class="space-y-2">
               <li
@@ -314,19 +318,17 @@ function auditLocation(metadata: unknown): string {
               <p v-else class="text-slate-500 text-sm">{{ t('reports.noMovements') }}</p>
             </div>
           </div>
-        </section>
+        </CollapsibleSection>
 
-        <!-- 4. Crop Status -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.cropStatusTitle') }}</h3>
+        <CollapsibleSection :title="t('reports.cropStatusTitle')" :default-open="false">
+          <template #meta>
             <span
               v-if="data.reports.cropStatus.phase === 'placeholder'"
               class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
             >
               {{ t('reports.phase2') }}
             </span>
-          </div>
+          </template>
           <ul class="space-y-2 mb-4">
             <li
               v-for="plot in data.reports.cropStatus.plots"
@@ -359,19 +361,17 @@ function auditLocation(metadata: unknown): string {
             </ul>
           </div>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noCropCycles') }}</p>
-        </section>
+        </CollapsibleSection>
 
-        <!-- 5. Livestock -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.livestockTitle') }}</h3>
+        <CollapsibleSection :title="t('reports.livestockTitle')" :default-open="false">
+          <template #meta>
             <span
               v-if="data.reports.livestock.phase === 'placeholder'"
               class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
             >
               {{ t('reports.phase2') }}
             </span>
-          </div>
+          </template>
           <template v-if="data.reports.livestock.batches.length">
             <p class="text-sm text-slate-300 mb-3">
               {{ t('reports.batchesCount', { count: data.reports.livestock.batchCount }) }} ·
@@ -389,20 +389,18 @@ function auditLocation(metadata: unknown): string {
             </ul>
           </template>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.livestockComing') }}</p>
-        </section>
+        </CollapsibleSection>
 
         <template v-if="auth.canAccessFinance">
-          <!-- 6. Sales -->
-          <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="font-bold text-white">{{ t('reports.salesTitle') }}</h3>
+          <CollapsibleSection :title="t('reports.salesTitle')" :default-open="false">
+            <template #meta>
               <span
                 v-if="data.reports.sales.phase === 'placeholder'"
                 class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
               >
                 {{ t('reports.phase3') }}
               </span>
-            </div>
+            </template>
             <template v-if="data.reports.sales.totalOrders">
               <p class="text-sm text-slate-300 mb-3">
                 {{ t('reports.ordersCount', { count: data.reports.sales.totalOrders }) }} ·
@@ -422,19 +420,17 @@ function auditLocation(metadata: unknown): string {
               </ul>
             </template>
             <p v-else class="text-slate-500 text-sm">{{ t('reports.salesComing') }}</p>
-          </section>
+          </CollapsibleSection>
 
-          <!-- 7. P&L -->
-          <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="font-bold text-white">{{ t('reports.pnlTitle') }}</h3>
+          <CollapsibleSection :title="t('reports.pnlTitle')" :default-open="false">
+            <template #meta>
               <span
                 v-if="data.reports.pnl.phase === 'placeholder'"
                 class="text-xs bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full"
               >
                 {{ t('reports.phase3') }}
               </span>
-            </div>
+            </template>
             <div class="grid grid-cols-3 gap-4 mb-4">
               <div class="bg-slate-800/50 rounded-xl p-3">
                 <p class="text-xs text-slate-500">{{ t('reports.revenue') }}</p>
@@ -488,20 +484,18 @@ function auditLocation(metadata: unknown): string {
             >
               {{ t('reports.financeComing') }}
             </p>
-          </section>
+          </CollapsibleSection>
         </template>
 
-        <!-- 8. Incidents -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-white">{{ t('reports.incidentsTitle') }}</h3>
+        <CollapsibleSection :title="t('reports.incidentsTitle')" :default-open="false">
+          <template #meta>
             <span
               class="text-xs font-bold px-2.5 py-1 rounded-full"
               :class="data.reports.incidents.count ? 'bg-red-900/40 text-red-300' : 'bg-slate-800 text-slate-500'"
             >
               {{ t('reports.recordedCount', { count: data.reports.incidents.count }) }}
             </span>
-          </div>
+          </template>
           <ul v-if="data.reports.incidents.items.length" class="space-y-2">
             <li
               v-for="incident in data.reports.incidents.items"
@@ -516,14 +510,13 @@ function auditLocation(metadata: unknown): string {
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noIncidents') }}</p>
-        </section>
+        </CollapsibleSection>
 
-        <!-- 9. Audit Trail (finance) -->
-        <section
+        <CollapsibleSection
           v-if="auth.canAccessFinance"
-          class="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+          :title="t('reports.auditTrailTitle')"
+          :default-open="false"
         >
-          <h3 class="font-bold text-white mb-4">{{ t('reports.auditTrailTitle') }}</h3>
           <ul class="space-y-2 max-h-64 overflow-y-auto">
             <li
               v-for="(e, i) in data.reports.auditTrail"
@@ -544,7 +537,7 @@ function auditLocation(metadata: unknown): string {
               <span class="text-slate-600 flex-shrink-0">{{ formatDate(e.createdAt) }}</span>
             </li>
           </ul>
-        </section>
+        </CollapsibleSection>
       </template>
     </div>
   </AppLayout>

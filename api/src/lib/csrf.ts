@@ -47,6 +47,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   // with per-IP limits, strict validation, and honeypots.
   '/public/leads/contact',
   '/public/leads/waitlist',
+  '/public/surveys',
   // Public Moments gallery upload (protected by rate-limit + honeypot)
   '/public/moments',
   '/health',
@@ -64,6 +65,9 @@ export function isCsrfExemptPath(path: string): boolean {
   const normalized =
     path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
   if (CSRF_EXEMPT_PATHS.has(normalized)) return true
+  // Public Journal engagement is anonymous, JSON-only, rate-limited, and
+  // moderated. It does not carry a staff or customer authentication session.
+  if (/^\/public\/journal\/[^/]+\/(?:like|comments)$/.test(normalized)) return true
   // Brand pack unlock is authorized by share token + optional password (no session).
   return /^\/public\/brand\/[^/]+\/unlock$/.test(normalized)
 }

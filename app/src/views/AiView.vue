@@ -14,6 +14,9 @@ type ChatMessage = {
   text: string
   image?: string
   metadata?: Record<string, unknown> | null
+  feedbackRating?: 'up' | 'down' | null
+  feedbackNote?: string | null
+  feedbackEditing?: boolean
 }
 type TaskDraft = { title: string; description?: string; assigneeId?: string; dueAt?: string }
 type ActionDraft = { draftId: string; actionType: string; preview: string }
@@ -30,6 +33,9 @@ type StoredMessage = {
   content: string
   attachmentUrl: string | null
   metadata: Record<string, unknown> | null
+  feedbackRating: 'up' | 'down' | null
+  feedbackNote: string | null
+  feedbackAt: string | null
 }
 
 const loading = ref(true)
@@ -50,6 +56,9 @@ const confirmingDraft = ref(false)
 const draftMessage = ref<string | null>(null)
 const actionDraft = ref<ActionDraft | null>(null)
 const confirmingAction = ref(false)
+const feedbackBusyId = ref<string | null>(null)
+const feedbackDrafts = ref<Record<string, string>>({})
+const feedbackErrorId = ref<string | null>(null)
 
 const recording = ref(false)
 const transcribing = ref(false)
@@ -117,6 +126,8 @@ async function openConversation(id: string) {
       text: message.content,
       image: message.attachmentUrl ?? undefined,
       metadata: message.metadata,
+      feedbackRating: message.feedbackRating,
+      feedbackNote: message.feedbackNote,
     }))
     restorePendingAction(messages.value)
     await scrollToBottom()
@@ -376,6 +387,7 @@ async function send(presetQuestion?: string) {
       conversationId: string
       draft?: TaskDraft
       actionDraft?: ActionDraft | null
+      message?: StoredMessage | null
     }>('/api/ai/ask', {
       method: 'POST',
       body: JSON.stringify({
@@ -385,7 +397,14 @@ async function send(presetQuestion?: string) {
         locale: appLocale(),
       }),
     })
-    messages.value.push({ role: 'assistant', text: data.answer })
+    messages.value.push({
+      id: data.message?.id,
+      role: 'assistant',
+      text: data.answer,
+      metadata: data.message?.metadata,
+      feedbackRating: data.message?.feedbackRating ?? null,
+      feedbackNote: data.message?.feedbackNote ?? null,
+    })
     activeConversationId.value = data.conversationId
     actionDraft.value = data.actionDraft ?? null
     draft.value = data.draft ?? null
@@ -399,6 +418,52 @@ async function send(presetQuestion?: string) {
   }
 }
 
+function editNegativeFeedback(message: ChatMessage) {
+  if (!message.id || feedbackBusyId.value) return
+  if (message.feedbackRating === 'down') {
+    void saveFeedback(message, null)
+    return
+  }
+  feedbackDrafts.value[message.id] = message.feedbackNote ?? ''
+  message.feedbackEditing = true
+  feedbackErrorId.value = null
+}
+
+async function saveFeedback(
+  message: ChatMessage,
+  rating: 'up' | 'down' | null,
+  note?: string | null,
+) {
+  if (!message.id || feedbackBusyId.value) return
+  feedbackBusyId.value = message.id
+  feedbackErrorId.value = null
+  try {
+    const data = await api<{ message: StoredMessage }>(
+      `/api/ai/messages/${message.id}/feedback`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ rating, note: rating === 'down' ? note ?? null : null }),
+      },
+    )
+    message.feedbackRating = data.message.feedbackRating
+    message.feedbackNote = data.message.feedbackNote
+    message.feedbackEditing = false
+  } catch {
+    feedbackErrorId.value = message.id
+  } finally {
+    feedbackBusyId.value = null
+  }
+}
+
+function rateHelpful(message: ChatMessage) {
+  void saveFeedback(message, message.feedbackRating === 'up' ? null : 'up')
+}
+
+function submitNegativeFeedback(message: ChatMessage) {
+  if (!message.id) return
+  void saveFeedback(message, 'down', feedbackDrafts.value[message.id]?.trim() || null)
+}
+
 async function resolveAction(confirm: boolean) {
   if (!actionDraft.value || confirmingAction.value) return
   confirmingAction.value = true
@@ -406,11 +471,21 @@ async function resolveAction(confirm: boolean) {
   const current = actionDraft.value
   try {
     if (confirm) {
-      const data = await api<{ result: string }>(`/api/ai/actions/${current.draftId}/confirm`, { method: 'POST' })
-      messages.value.push({ role: 'assistant', text: data.result, metadata: { confirmed: true } })
+      const data = await api<{ result: string; message?: StoredMessage | null }>(`/api/ai/actions/${current.draftId}/confirm`, { method: 'POST' })
+      messages.value.push({
+        id: data.message?.id,
+        role: 'assistant',
+        text: data.result,
+        metadata: { confirmed: true },
+      })
     } else {
-      await api(`/api/ai/actions/${current.draftId}/cancel`, { method: 'POST' })
-      messages.value.push({ role: 'assistant', text: t('insights.actionCancelled'), metadata: { cancelled: true } })
+      const data = await api<{ message?: StoredMessage | null }>(`/api/ai/actions/${current.draftId}/cancel`, { method: 'POST' })
+      messages.value.push({
+        id: data.message?.id,
+        role: 'assistant',
+        text: t('insights.actionCancelled'),
+        metadata: { cancelled: true },
+      })
     }
     actionDraft.value = null
     await refreshConversationList()
@@ -565,6 +640,80 @@ async function draftTaskFromPrompt() {
             />
             <ChatMarkdown v-if="msg.role === 'assistant'" :text="msg.text" />
             <template v-else>{{ msg.text }}</template>
+            <div
+              v-if="msg.role === 'assistant' && msg.id"
+              class="mt-3 border-t border-slate-700/80 pt-2"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="mr-1 text-xs text-slate-400">{{ t('ai.helpfulQuestion') }}</span>
+                <button
+                  type="button"
+                  class="min-h-10 min-w-10 rounded-lg border p-2 transition-colors disabled:opacity-50"
+                  :class="msg.feedbackRating === 'up'
+                    ? 'border-farm-green/60 bg-farm-green/20 text-farm-green'
+                    : 'border-slate-700 text-slate-400 hover:text-white'"
+                  :disabled="feedbackBusyId === msg.id"
+                  :aria-label="t('ai.helpfulYes')"
+                  :title="t('ai.helpfulYes')"
+                  :aria-pressed="msg.feedbackRating === 'up'"
+                  data-testid="ai-feedback-up"
+                  @click="rateHelpful(msg)"
+                >
+                  <svg class="mx-auto h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 10v11H3V10h4Zm0 9h10.2a2 2 0 0 0 1.9-1.4l1.6-5A2 2 0 0 0 18.8 10H15l.6-3.1A3.2 3.2 0 0 0 12.5 3L7 10v9Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="min-h-10 min-w-10 rounded-lg border p-2 transition-colors disabled:opacity-50"
+                  :class="msg.feedbackRating === 'down'
+                    ? 'border-amber-400/60 bg-amber-400/10 text-amber-300'
+                    : 'border-slate-700 text-slate-400 hover:text-white'"
+                  :disabled="feedbackBusyId === msg.id"
+                  :aria-label="t('ai.helpfulNo')"
+                  :title="t('ai.helpfulNo')"
+                  :aria-pressed="msg.feedbackRating === 'down'"
+                  data-testid="ai-feedback-down"
+                  @click="editNegativeFeedback(msg)"
+                >
+                  <svg class="mx-auto h-4 w-4 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 10v11H3V10h4Zm0 9h10.2a2 2 0 0 0 1.9-1.4l1.6-5A2 2 0 0 0 18.8 10H15l.6-3.1A3.2 3.2 0 0 0 12.5 3L7 10v9Z" />
+                  </svg>
+                </button>
+              </div>
+              <form
+                v-if="msg.feedbackEditing"
+                class="mt-2 rounded-lg bg-slate-900/60 p-2"
+                @submit.prevent="submitNegativeFeedback(msg)"
+              >
+                <label :for="`feedback-${msg.id}`" class="block text-xs font-semibold text-slate-300">
+                  {{ t('ai.feedbackReasonLabel') }}
+                </label>
+                <textarea
+                  :id="`feedback-${msg.id}`"
+                  v-model="feedbackDrafts[msg.id]"
+                  rows="2"
+                  maxlength="500"
+                  class="mt-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-farm-green/60 focus:outline-none"
+                  :placeholder="t('ai.feedbackReasonPlaceholder')"
+                />
+                <div class="mt-2 flex gap-2">
+                  <button type="submit" class="min-h-10 rounded-lg bg-farm-green/20 px-3 text-xs font-bold text-farm-green" :disabled="feedbackBusyId === msg.id">
+                    {{ t('ai.saveFeedback') }}
+                  </button>
+                  <button type="button" class="min-h-10 rounded-lg bg-slate-800 px-3 text-xs text-slate-300" @click="msg.feedbackEditing = false">
+                    {{ t('common.cancel') }}
+                  </button>
+                </div>
+              </form>
+              <p v-else-if="msg.feedbackRating" class="mt-2 text-xs text-slate-500">
+                {{ t('ai.feedbackSaved') }}
+                <span v-if="msg.feedbackNote"> {{ t('ai.feedbackCorrectionSaved') }}</span>
+              </p>
+              <p v-if="feedbackErrorId === msg.id" class="mt-2 text-xs text-red-400">
+                {{ t('ai.feedbackFailed') }}
+              </p>
+            </div>
           </div>
         </div>
 

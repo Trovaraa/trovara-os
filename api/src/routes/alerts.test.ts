@@ -88,6 +88,10 @@ vi.mock('../lib/advisory-engine.js', () => ({
   runAdvisoryEngine: vi.fn(async () => ({ created: 0 })),
 }))
 
+vi.mock('../lib/anomaly-observations.js', () => ({
+  runAnomalyObservationMode: vi.fn(async () => ({ mode: 'observation', candidates: 0, created: 0, refreshed: 0, notified: false, sourceRecordsChanged: false })),
+}))
+
 vi.mock('../lib/exceptions.js', () => ({
   gatherExceptions: vi.fn(),
 }))

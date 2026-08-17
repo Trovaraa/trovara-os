@@ -13,10 +13,13 @@
     "sync-catalog": "tsx src/scripts/sync-catalog.ts",
     "reg-token": "tsx src/scripts/create-registration-token.ts",
     "retry-translations": "tsx src/scripts/retry-translations.ts",
+    "knowledge-worker": "tsx src/scripts/run-knowledge-worker.ts",
+    "snapshot-knowledge": "tsx src/scripts/snapshot-knowledge-objects.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
     "@hono/node-server": "^2.1.0",
     "@hono/zod-validator": "^0.9.0",
     "@node-rs/argon2": "^2.0.2",
@@ -26,10 +29,13 @@
     "geoip-country": "^5.0.202608120039",
     "hono": "^4.13.1",
     "ip-address": "10.5.0",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.1",
     "otplib": "^13.4.1",
     "pdfkit": "^0.19.1",
     "postgres": "^3.4.7",
     "qrcode": "^1.5.4",
+    "read-excel-file": "^9.3.10",
     "resend": "^6.19.0",
     "unpdf": "^1.8.0",
     "zod": "^3.24.4"

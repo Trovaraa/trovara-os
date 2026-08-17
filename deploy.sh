@@ -34,6 +34,7 @@
 #   REMOTE_BACKUP_DIR=/var/backups/trovara-os     # optional
 #   LOCAL_BACKUP_DIR="$HOME/Trovara Backups/production"  # optional
 #   RELEASE_REF=v1.2.3                  # optional immutable commit/tag; defaults HEAD
+#   RELEASE_HISTORY_DIR=/home/ubuntu/trovara-os/.release-history  # optional
 
 set -euo pipefail
 
@@ -65,6 +66,18 @@ SSH_PORT="${SSH_PORT:-22}"
 SSH_KEY="${SSH_KEY:-}"
 REMOTE_BACKUP_DIR="${REMOTE_BACKUP_DIR:-/var/backups/trovara-os}"
 LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-$HOME/Trovara Backups/production}"
+RELEASE_HISTORY_DIR="${RELEASE_HISTORY_DIR:-$REMOTE_DIR/.release-history}"
+RELEASE_OPERATION="${RELEASE_OPERATION:-deploy}"
+RELEASE_ROLLBACK_FROM="${RELEASE_ROLLBACK_FROM:-unknown}"
+export RELEASE_OPERATION
+RELEASE_OPERATOR_RAW="${RELEASE_OPERATOR:-$(id -un)}"
+RELEASE_OPERATOR_SAFE="$(printf '%s' "$RELEASE_OPERATOR_RAW" | tr -cd 'A-Za-z0-9@._+-' | cut -c1-80)"
+RELEASE_OPERATOR_SAFE="${RELEASE_OPERATOR_SAFE:-unknown}"
+
+if [[ "$RELEASE_OPERATION" != "deploy" && "$RELEASE_OPERATION" != "rollback" ]]; then
+  echo "ERROR: RELEASE_OPERATION must be deploy or rollback" >&2
+  exit 1
+fi
 
 if [[ -z "${VM_HOST:-}" ]]; then
   cat >&2 <<'MSG'
@@ -180,6 +193,7 @@ fs.writeFileSync(file, `${JSON.stringify({
   sha,
   tag: tag || null,
   releasedAt,
+  operation: process.env.RELEASE_OPERATION || 'deploy',
 }, null, 2)}\n`, { mode: 0o644 })
 NODE
 
@@ -195,6 +209,7 @@ rsync -az --delete \
   --exclude '.env.*' \
   --exclude '*.tsbuildinfo' \
   --exclude 'backups/' \
+  --exclude '.release-history/' \
   --exclude 'api/data/evidence/' \
   --exclude 'uploads/' \
   --exclude 'logs/' \
@@ -214,6 +229,21 @@ cat >"$REMOTE_RUNNER" <<REMOTE
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$REMOTE_DIR"
+
+RELEASE_HISTORY_DIR="$RELEASE_HISTORY_DIR"
+mkdir -p "\$RELEASE_HISTORY_DIR"
+chmod 0750 "\$RELEASE_HISTORY_DIR"
+# Web root parents are 0770 trovara-os; ubuntu cannot traverse them. Read via sudo.
+read_release_sha() {
+  sudo node -e '
+const fs = require("node:fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).sha || "";
+  if (/^[a-f0-9]{7,40}$/i.test(value)) process.stdout.write(value);
+} catch {}
+' "\$1"
+}
+PREVIOUS_RELEASE_SHA="\$(read_release_sha "$WEB_ROOT/RELEASE.json" || true)"
 
 export NVM_DIR="\${NVM_DIR:-\$HOME/.nvm}"
 if [[ ! -s "\$NVM_DIR/nvm.sh" ]]; then
@@ -275,6 +305,18 @@ VITE_PUBLIC_MARKETING_URL="$VITE_PUBLIC_MARKETING_URL" \
 npm run build
 cp RELEASE.json app/dist/RELEASE.json
 
+if [[ "\${USE_DOCKER_KNOWLEDGE_SERVICES:-1}" == "1" ]]; then
+  echo "==> [vm] starting private object storage and malware scanner"
+  docker compose pull object-storage clamav
+  docker compose up -d --wait object-storage clamav
+fi
+
+if [[ "\${USE_DOCKER_PG_TOOLS:-0}" == "1" ]]; then
+  echo "==> [vm] ensuring Docker PostgreSQL is running for backup and migrate"
+  docker compose pull db
+  docker compose up -d --wait db
+fi
+
 if [[ "$SKIP_BACKUP" -eq 0 ]]; then
   echo "==> [vm] production backup (encrypt, verify, manifest; remote delivery optional)"
   npm run backup:production
@@ -290,10 +332,19 @@ else
   echo "==> [vm] skipping db:migrate"
 fi
 
+if [[ "\${USE_DOCKER_KNOWLEDGE_SERVICES:-1}" == "1" ]]; then
+  echo "==> [vm] building and starting Operations Library worker"
+  docker compose up -d --build knowledge-worker
+fi
+
 if [[ "$RUN_CATALOG" -eq 1 ]]; then
   echo "==> [vm] sync-catalog"
   npm run sync-catalog -w api
 fi
+
+MIGRATION_PATH="\$(find api/drizzle -mindepth 2 -maxdepth 2 -name migration.sql -print | LC_ALL=C sort | tail -n 1)"
+MIGRATION_TIP="\$(basename "\$(dirname "\$MIGRATION_PATH")")"
+MIGRATION_COUNT="\$(find api/drizzle -mindepth 2 -maxdepth 2 -name migration.sql -print | wc -l | tr -d ' ')"
 
 if [[ "$INSTALL_BACKUP_TIMERS" -eq 1 ]]; then
   echo "==> [vm] installing backup and restore-test systemd timers"
@@ -303,25 +354,59 @@ fi
 echo "==> [vm] releasing frontend to $WEB_ROOT"
 sudo rsync -a --delete "$REMOTE_DIR/app/dist/" "$WEB_ROOT/"
 
+echo "==> [vm] pinning API release identity"
+SERVICE_UNIT="$SERVICE"
+if [[ "\$SERVICE_UNIT" != *.service ]]; then SERVICE_UNIT="\$SERVICE_UNIT.service"; fi
+RELEASE_DROPIN="\$(mktemp -t trovara-release-env.XXXXXX)"
+printf '[Service]\nEnvironment=DEPLOYMENT_SHA=%s\nEnvironment=RELEASE_METADATA_PATH=%s\n' \
+  "$RELEASE_SHA" "$REMOTE_DIR/RELEASE.json" >"\$RELEASE_DROPIN"
+sudo install -D -m 0644 "\$RELEASE_DROPIN" "/etc/systemd/system/\$SERVICE_UNIT.d/20-trovara-release.conf"
+rm -f "\$RELEASE_DROPIN"
+sudo systemctl daemon-reload
+
 echo "==> [vm] restarting $SERVICE"
 sudo systemctl restart "$SERVICE"
 
 echo "==> [vm] health and readiness checks"
+HEALTH_OK=0
 for attempt in \$(seq 1 15); do
   if curl -fsS http://127.0.0.1:3000/health >/dev/null &&
      curl -fsS http://127.0.0.1:3000/ready >/dev/null; then
-    echo "  OK"
-    exit 0
+    API_RELEASE_SHA="\$(curl -fsS http://127.0.0.1:3000/health | node -e \
+      "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).deploymentSha||''))")"
+    FRONTEND_RELEASE_SHA="\$(read_release_sha "$WEB_ROOT/RELEASE.json")"
+    if [[ "\$API_RELEASE_SHA" == "$RELEASE_SHA" && "\$FRONTEND_RELEASE_SHA" == "$RELEASE_SHA" ]]; then
+      echo "  OK — API and frontend report $RELEASE_SHA"
+      HEALTH_OK=1
+      break
+    fi
+    echo "  release mismatch: api=\$API_RELEASE_SHA frontend=\$FRONTEND_RELEASE_SHA expected=$RELEASE_SHA" >&2
   fi
   sleep 2
 done
-echo "API health/readiness check FAILED" >&2
-sudo systemctl status "$SERVICE" --no-pager || true
-exit 1
+if [[ "\$HEALTH_OK" -ne 1 ]]; then
+  echo "API health/readiness/release check FAILED" >&2
+  sudo systemctl status "$SERVICE" --no-pager || true
+  exit 1
+fi
+
+echo "==> [vm] recording release history"
+node /tmp/trovara-record-release.mjs \
+  --history-dir "\$RELEASE_HISTORY_DIR" \
+  --release-file "$REMOTE_DIR/RELEASE.json" \
+  --operation "$RELEASE_OPERATION" \
+  --previous-sha "\${PREVIOUS_RELEASE_SHA:-unknown}" \
+  --rollback-from "$RELEASE_ROLLBACK_FROM" \
+  --operator "$RELEASE_OPERATOR_SAFE" \
+  --migration-tip "\$MIGRATION_TIP" \
+  --migration-count "\$MIGRATION_COUNT" \
+  --migration-action "$([[ "$SKIP_MIGRATE" -eq 1 ]] && echo skipped || echo applied)" \
+  --backup-report "\$BACKUP_DIR/reports/latest-backup.json"
 REMOTE
 
 $SCP -q "$REMOTE_RUNNER" "$VM_HOST:/tmp/trovara-deploy-remote.sh"
-$SSH -t "$VM_HOST" 'bash /tmp/trovara-deploy-remote.sh; rc=$?; rm -f /tmp/trovara-deploy-remote.sh; exit $rc'
+$SCP -q "$SCRIPT_DIR/scripts/record-release.mjs" "$VM_HOST:/tmp/trovara-record-release.mjs"
+$SSH -t "$VM_HOST" 'bash /tmp/trovara-deploy-remote.sh; rc=$?; rm -f /tmp/trovara-deploy-remote.sh /tmp/trovara-record-release.mjs; exit $rc'
 
 pull_local_backups() {
   echo "==> Pulling encrypted backup artifacts to $LOCAL_BACKUP_DIR"

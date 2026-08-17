@@ -26,8 +26,20 @@ export type AttendanceCorrectionInput = AttendanceAllocationInput & {
   monthlyWageSnapshotNgn?: number
 }
 
+export type HoursSubmissionInput = AttendanceAllocationInput & {
+  workDate: string
+  submittedMinutes: number
+  workSummary: string
+}
+
 function cleanNotes(notes: string | null | undefined): string | null {
   return notes?.trim() || null
+}
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const typed = error as { code?: string; cause?: { code?: string } }
+  return typed.code === '23505' || typed.cause?.code === '23505'
 }
 
 /**
@@ -257,6 +269,97 @@ export async function clockOut(
   return { session, idempotent: false }
 }
 
+export async function submitHours(user: SessionUser, input: HoursSubmissionInput) {
+  const allowedRoles = new Set(['owner', 'supervisor', 'sales', 'field_worker'])
+  if (!allowedRoles.has(user.role)) throw new Error('FORBIDDEN')
+  const workDate = new Date(`${input.workDate}T12:00:00.000Z`)
+  if (Number.isNaN(workDate.getTime()) || workDate.toISOString().slice(0, 10) !== input.workDate) throw new Error('INVALID_WORK_DATE')
+  const today = new Date(); today.setUTCHours(12, 0, 0, 0)
+  const oldest = new Date(today); oldest.setUTCDate(oldest.getUTCDate() - (user.role === 'owner' ? 31 : 14))
+  if (workDate > today || workDate < oldest) throw new Error('WORK_DATE_OUT_OF_RANGE')
+  if (!Number.isInteger(input.submittedMinutes) || input.submittedMinutes < 15 || input.submittedMinutes > 960) throw new Error('INVALID_HOURS')
+  const typedSummary = cleanNotes(input.workSummary)
+  if (!typedSummary) throw new Error('WORK_SUMMARY_REQUIRED')
+
+  const [{ monthlyWageNgn, preferredLocale }] = await db
+    .select({ monthlyWageNgn: users.monthlyWageNgn, preferredLocale: users.preferredLocale })
+    .from(users)
+    .where(and(eq(users.id, user.id), eq(users.farmId, user.farmId)))
+    .limit(1)
+  if (user.role === 'field_worker' && monthlyWageNgn == null) throw new Error('WAGE_NOT_SET')
+  const allocation = await validateAllocation(user, input)
+  const canonical = await canonicalNotes(typedSummary, user.farmId, authorLocaleHint(preferredLocale))
+  const clockInAt = new Date(`${input.workDate}T08:00:00.000Z`)
+  const clockOutAt = new Date(clockInAt.getTime() + input.submittedMinutes * 60_000)
+  const autoApproved = user.role === 'owner'
+  let session
+  let resubmitted = false
+  try {
+    ;[session] = await db.insert(attendanceSessions).values({
+      farmId: user.farmId,
+      userId: user.id,
+      workDate: input.workDate,
+      submittedMinutes: input.submittedMinutes,
+      clockInAt,
+      clockOutAt,
+      monthlyWageSnapshotNgn: monthlyWageNgn ?? 0,
+      ...allocation,
+      workSummary: canonical.text,
+      approvalStatus: autoApproved ? 'approved' : 'pending',
+      approvedById: autoApproved ? user.id : null,
+      approvedAt: autoApproved ? new Date() : null,
+      ...contentLocaleValues(canonical.locale),
+    }).returning()
+  } catch (error) {
+    if (!isUniqueConstraintViolation(error)) throw error
+    const [existing] = await db.select({ id: attendanceSessions.id, approvalStatus: attendanceSessions.approvalStatus }).from(attendanceSessions).where(and(eq(attendanceSessions.farmId, user.farmId), eq(attendanceSessions.userId, user.id), eq(attendanceSessions.workDate, input.workDate))).limit(1)
+    if (existing?.approvalStatus === 'rejected') {
+      ;[session] = await db.update(attendanceSessions).set({
+        submittedMinutes: input.submittedMinutes,
+        clockInAt,
+        clockOutAt,
+        monthlyWageSnapshotNgn: monthlyWageNgn ?? 0,
+        ...allocation,
+        workSummary: canonical.text,
+        approvalStatus: autoApproved ? 'approved' : 'pending',
+        approvedById: autoApproved ? user.id : null,
+        approvedAt: autoApproved ? new Date() : null,
+        rejectionReason: null,
+        correctedById: user.id,
+        correctedAt: new Date(),
+        ...contentLocaleValues(canonical.locale),
+      }).where(eq(attendanceSessions.id, existing.id)).returning()
+      resubmitted = true
+    } else if (existing) {
+      throw new Error('ALREADY_SUBMITTED')
+    } else {
+      throw error
+    }
+  }
+  await logAudit({ farmId: user.farmId, userId: user.id, action: resubmitted ? 'attendance_hours_resubmit' : 'attendance_hours_submit', entityType: 'attendance_session', entityId: session.id, metadata: { workDate: input.workDate, submittedMinutes: input.submittedMinutes, approvalStatus: session.approvalStatus } })
+  return { session: { ...session, workSummary: typedSummary } }
+}
+
+export async function reviewHours(user: SessionUser, sessionId: string, input: { decision: 'approved' | 'rejected'; rejectionReason?: string | null }) {
+  if (!canApproveTasks(user)) throw new Error('FORBIDDEN')
+  const [existing] = await db.select().from(attendanceSessions).where(and(eq(attendanceSessions.id, sessionId), eq(attendanceSessions.farmId, user.farmId))).limit(1)
+  if (!existing) throw new Error('NOT_FOUND')
+  if (!existing.workDate || existing.approvalStatus !== 'pending') throw new Error('NOT_PENDING')
+  if (existing.userId === user.id && user.role !== 'owner') throw new Error('SELF_APPROVAL_FORBIDDEN')
+  const reason = cleanNotes(input.rejectionReason)
+  if (input.decision === 'rejected' && !reason) throw new Error('REJECTION_REASON_REQUIRED')
+  const [session] = await db.update(attendanceSessions).set({
+    approvalStatus: input.decision,
+    approvedById: input.decision === 'approved' ? user.id : null,
+    approvedAt: input.decision === 'approved' ? new Date() : null,
+    rejectionReason: input.decision === 'rejected' ? reason : null,
+    correctedById: user.id,
+    correctedAt: new Date(),
+  }).where(eq(attendanceSessions.id, sessionId)).returning()
+  await logAudit({ farmId: user.farmId, userId: user.id, action: `attendance_hours_${input.decision}`, entityType: 'attendance_session', entityId: sessionId, metadata: { workerUserId: existing.userId, rejectionReason: reason } })
+  return session
+}
+
 export async function listToday(user: SessionUser) {
   const farmTimezone = sql<string>`COALESCE(
     (SELECT "timezone" FROM "farms" WHERE "id" = ${user.farmId}),
@@ -288,6 +391,12 @@ export async function listToday(user: SessionUser) {
       taskTitle: tasks.title,
       notes: attendanceSessions.notes,
       workSummary: attendanceSessions.workSummary,
+      workDate: attendanceSessions.workDate,
+      submittedMinutes: attendanceSessions.submittedMinutes,
+      approvalStatus: attendanceSessions.approvalStatus,
+      approvedById: attendanceSessions.approvedById,
+      approvedAt: attendanceSessions.approvedAt,
+      rejectionReason: attendanceSessions.rejectionReason,
       correctedById: attendanceSessions.correctedById,
       correctedAt: attendanceSessions.correctedAt,
       createdAt: attendanceSessions.createdAt,
@@ -425,6 +534,9 @@ export type HoursSummaryPerson = {
     taskTitle: string | null
     notes: string | null
     workSummary: string | null
+    workDate: string | null
+    approvalStatus: string
+    rejectionReason: string | null
   }>
 }
 
@@ -493,6 +605,9 @@ export async function listHoursSummary(
       taskTitle: tasks.title,
       notes: attendanceSessions.notes,
       workSummary: attendanceSessions.workSummary,
+      workDate: attendanceSessions.workDate,
+      approvalStatus: attendanceSessions.approvalStatus,
+      rejectionReason: attendanceSessions.rejectionReason,
       rangeStart: start,
       rangeEnd: end,
     })
@@ -512,22 +627,31 @@ export async function listHoursSummary(
   const now = new Date()
   const byUser = new Map<string, HoursSummaryPerson>()
   for (const row of rows) {
-    const minutes = payableMinutesWithinBounds(
+    const calculatedMinutes = payableMinutesWithinBounds(
       row.clockInAt,
       row.clockOutAt ?? now,
       row.rangeStart,
       row.rangeEnd,
     )
+    // Rows created before approval tracking are treated as approved. New
+    // pending/rejected submissions remain visible but do not enter payroll or
+    // profitability totals.
+    const minutes = row.approvalStatus === 'pending' || row.approvalStatus === 'rejected'
+      ? 0
+      : calculatedMinutes
     const existing = byUser.get(row.userId)
     const session = {
       id: row.id,
       clockInAt: row.clockInAt,
       clockOutAt: row.clockOutAt,
-      payableMinutes: minutes,
+      payableMinutes: calculatedMinutes,
       plotName: row.plotName,
       taskTitle: row.taskTitle,
       notes: row.notes,
       workSummary: row.workSummary,
+      workDate: row.workDate,
+      approvalStatus: row.approvalStatus,
+      rejectionReason: row.rejectionReason,
     }
     if (existing) {
       existing.totalMinutes += minutes

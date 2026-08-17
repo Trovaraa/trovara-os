@@ -19,6 +19,7 @@ logs/
 backups/
 uploads/
 api/data/evidence/
+.release-history/
 
 # OS / editor
 .DS_Store

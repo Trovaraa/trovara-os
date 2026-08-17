@@ -99,6 +99,7 @@ Product roadmap: `../ROADMAP.md` · active OS backlog: `../next-steps-trovara-os
 
 - Production environment: `docs/PRODUCTION-ENVIRONMENT.md`
 - OS-first coordinated release: `docs/RELEASE-CHECKLIST.md`
+- Application rollback and release history: `docs/ROLLBACK.md`
 - Expand-contract migrations: `docs/EXPAND-CONTRACT-MIGRATIONS.md`
 - Request IDs and log drains: `docs/LOGGING-AND-REQUEST-IDS.md`
 - Canonical brand assets: `../brand/assets`, described by

@@ -26,8 +26,13 @@ const CYCLE = {
   stage: 'vegetative',
   plantedAt: '2026-02-01T08:00:00.000Z',
   standCount: 480,
-  costCentre: 'PLANTAIN-2026',
+  costCentre: 'CC10',
 }
+
+const COST_CENTRES = [
+  { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
+  { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
+]
 
 const LIFECYCLE = {
   generated: true,
@@ -84,6 +89,7 @@ describe('CropsView lifecycle panel', () => {
     api.mockImplementation(async (path: string) => {
       if (path === '/api/crops') return { cropCycles: [CYCLE] }
       if (path === '/api/zones/plots') return { plots: [] }
+      if (path === '/api/finance/cost-centres') return { costCentres: COST_CENTRES }
       return LIFECYCLE
     })
   })
@@ -120,6 +126,7 @@ describe('CropsView lifecycle panel', () => {
     api.mockImplementation(async (path: string) => {
       if (path === '/api/crops') return { cropCycles: [CYCLE] }
       if (path === '/api/zones/plots') return { plots: [] }
+      if (path === '/api/finance/cost-centres') return { costCentres: COST_CENTRES }
       return {
         generated: false,
         agronomySkipReason: 'budget_exhausted',
@@ -143,6 +150,7 @@ describe('CropsView lifecycle panel', () => {
     api.mockImplementation(async (path: string) => {
       if (path === '/api/crops') return { cropCycles: [CYCLE] }
       if (path === '/api/zones/plots') return { plots: [] }
+      if (path === '/api/finance/cost-centres') return { costCentres: COST_CENTRES }
       throw new Error('offline')
     })
 
@@ -157,7 +165,7 @@ describe('CropsView lifecycle panel', () => {
     const wrapper = await mountCrops()
 
     expect(wrapper.text()).toContain('480')
-    expect(wrapper.text()).toContain('PLANTAIN-2026')
+    expect(wrapper.text()).toContain('CC10')
   })
 
   it('prefills stand count from the saved block and submits the cost centre', async () => {
@@ -171,6 +179,7 @@ describe('CropsView lifecycle panel', () => {
           ],
         }
       }
+      if (path === '/api/finance/cost-centres') return { costCentres: COST_CENTRES }
       return LIFECYCLE
     })
 
@@ -179,12 +188,14 @@ describe('CropsView lifecycle panel', () => {
     await flushPromises()
 
     const cropType = wrapper.find('input[placeholder="crops.cropTypePlaceholder"]')
-    const costCentre = wrapper.find('input[placeholder="crops.costCentrePlaceholder"]')
+    const costCentre = wrapper
+      .findAll('select')
+      .find((select) => select.text().includes('crops.costCentrePlaceholder'))!
     const stands = wrapper.find('input[placeholder="crops.standsPlaceholder"]')
     expect((stands.element as HTMLInputElement).value).toBe('650')
 
     await cropType.setValue('plantain')
-    await costCentre.setValue('PLANTAIN-2027')
+    await costCentre.setValue('CC10')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -194,7 +205,7 @@ describe('CropsView lifecycle panel', () => {
     expect(createCall).toBeDefined()
     expect(JSON.parse((createCall![1] as RequestInit).body as string)).toMatchObject({
       standCount: 650,
-      costCentre: 'PLANTAIN-2027',
+      costCentre: 'CC10',
     })
   })
 })

@@ -33,6 +33,20 @@ type JournalForm = {
   coverImageUrl: string | null
 }
 
+type JournalComment = {
+  id: string
+  authorName: string
+  body: string
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: string
+  moderatedAt: string | null
+}
+
+type JournalEngagement = {
+  likeCount: number
+  comments: JournalComment[]
+}
+
 const { t, locale } = useI18n()
 const posts = ref<JournalPost[]>([])
 const selectedPost = ref<JournalPost | null>(null)
@@ -44,6 +58,10 @@ const deleting = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const slugEdited = ref(false)
+const storyRail = ref<HTMLElement | null>(null)
+const engagement = ref<JournalEngagement | null>(null)
+const engagementLoading = ref(false)
+const moderatingCommentId = ref<string | null>(null)
 
 const form = reactive<JournalForm>({
   title: '',
@@ -64,6 +82,10 @@ const isValid = computed(
     Boolean(form.bodyMarkdown.trim()) &&
     Boolean(form.authorName.trim()) &&
     Boolean(form.category.trim()),
+)
+const publishedPosts = computed(() => posts.value.filter((post) => post.published))
+const pendingCommentCount = computed(
+  () => engagement.value?.comments.filter((comment) => comment.status === 'pending').length ?? 0,
 )
 
 function slugify(value: string): string {
@@ -114,6 +136,7 @@ function startNewPost() {
     coverImageUrl: null,
   })
   slugEdited.value = false
+  engagement.value = null
   clearMessages()
 }
 
@@ -136,12 +159,56 @@ async function selectPost(post: JournalPost) {
   loadingPost.value = true
   try {
     const data = await api<{ post: JournalPost }>(`/api/journal/${post.id}`)
-    if (selectedPost.value?.id === post.id) populateForm(data.post)
+    if (selectedPost.value?.id === post.id) {
+      populateForm(data.post)
+      if (data.post.published) await loadEngagement(data.post.id)
+      else engagement.value = null
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('journal.loadPostFailed')
   } finally {
     loadingPost.value = false
   }
+}
+
+async function loadEngagement(postId = selectedPost.value?.id) {
+  if (!postId) return
+  engagementLoading.value = true
+  try {
+    engagement.value = await api<JournalEngagement>(`/api/journal/${postId}/engagement`)
+  } catch (e) {
+    engagement.value = null
+    error.value = e instanceof Error ? e.message : t('journal.engagementLoadFailed')
+  } finally {
+    engagementLoading.value = false
+  }
+}
+
+async function moderateComment(comment: JournalComment, status: 'approved' | 'rejected') {
+  if (moderatingCommentId.value) return
+  moderatingCommentId.value = comment.id
+  clearMessages()
+  try {
+    const data = await api<{ comment: JournalComment }>(`/api/journal/comments/${comment.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
+    if (engagement.value) {
+      const index = engagement.value.comments.findIndex((item) => item.id === comment.id)
+      if (index >= 0) engagement.value.comments.splice(index, 1, data.comment)
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('journal.moderationFailed')
+  } finally {
+    moderatingCommentId.value = null
+  }
+}
+
+function moveStoryRail(direction: -1 | 1) {
+  storyRail.value?.scrollBy({
+    left: direction * Math.max(260, storyRail.value.clientWidth * 0.8),
+    behavior: 'smooth',
+  })
 }
 
 function payload() {
@@ -197,6 +264,8 @@ async function savePost(published?: boolean) {
     }
     replacePost(post)
     populateForm(post)
+    if (post.published) await loadEngagement(post.id)
+    else engagement.value = null
     notice.value =
       published === true
         ? t('journal.publishedNotice')
@@ -353,6 +422,37 @@ onMounted(loadPosts)
       <p v-if="error" role="alert" class="text-sm text-red-300">{{ error }}</p>
       <p v-else-if="notice" class="text-sm text-farm-green">{{ notice }}</p>
     </div>
+
+    <section v-if="publishedPosts.length" class="mt-4 min-w-0 rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h3 class="font-bold text-white">{{ t('journal.publishedStories') }}</h3>
+          <p class="mt-1 text-xs text-slate-400">{{ t('journal.publishedStoriesHint') }}</p>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="grid h-10 w-10 place-items-center rounded-full border border-slate-700 text-white hover:border-farm-green hover:text-farm-green" :aria-label="t('journal.previousStory')" @click="moveStoryRail(-1)">←</button>
+          <button type="button" class="grid h-10 w-10 place-items-center rounded-full border border-slate-700 text-white hover:border-farm-green hover:text-farm-green" :aria-label="t('journal.nextStory')" @click="moveStoryRail(1)">→</button>
+        </div>
+      </div>
+      <div ref="storyRail" class="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin] [scrollbar-color:rgb(51_65_85)_transparent]" tabindex="0" :aria-label="t('journal.publishedStories')">
+        <button
+          v-for="post in publishedPosts"
+          :key="post.id"
+          type="button"
+          class="grid min-w-[17rem] max-w-[17rem] snap-start grid-cols-[4.75rem_1fr] overflow-hidden rounded-xl border text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green sm:min-w-[21rem] sm:max-w-[21rem]"
+          :class="selectedPost?.id === post.id ? 'border-farm-green bg-farm-green/10' : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'"
+          @click="selectPost(post)"
+        >
+          <img v-if="coverDisplaySrc(post.coverImageUrl)" :src="coverDisplaySrc(post.coverImageUrl)!" alt="" class="h-full min-h-24 w-full object-cover" />
+          <span v-else class="grid min-h-24 place-items-center bg-emerald-950 text-2xl text-farm-green" aria-hidden="true">✦</span>
+          <span class="min-w-0 p-3">
+            <span class="block text-[10px] font-bold uppercase tracking-[0.16em] text-farm-green">{{ post.category }}</span>
+            <span class="mt-2 block line-clamp-2 text-sm font-bold text-white">{{ post.title }}</span>
+            <span class="mt-2 block text-[11px] text-slate-500">{{ formatDate(post.publishedAt) }}</span>
+          </span>
+        </button>
+      </div>
+    </section>
 
     <div class="mt-4 grid min-w-0 gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
       <aside class="min-w-0 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
@@ -591,6 +691,48 @@ onMounted(loadPosts)
             </button>
           </div>
         </form>
+
+        <details v-if="selectedPost?.published" class="group mt-6 rounded-xl border border-slate-800 bg-slate-950/40" open>
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 p-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green">
+            <span>
+              <span class="block font-bold text-white">{{ t('journal.engagement') }}</span>
+              <span class="mt-1 block text-xs text-slate-400">{{ t('journal.engagementHint') }}</span>
+            </span>
+            <span class="flex items-center gap-2">
+              <span v-if="pendingCommentCount" class="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300">{{ t('journal.pendingComments', { count: pendingCommentCount }) }}</span>
+              <span class="text-slate-500 transition group-open:rotate-180" aria-hidden="true">⌄</span>
+            </span>
+          </summary>
+          <div class="border-t border-slate-800 p-4">
+            <p v-if="engagementLoading" class="text-sm text-slate-400">{{ t('journal.loading') }}</p>
+            <template v-else-if="engagement">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm font-bold text-farm-green">{{ t('journal.likes', { count: engagement.likeCount }) }}</p>
+                <button type="button" class="text-xs font-semibold text-slate-400 hover:text-white" @click="loadEngagement()">{{ t('journal.refresh') }}</button>
+              </div>
+              <h4 class="mt-5 text-sm font-bold text-white">{{ t('journal.comments') }}</h4>
+              <ul v-if="engagement.comments.length" class="mt-3 space-y-3">
+                <li v-for="comment in engagement.comments" :key="comment.id" class="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p class="text-sm font-bold text-white">{{ comment.authorName }}</p>
+                      <p class="mt-1 text-[11px] text-slate-500">{{ formatDate(comment.createdAt) }}</p>
+                    </div>
+                    <span class="rounded-full px-2 py-1 text-[11px] font-bold" :class="comment.status === 'pending' ? 'bg-amber-500/15 text-amber-300' : comment.status === 'approved' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'">
+                      {{ comment.status === 'pending' ? t('journal.commentPending') : comment.status === 'approved' ? t('journal.commentApproved') : t('journal.commentRejected') }}
+                    </span>
+                  </div>
+                  <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-300">{{ comment.body }}</p>
+                  <div v-if="comment.status === 'pending'" class="mt-4 flex flex-wrap gap-2">
+                    <button type="button" class="rounded-lg bg-farm-green px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40" :disabled="moderatingCommentId === comment.id" @click="moderateComment(comment, 'approved')">{{ t('journal.approveComment') }}</button>
+                    <button type="button" class="rounded-lg border border-red-500/40 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-40" :disabled="moderatingCommentId === comment.id" @click="moderateComment(comment, 'rejected')">{{ t('journal.rejectComment') }}</button>
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="mt-3 text-sm text-slate-500">{{ t('journal.noComments') }}</p>
+            </template>
+          </div>
+        </details>
       </section>
     </div>
   </AppLayout>

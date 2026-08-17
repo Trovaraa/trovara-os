@@ -35,6 +35,7 @@ export async function authMiddleware(c: Context<{ Variables: AppVariables }>, ne
       role: user.role,
       farmId: user.farmId,
       farmRoleId: user.farmRoleId,
+      userId: user.id,
     })
   } catch (err) {
     // Fail closed for non-owners: empty grants deny permission checks instead of

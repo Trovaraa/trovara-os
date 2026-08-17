@@ -20,10 +20,11 @@ export function resolveInsightLabel(
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import AdvisoryAnalysisPanel from '@/components/advisory/AdvisoryAnalysisPanel.vue'
 import AdvisoryCalendarPanel from '@/components/advisory/AdvisoryCalendarPanel.vue'
 import {
@@ -36,7 +37,7 @@ import {
 import { useAdvisoryCalendar } from '@/composables/useAdvisoryCalendar'
 import { api } from '@/lib/api'
 
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -120,14 +121,49 @@ const filteredRecommendations = computed(() => {
   )
 })
 
+const PREVIEW_PREDICTIONS = 2
+const previewRecommendations = computed(() =>
+  filteredRecommendations.value.slice(0, PREVIEW_PREDICTIONS),
+)
+const extraRecommendations = computed(() =>
+  filteredRecommendations.value.slice(PREVIEW_PREDICTIONS),
+)
+
+function predictionHasExtra(rec: Recommendation) {
+  return Boolean(
+    rec.aiSummary ||
+    rec.payload.products?.length ||
+    rec.payload.prediction?.evidence?.length,
+  )
+}
+
+function predictionModeLabel(rec: Recommendation) {
+  const mode = rec.payload.prediction?.mode
+  if (mode === 'ai_plan') return t('advisory.aiPlan')
+  if (mode === 'ai_summary') return t('advisory.aiSummary')
+  return t('advisory.ruleFallback')
+}
+
+function predictionConfidenceLabel(rec: Recommendation) {
+  const confidence = rec.payload.prediction?.confidence
+  if (!confidence) return ''
+  const level = t(`advisory.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`)
+  return t('advisory.confidence', { level })
+}
+
 const trackTiles = computed(() => {
   if (!home.value) return []
-  if (selectedSubject.value?.kind === 'livestock') return home.value.tiles.poultry
-  return home.value.tiles.crop
+  const tiles = selectedSubject.value?.kind === 'livestock'
+    ? home.value.tiles.poultry
+    : home.value.tiles.crop
+  return tiles.map((tile) => {
+    const key = `advisory.tiles.${tile.key}`
+    return { ...tile, label: te(key) ? t(key) : tile.label }
+  })
 })
 
 const todayLabel = computed(() =>
-  new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }),
+  new Date().toLocaleDateString(locale.value, { weekday: 'short', day: 'numeric', month: 'short' }),
 )
 
 const cycleDay = computed(() => {
@@ -140,13 +176,22 @@ const cycleLength = computed(() => {
   const s = selectedSubject.value
   if (!s) return 42
   if (s.kind === 'livestock') return 42
-  return 90
+  return s.totalStageDays
+})
+
+const stageOverdueDays = computed(() => {
+  const subject = selectedSubject.value
+  if (subject?.kind !== 'crop' || !subject.totalStageDays) return 0
+  return Math.max(0, subject.dayInStage - subject.totalStageDays)
 })
 
 const phaseName = computed(() => {
   const s = selectedSubject.value
   if (!s) return t('advisory.phaseUnknown')
-  if (s.kind === 'crop') return s.stage.replace(/_/g, ' ')
+  if (s.kind === 'crop') {
+    const key = `crops.stage.${s.stage}`
+    return te(key) ? t(key) : s.stage.replace(/_/g, ' ')
+  }
   const d = s.dayInCycle
   if (d <= 7) return t('advisory.phaseBrooding')
   if (d <= 21) return t('advisory.phaseGrow')
@@ -156,6 +201,9 @@ const phaseName = computed(() => {
 const headline = computed(() => {
   const s = selectedSubject.value
   if (!s) return t('advisory.noUpcoming')
+  if (stageOverdueDays.value > 0) {
+    return t('advisory.stageOverdue', { n: stageOverdueDays.value })
+  }
   if (s.daysUntilNextHint != null && s.daysUntilNextHint > 0 && s.nextHint) {
     return t('advisory.daysUntilShort', { n: s.daysUntilNextHint })
   }
@@ -163,17 +211,29 @@ const headline = computed(() => {
   return t('advisory.noUpcoming')
 })
 
-const headlineDetail = computed(() => selectedSubject.value?.nextHint ?? '')
+const headlineDetail = computed(() =>
+  stageOverdueDays.value > 0
+    ? t('advisory.stageOverdueDetail')
+    : selectedSubject.value?.nextHint ?? '',
+)
 
 const progressPct = computed(() =>
-  Math.min(100, Math.round((cycleDay.value / cycleLength.value) * 100)),
+  cycleLength.value
+    ? Math.min(100, Math.round((cycleDay.value / cycleLength.value) * 100))
+    : null,
 )
 
 const dialCirc = 2 * Math.PI * 52
-const dialOffset = computed(() => dialCirc * (1 - Math.min(0.999, cycleDay.value / cycleLength.value)))
+const dialOffset = computed(() =>
+  cycleLength.value
+    ? dialCirc * (1 - Math.min(0.999, cycleDay.value / cycleLength.value))
+    : dialCirc,
+)
 
 watch(selectedSubjectId, () => {
   aboutOpen.value = false
+  selectedTiles.value = []
+  trackResult.value = null
 })
 
 function openSubject(id: string) {
@@ -256,7 +316,16 @@ watch(tab, async (v) => {
   void router.replace({ query: { ...route.query, tab: v } })
 })
 
+async function reloadLocalizedContent() {
+  await loadHome()
+  if (tab.value === 'calendar') await loadCalendar()
+  if (tab.value === 'analysis') await loadAnalysis()
+  if (tipBucket.value) await openTipBucket(tipBucket.value)
+  if (insightKey.value) await openInsight(insightKey.value)
+}
+
 onMounted(async () => {
+  window.addEventListener('trovara:locale-preference-saved', reloadLocalizedContent)
   const qTab = String(route.query.tab || 'home')
   if (qTab === 'calendar' || qTab === 'track' || qTab === 'analysis' || qTab === 'home') {
     tab.value = qTab
@@ -265,20 +334,26 @@ onMounted(async () => {
   if (tab.value === 'calendar') await loadCalendar()
   if (tab.value === 'analysis') await loadAnalysis()
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('trovara:locale-preference-saved', reloadLocalizedContent)
+})
 </script>
 
 <template>
   <AppLayout>
-    <div class="w-full max-w-2xl min-w-0 pb-8">
+    <div class="w-full min-w-0 max-w-6xl pb-8">
       <p class="text-farm-gold text-xs font-bold tracking-widest uppercase">{{ t('advisory.eyebrow') }}</p>
       <h2 class="text-2xl sm:text-3xl font-black text-os-fg mt-1">{{ t('advisory.title') }}</h2>
-      <p class="text-slate-400 text-sm mt-1">{{ t('advisory.subtitle') }}</p>
+      <p class="text-slate-400 text-sm mt-1 max-w-2xl">{{ t('advisory.subtitle') }}</p>
 
-      <div class="mt-5 flex flex-wrap gap-2">
+      <div class="mt-5 flex flex-wrap gap-2" role="tablist" :aria-label="t('advisory.title')">
         <button
           v-for="key in (['home', 'calendar', 'track', 'analysis'] as const)"
           :key="key"
           type="button"
+          role="tab"
+          :aria-selected="tab === key"
           class="rounded-full px-4 py-2 text-sm font-semibold min-h-[40px]"
           :class="tab === key ? 'bg-farm-green text-slate-950' : 'bg-slate-800 text-slate-300'"
           @click="tab = key"
@@ -291,12 +366,14 @@ onMounted(async () => {
       <p v-else-if="error" class="mt-8 text-red-400">{{ error }}</p>
 
       <template v-else-if="home">
-        <section v-if="tab === 'home'" class="mt-8 space-y-5">
+        <section v-if="tab === 'home'" class="mt-8">
+          <div class="space-y-5 lg:grid lg:grid-cols-12 lg:items-start lg:gap-8 lg:space-y-0">
+          <div class="space-y-5 lg:col-span-5">
           <label class="block text-xs text-slate-400">
             {{ t('advisory.mode') }}
             <select
               v-model="selectedSubjectId"
-              class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+              class="mt-1 w-full max-w-md rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
             >
               <option v-for="s in home.subjects" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
@@ -332,7 +409,7 @@ onMounted(async () => {
                 <p class="text-slate-400 text-sm">{{ t('advisory.todayDate', { date: todayLabel }) }}</p>
                 <p class="mt-1 text-xs font-semibold uppercase tracking-wide text-farm-gold">
                   {{ phaseName }}
-                  <span class="text-slate-500 font-normal normal-case">· {{ progressPct }}%</span>
+                  <span v-if="progressPct !== null" class="text-slate-500 font-normal normal-case">· {{ progressPct }}%</span>
                 </p>
                 <h3 class="mt-2 text-xl sm:text-2xl font-black text-os-fg leading-snug">
                   {{ headline }}
@@ -351,7 +428,7 @@ onMounted(async () => {
             </div>
 
             <div class="mt-4 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-              <div class="h-full rounded-full bg-farm-green/80 transition-all" :style="{ width: `${progressPct}%` }" />
+              <div class="h-full rounded-full bg-farm-green/80 transition-all" :style="{ width: `${progressPct ?? 0}%` }" />
             </div>
 
             <div
@@ -377,28 +454,55 @@ onMounted(async () => {
             <span class="text-farm-green" aria-hidden="true">›</span>
           </button>
 
-          <div>
+          </div>
+
+          <div class="lg:col-span-7">
             <h3 class="text-white font-bold mb-3">{{ t('advisory.predictions') }}</h3>
             <div v-if="filteredRecommendations.length === 0" class="text-slate-400 text-sm">
               {{ t('advisory.noPredictions') }}
             </div>
             <ul class="space-y-3">
               <li
-                v-for="rec in filteredRecommendations"
+                v-for="rec in previewRecommendations"
                 :key="rec.id"
                 class="rounded-2xl border border-slate-800 bg-slate-900 p-4"
               >
+                <div v-if="rec.payload.prediction" class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+                  <span
+                    class="rounded-full border px-2.5 py-1"
+                    :class="rec.payload.prediction.mode === 'ai_plan' ? 'border-farm-green/40 bg-farm-green/10 text-farm-green' : 'border-slate-700 bg-slate-800 text-slate-300'"
+                  >
+                    {{ predictionModeLabel(rec) }}
+                  </span>
+                  <span v-if="predictionConfidenceLabel(rec)" class="rounded-full border border-slate-700 bg-slate-950/60 px-2.5 py-1 text-slate-300">
+                    {{ predictionConfidenceLabel(rec) }}
+                  </span>
+                </div>
                 <p class="text-white font-semibold">{{ rec.payload.happeningNow }}</p>
                 <p class="text-slate-300 text-sm mt-1">{{ rec.payload.whatNext }}</p>
-                <p v-if="rec.aiSummary" class="text-slate-400 text-sm mt-2">{{ rec.aiSummary }}</p>
-                <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
-                  <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
-                    <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
-                    <span v-else>{{ p.title }} <span class="text-slate-500">({{ t('advisory.suggestedArea') }})</span></span>
-                  </li>
-                </ul>
+                <details v-if="predictionHasExtra(rec)" class="mt-2">
+                  <summary class="cursor-pointer text-sm font-semibold text-farm-green">
+                    {{ t('advisory.moreDetail') }}
+                  </summary>
+                  <p v-if="rec.aiSummary" class="mt-2 text-sm text-slate-400">{{ rec.aiSummary }}</p>
+                  <div v-if="rec.payload.prediction?.evidence?.length" class="mt-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ t('advisory.evidence') }}</p>
+                    <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                      <li v-for="item in rec.payload.prediction.evidence" :key="item">{{ item }}</li>
+                    </ul>
+                  </div>
+                  <p v-if="rec.payload.products?.some((p) => p.source === 'search')" class="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    {{ t('advisory.liveSearch') }}
+                  </p>
+                  <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
+                    <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
+                      <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
+                      <span v-else>{{ p.title }} <span class="text-slate-500">({{ t('advisory.suggestedArea') }})</span></span>
+                    </li>
+                  </ul>
+                </details>
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <button type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="setStatus(rec.id, 'accepted')">
+                  <button v-if="rec.status !== 'accepted'" type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="setStatus(rec.id, 'accepted')">
                     {{ t('advisory.accept') }}
                   </button>
                   <button type="button" class="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold text-white" @click="setStatus(rec.id, 'completed')">
@@ -410,6 +514,67 @@ onMounted(async () => {
                 </div>
               </li>
             </ul>
+            <CollapsibleSection
+              v-if="extraRecommendations.length"
+              class="mt-3"
+              :title="t('advisory.morePredictions', { count: extraRecommendations.length })"
+              :default-open="false"
+            >
+              <ul class="space-y-3">
+                <li
+                  v-for="rec in extraRecommendations"
+                  :key="rec.id"
+                  class="rounded-2xl border border-slate-800 bg-slate-950/45 p-4"
+                >
+                  <div v-if="rec.payload.prediction" class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+                    <span
+                      class="rounded-full border px-2.5 py-1"
+                      :class="rec.payload.prediction.mode === 'ai_plan' ? 'border-farm-green/40 bg-farm-green/10 text-farm-green' : 'border-slate-700 bg-slate-800 text-slate-300'"
+                    >
+                      {{ predictionModeLabel(rec) }}
+                    </span>
+                    <span v-if="predictionConfidenceLabel(rec)" class="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-slate-300">
+                      {{ predictionConfidenceLabel(rec) }}
+                    </span>
+                  </div>
+                  <p class="text-white font-semibold">{{ rec.payload.happeningNow }}</p>
+                  <p class="text-slate-300 text-sm mt-1">{{ rec.payload.whatNext }}</p>
+                  <details v-if="predictionHasExtra(rec)" class="mt-2">
+                    <summary class="cursor-pointer text-sm font-semibold text-farm-green">
+                      {{ t('advisory.moreDetail') }}
+                    </summary>
+                    <p v-if="rec.aiSummary" class="mt-2 text-sm text-slate-400">{{ rec.aiSummary }}</p>
+                    <div v-if="rec.payload.prediction?.evidence?.length" class="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                      <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ t('advisory.evidence') }}</p>
+                      <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                        <li v-for="item in rec.payload.prediction.evidence" :key="item">{{ item }}</li>
+                      </ul>
+                    </div>
+                    <p v-if="rec.payload.products?.some((p) => p.source === 'search')" class="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      {{ t('advisory.liveSearch') }}
+                    </p>
+                    <ul v-if="rec.payload.products?.length" class="mt-3 space-y-1">
+                      <li v-for="(p, i) in rec.payload.products" :key="i" class="text-sm text-slate-200">
+                        <a v-if="p.url" :href="p.url" target="_blank" rel="noopener" class="text-farm-green underline">{{ p.title }}</a>
+                        <span v-else>{{ p.title }} <span class="text-slate-500">({{ t('advisory.suggestedArea') }})</span></span>
+                      </li>
+                    </ul>
+                  </details>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button v-if="rec.status !== 'accepted'" type="button" class="rounded-lg bg-farm-green px-3 py-1.5 text-xs font-bold text-slate-950" @click="setStatus(rec.id, 'accepted')">
+                      {{ t('advisory.accept') }}
+                    </button>
+                    <button type="button" class="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold text-white" @click="setStatus(rec.id, 'completed')">
+                      {{ t('advisory.complete') }}
+                    </button>
+                    <button type="button" class="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300" @click="setStatus(rec.id, 'ignored')">
+                      {{ t('advisory.ignore') }}
+                    </button>
+                  </div>
+                </li>
+              </ul>
+            </CollapsibleSection>
+          </div>
           </div>
         </section>
 
@@ -426,14 +591,33 @@ onMounted(async () => {
               <h3 class="text-xl font-black text-os-fg">{{ t('advisory.howIsFarm') }}</h3>
               <p class="text-slate-400 text-sm mt-1">{{ t('advisory.trackSubtitle') }}</p>
             </div>
-            <button type="button" class="text-slate-400 text-xl leading-none" @click="tab = 'home'">×</button>
+            <button
+              type="button"
+              class="rounded-lg px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800"
+              :aria-label="t('advisory.closeTrack')"
+              @click="tab = 'home'"
+            >
+              {{ t('advisory.closeTrack') }}
+            </button>
           </div>
-          <div class="mt-6 grid grid-cols-3 gap-3">
+          <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+            <label class="block text-xs font-bold uppercase tracking-wide text-slate-400">
+              {{ t('advisory.recordingFor') }}
+              <select
+                v-model="selectedSubjectId"
+                class="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm font-semibold text-white sm:max-w-md"
+              >
+                <option v-for="s in home.subjects" :key="s.id" :value="s.id">{{ s.label }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-4">
             <button
               v-for="tile in trackTiles"
               :key="tile.key"
               type="button"
-              class="aspect-square rounded-xl border border-slate-700 p-2 flex flex-col items-center justify-center text-center"
+              class="relative min-h-24 rounded-xl border border-slate-700 p-3 flex flex-col items-center justify-center text-center lg:min-h-20"
+              :aria-pressed="selectedTiles.includes(tile.key)"
               :class="
                 selectedTiles.includes(tile.key)
                   ? 'border-farm-green bg-farm-green/10 text-farm-green'
@@ -441,6 +625,11 @@ onMounted(async () => {
               "
               @click="toggleTile(tile.key)"
             >
+              <span
+                v-if="selectedTiles.includes(tile.key)"
+                class="absolute right-2 top-1 text-base font-black"
+                aria-hidden="true"
+              >✓</span>
               <span class="text-xs font-semibold leading-tight">{{ tile.label }}</span>
             </button>
           </div>
@@ -454,7 +643,7 @@ onMounted(async () => {
           </label>
           <button
             type="button"
-            class="mt-4 w-full rounded-xl bg-farm-green text-slate-950 font-bold py-3 disabled:opacity-40"
+            class="mt-4 w-full rounded-xl bg-farm-green py-3 font-bold text-slate-950 disabled:opacity-40 sm:w-auto sm:px-8"
             :disabled="trackSaving || selectedTiles.length === 0"
             @click="saveTrack"
           >

@@ -55,6 +55,7 @@ let batchRows: Array<Record<string, unknown>> = []
 let scheduleRows: Array<Record<string, unknown>> = []
 /** Reads of `livestock_schedule_entries`, to pin the batched fetch. */
 let scheduleSelects = 0
+let guidelineRows: Array<{ title: string; category: string; body: string }> = []
 let existingRows: Array<{ id: string }> = []
 /** Every `insert(...).values(...)` payload, in insert order. */
 let insertedRows: Array<Record<string, unknown>> = []
@@ -113,6 +114,8 @@ function resolveQuery(state: QueryState): unknown {
     case 'livestock_schedule_entries':
       scheduleSelects += 1
       return scheduleRows
+    case 'operation_guidelines':
+      return guidelineRows
     case 'advisory_recommendations':
       return existingRows
     default:
@@ -197,11 +200,18 @@ const completeChat = vi.fn(async (_system: string, _user: string) => ({
   text: AI_SUMMARY,
   model: 'test-model',
 }))
+const parseJsonFromLlm = vi.fn((text: string) => {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
+})
 
 vi.mock('./llm.js', () => ({
   isLlmConfigured: () => llmConfigured,
   completeChat: (system: string, user: string) => completeChat(system, user),
-  parseJsonFromLlm: () => null,
+  parseJsonFromLlm: (text: string) => parseJsonFromLlm(text),
 }))
 
 vi.mock('./llm-budget.js', () => ({
@@ -342,6 +352,7 @@ beforeEach(() => {
   batchRows = []
   scheduleRows = []
   scheduleSelects = 0
+  guidelineRows = []
   existingRows = []
   insertedRows = []
   recipients = []
@@ -444,6 +455,78 @@ describe('runAdvisoryEngine per-recipient language', () => {
 })
 
 describe('the stored row stays canonical English', () => {
+  it('uses a validated AI plan to personalize the action and SerpAPI search intent', async () => {
+    useCropCycle()
+    guidelineRows = [
+      {
+        title: 'Rain readiness SOP',
+        category: 'operations',
+        body: 'Move exposed inputs under the covered store before evening rain.',
+      },
+    ]
+    completeChat.mockResolvedValue({
+      text: JSON.stringify({
+        actionPlan: 'Move exposed mulch into the covered store, then weed the plantain rows after the rain window.',
+        explanation: 'This protects the planned field work while keeping inputs dry and ready for the next safe window.',
+        searchIntent: 'waterproof farm tarpaulin for crop inputs Lagos',
+        confidence: 'high',
+      }),
+      model: 'prediction-model',
+    })
+
+    await runAdvisoryEngine(FARM_ID)
+
+    expect(payloadOf()).toMatchObject({
+      whatNext: 'Move exposed mulch into the covered store, then weed the plantain rows after the rain window.',
+      needQuery: 'waterproof farm tarpaulin for crop inputs Lagos',
+      prediction: {
+        mode: 'ai_plan',
+        confidence: 'high',
+        model: 'prediction-model',
+        searchIntentSource: 'ai',
+        guidanceContext: ['Rain readiness SOP'],
+      },
+    })
+    expect((payloadOf().prediction as { evidence: string[] }).evidence).toEqual([
+      'Farm signal: Plantain is in vegetative growth. (Block A)',
+      'Crop: plantain',
+      'Stage: vegetative',
+      'Cycle day: 14',
+    ])
+    expect(insertedRows[0].aiSummary).toContain('protects the planned field work')
+    expect(resolveMarketplaceProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ needQuery: 'waterproof farm tarpaulin for crop inputs Lagos' }),
+    )
+    expect(String(completeChat.mock.calls[0]?.[1])).toContain('Rain readiness SOP')
+  })
+
+  it('rejects unsafe AI action and search fields while retaining the safe explanation', async () => {
+    useCropCycle()
+    completeChat.mockResolvedValue({
+      text: JSON.stringify({
+        actionPlan: 'Apply pesticide before workers enter the plot.',
+        explanation: 'The scheduled work should be moved to a safer weather window.',
+        searchIntent: 'pesticide supplier Lagos',
+        confidence: 'medium',
+      }),
+      model: 'prediction-model',
+    })
+
+    await runAdvisoryEngine(FARM_ID)
+
+    expect(payloadOf().whatNext).toBe('Weed between rows and refresh mulch.')
+    expect(payloadOf().needQuery).toBe('mulch organic plantain farm')
+    expect(payloadOf()).toMatchObject({
+      prediction: {
+        mode: 'ai_summary',
+        searchIntentSource: 'rule',
+      },
+    })
+    expect(resolveMarketplaceProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ needQuery: 'mulch organic plantain farm' }),
+    )
+  })
+
   it('persists English payload and aiSummary when the owner is francophone', async () => {
     useCropCycle()
     ownerRows = [{ preferredLocale: 'fr' }]
@@ -927,11 +1010,9 @@ describe('weather timing renders from the weather locale table', () => {
 
 describe('a translation failure never drops a push', () => {
   /**
-   * The engine's Now and Next lines are always playbook seeds — nothing on this
-   * path is generated — so translating them needs the LLM, and the push that
-   * matters most is the one sent while it is down. The seeds fall back to the
-   * pre-translated table rather than to English; the AI summary is genuinely
-   * generated text with no table entry, so it stays English.
+   * When translation is unavailable, known reason codes fall back to the
+   * pre-translated playbook text rather than English. Generated explanation
+   * text has no table entry, so it remains canonical English.
    */
   it('still sends, with the seed lines rendered from the table', async () => {
     useCropCycle()

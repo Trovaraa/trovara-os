@@ -143,8 +143,9 @@ const {
   attendanceError,
   selectedPlotId,
   selectedTaskId,
-  attendanceNotes,
   workSummary,
+  workDate,
+  hoursValue,
   correctingId,
   correctionClockIn,
   correctionClockOut,
@@ -152,10 +153,10 @@ const {
   showAttendance,
   canManageAttendance,
   canClockSelf,
-  openAttendance,
+  myTodaySubmission,
   loadAttendance,
-  clockInNow,
-  clockOutNow,
+  submitHoursNow,
+  reviewHoursNow,
   startCorrection,
   saveCorrection,
   formatMinutes,
@@ -351,8 +352,9 @@ function formatTime(iso: string) {
         v-if="showAttendance"
         v-model:selected-plot-id="selectedPlotId"
         v-model:selected-task-id="selectedTaskId"
-        v-model:attendance-notes="attendanceNotes"
         v-model:work-summary="workSummary"
+        v-model:work-date="workDate"
+        v-model:hours-value="hoursValue"
         v-model:correcting-id="correctingId"
         v-model:correction-clock-in="correctionClockIn"
         v-model:correction-clock-out="correctionClockOut"
@@ -360,14 +362,14 @@ function formatTime(iso: string) {
         :can-manage-attendance="canManageAttendance"
         :can-clock-self="canClockSelf"
         :attendance="attendance"
-        :open-attendance="openAttendance"
+        :my-today-submission="myTodaySubmission"
         :plots="plots"
         :my-tasks-today="data.myTasksToday ?? []"
         :attendance-busy="attendanceBusy"
         :attendance-error="attendanceError"
         :format-minutes="formatMinutes"
-        @clock-in="clockInNow"
-        @clock-out="clockOutNow"
+        @submit-hours="submitHoursNow"
+        @review-hours="reviewHoursNow"
         @start-correction="startCorrection"
         @save-correction="saveCorrection"
       />

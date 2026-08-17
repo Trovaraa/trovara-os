@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import { api } from '@/lib/api'
 
-type LeadType = 'contact' | 'product_waitlist'
+type LeadType = 'contact' | 'product_waitlist' | 'survey_followup'
 type LeadStatus = 'new' | 'in_progress' | 'contacted' | 'closed' | 'spam'
 
 type MarketingLead = {
@@ -49,10 +50,11 @@ type LeadsResponse = {
 }
 
 const statuses: LeadStatus[] = ['new', 'in_progress', 'contacted', 'closed', 'spam']
-const types: LeadType[] = ['contact', 'product_waitlist']
+const types: LeadType[] = ['contact', 'product_waitlist', 'survey_followup']
 const statusSequence: LeadStatus[] = ['new', 'in_progress', 'contacted', 'closed']
 
 const { t, locale, te } = useI18n()
+const route = useRoute()
 const leads = ref<MarketingLead[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -63,6 +65,17 @@ const statusFilter = ref<'all' | LeadStatus>('all')
 const activeAction = ref<string | null>(null)
 const assignmentUsers = ref<AssignmentUser[]>([])
 const assignmentAvailable = ref(false)
+
+async function revealLinkedLead() {
+  const leadId = typeof route.query.lead === 'string' ? route.query.lead : ''
+  if (!leadId || !leads.value.some((lead) => lead.id === leadId)) return
+  typeFilter.value = 'all'
+  statusFilter.value = 'all'
+  search.value = ''
+  await nextTick()
+  document.getElementById(`lead-${leadId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  document.getElementById(`lead-${leadId}`)?.focus({ preventScroll: true })
+}
 
 const summary = ref<Record<LeadStatus, number>>({
   new: 0,
@@ -146,6 +159,7 @@ async function loadLeads() {
     }
     assignmentUsers.value = data.assignees ?? []
     assignmentAvailable.value = assignmentUsers.value.length > 0
+    await revealLinkedLead()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('marketingLeads.loadFailed')
   } finally {
@@ -255,6 +269,7 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
+watch(() => route.query.lead, () => void revealLinkedLead())
 onMounted(refresh)
 </script>
 
@@ -356,7 +371,13 @@ onMounted(refresh)
       </p>
 
       <div v-else class="divide-y divide-slate-800">
-        <article v-for="lead in filteredLeads" :key="lead.id" class="p-4 sm:p-5">
+        <article
+          v-for="lead in filteredLeads"
+          :id="`lead-${lead.id}`"
+          :key="lead.id"
+          tabindex="-1"
+          class="p-4 outline-none transition focus:bg-farm-green/5 focus:ring-2 focus:ring-inset focus:ring-farm-green/60 sm:p-5"
+        >
           <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -433,7 +454,7 @@ onMounted(refresh)
 
           <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
             <p class="text-xs font-semibold text-slate-500">
-              {{ lead.leadType === 'contact' ? t('marketingLeads.subject') : t('marketingLeads.product') }}
+              {{ lead.leadType === 'product_waitlist' ? t('marketingLeads.product') : t('marketingLeads.subject') }}
             </p>
             <p class="mt-1 text-sm font-semibold text-slate-200">{{ detailLabel(lead) }}</p>
             <p v-if="lead.message" class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">

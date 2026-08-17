@@ -22,6 +22,14 @@ export type Recommendation = {
     whatNext: string
     products?: ProductHit[]
     reasonCode?: string
+    prediction?: {
+      mode: 'ai_plan' | 'ai_summary' | 'rule_fallback'
+      confidence: 'high' | 'medium' | 'low' | null
+      evidence: string[]
+      model: string | null
+      searchIntentSource: 'ai' | 'rule'
+      guidanceContext: string[]
+    }
   }
   aiSummary: string | null
   firedAt: string
@@ -35,7 +43,10 @@ export type Subject =
       cropType: string
       plotName?: string
       stage: string
+      plantedAt: string
+      stageEnteredAt: string
       dayInStage: number
+      totalStageDays: number | null
       daysUntilNextHint: number | null
       nextHint: string | null
     }
@@ -44,6 +55,8 @@ export type Subject =
       id: string
       label: string
       species: string
+      batchType: string | null
+      acquiredAt: string
       dayInCycle: number
       daysUntilNextHint: number | null
       nextHint: string | null

@@ -81,6 +81,11 @@ const NAV_ICON_PATHS: Record<string, string> = {
     'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
   '/assets':
     'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z',
+  '/maintenance':
+    'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066l1.414-.814 2.5 4.33-1.414.816a1.724 1.724 0 000 2.97l1.414.816-2.5 4.33-1.414-.814a1.724 1.724 0 00-2.573 1.066V20h-5v-1.633a1.724 1.724 0 00-2.573-1.066l-1.414.814-2.5-4.33 1.414-.816a1.724 1.724 0 000-2.97L.59 9.183l2.5-4.33 1.414.814a1.724 1.724 0 002.573-1.066L7.5 3h2.825z M12 15a3 3 0 100-6 3 3 0 000 6z',
+  '/scan': 'M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3M7 12h10',
+  '/contractors':
+    'M17 20h5v-2a4 4 0 00-4-4h-1M9 20H2v-2a4 4 0 014-4h2m8-7a4 4 0 11-8 0 4 4 0 018 0zm-4 7v6m-3-3h6',
   '/sales':
     'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z',
   '/support':
@@ -100,6 +105,8 @@ const NAV_ICON_PATHS: Record<string, string> = {
     'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z',
   '/reports':
     'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+  '/anomalies':
+    'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z',
   '/journal':
     'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18s-3.332.477-4.5 1.253',
   '/brand-kits':
@@ -110,12 +117,16 @@ const NAV_ICON_PATHS: Record<string, string> = {
     'M3 8l9 6 9-6m-18 0v9a2 2 0 002 2h14a2 2 0 002-2V8m-14-3h14a2 2 0 012 2v1L12 14 3 8V7a2 2 0 012-2z',
   '/marketing-leads':
     'M17 20h5v-2a4 4 0 00-4-4h-1m-5 6H2v-2a4 4 0 014-4h4a4 4 0 014 4v2zm-4-13a4 4 0 11-8 0 4 4 0 018 0zm7 3a3 3 0 10-6 0',
+  '/customer-surveys':
+    'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   '/shop-customers':
     'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
   '/finance':
     'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   '/hours':
     'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+  '/operations-library':
+    'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18s-3.332.477-4.5 1.253',
   '/templates':
     'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
   '/zones':
@@ -159,6 +170,8 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/field-reports', labelKey: 'nav.fieldReports' },
           { to: '/inventory', labelKey: 'nav.inventory' },
           { to: '/assets', labelKey: 'nav.assets' },
+          { to: '/maintenance', labelKey: 'nav.maintenance' },
+          { to: '/scan', labelKey: 'nav.scan' },
           { to: '/traceability', labelKey: 'nav.harvest' },
           { to: '/settings', labelKey: 'nav.settings' },
         ],
@@ -182,12 +195,14 @@ const navGroups = computed<NavGroup[]>(() => {
           { to: '/sales', labelKey: 'nav.sales' },
           { to: '/support', labelKey: 'nav.support' },
           { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
+          { to: '/customer-surveys', labelKey: 'nav.customerSurveys' },
           { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
           { to: '/products', labelKey: 'nav.products' },
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
           { to: '/telegram', labelKey: 'nav.telegram' },
           { to: '/traceability', labelKey: 'nav.traceability' },
           { to: '/finance', labelKey: 'nav.finance' },
+          { to: '/anomalies', labelKey: 'nav.anomalies' },
         ],
       },
       {
@@ -215,7 +230,10 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/livestock', labelKey: 'nav.livestock' },
         { to: '/inventory', labelKey: 'nav.inventory' },
         { to: '/assets', labelKey: 'nav.assets' },
+        { to: '/maintenance', labelKey: 'nav.maintenance' },
+        { to: '/scan', labelKey: 'nav.scan' },
         { to: '/field-reports', labelKey: 'nav.fieldReports' },
+        { to: '/operations-library', labelKey: 'nav.operationsLibrary' },
       ],
     },
     {
@@ -234,6 +252,7 @@ const navGroups = computed<NavGroup[]>(() => {
       titleKey: 'nav.grpContent',
       items: [
         { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
+        { to: '/customer-surveys', labelKey: 'nav.customerSurveys' },
         { to: '/journal', labelKey: 'nav.journal' },
         { to: '/brand-kits', labelKey: 'nav.brandKits' },
         { to: '/moments', labelKey: 'nav.moments' },
@@ -248,6 +267,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/events', labelKey: 'nav.events' },
         { to: '/ai', labelKey: 'nav.ai' },
         { to: '/reports', labelKey: 'nav.reports' },
+        { to: '/anomalies', labelKey: 'nav.anomalies' },
         { to: '/finance', labelKey: 'nav.finance' },
         { to: '/tasks/post-approval', labelKey: 'nav.postApproval' },
       ],
@@ -258,6 +278,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/templates', labelKey: 'nav.templates' },
         { to: '/zones', labelKey: 'nav.zones' },
         { to: '/users', labelKey: 'nav.users' },
+        { to: '/contractors', labelKey: 'nav.contractors' },
         { to: '/settings', labelKey: 'nav.settings' },
       ],
     },
@@ -276,7 +297,7 @@ const navGroups = computed<NavGroup[]>(() => {
 const flatNavItems = computed(() => navGroups.value.flatMap((group) => group.items))
 const workerMoreItems = computed(() =>
   flatNavItems.value.filter((item) =>
-    ['/hours', '/advisory', '/inventory', '/settings', '/traceability'].includes(item.to),
+    ['/hours', '/advisory', '/inventory', '/maintenance', '/scan', '/settings', '/traceability'].includes(item.to),
   ),
 )
 

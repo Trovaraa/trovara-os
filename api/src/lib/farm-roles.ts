@@ -1,6 +1,15 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { farmRolePermissions, farmRoles, users, type UserRole } from '../db/schema.js'
+import {
+  farmRolePermissions,
+  farmRoles,
+  permissionTeams,
+  permissionTeamMembers,
+  permissionTeamPermissions,
+  userPermissionOverrides,
+  users,
+  type UserRole,
+} from '../db/schema.js'
 import {
   NON_DELEGABLE_PERMISSIONS,
   SYSTEM_ROLE_TEMPLATES,
@@ -80,6 +89,7 @@ export async function resolvePermissionKeys(input: {
   role: UserRole
   farmId: string
   farmRoleId?: string | null
+  userId?: string | null
 }): Promise<PermissionKey[]> {
   if (input.role === 'owner') {
     return [...SYSTEM_ROLE_TEMPLATES.owner.permissions]
@@ -112,11 +122,53 @@ export async function resolvePermissionKeys(input: {
     .from(farmRolePermissions)
     .where(eq(farmRolePermissions.roleId, roleId))
 
-  const keys = rows
+  const roleKeys = rows
     .map((r) => r.permissionKey)
     .filter((k): k is PermissionKey => isPermissionKey(k))
+  const effective = new Set<PermissionKey>(
+    roleKeys.length ? roleKeys : SYSTEM_ROLE_TEMPLATES[input.role].permissions,
+  )
 
-  return keys.length ? keys : [...SYSTEM_ROLE_TEMPLATES[input.role].permissions]
+  if (input.userId) {
+    const [teamGrants, overrides] = await Promise.all([
+      db
+        .select({ permissionKey: permissionTeamPermissions.permissionKey })
+        .from(permissionTeamMembers)
+        .innerJoin(
+          permissionTeamPermissions,
+          eq(permissionTeamMembers.teamId, permissionTeamPermissions.teamId),
+        )
+        .innerJoin(permissionTeams, eq(permissionTeamMembers.teamId, permissionTeams.id))
+        .where(
+          and(
+            eq(permissionTeamMembers.userId, input.userId),
+            eq(permissionTeams.farmId, input.farmId),
+          ),
+        ),
+      db
+        .select({
+          permissionKey: userPermissionOverrides.permissionKey,
+          effect: userPermissionOverrides.effect,
+        })
+        .from(userPermissionOverrides)
+        .where(
+          and(
+            eq(userPermissionOverrides.farmId, input.farmId),
+            eq(userPermissionOverrides.userId, input.userId),
+          ),
+        ),
+    ])
+    for (const grant of teamGrants) {
+      if (isPermissionKey(grant.permissionKey)) effective.add(grant.permissionKey)
+    }
+    for (const override of overrides) {
+      if (!isPermissionKey(override.permissionKey)) continue
+      if (override.effect === 'deny') effective.delete(override.permissionKey)
+      else effective.add(override.permissionKey)
+    }
+  }
+
+  return [...effective]
 }
 
 export async function listFarmRoles(farmId: string) {

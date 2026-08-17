@@ -1,6 +1,7 @@
 # Trovara OS - Backup & Restore Runbook
 
-This runbook covers PostgreSQL and private evidence backup/restore. Production
+This runbook covers PostgreSQL, private evidence, and encrypted Operations
+Library object backup/restore. Production
 uses encrypted, checksummed artifacts. Delivery can use any rclone-supported
 storage. Remote delivery is optional in development and mandatory when
 `NODE_ENV=production`.
@@ -37,6 +38,7 @@ Optional for the backup script:
 | `USE_DOCKER_PG_TOOLS` | `0` | Set to `1` for the repo's Docker database so `pg_dump` runs at the server version |
 | `BACKUP_GPG_PASSPHRASE` | _(required for encrypted script)_ | Symmetric encryption passphrase |
 | `EVIDENCE_STORAGE_ROOT` | `api/data/evidence` | Private evidence directory |
+| `KNOWLEDGE_STORAGE_*` | _(see `.env.example`)_ | Read encrypted clean Operations Library objects into the evidence snapshot |
 | `REQUIRE_EVIDENCE_BACKUP` | `0` | Set to `1` in production so verify/restore fails when the evidence archive is missing |
 | `BACKUP_REPORT_DIR` | `$BACKUP_DIR/reports` | Atomic machine-readable backup and restore-test reports |
 | `BACKUP_REMOTE_ENABLED` | `0` | Set to `1` to deliver production artifacts with rclone |
@@ -69,6 +71,13 @@ Outputs:
 
 The raw SQL and tar files are removed after encryption. Keep both encrypted
 files together when copying backups off-server.
+
+Before the evidence archive is created, the backup script snapshots every
+encrypted `clean/` Operations Library object from the configured S3-compatible
+bucket under `_knowledge_object_snapshots/`. The snapshot contains ciphertext,
+not consultant plaintext. Keep the separately managed
+`KNOWLEDGE_STORAGE_ENCRYPTION_KEY`; neither the database nor object archive can
+recover it.
 
 Verify the file is non-empty:
 
@@ -218,6 +227,15 @@ After restore, restart the API and verify:
 ```bash
 curl -s http://127.0.0.1:3000/health
 ```
+
+For an Operations Library recovery, restore the database and evidence archive,
+then copy the `_knowledge_object_snapshots/clean/` keys back into the private
+bucket without decrypting or renaming them. Start ClamAV/object storage first,
+then the knowledge worker and API. Download one authorised source and run one
+retrieval evaluation before declaring the restore complete. If the database
+points at an active vector generation, do not rebuild it merely because the
+object service was restored; source objects and retrieval indexes have separate
+recovery paths.
 
 ## Restore demo seed (alternative)
 

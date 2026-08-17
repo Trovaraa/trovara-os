@@ -56,6 +56,7 @@ const WRITE_CONCURRENCY = 4
 
 const createItemSchema = z.object({
   sku: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),
+  scanCode: z.string().trim().max(200).nullable().optional(),
   name: z.string().trim().min(1).max(200),
   category: z.string().trim().min(1).max(100),
   unit: z.enum(INVENTORY_UNITS),
@@ -241,6 +242,7 @@ inventoryRoutes.get('/', async (c) => {
       productName: products.name,
       productSku: products.sku,
       sku: inventoryItems.sku,
+      scanCode: inventoryItems.scanCode,
       name: inventoryItems.name,
       category: inventoryItems.category,
       unit: inventoryItems.unit,
@@ -336,6 +338,7 @@ inventoryRoutes.post('/items', zValidator('json', createItemSchema), async (c) =
       farmId: user.farmId,
       productId: body.productId ?? null,
       sku,
+      scanCode: body.scanCode ?? null,
       name: body.name,
       category: body.category,
       unit: body.unit,
@@ -421,6 +424,7 @@ inventoryRoutes.patch('/items/:id', zValidator('json', updateItemSchema), async 
     updates.sku = sku
   }
   if (body.name !== undefined) updates.name = body.name
+  if (body.scanCode !== undefined) updates.scanCode = body.scanCode
   if (body.category !== undefined) updates.category = body.category
   if (body.unit !== undefined) updates.unit = body.unit
   if (body.reorderLevel !== undefined) updates.reorderLevel = body.reorderLevel

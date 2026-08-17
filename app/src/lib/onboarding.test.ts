@@ -8,7 +8,7 @@ const routes = [
   '/field-reports', '/crops', '/livestock', '/inventory', '/assets', '/sales',
   '/support', '/products', '/customer-insights', '/whatsapp', '/telegram', '/traceability',
   '/events', '/ai', '/reports', '/finance', '/journal', '/brand-kits', '/newsletter',
-  '/marketing-leads', '/shop-customers', '/moments', '/careers', '/templates', '/zones',
+  '/marketing-leads', '/customer-surveys', '/shop-customers', '/moments', '/careers', '/templates', '/zones',
   '/users', '/settings', '/settings/security', '/settings/audit',
 ]
 
@@ -54,11 +54,11 @@ describe('guided onboarding copy', () => {
     }
   })
 
-  it('tells every English role to use their Today attendance controls', () => {
+  it('tells every English role to submit their Today work hours', () => {
     const copy = onboardingCopy('en')
     for (const role of roles) {
       const guide = pageGuide(copy, '/today', role)
-      expect(guide.actions.some((action) => action.includes('Clock in'))).toBe(true)
+      expect(guide.actions.some((action) => action.toLowerCase().includes('submit'))).toBe(true)
       expect(guide.summary).not.toMatch(/do not clock/i)
     }
   })

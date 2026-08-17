@@ -42,7 +42,7 @@ const PRODUCTS = {
 } as const
 
 const leadStatuses = ['new', 'in_progress', 'contacted', 'closed', 'spam'] as const
-const leadTypes = ['contact', 'product_waitlist'] as const
+const leadTypes = ['contact', 'product_waitlist', 'survey_followup'] as const
 const subjectSchema = z.enum(Object.keys(SUBJECTS) as [keyof typeof SUBJECTS, ...(keyof typeof SUBJECTS)[]])
 const productSchema = z.enum(Object.keys(PRODUCTS) as [keyof typeof PRODUCTS, ...(keyof typeof PRODUCTS)[]])
 const optionalPhone = z.preprocess(
@@ -179,6 +179,7 @@ function configuredMarketingLeadRecipients(): Array<{ email: string }> | null {
 
 function leadNotificationHtml(lead: MarketingLead, descriptor: string, contact: string): string {
   const isContact = lead.leadType === 'contact'
+  const isSurvey = lead.leadType === 'survey_followup'
   const contactHref = lead.email
     ? `mailto:${escapeEmailHtml(lead.email)}`
     : lead.phone
@@ -192,15 +193,23 @@ function leadNotificationHtml(lead: MarketingLead, descriptor: string, contact: 
     : undefined
 
   return marketingLeadEmailContent({
-    badge: isContact ? 'NEW WEBSITE ENQUIRY' : 'NEW PRODUCT WAITLIST JOIN',
-    headline: isContact ? 'A new enquiry just came in' : 'Someone joined a product waitlist',
+    badge: isSurvey
+      ? 'SURVEY FOLLOW-UP'
+      : isContact
+        ? 'NEW WEBSITE ENQUIRY'
+        : 'NEW PRODUCT WAITLIST JOIN',
+    headline: isSurvey
+      ? 'Someone wants a follow-up from the food survey'
+      : isContact
+        ? 'A new enquiry just came in'
+        : 'Someone joined a product waitlist',
     intro: 'Review the details below and follow up while the enquiry is fresh.',
     preheader: `${lead.name} submitted ${descriptor}.`,
     rows: [
       { label: 'Name', valueHtml: escapeEmailHtml(lead.name) },
       { label: 'Contact', valueHtml: contactValue },
       {
-        label: isContact ? 'Topic' : 'Product',
+        label: isSurvey || isContact ? 'Topic' : 'Product',
         valueHtml: escapeEmailHtml(descriptor),
       },
       { label: 'Submissions', valueHtml: String(lead.submissionCount) },
@@ -225,8 +234,14 @@ export async function notifyMarketingLead(lead: MarketingLead): Promise<boolean>
         ),
       )
 
-  const descriptor = lead.leadType === 'contact' ? lead.subjectLabel : lead.productLabel
-  const subject = `New ${lead.leadType === 'contact' ? 'website enquiry' : 'product waitlist join'}: ${descriptor ?? 'Marketing lead'}`
+  const descriptor = lead.leadType === 'product_waitlist' ? lead.productLabel : lead.subjectLabel
+  const subjectKind =
+    lead.leadType === 'survey_followup'
+      ? 'survey follow-up'
+      : lead.leadType === 'contact'
+        ? 'website enquiry'
+        : 'product waitlist join'
+  const subject = `New ${subjectKind}: ${descriptor ?? 'Marketing lead'}`
   const contact = lead.email ?? lead.phone ?? 'Not provided'
   const text = [
     `Name: ${lead.name}`,
@@ -348,9 +363,9 @@ publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), 
 })
 
 function canManageLeads(user: SessionUser): boolean {
-  // Dedicated grant, plus the older sales path (finance.read) so existing
-  // sales roles keep the inbox until they pick up leads.manage.
-  return hasPermission(user, 'leads.manage') || hasPermission(user, 'finance.read')
+  // Respondent and prospect contact details are marketing PII. Finance access
+  // alone must not grant access to this inbox.
+  return hasPermission(user, 'leads.manage')
 }
 
 function canBeLeadAssignee(role: SessionUser['role'], assigneeId: string, actorId: string): boolean {

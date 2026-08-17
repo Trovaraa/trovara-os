@@ -101,5 +101,22 @@ export default defineConfig(({ mode }) => {
       '/public': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Pages are already route-lazy. Keep stable framework code out of the
+        // entry chunk so it caches independently across OS deployments.
+        manualChunks(id) {
+          if (id.includes('/node_modules/vue-i18n/')) return 'i18n-runtime'
+          if (
+            id.includes('/node_modules/vue/') ||
+            id.includes('/node_modules/vue-router/') ||
+            id.includes('/node_modules/pinia/')
+          ) return 'vue-core'
+          if (id.includes('/node_modules/@vueuse/')) return 'vueuse'
+        },
+      },
+    },
+  },
   }
 })

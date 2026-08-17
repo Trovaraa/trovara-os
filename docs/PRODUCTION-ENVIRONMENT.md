@@ -14,10 +14,17 @@ host secret store or environment file, never in Git.
   `TOTP_ENCRYPTION_KEY` (or `TOTP_KEY_DERIVATION_SECRET`), and the separate
   `VAULT_ENCRYPTION_KEY`.
 - Public-boundary: shared `FORM_PROXY_SIGNING_SECRET` (must match Netlify).
+  Finance workbook previews use a separate `FINANCE_IMPORT_SECRET`.
   Application logs write to disk (`logs/api.log` + journald); an HTTPS log
   drain is optional for now (see reminders and the ops roadmap).
 - Farm/storage: `CUSTOMER_FARM_ID`, `EVIDENCE_STORAGE_ROOT`, `BACKUP_DIR`,
   `BACKUP_GPG_PASSPHRASE`, `REQUIRE_EVIDENCE_BACKUP=1`.
+- Operations Library: `KNOWLEDGE_STORAGE_ENDPOINT`, `KNOWLEDGE_STORAGE_REGION`,
+  `KNOWLEDGE_STORAGE_BUCKET`, separate access/secret keys, a separate 32-byte
+  `KNOWLEDGE_STORAGE_ENCRYPTION_KEY`, `CLAMAV_HOST`, `CLAMAV_PORT`, and
+  `OCR_COMMAND`. The knowledge worker must run continuously.
+  Set `USE_DOCKER_KNOWLEDGE_SERVICES=1` for the repository's single-VM Compose
+  deployment.
 - Encrypted backups on the VM plus the deploy Mac pull
   (`./deploy.sh --pull-backups`) are the current off-VM copy path. Rclone
   offsite (`BACKUP_REMOTE_*` / `BACKUP_RCLONE_DESTINATION`) is optional and
@@ -47,6 +54,12 @@ Retention windows, LLM budgets, customer order caps, translation retry limits,
 health/uptime snapshot URLs/timeouts, backup report path, PostgreSQL tool mode,
 brand-pack session secret, and storage limits use the defaults in `.env.example`.
 Review that file on every release that adds an environment read.
+
+The bundled Docker deployment uses SeaweedFS through the S3 API, ClamAV, and a
+separate OCR/index worker. Amazon S3 is also supported: set its endpoint and
+credentials and do not expose the bucket publicly. Object encryption is applied
+by Trovara before upload, so the encryption key must be backed up separately
+from both the database and bucket; losing it makes stored documents unreadable.
 
 ## Production reminders (not blocking until you need them)
 

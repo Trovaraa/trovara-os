@@ -192,6 +192,22 @@ async function clockOut(body: unknown = {}) {
   })
 }
 
+async function submitHours(body: unknown) {
+  return (await app()).request('/attendance/submit-hours', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+async function reviewHours(body: unknown) {
+  return (await app()).request('/attendance/sess-1/review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 async function correct(body: unknown) {
   return (await app()).request('/attendance/sess-1', {
     method: 'PATCH',
@@ -271,6 +287,32 @@ describe('self-attendance role access', () => {
       expect(sessionPatch().clockOutAt).toBeInstanceOf(Date)
     },
   )
+})
+
+describe('submitted hours workflow', () => {
+  it('requires a work summary and submits a worker entry for approval', async () => {
+    queueSelect('users', [{ monthlyWageNgn: 220_000, preferredLocale: 'en' }])
+    const res = await submitHours({ workDate: '2026-08-15', submittedMinutes: 450, workSummary: 'Weeded Block 1 and checked irrigation.' })
+    expect(res.status).toBe(201)
+    expect(insertedSession()).toMatchObject({ workDate: '2026-08-15', submittedMinutes: 450, approvalStatus: 'pending', workSummary: 'Weeded Block 1 and checked irrigation.' })
+  })
+
+  it('auto-approves an admin entry but still records the work summary', async () => {
+    sessionUser = { ...sessionUser, role: 'owner' }
+    queueSelect('users', [{ monthlyWageNgn: null, preferredLocale: 'en' }])
+    const res = await submitHours({ workDate: '2026-08-15', submittedMinutes: 120, workSummary: 'Reviewed finance controls.' })
+    expect(res.status).toBe(201)
+    expect(insertedSession()).toMatchObject({ approvalStatus: 'approved', approvedById: 'user-worker', workSummary: 'Reviewed finance controls.' })
+  })
+
+  it('lets an admin approve another person pending entry', async () => {
+    sessionUser = { ...sessionUser, id: 'owner-1', role: 'owner' }
+    queueSelect('attendance_sessions', [sessionRow({ workDate: '2026-08-15', approvalStatus: 'pending', userId: 'worker-1' })])
+    updatedRow = sessionRow({ workDate: '2026-08-15', approvalStatus: 'pending', userId: 'worker-1' })
+    const res = await reviewHours({ decision: 'approved' })
+    expect(res.status).toBe(200)
+    expect(sessionPatch()).toMatchObject({ approvalStatus: 'approved', approvedById: 'owner-1' })
+  })
 })
 
 describe('POST /attendance/clock-in - canonical English on write', () => {
