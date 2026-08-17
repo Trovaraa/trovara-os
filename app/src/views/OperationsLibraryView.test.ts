@@ -15,7 +15,7 @@ vi.mock('@/stores/auth', () => ({
 }))
 vi.mock('@/components/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
 vi.mock('@/components/CollapsibleSection.vue', () => ({ default: { template: '<section><slot /></section>' } }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'en' } }) }))
 
 async function mountView() {
   const OperationsLibraryView = (await import('./OperationsLibraryView.vue')).default
@@ -37,6 +37,13 @@ describe('Operations Library document review', () => {
         return { document: { id: 'document-1', filename: 'Poultry SOP.docx', sizeBytes: 2100, status: 'needs_review', scanStatus: 'clean', ocrStatus: 'not_needed', extractedText: 'Disinfect boots before entering the poultry house.', warnings: ['Check the table on page 2.'] } }
       }
       if (path === '/api/operation-guidelines/imports/document-1/create-draft') return { guideline: { id: 'guide-1' } }
+      if (path === '/api/operation-guidelines/brief') {
+        expect(options?.method).toBe('POST')
+        const body = JSON.parse(String(options?.body))
+        expect(body.body).toContain('Disinfect boots')
+        expect(body.locale).toBe('en')
+        return { brief: 'This SOP covers poultry house entry.\n- Disinfect boots before entering.' }
+      }
       throw new Error(`Unexpected request: ${path}`)
     })
   })
@@ -67,5 +74,24 @@ describe('Operations Library document review', () => {
       ownerId: '11111111-1111-4111-8111-111111111111',
       audience: 'all',
     })
+  })
+
+  it('asks Farm AI for a brief of the extracted document', async () => {
+    const wrapper = await mountView()
+    const file = new File(['PK fake docx'], 'Poultry SOP.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    const fileInput = wrapper.get('input[type="file"]')
+    Object.defineProperty(fileInput.element, 'files', { value: [file], configurable: true })
+    await fileInput.trigger('change')
+    await flushPromises()
+
+    const briefButton = wrapper.findAll('button').find((button) => button.text() === 'operationsLibrary.briefThis')
+    expect(briefButton).toBeTruthy()
+    await briefButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('This SOP covers poultry house entry.')
+    expect(wrapper.text()).toContain('operationsLibrary.briefHelp')
   })
 })

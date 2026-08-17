@@ -41,13 +41,15 @@ type EvaluationRun = { id: string; status: string; totalCases: number; passedCas
 type OwnerOption = { id: string; name: string }
 
 const auth = useAuthStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const guidelines = ref<Guideline[]>([])
 const owners = ref<OwnerOption[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const uploading = ref(false)
 const reextracting = ref(false)
+const briefingKey = ref<string | null>(null)
+const briefs = ref<Record<string, string>>({})
 const error = ref<string | null>(null)
 const showForm = ref(false)
 const editingId = ref<string | null>(null)
@@ -59,6 +61,19 @@ const evaluationForm = ref({ question: '', expectedGuidelineId: '', expectedText
 const form = ref({ title: '', category: '', ownerId: '', audience: 'all', body: '', reviewDueAt: '' })
 const canWrite = computed(() => auth.hasPermission('knowledge.write'))
 const canApprove = computed(() => auth.hasPermission('knowledge.approve'))
+
+function appLocale(): 'en' | 'yo' | 'pcm' | 'fr' {
+  const value = String(locale.value)
+  return value === 'yo' || value === 'pcm' || value === 'fr' ? value : 'en'
+}
+
+function briefErrorMessage(err: unknown) {
+  const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: string }).code) : ''
+  if (code === 'llm_unavailable') return t('operationsLibrary.briefUnavailable')
+  if (code === 'budget_exhausted') return t('operationsLibrary.briefBudget')
+  if (code === 'empty') return t('operationsLibrary.briefEmpty')
+  return err instanceof Error ? err.message : t('operationsLibrary.briefFailed')
+}
 
 async function load() {
   loading.value = true
@@ -173,6 +188,9 @@ async function uploadDocument(event: Event) {
     }
     editingId.value = null
     showForm.value = true
+    const next = { ...briefs.value }
+    delete next.form
+    briefs.value = next
   } catch (e) { error.value = e instanceof Error ? e.message : t('operationsLibrary.uploadFailed') }
   finally { uploading.value = false }
 }
@@ -186,6 +204,9 @@ async function reextractSource(documentId: string) {
       { method: 'POST' },
     )
     form.value.body = result.document.extractedText
+    const next = { ...briefs.value }
+    delete next.form
+    briefs.value = next
     if (documentPreview.value?.id === documentId) {
       documentPreview.value = {
         ...documentPreview.value,
@@ -203,6 +224,31 @@ async function reextractSource(documentId: string) {
   } finally {
     reextracting.value = false
   }
+}
+
+async function briefSource(key: string, payload: { guidelineId?: string; documentId?: string; title?: string; body?: string }) {
+  if (briefingKey.value) return
+  briefingKey.value = key
+  error.value = null
+  try {
+    const result = await api<{ brief: string }>('/api/operation-guidelines/brief', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, locale: appLocale() }),
+    })
+    briefs.value = { ...briefs.value, [key]: result.brief }
+  } catch (e) {
+    error.value = briefErrorMessage(e)
+  } finally {
+    briefingKey.value = null
+  }
+}
+
+function briefForm() {
+  return briefSource('form', {
+    documentId: documentPreview.value?.id,
+    title: form.value.title,
+    body: form.value.body,
+  })
 }
 
 async function addEvaluationCase() {
@@ -260,8 +306,16 @@ onMounted(load)
       <label class="text-xs text-slate-400">{{ t('operationsLibrary.reviewDue') }}<input v-model="form.reviewDueAt" type="date" class="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white" /></label>
       <label class="text-xs text-slate-400 sm:col-span-2">{{ t('operationsLibrary.guideline') }}<textarea v-model="form.body" required minlength="20" maxlength="250000" rows="14" :placeholder="t('operationsLibrary.guidelinePlaceholder')" class="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-white" /></label>
       <div v-if="form.body.trim()" class="rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:col-span-2">
-        <p class="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">{{ t('operationsLibrary.previewLabel') }}</p>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-bold uppercase tracking-widest text-slate-500">{{ t('operationsLibrary.previewLabel') }}</p>
+          <button type="button" :disabled="Boolean(briefingKey) || form.body.trim().length < 20" class="min-h-10 rounded-lg border border-emerald-700 px-3 text-xs font-bold text-emerald-300 disabled:opacity-50" @click="briefForm">{{ briefingKey === 'form' ? t('operationsLibrary.briefing') : t('operationsLibrary.briefThis') }}</button>
+        </div>
         <ChatMarkdown :text="form.body" />
+        <div v-if="briefs.form" class="mt-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
+          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.briefThis') }}</p>
+          <ChatMarkdown :text="briefs.form" />
+          <p class="mt-3 text-xs text-slate-500">{{ t('operationsLibrary.briefHelp') }}</p>
+        </div>
       </div>
       <div class="sm:col-span-2"><button type="submit" :disabled="saving" class="min-h-11 rounded-xl bg-farm-green px-5 py-2 font-bold text-white disabled:opacity-50">{{ saving ? t('operationsLibrary.saving') : editingId ? t('operationsLibrary.updateDraft') : t('operationsLibrary.saveDraft') }}</button></div>
     </form>
@@ -273,9 +327,15 @@ onMounted(load)
         <div class="mt-4 text-sm leading-6 text-slate-300">
           <ChatMarkdown :text="guideline.body" />
         </div>
-        <div v-if="guideline.sourceDocument" class="mt-4 flex flex-wrap items-center gap-3">
-          <a class="inline-flex min-h-10 items-center text-sm font-bold text-emerald-300 underline underline-offset-4" :href="resolveApiUrl(`/api/operation-guidelines/documents/${guideline.sourceDocument.id}/download`)">{{ t('operationsLibrary.downloadSource', { filename: guideline.sourceDocument.filename }) }}</a>
-          <button v-if="canWrite" type="button" :disabled="reextracting" class="min-h-10 rounded-lg border border-slate-700 px-3 text-xs font-bold text-slate-300 disabled:opacity-50" @click="reextractSource(guideline.sourceDocument.id)">{{ reextracting ? t('operationsLibrary.reextracting') : t('operationsLibrary.reextractSource') }}</button>
+        <div v-if="briefs[guideline.id]" class="mt-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
+          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.briefThis') }}</p>
+          <ChatMarkdown :text="briefs[guideline.id]" />
+          <p class="mt-3 text-xs text-slate-500">{{ t('operationsLibrary.briefHelp') }}</p>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" :disabled="Boolean(briefingKey)" class="min-h-10 rounded-lg border border-emerald-700 px-3 text-xs font-bold text-emerald-300 disabled:opacity-50" @click="briefSource(guideline.id, { guidelineId: guideline.id })">{{ briefingKey === guideline.id ? t('operationsLibrary.briefing') : t('operationsLibrary.briefThis') }}</button>
+          <a v-if="guideline.sourceDocument" class="inline-flex min-h-10 items-center text-sm font-bold text-emerald-300 underline underline-offset-4" :href="resolveApiUrl(`/api/operation-guidelines/documents/${guideline.sourceDocument.id}/download`)">{{ t('operationsLibrary.downloadSource', { filename: guideline.sourceDocument.filename }) }}</a>
+          <button v-if="guideline.sourceDocument && canWrite" type="button" :disabled="reextracting" class="min-h-10 rounded-lg border border-slate-700 px-3 text-xs font-bold text-slate-300 disabled:opacity-50" @click="reextractSource(guideline.sourceDocument.id)">{{ reextracting ? t('operationsLibrary.reextracting') : t('operationsLibrary.reextractSource') }}</button>
         </div>
         <p v-if="guideline.sourceDocument && canWrite" class="mt-2 text-xs text-slate-500">{{ t('operationsLibrary.reextractHelp') }}</p>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4 text-xs text-slate-500">

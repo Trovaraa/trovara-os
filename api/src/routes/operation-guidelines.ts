@@ -18,6 +18,7 @@ import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { deleteKnowledgeDocument, extractKnowledgeDocument, inspectKnowledgeDocument, MAX_KNOWLEDGE_DOCUMENT_BYTES, readKnowledgeDocument, storeKnowledgeDocument } from '../lib/knowledge-documents.js'
+import { briefGuidelineContent } from '../lib/knowledge-brief.js'
 import { findGuidelineDocumentId, removeGuidelineFromIndex } from '../lib/knowledge-index.js'
 import { embeddingModel } from '../lib/embeddings.js'
 
@@ -36,6 +37,16 @@ const evaluationCaseSchema = z.object({
   expectedText: z.string().trim().max(1000).nullable().optional(),
   audience: z.enum(['all', 'management', 'finance', 'operations', 'sales']).default('all'),
   language: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
+})
+
+const briefSchema = z.object({
+  guidelineId: z.string().uuid().optional(),
+  documentId: z.string().uuid().optional(),
+  title: z.string().trim().max(160).optional(),
+  body: z.string().trim().min(20).max(250000).optional(),
+  locale: z.enum(['en', 'yo', 'pcm', 'fr']).optional(),
+}).refine((value) => Boolean(value.guidelineId || value.documentId || value.body), {
+  message: 'Choose a guideline or document to brief',
 })
 
 export const operationGuidelineRoutes = new Hono<{ Variables: AppVariables }>()
@@ -226,6 +237,78 @@ operationGuidelineRoutes.post('/documents/:id/reextract', async (c) => {
       warnings: extracted.warnings,
     },
   })
+})
+
+operationGuidelineRoutes.post('/brief', zValidator('json', briefSchema), async (c) => {
+  const user = c.get('user')
+  if (!hasPermission(user, 'knowledge.read') && !hasPermission(user, 'knowledge.write')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  const payload = c.req.valid('json')
+  let title = payload.title?.trim() || ''
+  let body = payload.body?.trim() || ''
+  let source: 'form' | 'guideline' | 'document' = 'form'
+
+  if (payload.body) {
+    if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
+    source = 'form'
+  } else if (payload.guidelineId) {
+    const [guideline] = await db.select().from(operationGuidelines).where(and(
+      eq(operationGuidelines.id, payload.guidelineId),
+      eq(operationGuidelines.farmId, user.farmId),
+    )).limit(1)
+    if (!guideline) return c.json({ error: 'Guideline not found' }, 404)
+    const canRead = guideline.status === 'approved' || guideline.createdById === user.id || hasPermission(user, 'knowledge.approve')
+    if (!canRead) return c.json({ error: 'Forbidden' }, 403)
+    title = title || guideline.title
+    body = guideline.body
+    source = 'guideline'
+  } else if (payload.documentId) {
+    if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
+    const [document] = await db.select().from(operationGuidelineDocuments).where(and(
+      eq(operationGuidelineDocuments.id, payload.documentId),
+      eq(operationGuidelineDocuments.farmId, user.farmId),
+    )).limit(1)
+    if (!document) return c.json({ error: 'Document not found' }, 404)
+    if (document.uploadedById !== user.id && !hasPermission(user, 'knowledge.approve')) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    if (document.scanStatus !== 'clean' || !document.extractedText.trim()) {
+      return c.json({ error: 'Document is still processing or has no extracted text', code: 'empty' }, 409)
+    }
+    title = title || document.originalFilename
+    body = document.extractedText
+    source = 'document'
+  }
+
+  const result = await briefGuidelineContent({
+    farmId: user.farmId,
+    title,
+    body,
+    locale: payload.locale,
+  })
+  if (!result.ok) {
+    const messages = {
+      llm_unavailable: 'Farm AI is not configured on this server',
+      budget_exhausted: 'Farm AI daily limit reached. Try again tomorrow.',
+      empty: 'There is not enough document text to brief',
+      llm_failed: 'Could not write a brief right now',
+    } as const
+    const status = result.reason === 'llm_unavailable' ? 503
+      : result.reason === 'budget_exhausted' ? 429
+        : result.reason === 'empty' ? 422
+          : 502
+    return c.json({ error: messages[result.reason], code: result.reason }, status)
+  }
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'operation_guideline_brief',
+    entityType: source === 'guideline' ? 'operation_guideline' : 'operation_guideline_document',
+    entityId: payload.guidelineId ?? payload.documentId,
+    metadata: { source, title: title.slice(0, 160) },
+  })
+  return c.json({ brief: result.brief, model: result.model })
 })
 
 operationGuidelineRoutes.get('/documents/:id/download', async (c) => {
