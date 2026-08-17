@@ -21,6 +21,10 @@ import {
 } from '../lib/newsletter-resend.js'
 import { publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
 import { checkDurableRateLimit } from '../lib/rate-limit.js'
+import {
+  recordNewsletterCampaignDeliveryEvent,
+  type NewsletterDeliveryEvent,
+} from '../lib/newsletter-campaigns.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
@@ -64,6 +68,17 @@ const listQuerySchema = z.object({
   status: z.enum(['pending', 'confirmed', 'unsubscribed', 'suppressed']).optional(),
   search: z.string().trim().max(200).optional(),
 })
+
+const campaignDeliveryEventTypes = new Set<NewsletterDeliveryEvent>([
+  'email.sent',
+  'email.scheduled',
+  'email.delivered',
+  'email.delivery_delayed',
+  'email.failed',
+  'email.suppressed',
+  'email.bounced',
+  'email.complained',
+])
 
 export const publicNewsletterRoutes = new Hono()
 export const newsletterRoutes = new Hono<{ Variables: AppVariables }>()
@@ -405,6 +420,18 @@ publicNewsletterRoutes.post('/webhook', async (c) => {
   }
 
   try {
+    if (
+      campaignDeliveryEventTypes.has(event.type as NewsletterDeliveryEvent) &&
+      'broadcast_id' in event.data &&
+      event.data.broadcast_id
+    ) {
+      await recordNewsletterCampaignDeliveryEvent({
+        farmId: farm.id,
+        broadcastId: event.data.broadcast_id,
+        eventType: event.type as NewsletterDeliveryEvent,
+        recipients: event.data.to,
+      })
+    }
     if (event.type === 'contact.updated' && event.data.unsubscribed) {
       const email = normalizeEmail(event.data.email)
       await db

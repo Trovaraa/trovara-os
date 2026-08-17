@@ -9,6 +9,7 @@ vi.mock('@/lib/api', () => ({
 }))
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
+    user: { id: '11111111-1111-4111-8111-111111111111', name: 'Consultant One' },
     hasPermission: (key: string) => ['knowledge.read', 'knowledge.write', 'knowledge.approve'].includes(key),
   }),
 }))
@@ -28,6 +29,7 @@ describe('Operations Library document review', () => {
     vi.clearAllMocks()
     api.mockImplementation(async (path: string, options?: RequestInit) => {
       if (path === '/api/operation-guidelines' && !options) return { guidelines: [] }
+      if (path === '/api/operation-guidelines/owners') return { owners: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Consultant One' }, { id: '22222222-2222-4222-8222-222222222222', name: 'Farm Manager' }] }
       if (path === '/api/operation-guidelines/evaluations/cases') return { cases: [] }
       if (path === '/api/operation-guidelines/evaluations/runs') return { runs: [] }
       if (path === '/api/operation-guidelines/imports/preview') {
@@ -60,6 +62,10 @@ describe('Operations Library document review', () => {
 
     const draftCall = api.mock.calls.find(([path]) => path === '/api/operation-guidelines/imports/document-1/create-draft')
     expect(draftCall?.[1]).toMatchObject({ method: 'POST' })
-    expect(JSON.parse(String(draftCall?.[1]?.body))).toMatchObject({ category: 'Poultry biosecurity', audience: 'all' })
+    expect(JSON.parse(String(draftCall?.[1]?.body))).toMatchObject({
+      category: 'Poultry biosecurity',
+      ownerId: '11111111-1111-4111-8111-111111111111',
+      audience: 'all',
+    })
   })
 })
