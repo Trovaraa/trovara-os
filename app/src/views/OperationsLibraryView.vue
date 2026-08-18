@@ -308,14 +308,14 @@ onMounted(load)
       <div v-if="form.body.trim()" class="rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:col-span-2">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p class="text-xs font-bold uppercase tracking-widest text-slate-500">{{ t('operationsLibrary.previewLabel') }}</p>
-          <button type="button" :disabled="Boolean(briefingKey) || form.body.trim().length < 20" class="min-h-10 rounded-lg border border-emerald-700 px-3 text-xs font-bold text-emerald-300 disabled:opacity-50" @click="briefForm">{{ briefingKey === 'form' ? t('operationsLibrary.briefing') : t('operationsLibrary.briefThis') }}</button>
+          <button data-testid="summarize-form-document" type="button" :disabled="Boolean(briefingKey) || form.body.trim().length < 20" class="min-h-11 w-full rounded-lg border border-emerald-700 px-4 py-2 text-sm font-bold text-emerald-300 disabled:opacity-50 sm:w-auto" @click="briefForm">{{ briefingKey === 'form' ? t('operationsLibrary.briefing') : briefs.form ? t('operationsLibrary.refreshSummary') : t('operationsLibrary.summarizeDocument') }}</button>
         </div>
-        <ChatMarkdown :text="form.body" />
-        <div v-if="briefs.form" class="mt-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
-          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.briefThis') }}</p>
+        <div v-if="briefs.form" data-testid="form-document-summary" class="mb-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
+          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.documentSummary') }}</p>
           <ChatMarkdown :text="briefs.form" />
           <p class="mt-3 text-xs text-slate-500">{{ t('operationsLibrary.briefHelp') }}</p>
         </div>
+        <ChatMarkdown :text="form.body" />
       </div>
       <div class="sm:col-span-2"><button type="submit" :disabled="saving" class="min-h-11 rounded-xl bg-farm-green px-5 py-2 font-bold text-white disabled:opacity-50">{{ saving ? t('operationsLibrary.saving') : editingId ? t('operationsLibrary.updateDraft') : t('operationsLibrary.saveDraft') }}</button></div>
     </form>
@@ -324,16 +324,21 @@ onMounted(load)
     <p v-else-if="!guidelines.length" class="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-8 text-sm text-slate-400">{{ t('operationsLibrary.empty') }}</p>
     <div v-else class="mt-8 space-y-4">
       <CollapsibleSection v-for="guideline in guidelines" :key="guideline.id" :title="guideline.title" :description="`${guideline.category} · ${t('operationsLibrary.version', { version: guideline.version })} · ${guideline.status}`" :default-open="false">
-        <div class="mt-4 text-sm leading-6 text-slate-300">
-          <ChatMarkdown :text="guideline.body" />
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button :data-testid="`summarize-${guideline.id}`" type="button" :disabled="Boolean(briefingKey)" class="min-h-11 w-full rounded-lg border border-emerald-700 px-4 py-2 text-sm font-bold text-emerald-300 disabled:opacity-50 sm:w-auto" @click="briefSource(guideline.id, { guidelineId: guideline.id })">{{ briefingKey === guideline.id ? t('operationsLibrary.briefing') : briefs[guideline.id] ? t('operationsLibrary.refreshSummary') : t('operationsLibrary.summarizeDocument') }}</button>
         </div>
-        <div v-if="briefs[guideline.id]" class="mt-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
-          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.briefThis') }}</p>
+        <div v-if="briefs[guideline.id]" :data-testid="`summary-${guideline.id}`" class="mt-4 rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
+          <p class="mb-2 text-xs font-bold uppercase tracking-widest text-amber-300">{{ t('operationsLibrary.documentSummary') }}</p>
           <ChatMarkdown :text="briefs[guideline.id]" />
           <p class="mt-3 text-xs text-slate-500">{{ t('operationsLibrary.briefHelp') }}</p>
         </div>
+        <details :data-testid="`full-document-${guideline.id}`" class="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4" :open="!briefs[guideline.id]">
+          <summary class="min-h-11 cursor-pointer content-center text-sm font-bold text-slate-300">{{ t('operationsLibrary.fullDocument') }}</summary>
+          <div class="mt-4 border-t border-slate-800 pt-4 text-sm leading-6 text-slate-300">
+            <ChatMarkdown :text="guideline.body" />
+          </div>
+        </details>
         <div class="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" :disabled="Boolean(briefingKey)" class="min-h-10 rounded-lg border border-emerald-700 px-3 text-xs font-bold text-emerald-300 disabled:opacity-50" @click="briefSource(guideline.id, { guidelineId: guideline.id })">{{ briefingKey === guideline.id ? t('operationsLibrary.briefing') : t('operationsLibrary.briefThis') }}</button>
           <a v-if="guideline.sourceDocument" class="inline-flex min-h-10 items-center text-sm font-bold text-emerald-300 underline underline-offset-4" :href="resolveApiUrl(`/api/operation-guidelines/documents/${guideline.sourceDocument.id}/download`)">{{ t('operationsLibrary.downloadSource', { filename: guideline.sourceDocument.filename }) }}</a>
           <button v-if="guideline.sourceDocument && canWrite" type="button" :disabled="reextracting" class="min-h-10 rounded-lg border border-slate-700 px-3 text-xs font-bold text-slate-300 disabled:opacity-50" @click="reextractSource(guideline.sourceDocument.id)">{{ reextracting ? t('operationsLibrary.reextracting') : t('operationsLibrary.reextractSource') }}</button>
         </div>
