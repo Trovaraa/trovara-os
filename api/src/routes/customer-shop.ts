@@ -34,6 +34,12 @@ import {
 import { orderReference } from '../lib/customer-cart.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
 import { publicLotPageUrl, shopResetPasswordUrl, shopVerifyEmailUrl } from '../lib/public-app-url.js'
+import {
+  claimCreditInvitation,
+  customerCreditsSnapshot,
+  inspectCreditInvitation,
+  linkReferralAttributionsToCustomerAccount,
+} from '../lib/customer-credits.js'
 import { getDummyPasswordHash, hashPassword, verifyPassword } from '../lib/session.js'
 import { emailProviderReady, sendEmail } from '../lib/notifications.js'
 import {
@@ -96,6 +102,14 @@ const resendVerificationSchema = z.object({
   email: z.string().trim().email().max(254),
 })
 
+const creditInvitationSchema = z.object({
+  token: z.string().min(20).max(512),
+})
+
+const claimCreditsSchema = creditInvitationSchema.extend({
+  password: z.string().min(8).max(128),
+})
+
 const SHOP_EMAIL_RATE_LIMIT_MSG = 'Too many requests. Please try again later.'
 const EMAIL_DELIVERY_UNAVAILABLE_MSG =
   'Email delivery is temporarily unavailable. Please try again later.'
@@ -154,6 +168,45 @@ customerShopRoutes.get('/session', async (c) => {
   setCsrfCookie(c, csrfToken)
   const account = await currentCustomer(c)
   return c.json({ csrfToken, account })
+})
+
+customerShopRoutes.get(
+  '/credits/invitation',
+  zValidator('query', creditInvitationSchema),
+  async (c) => {
+    const invitation = await inspectCreditInvitation(c.req.valid('query').token)
+    if (!invitation) return c.json({ error: 'This invitation is invalid or has expired.' }, 404)
+    return c.json({ invitation })
+  },
+)
+
+customerShopRoutes.post('/credits/claim', zValidator('json', claimCreditsSchema), async (c) => {
+  const body = c.req.valid('json')
+  const account = await claimCreditInvitation({
+    token: body.token,
+    passwordHash: await hashPassword(body.password),
+  })
+  if (!account) return c.json({ error: 'This invitation is invalid or has expired.' }, 400)
+
+  const token = await createCustomerSession(account.id)
+  setCustomerSession(c, token)
+  const csrfToken = generateCsrfToken()
+  setCsrfCookie(c, csrfToken)
+  const credits = await customerCreditsSnapshot(account.id, account.farmId)
+  logSecurityEvent(
+    'customer_credit_invitation_claimed',
+    withAccessMeta((name) => c.req.header(name), {
+      accountId: account.id,
+      farmId: account.farmId,
+    }),
+  )
+  return c.json({ account, csrfToken, credits })
+})
+
+customerShopRoutes.get('/credits', async (c) => {
+  const account = await currentCustomer(c)
+  if (!account) return c.json({ error: 'Sign in required.' }, 401)
+  return c.json({ credits: await customerCreditsSnapshot(account.id, account.farmId) })
 })
 
 customerShopRoutes.get('/catalog', async (c) => {
@@ -479,6 +532,14 @@ customerShopRoutes.post('/verify-email', zValidator('json', verifyEmailSchema), 
     .from(customerAccounts)
     .where(eq(customerAccounts.id, tokenData.accountId))
     .limit(1)
+
+  if (account) {
+    await linkReferralAttributionsToCustomerAccount({
+      farmId: account.farmId,
+      accountId: account.id,
+      email: account.email,
+    })
+  }
 
   logSecurityEvent(
     'customer_email_verified',

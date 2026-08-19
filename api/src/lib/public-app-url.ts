@@ -56,6 +56,11 @@ export function shopResetPasswordUrl(token: string): string {
   return `${publicShopBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`
 }
 
+/** One-time invitation used to claim an eligible Trovara Farm Credits account. */
+export function shopCreditClaimUrl(token: string): string {
+  return `${publicShopBaseUrl()}/credits/claim?token=${encodeURIComponent(token)}`
+}
+
 /** Newsletter and other marketing email links — farm origin or www default. */
 export function publicMarketingUrlOrDefault(): string {
   return publicMarketingBaseUrl() ?? 'https://www.trovara.farm'

@@ -12,6 +12,7 @@ export type SecurityEventType =
   | 'customer_login'
   | 'customer_email_verified'
   | 'customer_password_reset_completed'
+  | 'customer_credit_invitation_claimed'
   | 'failed_registration'
   | 'registration_token_created'
   | 'registration_token_used'

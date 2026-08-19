@@ -74,6 +74,7 @@ or want explicit ops control:
 | `BACKUP_REMOTE_ENABLED` / `BACKUP_REMOTE_REQUIRED` / `BACKUP_RCLONE_DESTINATION` | No | Optional rclone offsite. Default ops path is encrypted VM backups + Mac pull on deploy. Enable later for cloud offsite; if either remote flag is `1`, destination must be set. See [`backup-runbook.md`](./backup-runbook.md). |
 | `FX_FALLBACK_RATES` | No | Offline NGN rates when open.er-api.com is unreachable. Example: `USD:1550,EUR:1700,GBP:2000`. Without it, FX conversion fails closed until live rates return. |
 | `MOMENTS_CONSENT_VERSION` | No | Defaults to `2026-08-11`. Set explicitly (and match the marketing Moments form) whenever privacy/consent wording changes. |
+| `TROVARA_REFERRAL_REFUND_WINDOW_DAYS` | No | Defaults to `2`, matching the current 48-hour returns/claims period. Set it explicitly if the commercial refund policy changes; pending referral credits use this delivery-to-activation window. |
 | `TOTP_KEY_DERIVATION_SECRET` | No if `TOTP_ENCRYPTION_KEY` is set | Alternate TOTP key path; ignore when `TOTP_ENCRYPTION_KEY` is already present. |
 | `WHATSAPP_ACCESS_TOKEN` / `META_APP_SECRET` / phone IDs / verify token | Only when WhatsApp is enabled | Leave unset while Telegram-only. Enabling WhatsApp without `META_APP_SECRET` fails the production gate. |
 | `BREAK_GLASS_ENABLED` | Must stay unset/`false` | Arm only for emergency recovery, then disarm and restart. |
