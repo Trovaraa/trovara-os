@@ -155,6 +155,7 @@ async function deliverCreditInvitations(
           subject: mail.subject,
           text: mail.text,
           html: mail.html,
+          senderName: 'Trovara Farm',
         })
         result.accountsCredited += 1
         if (delivery.status !== 'delivered') {
@@ -178,6 +179,7 @@ async function deliverCreditInvitations(
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
+        senderName: 'Trovara Farm',
       })
       if (delivery.status === 'delivered') {
         await markCreditInvitationSent(invitation.id)

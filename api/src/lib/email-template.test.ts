@@ -43,7 +43,10 @@ describe('email-template (canonical FARM OS card)', () => {
     expect(mail.subject).toBe('Trovara Farm account invitation')
     expect(mail.html).toContain('An invitation to create your Trovara Farm account.')
     expect(mail.text).toContain('2,000 Trovara Credits')
-    expect(mail.html).toContain('Claim my Trovara Credits')
+    expect(mail.html).toContain('WELCOME CREDITS')
+    expect(mail.html).toContain('CLAIM MY CREDITS')
+    expect(mail.html).toContain('>FARM</span>')
+    expect(mail.html).not.toContain('FARM OS')
     expect(mail.html).toContain('Get 1,000 more Trovara Credits')
     expect(mail.html).toContain('when your referral completes their first eligible Trovara Farm purchase')
     expect(mail.html).toContain('credits become available after the purchase passes its refund period')
@@ -71,7 +74,8 @@ describe('email-template (canonical FARM OS card)', () => {
 
   it('builds branded shop verify mail', () => {
     const mail = shopVerifyEmailContent('Ada Lovelace', 'https://shop.trovara.farm/verify-email?token=abc')
-    expect(mail.html).toContain('FARM OS')
+    expect(mail.html).toContain('>FARM</span>')
+    expect(mail.html).not.toContain('FARM OS')
     expect(mail.html).toContain('SHOP ACCOUNT')
     expect(mail.html).toContain('Verify email')
     expect(mail.html).toContain('Ada Lovelace')
@@ -90,6 +94,7 @@ describe('email-template (canonical FARM OS card)', () => {
     const mail = newsletterWelcomeEmailContent('Ada', 'https://www.trovara.farm/newsletter/unsubscribe?token=xyz')
     expect(mail.html).toContain('Unsubscribe')
     expect(mail.html).toContain('token=xyz')
+    expect(mail.html).not.toContain('FARM OS')
   })
 
   it('builds marketing-lead style content', () => {
