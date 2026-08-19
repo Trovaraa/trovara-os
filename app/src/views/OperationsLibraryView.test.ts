@@ -86,12 +86,62 @@ describe('Operations Library document review', () => {
     await fileInput.trigger('change')
     await flushPromises()
 
-    const briefButton = wrapper.findAll('button').find((button) => button.text() === 'operationsLibrary.briefThis')
+    const briefButton = wrapper.findAll('button').find((button) => button.text() === 'operationsLibrary.summarizeDocument')
     expect(briefButton).toBeTruthy()
     await briefButton!.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('This SOP covers poultry house entry.')
     expect(wrapper.text()).toContain('operationsLibrary.briefHelp')
+    expect(wrapper.get('[data-testid="summarize-form-document"]').text()).toBe('operationsLibrary.refreshSummary')
+  })
+
+  it('places the summary action and generated summary before the collapsible full document', async () => {
+    api.mockImplementation(async (path: string, options?: RequestInit) => {
+      if (path === '/api/operation-guidelines' && !options) {
+        return {
+          guidelines: [{
+            id: 'guide-1',
+            title: 'Poultry entry procedure',
+            category: 'Poultry biosecurity',
+            body: 'Disinfect boots before entering the poultry house.',
+            audience: 'all',
+            status: 'approved',
+            version: 2,
+            reviewDueAt: null,
+            ownerId: '11111111-1111-4111-8111-111111111111',
+            ownerName: 'Consultant One',
+            authorName: 'Consultant One',
+            updatedAt: '2026-08-18T10:00:00.000Z',
+            activeVersionId: 'version-2',
+            sourceDocument: null,
+          }],
+        }
+      }
+      if (path === '/api/operation-guidelines/owners') return { owners: [] }
+      if (path === '/api/operation-guidelines/evaluations/cases') return { cases: [] }
+      if (path === '/api/operation-guidelines/evaluations/runs') return { runs: [] }
+      if (path === '/api/operation-guidelines/brief') {
+        expect(options?.method).toBe('POST')
+        expect(JSON.parse(String(options?.body))).toMatchObject({ guidelineId: 'guide-1', locale: 'en' })
+        return { brief: 'Keep disease outside the poultry house.\n- Disinfect boots before entry.' }
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    const wrapper = await mountView()
+    const action = wrapper.get('[data-testid="summarize-guide-1"]')
+    const fullDocument = wrapper.get('[data-testid="full-document-guide-1"]')
+    expect(action.element.compareDocumentPosition(fullDocument.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(fullDocument.attributes('open')).toBeDefined()
+
+    await action.trigger('click')
+    await flushPromises()
+
+    const summary = wrapper.get('[data-testid="summary-guide-1"]')
+    expect(action.text()).toBe('operationsLibrary.refreshSummary')
+    expect(summary.text()).toContain('Keep disease outside the poultry house.')
+    expect(summary.element.compareDocumentPosition(fullDocument.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(fullDocument.attributes('open')).toBeUndefined()
   })
 })
