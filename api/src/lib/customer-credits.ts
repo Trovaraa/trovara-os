@@ -609,7 +609,10 @@ export async function customerCreditsSnapshot(accountId: string, farmId: string)
   await matureReferralRewards(farmId, accountId)
   const referral = await ensureCustomerReferralCode({ farmId, accountId })
   const [balanceRow] = await db
-    .select({ balance: sql<number>`coalesce(sum(${customerCreditLedger.amount}), 0)` })
+    .select({
+      balance: sql<number>`coalesce(sum(${customerCreditLedger.amount}), 0)`,
+      welcomeCreditAwarded: sql<boolean>`coalesce(bool_or(${customerCreditLedger.eventType} = 'welcome'), false)`,
+    })
     .from(customerCreditLedger)
     .where(and(eq(customerCreditLedger.accountId, accountId), eq(customerCreditLedger.farmId, farmId)))
   const [referralCountRow] = await db
@@ -642,6 +645,7 @@ export async function customerCreditsSnapshot(accountId: string, farmId: string)
     referralPendingCount: Number(referralCountRow?.pendingCount ?? 0),
     referralActivatedCount: Number(referralCountRow?.activatedCount ?? 0),
     welcomeCredits: TROVARA_WELCOME_CREDITS,
+    welcomeCreditAwarded: Boolean(balanceRow?.welcomeCreditAwarded),
     referralCredits: TROVARA_REFERRAL_CREDITS,
     referralRefundWindowDays: referralRefundWindowDays(),
     transactions,
