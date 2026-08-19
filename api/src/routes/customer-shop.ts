@@ -190,7 +190,7 @@ customerShopRoutes.post('/credits/claim', zValidator('json', claimCreditsSchema)
   if (result.status === 'needs_sign_in') {
     return c.json(
       {
-        error: 'This email already has a Trovara Farm account. Sign in to see your Trovara Farm Credits.',
+        error: 'This email already has a Trovara Farm account. Sign in to see your Trovara Credits.',
         needsSignIn: true,
       },
       409,

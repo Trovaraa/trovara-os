@@ -6,7 +6,7 @@ import {
   referralRewardEligibleAt,
 } from './customer-credit-policy.js'
 
-describe('Trovara Farm Credits referral policy', () => {
+describe('Trovara Credits referral policy', () => {
   afterEach(() => {
     delete process.env.TROVARA_REFERRAL_REFUND_WINDOW_DAYS
   })

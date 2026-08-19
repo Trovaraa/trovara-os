@@ -246,14 +246,14 @@ export function trovaraCreditInvitationEmailContent(
   const text = [
     `Hi ${firstName},`,
     '',
-    'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Farm Credits.',
+    'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Credits.',
     '',
-    'Claim your Trovara Farm account to receive 2,000 Trovara Farm Credits and unlock your personal referral link.',
+    'Claim your Trovara Farm account to receive 2,000 Trovara Credits and unlock your personal referral link.',
     '',
     claimUrl,
     '',
-    "P.S. Your 1,000 referral Trovara Farm Credits become available after your referred friend's first eligible Trovara Farm purchase passes its refund period without a refund.",
-    'P.P.S. Trovara Farm Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.',
+    "P.S. Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.",
+    'P.P.S. Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.',
   ].join('\n')
 
   return {
@@ -261,20 +261,20 @@ export function trovaraCreditInvitationEmailContent(
     text,
     html: emailLayout({
       preheader: 'An invitation to create your Trovara Farm account.',
-      documentTitle: 'Your Trovara Farm Credits are ready',
-      badge: 'TROVARA FARM CREDITS',
-      headline: `Your 2,000 Trovara Farm Credits are ready, ${firstName}`,
+      documentTitle: 'Your Trovara Credits are ready',
+      badge: 'TROVARA CREDITS',
+      headline: `Your 2,000 Trovara Credits are ready, ${firstName}`,
       intro:
-        'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Farm Credits.',
+        'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Credits.',
       body: `<div style="margin:4px 0 0;padding:22px;background:#18311f;border-radius:14px;text-align:center">
-  <img src="${TROVARA_CREDITS_MARK_URL}" width="72" height="72" alt="Trovara Farm Credits" style="display:block;width:72px;height:72px;margin:0 auto 12px;border:0">
+  <img src="${TROVARA_CREDITS_MARK_URL}" width="72" height="72" alt="Trovara Credits" style="display:block;width:72px;height:72px;margin:0 auto 12px;border:0">
   <p style="margin:0;color:#c5ce82;font-size:34px;font-weight:800;line-height:1">2,000</p>
-  <p style="margin:8px 0 0;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:1.2px">TROVARA FARM CREDITS</p>
+  <p style="margin:8px 0 0;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:1.2px">TROVARA CREDITS</p>
 </div>
 <p style="margin:24px 0 0;color:#28382f;font-size:15px;line-height:1.65">Claim your Trovara Farm account and unlock your personal referral link.</p>
-<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Your 1,000 referral Trovara Farm Credits become available after your referred friend's first eligible Trovara Farm purchase passes its refund period without a refund.</p>
-<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Farm Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
-      cta: { href: claimUrl, label: 'Claim my Trovara Farm Credits' },
+<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.</p>
+<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
+      cta: { href: claimUrl, label: 'Claim my Trovara Credits' },
       footerVariant: 'shop',
     }),
   }
@@ -286,17 +286,17 @@ export function trovaraCreditsReadyEmailContent(
 ): { subject: string; text: string; html: string } {
   const firstName = name.trim().split(/\s+/)[0] || 'there'
   return {
-    subject: '2,000 Trovara Farm Credits have been added to your account',
-    text: `Hi ${firstName},\n\nWe added 2,000 Trovara Farm Credits to your Trovara Farm account. Sign in to see your balance and personal referral link:\n${accountUrl}\n\nP.S. Your 1,000 referral Trovara Farm Credits become available after your referred friend's first eligible Trovara Farm purchase passes its refund period without a refund.\nP.P.S. Trovara Farm Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.`,
+    subject: '2,000 Trovara Credits have been added to your account',
+    text: `Hi ${firstName},\n\nWe added 2,000 Trovara Credits to your Trovara Farm account. Sign in to see your balance and personal referral link:\n${accountUrl}\n\nP.S. Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.\nP.P.S. Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.`,
     html: emailLayout({
-      preheader: 'Your Trovara Farm Credits are now in your shop account.',
-      documentTitle: 'Trovara Farm Credits added',
-      badge: 'TROVARA FARM CREDITS',
-      headline: `2,000 Trovara Farm Credits added, ${firstName}`,
-      intro: 'Your Trovara Farm shop account now includes your welcome Trovara Farm Credits.',
+      preheader: 'Your Trovara Credits are now in your shop account.',
+      documentTitle: 'Trovara Credits added',
+      badge: 'TROVARA CREDITS',
+      headline: `2,000 Trovara Credits added, ${firstName}`,
+      intro: 'Your Trovara Farm shop account now includes your welcome Trovara Credits.',
       body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">Sign in to see your balance and personal referral link.</p>
-<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Your 1,000 referral Trovara Farm Credits become available after your referred friend's first eligible Trovara Farm purchase passes its refund period without a refund.</p>
-<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Farm Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
+<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.</p>
+<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
       cta: { href: accountUrl, label: 'Open my account' },
       footerVariant: 'shop',
     }),
