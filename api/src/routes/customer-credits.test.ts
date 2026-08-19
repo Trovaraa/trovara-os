@@ -192,7 +192,6 @@ describe('single Trovara Credits invitation', () => {
     })
     expect(sendEmail).toHaveBeenCalledTimes(1)
   })
-
   it('does not send when the email is not an eligible survey respondent', async () => {
     distinctQueue.push([])
 

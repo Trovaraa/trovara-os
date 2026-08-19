@@ -225,7 +225,7 @@ async function sendSingleCreditInvitation() {
   if (singleCreditSending.value || !email) return
   if (!window.confirm(t('newsletter.creditsSingleConfirm', { email }))) return
   singleCreditSending.value = true
-  clearMessages()
+    clearMessages()
   try {
     const data = await api<{
       result: {
