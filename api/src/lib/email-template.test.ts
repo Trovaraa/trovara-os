@@ -35,17 +35,18 @@ describe('email-template (canonical FARM OS card)', () => {
     expect(html).toContain('Privacy')
   })
 
-  it('builds the short Trovara Farm Credits invitation with required disclosures', () => {
+  it('builds the short Trovara Credits invitation with required disclosures', () => {
     const mail = trovaraCreditInvitationEmailContent(
       'Ada Lovelace',
       'https://shop.trovara.farm/credits/claim?token=abc',
     )
     expect(mail.subject).toBe('Trovara Farm account invitation')
     expect(mail.html).toContain('An invitation to create your Trovara Farm account.')
-    expect(mail.text).toContain('2,000 Trovara Farm Credits')
-    expect(mail.html).toContain('Claim my Trovara Farm Credits')
-    expect(mail.html).toContain('1,000 referral')
-    expect(mail.html).toContain("first eligible Trovara Farm purchase passes its refund period")
+    expect(mail.text).toContain('2,000 Trovara Credits')
+    expect(mail.html).toContain('Claim my Trovara Credits')
+    expect(mail.html).toContain('Get 1,000 more Trovara Credits')
+    expect(mail.html).toContain('when your referral completes their first eligible Trovara Farm purchase')
+    expect(mail.html).toContain('credits become available after the purchase passes its refund period')
     expect(mail.html).toContain('only be used to buy eligible products sold by Trovara Farm')
     expect(mail.html).toContain('promotional credits, not cash')
     expect(mail.html).toContain('shop.trovara.farm/credits/claim?token=abc')

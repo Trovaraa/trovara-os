@@ -105,7 +105,7 @@ describe('customer survey validation', () => {
     expect(rows.find((row) => row.key === 'sourceMatters')?.value).toBe('Definitely')
   })
 
-  it('normalizes a Trovara Farm Credits referral code and rejects malformed links', () => {
+  it('normalizes a Trovara Credits referral code and rejects malformed links', () => {
     const parsed = customerSurveySchema.parse(
       validSurvey({ referralCode: 'trvabcdef123456' }),
     )

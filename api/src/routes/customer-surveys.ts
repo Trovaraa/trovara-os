@@ -251,7 +251,7 @@ publicCustomerSurveyRoutes.post('/', zValidator('json', customerSurveySchema), a
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.warn('Trovara Farm Credits survey eligibility failed:', message.slice(0, 500))
+      console.warn('Trovara Credits survey eligibility failed:', message.slice(0, 500))
     }
   }
 

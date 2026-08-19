@@ -170,7 +170,7 @@ customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), a
     } catch (error) {
       result.failed += 1
       const message = error instanceof Error ? error.message : String(error)
-      console.warn('Trovara Farm Credits invitation failed:', message.slice(0, 500))
+      console.warn('Trovara Credits invitation failed:', message.slice(0, 500))
     }
   }
 

@@ -194,7 +194,7 @@ export async function createOrRefreshCreditInvitation(params: {
       amount: TROVARA_WELCOME_CREDITS,
       eventType: 'welcome',
       sourceId: `survey-eligibility:${normalizedEmail}`,
-      description: 'Trovara Farm Credits survey welcome award',
+      description: 'Trovara Credits survey welcome award',
     })
     await ensureCustomerReferralCode({ farmId: params.farmId, accountId: account.id })
     return {
@@ -359,7 +359,7 @@ export async function claimCreditInvitation(params: { token: string; passwordHas
           amount: TROVARA_WELCOME_CREDITS,
           eventType: 'welcome',
           sourceId: `invitation:${invitation.id}`,
-          description: 'Trovara Farm Credits survey welcome award',
+          description: 'Trovara Credits survey welcome award',
         })
         .onConflictDoNothing()
     }
