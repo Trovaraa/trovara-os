@@ -12,7 +12,10 @@ let sessionUser: Row = {
 
 const createOrRefreshCreditInvitation = vi.fn()
 const markCreditInvitationSent = vi.fn(async () => undefined)
-const sendEmail = vi.fn(async () => ({ status: 'delivered', id: 'email-1' }))
+const sendEmail = vi.fn(async () => ({
+  status: 'delivered',
+  providerMessageId: 'resend-email-1',
+}))
 const logAudit = vi.fn(async () => undefined)
 
 function selectChain(rows: Row[]) {
@@ -132,11 +135,19 @@ describe('single Trovara Credits invitation', () => {
         accountsCredited: 0,
         alreadyProcessed: 0,
         failed: 0,
+        delivery: {
+          outcome: 'invitation_accepted',
+          providerMessageId: 'resend-email-1',
+        },
       },
     })
     expect(createOrRefreshCreditInvitation).toHaveBeenCalledTimes(1)
     expect(createOrRefreshCreditInvitation).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'ada@example.com', surveyResponseId: 'survey-1' }),
+      expect.objectContaining({
+        email: 'ada@example.com',
+        surveyResponseId: 'survey-1',
+        resendExisting: true,
+      }),
     )
     expect(sendEmail).toHaveBeenCalledTimes(1)
     expect(markCreditInvitationSent).toHaveBeenCalledWith('invite-1')
@@ -145,6 +156,42 @@ describe('single Trovara Credits invitation', () => {
     )
   })
 
+  it('still emails a verified shop account that already received welcome credits', async () => {
+    distinctQueue.push([
+      {
+        id: 'survey-1',
+        email: 'ada@example.com',
+        name: 'Ada',
+        leadId: 'lead-1',
+        createdAt: new Date('2026-08-19T12:00:00Z'),
+      },
+    ])
+    createOrRefreshCreditInvitation.mockResolvedValueOnce({
+      kind: 'account_ready',
+      accountId: 'acct-1',
+      email: 'ada@example.com',
+      name: 'Ada',
+      awarded: false,
+    })
+    summaryRows()
+
+    const response = await (await app()).request('/api/customer-credits/invitations/send-one', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, email: 'ada@example.com' }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        delivery: {
+          outcome: 'account_credited',
+          providerMessageId: 'resend-email-1',
+        },
+      },
+    })
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+  })
   it('does not send when the email is not an eligible survey respondent', async () => {
     distinctQueue.push([])
 

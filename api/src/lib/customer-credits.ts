@@ -167,6 +167,7 @@ export async function createOrRefreshCreditInvitation(params: {
   surveyResponseId?: string | null
   marketingLeadId?: string | null
   createdById?: string | null
+  resendExisting?: boolean
 }): Promise<CreditInvitationResult> {
   const normalizedEmail = params.email.trim().toLowerCase()
   const name = cleanName(params.name)
@@ -206,25 +207,27 @@ export async function createOrRefreshCreditInvitation(params: {
     }
   }
 
-  const [existingInvitation] = await db
-    .select({
-      id: customerCreditInvitations.id,
-      email: customerCreditInvitations.email,
-      name: customerCreditInvitations.name,
-      expiresAt: customerCreditInvitations.expiresAt,
-    })
-    .from(customerCreditInvitations)
-    .where(
-      and(
-        eq(customerCreditInvitations.farmId, params.farmId),
-        eq(customerCreditInvitations.normalizedEmail, normalizedEmail),
-        gt(customerCreditInvitations.expiresAt, new Date()),
-        isNull(customerCreditInvitations.claimedAt),
-        sql`${customerCreditInvitations.sentAt} is not null`,
-      ),
-    )
-    .limit(1)
-  if (existingInvitation) return { kind: 'already_invited', ...existingInvitation }
+  if (!params.resendExisting) {
+    const [existingInvitation] = await db
+      .select({
+        id: customerCreditInvitations.id,
+        email: customerCreditInvitations.email,
+        name: customerCreditInvitations.name,
+        expiresAt: customerCreditInvitations.expiresAt,
+      })
+      .from(customerCreditInvitations)
+      .where(
+        and(
+          eq(customerCreditInvitations.farmId, params.farmId),
+          eq(customerCreditInvitations.normalizedEmail, normalizedEmail),
+          gt(customerCreditInvitations.expiresAt, new Date()),
+          isNull(customerCreditInvitations.claimedAt),
+          sql`${customerCreditInvitations.sentAt} is not null`,
+        ),
+      )
+      .limit(1)
+    if (existingInvitation) return { kind: 'already_invited', ...existingInvitation }
+  }
 
   const rawToken = randomBytes(32).toString('base64url')
   const expiresAt = new Date(Date.now() + INVITATION_DAYS * 24 * 60 * 60 * 1000)
@@ -250,6 +253,7 @@ export async function createOrRefreshCreditInvitation(params: {
         name,
         tokenHash: sha256(rawToken),
         expiresAt,
+        sentAt: null,
         claimedAt: null,
         claimedByAccountId: null,
         updatedAt: new Date(),
