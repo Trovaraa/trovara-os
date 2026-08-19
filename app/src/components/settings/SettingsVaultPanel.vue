@@ -25,6 +25,8 @@ type ShareCandidate = {
   jobTitle: string | null
 }
 
+type UnlockMode = 'reveal' | 'edit'
+
 const auth = useAuthStore()
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -34,6 +36,7 @@ const canManage = ref(false)
 const candidates = ref<ShareCandidate[]>([])
 const shareDraft = ref<Record<string, string[]>>({})
 const savingShareId = ref<string | null>(null)
+const showAddForm = ref(false)
 const form = ref({
   label: '',
   category: 'provider_portal',
@@ -45,6 +48,10 @@ const form = ref({
 const revealId = ref<string | null>(null)
 const editingId = ref<string | null>(null)
 const savingEditId = ref<string | null>(null)
+const unlockingId = ref<string | null>(null)
+const unlockMode = ref<UnlockMode | null>(null)
+const unlocking = ref(false)
+const showBreakGlass = ref(false)
 const totpToken = ref('')
 const breakGlassPassword = ref('')
 const revealed = ref<string | null>(null)
@@ -63,6 +70,19 @@ const visible = computed(
 function candidateLabel(user: ShareCandidate): string {
   const extra = user.jobTitle?.trim() || user.role
   return extra ? `${user.name} (${extra})` : user.name
+}
+
+function clearUnlockCodes() {
+  totpToken.value = ''
+  breakGlassPassword.value = ''
+  showBreakGlass.value = false
+}
+
+function closeUnlock() {
+  unlockingId.value = null
+  unlockMode.value = null
+  unlocking.value = false
+  clearUnlockCodes()
 }
 
 async function load() {
@@ -108,6 +128,7 @@ async function createEntry() {
       password: '',
       notes: '',
     }
+    showAddForm.value = false
     message.value = 'Entry saved'
     await load()
   } catch (e) {
@@ -115,21 +136,44 @@ async function createEntry() {
   }
 }
 
-function startEdit(entry: VaultEntry) {
-  editingId.value = entry.id
-  revealed.value = null
+function beginUnlock(entry: VaultEntry, mode: UnlockMode) {
+  unlockingId.value = entry.id
+  unlockMode.value = mode
+  editingId.value = null
   revealId.value = null
-  editForm.value = {
-    label: entry.label,
-    loginUrl: entry.loginUrl,
-    loginEmail: entry.loginEmail,
-    password: '',
-    notes: entry.notes ?? '',
+  revealed.value = null
+  clearUnlockCodes()
+  error.value = null
+  message.value = null
+  if (mode === 'edit') {
+    editForm.value = {
+      label: entry.label,
+      loginUrl: entry.loginUrl,
+      loginEmail: entry.loginEmail,
+      password: '',
+      notes: entry.notes ?? '',
+    }
   }
+}
+
+function cancelUnlock() {
+  closeUnlock()
 }
 
 function cancelEdit() {
   editingId.value = null
+  closeUnlock()
+}
+
+async function confirmUnlock() {
+  if (!unlockingId.value || !unlockMode.value) return
+  if (unlockMode.value === 'reveal') {
+    await reveal(unlockingId.value)
+    return
+  }
+  editingId.value = unlockingId.value
+  unlockingId.value = null
+  unlockMode.value = null
 }
 
 async function saveEdit(entry: VaultEntry) {
@@ -150,6 +194,7 @@ async function saveEdit(entry: VaultEntry) {
       }),
     })
     editingId.value = null
+    clearUnlockCodes()
     message.value = 'Entry updated'
     await load()
   } catch (e) {
@@ -160,8 +205,10 @@ async function saveEdit(entry: VaultEntry) {
 }
 
 async function reveal(id: string) {
+  unlocking.value = true
   revealed.value = null
   message.value = null
+  error.value = null
   try {
     const data = await api<{ password: string }>(`/api/vault/${id}/reveal`, {
       method: 'POST',
@@ -172,9 +219,14 @@ async function reveal(id: string) {
     })
     revealed.value = data.password
     revealId.value = id
+    unlockingId.value = null
+    unlockMode.value = null
+    clearUnlockCodes()
     message.value = 'Password revealed once — copy it now. It is not stored in the browser.'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Reveal failed'
+  } finally {
+    unlocking.value = false
   }
 }
 
@@ -223,104 +275,248 @@ onMounted(load)
     test-id="settings-vault-section"
   >
     <template #meta>
-      <span v-if="entries.length" class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-        {{ entries.length }}
+      <span class="flex items-center gap-2">
+        <span v-if="entries.length" class="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+          {{ entries.length }}
+        </span>
+        <button
+          v-if="canManage"
+          type="button"
+          class="hidden min-h-8 rounded-lg bg-farm-green/20 px-2.5 py-1 text-[11px] font-bold text-farm-green hover:bg-farm-green/30 sm:inline-flex"
+          data-testid="vault-add-key-header"
+          @click.stop="showAddForm = !showAddForm"
+        >
+          {{ showAddForm ? 'Close' : '+ Add vault key' }}
+        </button>
       </span>
     </template>
-    <p v-if="loading" class="text-xs text-slate-400 mt-4">Loading…</p>
-    <p v-else-if="error" class="text-xs text-red-400 mt-4">{{ error }}</p>
-    <p v-if="message" class="text-xs text-slate-400 mt-2">{{ message }}</p>
+
+    <p v-if="loading" class="mt-4 text-xs text-slate-400">Loading…</p>
+    <p v-else-if="error" class="mt-4 text-xs text-red-400" role="alert">{{ error }}</p>
+    <p v-if="message" class="mt-2 text-xs text-slate-400">{{ message }}</p>
+
+    <button
+      v-if="canManage"
+      type="button"
+      class="mt-4 flex min-h-11 w-full items-center justify-center rounded-lg border border-farm-green/40 bg-farm-green/15 px-3 text-xs font-bold text-farm-green hover:bg-farm-green/25 sm:hidden"
+      data-testid="vault-add-key-mobile"
+      @click="showAddForm = !showAddForm"
+    >
+      {{ showAddForm ? 'Close add form' : '+ Add vault key' }}
+    </button>
+
+    <div v-if="canManage && showAddForm" class="mt-4 space-y-2 rounded-lg border border-slate-800 bg-slate-950/45 p-3" data-testid="vault-add-form">
+      <p class="text-xs font-semibold text-slate-300">New vault key</p>
+      <input
+        v-model="form.label"
+        aria-label="Vault entry label"
+        placeholder="Label (e.g. Instagram, Paystack dashboard)"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+      />
+      <input
+        v-model="form.loginUrl"
+        aria-label="Login URL"
+        placeholder="https://…"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+      />
+      <input
+        v-model="form.loginEmail"
+        aria-label="Login email or username"
+        placeholder="Email or username"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+      />
+      <textarea
+        v-model="form.notes"
+        aria-label="Vault notes"
+        placeholder="Notes (optional)"
+        rows="2"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+      />
+      <input
+        v-model="form.password"
+        aria-label="Password"
+        type="password"
+        placeholder="Password"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+      />
+      <button
+        type="button"
+        class="rounded-lg bg-farm-green/20 px-3 py-1.5 text-xs font-bold text-farm-green hover:bg-farm-green/30"
+        @click="createEntry"
+      >
+        Save to vault
+      </button>
+    </div>
 
     <ul v-if="entries.length" class="mt-4 space-y-2">
       <li
         v-for="entry in entries"
         :key="entry.id"
-        class="border border-slate-800 rounded-lg px-3 py-2 text-xs"
+        class="rounded-lg border border-slate-800 px-3 py-2 text-xs"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="text-slate-200 font-semibold">{{ entry.label }}</p>
-            <p v-if="entry.sharedWithMe && !entry.canManage" class="text-farm-gold mt-0.5">
+            <p class="font-semibold text-slate-200">{{ entry.label }}</p>
+            <p v-if="entry.sharedWithMe && !entry.canManage" class="mt-0.5 text-farm-gold">
               Shared with you
             </p>
-            <p class="text-slate-500 mt-0.5 truncate">{{ entry.loginEmail }}</p>
+            <p class="mt-0.5 truncate text-slate-500">{{ entry.loginEmail }}</p>
             <a
               :href="entry.loginUrl"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-farm-green hover:underline break-all"
+              class="break-all text-farm-green hover:underline"
             >
               {{ entry.loginUrl }}
             </a>
-            <p v-if="revealId === entry.id && revealed" class="mt-2 font-mono text-farm-gold break-all">
+            <p v-if="revealId === entry.id && revealed" class="mt-2 break-all font-mono text-farm-gold">
               {{ revealed }}
             </p>
           </div>
-          <div class="flex flex-col gap-1 shrink-0">
+          <div class="flex shrink-0 flex-col gap-1">
             <button
               v-if="entry.canReveal"
               type="button"
-              class="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-              @click="reveal(entry.id)"
+              class="rounded bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
+              @click="beginUnlock(entry, 'reveal')"
             >
               Reveal
             </button>
             <button
               v-if="entry.canManage"
               type="button"
-              class="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-              @click="startEdit(entry)"
+              class="rounded bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
+              @click="beginUnlock(entry, 'edit')"
             >
               Edit
             </button>
             <button
               v-if="entry.canManage"
               type="button"
-              class="px-2 py-1 rounded bg-red-900/40 text-red-300 hover:bg-red-900/60"
+              class="rounded bg-red-900/40 px-2 py-1 text-red-300 hover:bg-red-900/60"
               @click="remove(entry.id)"
             >
               Delete
             </button>
           </div>
         </div>
-        <div v-if="entry.canManage && editingId === entry.id" class="mt-3 border-t border-slate-800 pt-2 space-y-2">
-          <p class="text-slate-400 font-semibold">Edit entry</p>
+
+        <div
+          v-if="unlockingId === entry.id && unlockMode"
+          class="mt-3 space-y-2 border-t border-slate-800 pt-3"
+          data-testid="vault-unlock-strip"
+        >
+          <p class="font-semibold text-slate-300">Unlock {{ entry.label }}</p>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              v-model="totpToken"
+              aria-label="TOTP for reveal or edit"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="TOTP code"
+              class="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white sm:flex-1"
+            />
+            <div class="flex gap-2 sm:shrink-0">
+              <button
+                type="button"
+                class="min-h-10 rounded-lg bg-farm-green/20 px-3 py-1.5 text-xs font-bold text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+                :disabled="unlocking"
+                @click="confirmUnlock"
+              >
+                {{ unlocking ? 'Checking…' : 'Confirm' }}
+              </button>
+              <button
+                type="button"
+                class="min-h-10 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700"
+                @click="cancelUnlock"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="text-[11px] font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-300"
+            @click="showBreakGlass = !showBreakGlass"
+          >
+            {{ showBreakGlass ? 'Hide break-glass' : 'Use break-glass instead' }}
+          </button>
+          <input
+            v-if="showBreakGlass"
+            v-model="breakGlassPassword"
+            aria-label="Break-glass password"
+            type="password"
+            placeholder="Break-glass password (if armed)"
+            class="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+          />
+        </div>
+
+        <div v-if="entry.canManage && editingId === entry.id" class="mt-3 space-y-2 border-t border-slate-800 pt-2">
+          <p class="font-semibold text-slate-400">Edit entry</p>
           <input
             v-model="editForm.label"
             aria-label="Edit vault entry label"
             placeholder="Label"
-            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
           />
           <input
             v-model="editForm.loginUrl"
             aria-label="Edit login URL"
             placeholder="https://…"
-            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
           />
           <input
             v-model="editForm.loginEmail"
             aria-label="Edit login email or username"
             placeholder="Email or username"
-            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
           />
           <input
             v-model="editForm.password"
             aria-label="New password"
             type="password"
             placeholder="New password (leave blank to keep current)"
-            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
           />
           <textarea
             v-model="editForm.notes"
             aria-label="Edit notes"
             placeholder="Notes (optional)"
             rows="2"
-            class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
+            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
           />
+          <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+            <p class="text-[11px] text-slate-500">Confirm with TOTP to save changes</p>
+            <input
+              v-model="totpToken"
+              aria-label="TOTP to save vault edits"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="TOTP code"
+              class="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+            />
+            <button
+              type="button"
+              class="text-[11px] font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-300"
+              @click="showBreakGlass = !showBreakGlass"
+            >
+              {{ showBreakGlass ? 'Hide break-glass' : 'Use break-glass instead' }}
+            </button>
+            <input
+              v-if="showBreakGlass"
+              v-model="breakGlassPassword"
+              aria-label="Break-glass password for save"
+              type="password"
+              placeholder="Break-glass password (if armed)"
+              class="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white"
+            />
+          </div>
           <div class="flex gap-2">
             <button
               type="button"
-              class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              class="rounded-lg bg-farm-green/20 px-3 py-1.5 text-xs font-bold text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
               :disabled="savingEditId === entry.id"
               @click="saveEdit(entry)"
             >
@@ -328,7 +524,7 @@ onMounted(load)
             </button>
             <button
               type="button"
-              class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+              class="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700"
               @click="cancelEdit"
             >
               Cancel
@@ -363,7 +559,7 @@ onMounted(load)
             </div>
             <button
               type="button"
-              class="mt-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
+              class="mt-3 rounded-lg bg-farm-green/20 px-3 py-1.5 text-xs font-bold text-farm-green hover:bg-farm-green/30 disabled:opacity-50"
               :disabled="savingShareId === entry.id"
               @click="saveShares(entry)"
             >
@@ -373,75 +569,5 @@ onMounted(load)
         </details>
       </li>
     </ul>
-
-    <div
-      v-if="canManage || entries.some((entry) => entry.canReveal)"
-      class="mt-4 grid gap-2 sm:grid-cols-2"
-    >
-      <input
-        v-model="totpToken"
-        aria-label="TOTP for reveal or edit"
-        type="text"
-        inputmode="numeric"
-        maxlength="6"
-        placeholder="TOTP for reveal or edit"
-        class="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-      <input
-        v-model="breakGlassPassword"
-        aria-label="Break-glass password"
-        type="password"
-        placeholder="Break-glass password (if armed)"
-        class="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-      />
-    </div>
-
-    <details v-if="canManage" class="group mt-6 overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45">
-      <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-semibold text-slate-300 marker:content-none">
-        <span>Add entry</span>
-        <svg class="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
-      </summary>
-      <div class="space-y-2 border-t border-slate-800 p-3">
-        <input
-          v-model="form.label"
-          aria-label="Vault entry label"
-          placeholder="Label (e.g. Instagram, Paystack dashboard)"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-        />
-        <input
-          v-model="form.loginUrl"
-          aria-label="Login URL"
-          placeholder="https://…"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-        />
-        <input
-          v-model="form.loginEmail"
-          aria-label="Login email or username"
-          placeholder="Email or username"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-        />
-        <textarea
-          v-model="form.notes"
-          aria-label="Vault notes"
-          placeholder="Notes (optional)"
-          rows="2"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-        />
-        <input
-          v-model="form.password"
-          aria-label="Password"
-          type="password"
-          placeholder="Password"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white"
-        />
-        <button
-          type="button"
-          class="text-xs font-bold px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30"
-          @click="createEntry"
-        >
-          Save to vault
-        </button>
-      </div>
-    </details>
   </CollapsibleSection>
 </template>

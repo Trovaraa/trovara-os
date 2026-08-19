@@ -22,7 +22,7 @@ export function normalizeMarketingOrigin(url: string): string {
 
 /**
  * Marketing site origin (trovara.farm) when configured.
- * Used for shop account links and branded public lot pages.
+ * Used for branded public lot, newsletter, and journal pages.
  */
 export function publicMarketingBaseUrl(): string | null {
   const configured = process.env.PUBLIC_MARKETING_URL?.trim()
@@ -30,7 +30,33 @@ export function publicMarketingBaseUrl(): string | null {
   return normalizeMarketingOrigin(configured)
 }
 
-/** Shop / newsletter email links — configured origin or www marketing default. */
+const DEFAULT_SHOP_URL = 'https://shop.trovara.farm'
+const LOCAL_SHOP_URL = 'http://127.0.0.1:5174'
+
+/**
+ * Customer Accounts SPA origin (shop.trovara.farm).
+ * Verify, reset, and order-account links belong here — not on the farm site.
+ */
+export function publicShopBaseUrl(): string {
+  const configured = process.env.PUBLIC_SHOP_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  if (process.env.NODE_ENV === 'production') return DEFAULT_SHOP_URL
+  return LOCAL_SHOP_URL
+}
+
+export function shopAccountUrl(): string {
+  return publicShopBaseUrl()
+}
+
+export function shopVerifyEmailUrl(token: string): string {
+  return `${publicShopBaseUrl()}/verify-email?token=${encodeURIComponent(token)}`
+}
+
+export function shopResetPasswordUrl(token: string): string {
+  return `${publicShopBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`
+}
+
+/** Newsletter and other marketing email links — farm origin or www default. */
 export function publicMarketingUrlOrDefault(): string {
   return publicMarketingBaseUrl() ?? 'https://www.trovara.farm'
 }

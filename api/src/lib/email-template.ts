@@ -49,6 +49,7 @@ const PRIVACY_URL = 'https://www.trovara.farm/privacy'
 const SOCIAL_LINKS = [
   { label: 'Facebook', href: 'https://www.facebook.com/profile.php?id=61592210064140' },
   { label: 'Instagram', href: 'https://www.instagram.com/trovara_farm/' },
+  { label: 'TikTok', href: 'https://www.tiktok.com/@trovarafarm' },
   { label: 'LinkedIn', href: 'https://www.linkedin.com/company/trovarafarm/' },
 ] as const
 

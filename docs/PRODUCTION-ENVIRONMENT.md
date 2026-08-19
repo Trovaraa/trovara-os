@@ -8,8 +8,9 @@ host secret store or environment file, never in Git.
 
 - Runtime/database: `NODE_ENV`, `API_HOST`, `API_PORT`, `DATABASE_URL`,
   `CORS_ORIGIN`, `TRUSTED_PROXY_HOPS`.
-- Public origins: `PUBLIC_APP_URL`, `PUBLIC_MARKETING_URL`; build-time
+- Public origins: `PUBLIC_APP_URL`, `PUBLIC_MARKETING_URL`, `PUBLIC_SHOP_URL`; build-time
   `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, `VITE_PUBLIC_MARKETING_URL`.
+  The Accounts SPA is the separate `trovara-shop` repo (`shop.trovara.farm`).
 - Encryption/auth: `CRON_SECRET`, `BREAK_GLASS_PASSWORD`,
   `TOTP_ENCRYPTION_KEY` (or `TOTP_KEY_DERIVATION_SECRET`), and the separate
   `VAULT_ENCRYPTION_KEY`.

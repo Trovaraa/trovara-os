@@ -33,7 +33,7 @@ import {
 } from '../lib/customer-orders.js'
 import { orderReference } from '../lib/customer-cart.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
-import { publicLotPageUrl, publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
+import { publicLotPageUrl, shopResetPasswordUrl, shopVerifyEmailUrl } from '../lib/public-app-url.js'
 import { getDummyPasswordHash, hashPassword, verifyPassword } from '../lib/session.js'
 import { emailProviderReady, sendEmail } from '../lib/notifications.js'
 import {
@@ -108,11 +108,6 @@ function secureCookies(): boolean {
 /** Production fail-closed on verify mail; local/dev keep the account + log the link. */
 function requireLiveShopEmail(): boolean {
   return process.env.NODE_ENV === 'production'
-}
-
-function marketingUrl(): string {
-  // Prefer www: apex 301s there, and the marketing PWA is registered on www.
-  return publicMarketingUrlOrDefault()
 }
 
 /** Local/dev only: print the link so inbox delivery is not required to test. */
@@ -215,7 +210,7 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
       .limit(1)
     if (unverified?.active) {
       const { rawToken } = await createCustomerEmailVerificationToken(unverified.id)
-      const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+      const verifyUrl = shopVerifyEmailUrl(rawToken)
       logShopEmailLinkLocally('verify', email, verifyUrl)
       if (emailProviderReady()) {
         const mail = shopVerifyEmailContent(unverified.name, verifyUrl)
@@ -261,7 +256,7 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
     })
 
   const { rawToken } = await createCustomerEmailVerificationToken(account.id)
-  const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+  const verifyUrl = shopVerifyEmailUrl(rawToken)
   logShopEmailLinkLocally('verify', email, verifyUrl)
 
   if (!emailProviderReady()) {
@@ -414,7 +409,7 @@ customerShopRoutes.post('/forgot-password', zValidator('json', forgotPasswordSch
 
   if (account && account.active) {
     const { rawToken } = await createCustomerPasswordResetToken(account.id)
-    const resetUrl = `${marketingUrl()}/shop/reset-password?token=${encodeURIComponent(rawToken)}`
+    const resetUrl = shopResetPasswordUrl(rawToken)
     logShopEmailLinkLocally('reset', email, resetUrl)
     const mail = shopResetPasswordEmailContent(account.name, resetUrl)
 
@@ -528,7 +523,7 @@ customerShopRoutes.post('/resend-verification', zValidator('json', resendVerific
 
   if (account && account.active) {
     const { rawToken } = await createCustomerEmailVerificationToken(account.id)
-    const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+    const verifyUrl = shopVerifyEmailUrl(rawToken)
     logShopEmailLinkLocally('verify', email, verifyUrl)
     const mail = shopVerifyEmailContent(account.name, verifyUrl)
 

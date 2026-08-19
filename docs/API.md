@@ -177,9 +177,10 @@ Customer-facing shop authentication with email verification and password reset.
 - Anti-enumeration: register/forgot-password/resend-verification return generic messages.
 - CSRF exempt: register, login, forgot-password, reset-password, verify-email, resend-verification.
 
-Email links use `PUBLIC_MARKETING_URL` (fallback `https://trovara.farm`):
-- Password reset: `/shop/reset-password?token=...`
-- Email verification: `/shop/verify-email?token=...`
+Email links use `PUBLIC_SHOP_URL` (fallback `https://shop.trovara.farm`):
+- Password reset: `/reset-password?token=...`
+- Email verification: `/verify-email?token=...`
+- Order account: `/`
 
 ---
 
