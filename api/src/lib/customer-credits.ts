@@ -35,6 +35,20 @@ function newReferralCode(): string {
   return `TRV${randomBytes(6).toString('hex').toUpperCase()}`
 }
 
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@')
+  if (at <= 0 || at === email.length - 1) return '***'
+  const local = email.slice(0, at)
+  const domain = email.slice(at + 1)
+  return `${local.charAt(0)}***@${domain}`
+}
+
+export function creditClaimPreservesExistingPassword(existing: {
+  emailVerifiedAt: Date | null
+} | null): boolean {
+  return Boolean(existing?.emailVerifiedAt)
+}
+
 export async function ensureCustomerReferralCode(params: {
   farmId: string
   accountId: string
@@ -269,8 +283,25 @@ export async function inspectCreditInvitation(token: string) {
       ),
     )
     .limit(1)
-  return row ?? null
+  if (!row) return null
+  return {
+    name: row.name,
+    email: maskEmail(row.email),
+    expiresAt: row.expiresAt,
+  }
 }
+
+export type ClaimedCreditAccount = {
+  id: string
+  farmId: string
+  email: string
+  name: string
+  phone: string | null
+}
+
+export type ClaimCreditInvitationResult =
+  | { status: 'ok'; account: ClaimedCreditAccount }
+  | { status: 'needs_sign_in' }
 
 export async function claimCreditInvitation(params: { token: string; passwordHash: string }) {
   const now = new Date()
@@ -289,7 +320,10 @@ export async function claimCreditInvitation(params: { token: string; passwordHas
     if (!invitation) return null
 
     const [existing] = await tx
-      .select({ id: customerAccounts.id })
+      .select({
+        id: customerAccounts.id,
+        emailVerifiedAt: customerAccounts.emailVerifiedAt,
+      })
       .from(customerAccounts)
       .where(
         and(
@@ -298,6 +332,42 @@ export async function claimCreditInvitation(params: { token: string; passwordHas
         ),
       )
       .limit(1)
+
+    const attachCredits = async (accountId: string) => {
+      await tx
+        .update(customerCreditInvitations)
+        .set({ claimedByAccountId: accountId })
+        .where(eq(customerCreditInvitations.id, invitation.id))
+      await tx
+        .update(customerReferralAttributions)
+        .set({ referredAccountId: accountId })
+        .where(
+          and(
+            eq(customerReferralAttributions.farmId, invitation.farmId),
+            eq(
+              customerReferralAttributions.referredNormalizedContact,
+              `email:${invitation.normalizedEmail}`,
+            ),
+            isNull(customerReferralAttributions.referredAccountId),
+          ),
+        )
+      await tx
+        .insert(customerCreditLedger)
+        .values({
+          farmId: invitation.farmId,
+          accountId,
+          amount: TROVARA_WELCOME_CREDITS,
+          eventType: 'welcome',
+          sourceId: `invitation:${invitation.id}`,
+          description: 'Trovara Farm Credits survey welcome award',
+        })
+        .onConflictDoNothing()
+    }
+
+    if (creditClaimPreservesExistingPassword(existing ?? null)) {
+      await attachCredits(existing!.id)
+      return { status: 'needs_sign_in' as const }
+    }
 
     const [account] = existing
       ? await tx
@@ -335,39 +405,14 @@ export async function claimCreditInvitation(params: { token: string; passwordHas
           })
     if (!account) throw new Error('CREDIT_ACCOUNT_CREATION_FAILED')
 
-    await tx
-      .update(customerCreditInvitations)
-      .set({ claimedByAccountId: account.id })
-      .where(eq(customerCreditInvitations.id, invitation.id))
-    await tx
-      .update(customerReferralAttributions)
-      .set({ referredAccountId: account.id })
-      .where(
-        and(
-          eq(customerReferralAttributions.farmId, account.farmId),
-          eq(
-            customerReferralAttributions.referredNormalizedContact,
-            `email:${invitation.normalizedEmail}`,
-          ),
-          isNull(customerReferralAttributions.referredAccountId),
-        ),
-      )
+    await attachCredits(account.id)
     await tx.delete(customerAccountSessions).where(eq(customerAccountSessions.accountId, account.id))
-    await tx
-      .insert(customerCreditLedger)
-      .values({
-        farmId: account.farmId,
-        accountId: account.id,
-        amount: TROVARA_WELCOME_CREDITS,
-        eventType: 'welcome',
-        sourceId: `invitation:${invitation.id}`,
-        description: 'Trovara Farm Credits survey welcome award',
-      })
-      .onConflictDoNothing()
-    return account
+    return { status: 'ok' as const, account }
   })
   if (!claimed) return null
-  await ensureCustomerReferralCode({ farmId: claimed.farmId, accountId: claimed.id })
+  if (claimed.status === 'ok') {
+    await ensureCustomerReferralCode({ farmId: claimed.account.farmId, accountId: claimed.account.id })
+  }
   return claimed
 }
 

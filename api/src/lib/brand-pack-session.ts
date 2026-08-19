@@ -82,7 +82,7 @@ export function brandPackSessionCookieOptions(secure: boolean, maxAgeSec: number
   return {
     httpOnly: true,
     secure,
-    sameSite: 'Lax' as const,
+    sameSite: 'Strict' as const,
     path: '/',
     maxAge: maxAgeSec,
   }

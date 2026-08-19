@@ -75,7 +75,7 @@ const hasProcessing = computed(() =>
 )
 
 const ACCEPT =
-  'image/jpeg,image/png,image/webp,image/svg+xml,image/heic,image/heif,video/mp4,video/quicktime,video/*,.heic,.heif,.mov,.mp4'
+  'image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/*,.heic,.heif,.mov,.mp4'
 
 async function load() {
   loading.value = true
@@ -476,7 +476,7 @@ onUnmounted(stopPolling)
                       :accept="
                         asset.mediaKind === 'video'
                           ? 'video/mp4,video/quicktime,video/*,.mov,.mp4'
-                          : 'image/jpeg,image/png,image/webp,image/svg+xml,image/heic,image/heif,.heic,.heif'
+                          : 'image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif'
                       "
                       :disabled="
                         !!replacingAssetId ||

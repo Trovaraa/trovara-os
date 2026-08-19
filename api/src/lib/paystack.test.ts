@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { initializeTransaction, verifyWebhookSignature } from './paystack.js'
+import { initializeTransaction, isAllowedPaystackCheckoutUrl, safePaystackCheckoutUrl, verifyWebhookSignature } from './paystack.js'
 
 const ORIGINAL_SECRET = process.env.PAYSTACK_SECRET_KEY
 
@@ -8,6 +8,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
   if (ORIGINAL_SECRET === undefined) delete process.env.PAYSTACK_SECRET_KEY
   else process.env.PAYSTACK_SECRET_KEY = ORIGINAL_SECRET
+})
+
+describe('Paystack checkout URL allowlist', () => {
+  it('accepts checkout.paystack.com and falls back from access codes', () => {
+    expect(isAllowedPaystackCheckoutUrl('https://checkout.paystack.com/abc')).toBe(true)
+    expect(isAllowedPaystackCheckoutUrl('https://evil.example/abc')).toBe(false)
+    expect(safePaystackCheckoutUrl('https://evil.example/abc', 'access_code')).toBe(
+      'https://checkout.paystack.com/access_code',
+    )
+  })
 })
 
 describe('Paystack request deadline', () => {

@@ -12,7 +12,7 @@ import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
-const PUBLIC_RATE = { max: 120, windowMs: 60_000 }
+const PUBLIC_RATE = { max: 60, windowMs: 60_000 }
 
 const EMPLOYMENT_TYPES = [
   'full_time',

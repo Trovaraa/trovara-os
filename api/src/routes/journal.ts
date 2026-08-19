@@ -105,7 +105,7 @@ function visitorIdentity(c: Context): { token: string; hash: string } {
     setCookie(c, JOURNAL_VISITOR_COOKIE, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Lax',
+      sameSite: 'Strict',
       path: '/',
       maxAge: 365 * 24 * 60 * 60,
     })

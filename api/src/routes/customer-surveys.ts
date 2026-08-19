@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { customerSurveyResponses, marketingLeads, users } from '../db/schema.js'
-import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { clientIpFromHeaders, rejectUnsignedFormProxy } from '../lib/client-ip.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import {
   CUSTOMER_SURVEY_KEY,
@@ -179,6 +179,8 @@ function startSurveyNotification(farmId: string, parsed: ParsedCustomerSurvey): 
 }
 
 publicCustomerSurveyRoutes.post('/', zValidator('json', customerSurveySchema), async (c) => {
+  const unsigned = rejectUnsignedFormProxy(c)
+  if (unsigned) return unsigned
   if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)

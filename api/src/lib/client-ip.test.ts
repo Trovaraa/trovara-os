@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { clientIpFromHeaders, resolveClientIp } from './client-ip.js'
+import { clientIpFromHeaders, formProxySignatureValid, resolveClientIp } from './client-ip.js'
 
 const originalHops = process.env.TRUSTED_PROXY_HOPS
 const originalEnv = process.env.NODE_ENV
@@ -73,5 +73,16 @@ describe('resolveClientIp', () => {
     ])
 
     expect(clientIpFromHeaders((name) => headers.get(name))).toBe('127.0.0.1')
+    expect(formProxySignatureValid((name) => headers.get(name))).toBe(false)
+  })
+
+  it('does not treat an X-Forwarded-For proxy: prefix as a signed identity', () => {
+    process.env.FORM_PROXY_SIGNING_SECRET = 'test-proxy-secret'
+    process.env.TRUSTED_PROXY_HOPS = '1'
+    const headers = new Map([
+      ['x-forwarded-for', 'proxy:spoofed, 10.0.0.1'],
+      ['x-real-ip', '127.0.0.1'],
+    ])
+    expect(formProxySignatureValid((name) => headers.get(name))).toBe(false)
   })
 })

@@ -11,6 +11,7 @@ import { hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import {
   brandFarmRoot,
+  assertBrandStorageCapacity,
   brandMediaAbsolutePath,
   createBrandUploadSession,
   deleteBrandMedia,
@@ -44,6 +45,7 @@ import { resolve } from 'node:path'
 const PUBLIC_RATE = { max: 120, windowMs: 60_000 }
 const UNLOCK_MAX = 8
 const UNLOCK_WINDOW_MS = 15 * 60_000
+const activeUploadsByFarm = new Set<string>()
 
 const mediaSchema = z.object({
   dataUrl: z.string().max(14_000_000),
@@ -313,10 +315,14 @@ async function beginStreamedUpload(params: {
   userId: string
   assetId?: string
   contentType: string | undefined
+  contentLength: string | undefined
   originalNameHeader: string | undefined
   body: ReadableStream<Uint8Array> | null
   replace?: boolean
 }) {
+  if (activeUploadsByFarm.has(params.farmId)) {
+    return { error: 'Another Brand Kit upload is already in progress for this farm', status: 429 as const }
+  }
   const originalName =
     params.originalNameHeader?.trim() ||
     (params.replace ? undefined : 'upload')
@@ -343,8 +349,29 @@ async function beginStreamedUpload(params: {
     existing = row
   }
 
+  const declaredLength = Number(params.contentLength)
+  // Reserve the declared size while streaming. Chunked uploads reserve the
+  // hard maximum, so a second upload cannot race the per-farm quota check.
+  try {
+    await assertBrandStorageCapacity(
+      params.farmId,
+      Number.isFinite(declaredLength) && declaredLength > 0 ? declaredLength : BRAND_MAX_UPLOAD_BYTES,
+    )
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Upload rejected', status: 413 as const }
+  }
+  activeUploadsByFarm.add(params.farmId)
   const assetId = existing?.id ?? crypto.randomUUID()
-  const session = await createBrandUploadSession(params.farmId, assetId)
+  let session: Awaited<ReturnType<typeof createBrandUploadSession>>
+  try {
+    session = await createBrandUploadSession(params.farmId, assetId)
+  } catch (error) {
+    activeUploadsByFarm.delete(params.farmId)
+    return {
+      error: error instanceof Error ? error.message : 'Could not prepare upload',
+      status: 500 as const,
+    }
+  }
 
   try {
     await streamRequestBodyToFile(params.body, session.sourcePath, BRAND_MAX_UPLOAD_BYTES)
@@ -353,6 +380,8 @@ async function beginStreamedUpload(params: {
     const message = error instanceof Error ? error.message : 'Upload failed'
     const status = message.includes('too large') ? (413 as const) : (400 as const)
     return { error: message, status }
+  } finally {
+    activeUploadsByFarm.delete(params.farmId)
   }
 
   const pendingRelative = `.tmp/${assetId}/source.part`
@@ -434,6 +463,7 @@ brandRoutes.post('/assets/upload', async (c) => {
     farmId: user.farmId,
     userId: user.id,
     contentType: c.req.header('content-type'),
+    contentLength: c.req.header('content-length'),
     originalNameHeader: c.req.header('x-brand-original-name') ?? undefined,
     body: c.req.raw.body,
   })
@@ -449,6 +479,7 @@ brandRoutes.patch('/assets/upload/:id', async (c) => {
     userId: user.id,
     assetId: c.req.param('id'),
     contentType: c.req.header('content-type'),
+    contentLength: c.req.header('content-length'),
     originalNameHeader: c.req.header('x-brand-original-name') ?? undefined,
     body: c.req.raw.body,
     replace: true,

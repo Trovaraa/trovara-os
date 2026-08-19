@@ -182,12 +182,22 @@ customerShopRoutes.get(
 
 customerShopRoutes.post('/credits/claim', zValidator('json', claimCreditsSchema), async (c) => {
   const body = c.req.valid('json')
-  const account = await claimCreditInvitation({
+  const result = await claimCreditInvitation({
     token: body.token,
     passwordHash: await hashPassword(body.password),
   })
-  if (!account) return c.json({ error: 'This invitation is invalid or has expired.' }, 400)
+  if (!result) return c.json({ error: 'This invitation is invalid or has expired.' }, 400)
+  if (result.status === 'needs_sign_in') {
+    return c.json(
+      {
+        error: 'This email already has a Trovara Farm account. Sign in to see your Trovara Farm Credits.',
+        needsSignIn: true,
+      },
+      409,
+    )
+  }
 
+  const account = result.account
   const token = await createCustomerSession(account.id)
   setCustomerSession(c, token)
   const csrfToken = generateCsrfToken()
@@ -375,11 +385,17 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
     ? await verifyPassword(account.passwordHash, body.password)
     : await verifyPassword(await getDummyPasswordHash(), body.password)
   
-  if (!account || !account.active || !valid) {
+  if (!account || !account.active || !valid || !account.emailVerifiedAt) {
     logSecurityEvent(
       'failed_customer_login',
       withAccessMeta((name) => c.req.header(name), {
-        reason: !account ? 'unknown_email' : !account.active ? 'inactive' : 'invalid_password',
+        reason: !account
+          ? 'unknown_email'
+          : !account.active
+            ? 'inactive'
+            : !valid
+              ? 'invalid_password'
+              : 'email_unverified',
         email: body.email.toLowerCase(),
       }),
     )
@@ -389,24 +405,6 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
           "We couldn't sign you in. Check your email and password, or create an account if you're new.",
       },
       401,
-    )
-  }
-
-  if (!account.emailVerifiedAt) {
-    logSecurityEvent(
-      'failed_customer_login',
-      withAccessMeta((name) => c.req.header(name), {
-        reason: 'email_unverified',
-        email: account.email,
-        accountId: account.id,
-      }),
-    )
-    return c.json(
-      {
-        error: 'Please verify your email before signing in. Check your inbox for the verification link.',
-        needsVerification: true,
-      },
-      403,
     )
   }
 
@@ -437,7 +435,7 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
 
 customerShopRoutes.post('/logout', async (c) => {
   await deleteCustomerSession(getCookie(c, CUSTOMER_SESSION_COOKIE))
-  deleteCookie(c, CUSTOMER_SESSION_COOKIE, { path: '/' })
+  deleteCookie(c, CUSTOMER_SESSION_COOKIE, customerSessionCookieOptions(secureCookies()))
   return c.json({ ok: true })
 })
 
@@ -515,6 +513,8 @@ customerShopRoutes.post('/verify-email', zValidator('json', verifyEmailSchema), 
   if (!tokenData) {
     return c.json({ error: 'Invalid or expired verification token.' }, 400)
   }
+
+  await revokeAllCustomerSessions(tokenData.accountId)
 
   const token = await createCustomerSession(tokenData.accountId)
   setCustomerSession(c, token)

@@ -120,8 +120,9 @@ REQUIRE_EVIDENCE_BACKUP=1
 # BACKUP_RCLONE_DESTINATION=<configured-rclone-remote>:trovara/production
 BACKUP_MAX_AGE_HOURS=26
 # USE_DOCKER_PG_TOOLS=1  # enable only when using this repo's Docker Postgres
-# Brand Kit photo/video (optional overrides; defaults 500 MB / 10 min)
-# BRAND_UPLOAD_MAX_BYTES=524288000
+# Brand Kit photo/video (optional overrides; defaults 100 MB / 10 min, 2 GB/farm)
+# BRAND_UPLOAD_MAX_BYTES=104857600
+# BRAND_MAX_FARM_STORAGE_BYTES=2147483648
 # BRAND_UPLOAD_MAX_DURATION_SEC=600
 
 LLM_DAILY_BUDGET_PER_FARM=500
@@ -519,7 +520,7 @@ OS vhost. Customer Accounts (`shop.trovara.farm`) is a **separate** CloudPanel
 site and repo (`trovara-shop`); nginx lives in that repo’s
 `docs/nginx-shop.trovara.farm.conf.example`. The SPA also ships a matching meta CSP; `frame-ancestors` only works
 as a response header. For Brand Kit video uploads, also apply the
-`/api/brand/assets/upload` locations (520m body, `proxy_request_buffering off`,
+`/api/brand/assets/upload` locations (120m body, `proxy_request_buffering off`,
 900s timeouts) from that example.
 
 **ffmpeg (Brand Kit):** install system packages before enabling photo/video packs:
