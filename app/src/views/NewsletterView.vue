@@ -72,6 +72,8 @@ const campaignSending = ref(false)
 const creditSummary = ref<CreditSummary | null>(null)
 const creditsLoading = ref(false)
 const creditsSending = ref(false)
+const singleCreditEmail = ref('')
+const singleCreditSending = ref(false)
 const audienceLoading = ref(false)
 const audienceCount = ref(0)
 const campaignForm = reactive({
@@ -215,6 +217,34 @@ async function sendCreditInvitations() {
     error.value = e instanceof Error ? e.message : t('newsletter.creditsSendFailed')
   } finally {
     creditsSending.value = false
+  }
+}
+
+async function sendSingleCreditInvitation() {
+  const email = singleCreditEmail.value.trim().toLowerCase()
+  if (singleCreditSending.value || !email) return
+  if (!window.confirm(t('newsletter.creditsSingleConfirm', { email }))) return
+  singleCreditSending.value = true
+  clearMessages()
+  try {
+    const data = await api<{
+      result: { invitationsSent: number; accountsCredited: number; alreadyProcessed: number; failed: number }
+      summary: CreditSummary
+    }>('/api/customer-credits/invitations/send-one', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true, email }),
+    })
+    creditSummary.value = data.summary
+    notice.value = t('newsletter.creditsSent', {
+      sent: data.result.invitationsSent,
+      credited: data.result.accountsCredited,
+      skipped: data.result.alreadyProcessed,
+      failed: data.result.failed,
+    })
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.creditsSendFailed')
+  } finally {
+    singleCreditSending.value = false
   }
 }
 
@@ -439,6 +469,28 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
             </div>
           </div>
           <p class="mt-4 text-xs leading-5 text-slate-500">{{ t('newsletter.creditsSafety') }}</p>
+          <form class="mt-4 rounded-xl border border-farm-green/25 bg-slate-950/70 p-4" @submit.prevent="sendSingleCreditInvitation">
+            <label class="block text-sm font-bold text-slate-200">
+              {{ t('newsletter.creditsSingleLabel') }}
+              <input
+                v-model="singleCreditEmail"
+                type="email"
+                autocomplete="off"
+                required
+                :placeholder="t('newsletter.creditsSinglePlaceholder')"
+                class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none"
+              />
+            </label>
+            <p class="mt-2 text-xs leading-5 text-slate-500">{{ t('newsletter.creditsSingleHint') }}</p>
+            <button
+              type="submit"
+              class="mt-3 rounded-lg border border-farm-green/50 px-4 py-2.5 text-sm font-black text-farm-green disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="singleCreditSending || !singleCreditEmail.trim()"
+            >
+              {{ singleCreditSending ? t('newsletter.creditsSending') : t('newsletter.creditsSingleSend') }}
+            </button>
+          </form>
+          <p class="mt-5 text-xs font-black uppercase tracking-[0.16em] text-slate-500">{{ t('newsletter.creditsBulkLabel') }}</p>
           <button type="button" class="mt-4 rounded-lg bg-farm-green px-4 py-2.5 text-sm font-black text-slate-950 disabled:opacity-50" :disabled="creditsSending || !creditSummary.eligible" @click="sendCreditInvitations">
             {{ creditsSending ? t('newsletter.creditsSending') : t('newsletter.creditsSend') }}
           </button>
