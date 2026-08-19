@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { inventoryItems, products } from '../db/schema.js'
+import { inventoryItems, products, shopDeliverySlots } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { canManageProducts, requirePermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
@@ -41,6 +41,10 @@ const createProductSchema = z.object({
   // Kobo (integer minor units). 0 => "price on request".
   priceKobo: z.number().int().min(0).default(0),
   currency: z.string().max(10).default('NGN'),
+  description: z.string().trim().max(1000).optional(),
+  category: z.string().trim().min(1).max(80).default('fresh_from_trovara'),
+  provenance: z.enum(['trovara_grown', 'trovara_sourced']).default('trovara_grown'),
+  familyBasketQuantity: z.number().int().min(0).max(100).default(0),
   active: z.boolean().default(true),
   sortOrder: z.number().int().min(0).default(0),
 })
@@ -48,6 +52,16 @@ const createProductSchema = z.object({
 const updateProductSchema = createProductSchema.partial().extend({
   // Virtual field: links/unlinks a stock row (stored on inventory_items.product_id).
   inventoryItemId: z.string().uuid().nullable().optional(),
+})
+
+const deliverySlotSchema = z.object({
+  label: z.string().trim().min(2).max(100),
+  dayOfWeek: z.number().int().min(0).max(6),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  cutoffHours: z.number().int().min(0).max(336).default(24),
+  active: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).default(0),
 })
 
 export const productRoutes = new Hono<{ Variables: AppVariables }>()
@@ -65,6 +79,10 @@ productRoutes.get('/', async (c) => {
       unit: products.unit,
       priceKobo: products.priceKobo,
       currency: products.currency,
+      description: products.description,
+      category: products.category,
+      provenance: products.provenance,
+      familyBasketQuantity: products.familyBasketQuantity,
       active: products.active,
       sortOrder: products.sortOrder,
       createdAt: products.createdAt,
@@ -112,6 +130,61 @@ productRoutes.post('/', zValidator('json', createProductSchema), async (c) => {
 
   return c.json({ product }, 201)
 })
+
+productRoutes.get('/delivery-slots', async (c) => {
+  const user = c.get('user')
+  const rows = await db
+    .select()
+    .from(shopDeliverySlots)
+    .where(eq(shopDeliverySlots.farmId, user.farmId))
+    .orderBy(asc(shopDeliverySlots.sortOrder), asc(shopDeliverySlots.dayOfWeek))
+  return c.json({ deliverySlots: rows })
+})
+
+productRoutes.post('/delivery-slots', zValidator('json', deliverySlotSchema), async (c) => {
+  const user = c.get('user')
+  if (!canManageProducts(user)) return c.json({ error: 'Forbidden' }, 403)
+  const [deliverySlot] = await db
+    .insert(shopDeliverySlots)
+    .values({ ...c.req.valid('json'), farmId: user.farmId })
+    .returning()
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'create',
+    entityType: 'shop_delivery_slot',
+    entityId: deliverySlot.id,
+  })
+  return c.json({ deliverySlot }, 201)
+})
+
+productRoutes.patch(
+  '/delivery-slots/:id',
+  zValidator('json', deliverySlotSchema.partial()),
+  async (c) => {
+    const user = c.get('user')
+    if (!canManageProducts(user)) return c.json({ error: 'Forbidden' }, 403)
+    const [deliverySlot] = await db
+      .update(shopDeliverySlots)
+      .set({ ...c.req.valid('json'), updatedAt: new Date() })
+      .where(
+        and(
+          eq(shopDeliverySlots.id, c.req.param('id')),
+          eq(shopDeliverySlots.farmId, user.farmId),
+        ),
+      )
+      .returning()
+    if (!deliverySlot) return c.json({ error: 'Not found' }, 404)
+    await logAudit({
+      farmId: user.farmId,
+      userId: user.id,
+      action: 'update',
+      entityType: 'shop_delivery_slot',
+      entityId: deliverySlot.id,
+    })
+    return c.json({ deliverySlot })
+  },
+)
 
 productRoutes.patch('/:id', zValidator('json', updateProductSchema), async (c) => {
   const user = c.get('user')

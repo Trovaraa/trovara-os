@@ -22,6 +22,7 @@ export type CatalogItem = {
   unit: string
   priceKobo: number
   currency: string
+  provenance?: 'trovara_grown' | 'trovara_sourced'
 }
 
 export type OrderStep =
