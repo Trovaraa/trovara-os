@@ -198,7 +198,6 @@ describe('single Trovara Credits invitation', () => {
       expect.objectContaining({ senderName: 'Trovara Farm' }),
     )
   })
-
   it('does not send when the email is not an eligible survey respondent', async () => {
     distinctQueue.push([])
 
