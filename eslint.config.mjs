@@ -20,7 +20,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
   {
-    files: ['api/src/**/*.{ts,js}', 'app/src/**/*.{ts,js,vue}'],
+        files: ['api/src/**/*.{ts,js}', 'app/src/**/*.{ts,js,vue}'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

@@ -61,19 +61,7 @@ async function lookupPublicLot(farmSlug: string, tokenOrCode: string) {
     .limit(1)
 
   if (byToken) return byToken
-
-  // Transition fallback: legacy QR links that still use lotCode.
-  const [byCode] = await db
-    .select(publicLotSelect())
-    .from(harvestLots)
-    .innerJoin(farms, eq(harvestLots.farmId, farms.id))
-    .leftJoin(plots, eq(harvestLots.plotId, plots.id))
-    .leftJoin(cropCycles, eq(harvestLots.cropCycleId, cropCycles.id))
-    .leftJoin(orders, eq(harvestLots.orderId, orders.id))
-    .where(and(eq(farms.slug, farmSlug), eq(harvestLots.lotCode, tokenOrCode), verifiedOnly))
-    .limit(1)
-
-  return byCode ?? null
+  return null
 }
 
 /** True when a lot exists for this link but is not yet publicly verifiable. */
@@ -84,15 +72,7 @@ async function isPendingPublicLot(farmSlug: string, tokenOrCode: string): Promis
     .innerJoin(farms, eq(harvestLots.farmId, farms.id))
     .where(and(eq(farms.slug, farmSlug), eq(harvestLots.publicToken, tokenOrCode)))
     .limit(1)
-  if (byToken) return byToken.status === 'reported'
-
-  const [byCode] = await db
-    .select({ status: harvestLots.verificationStatus })
-    .from(harvestLots)
-    .innerJoin(farms, eq(harvestLots.farmId, farms.id))
-    .where(and(eq(farms.slug, farmSlug), eq(harvestLots.lotCode, tokenOrCode)))
-    .limit(1)
-  return byCode?.status === 'reported'
+  return byToken?.status === 'reported'
 }
 
 async function rateLimitOrNull(c: { req: { header: (name: string) => string | undefined }; header: (k: string, v: string) => void }) {

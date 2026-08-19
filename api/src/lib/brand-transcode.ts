@@ -1,11 +1,8 @@
 import { spawn } from 'node:child_process'
-import { access } from 'node:fs/promises'
-import { constants as fsConstants } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   BRAND_CRF,
   BRAND_MAX_VIDEO_DURATION_SEC,
-  BRAND_PASSTHROUGH_IMAGE_MIME,
 } from './brand-limits.js'
 import type { BrandStoredMime } from './brand-media.js'
 
@@ -126,24 +123,6 @@ export async function transcodeBrandUpload(params: {
 }): Promise<TranscodeResult> {
   const { sourcePath, sessionDir, sourceMime } = params
   const mime = sourceMime.toLowerCase()
-
-  if (BRAND_PASSTHROUGH_IMAGE_MIME.has(mime) && mime !== 'image/svg+xml') {
-    // Still probe dimensions when possible; SVG skips ffmpeg.
-  }
-
-  if (mime === 'image/svg+xml') {
-    await access(sourcePath, fsConstants.R_OK)
-    // Copy via ffmpeg-free rename handled by caller; mark passthrough
-    return {
-      outputPath: sourcePath,
-      posterPath: null,
-      mimeType: 'image/svg+xml',
-      width: null,
-      height: null,
-      durationSeconds: null,
-      passThrough: true,
-    }
-  }
 
   if (mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp') {
     let width: number | null = null

@@ -180,6 +180,10 @@ export const customerSurveySchema = z
     utmMedium: optionalText(200),
     utmCampaign: optionalText(200),
     referrer: optionalText(500),
+    referralCode: z.preprocess(
+      (value) => (typeof value === 'string' && !value.trim() ? undefined : value),
+      z.string().trim().toUpperCase().regex(/^TRV[A-Z0-9]{6,24}$/).optional(),
+    ),
   })
   .strict()
   .superRefine((value, context) => {
@@ -248,6 +252,7 @@ export type ParsedCustomerSurvey = {
     utmMedium: string | null
     utmCampaign: string | null
     referrer: string | null
+    referralCode: string | null
   }
   consentVersion: string
 }
@@ -335,6 +340,7 @@ export function parseCustomerSurvey(input: CustomerSurveyInput): ParsedCustomerS
       utmMedium: input.utmMedium ?? null,
       utmCampaign: input.utmCampaign ?? null,
       referrer: input.referrer ?? null,
+      referralCode: input.referralCode ?? null,
     },
     consentVersion: customerSurveyConsentVersion(input.consentVersion),
   }

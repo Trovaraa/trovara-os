@@ -4,7 +4,7 @@ process.env.DATABASE_URL ??= 'postgresql://test:test@127.0.0.1:5432/test'
 
 import type { SessionUser } from './session.js'
 import { hasRole, requireRole } from './rbac.js'
-import { generateCsrfToken, isCsrfExemptPath } from './csrf.js'
+import { generateCsrfToken, isCsrfExemptPath, csrfCookieNameForPath, CSRF_COOKIE, SHOP_CSRF_COOKIE } from './csrf.js'
 import { secureCompare, secureCompareSecret } from './secure-compare.js'
 import { isPasswordChangeExemptPath } from '../middleware/auth.js'
 import { checkRateLimit, resetRateLimitBucket } from './rate-limit.js'
@@ -45,6 +45,15 @@ describe('RBAC negative checks', () => {
 
   it('returns false when role does not match', () => {
     expect(hasRole(user('supervisor'), 'owner')).toBe(false)
+  })
+})
+
+describe('CSRF cookie names', () => {
+  it('keeps staff and shop CSRF cookies on separate names', () => {
+    expect(csrfCookieNameForPath('/auth/login')).toBe(CSRF_COOKIE)
+    expect(csrfCookieNameForPath('/api/tasks')).toBe(CSRF_COOKIE)
+    expect(csrfCookieNameForPath('/shop/session')).toBe(SHOP_CSRF_COOKIE)
+    expect(csrfCookieNameForPath('/shop/orders')).toBe(SHOP_CSRF_COOKIE)
   })
 })
 
@@ -126,6 +135,9 @@ describe('CSRF exempt pre-auth paths', () => {
     expect(isCsrfExemptPath('/api/alerts/run-proactive')).toBe(true)
     expect(isCsrfExemptPath('/api/alerts/evening-digest')).toBe(true)
     expect(isCsrfExemptPath('/api/alerts/run-health-sla')).toBe(true)
+    expect(isCsrfExemptPath('/api/alerts/run-health-snapshot')).toBe(true)
+    expect(isCsrfExemptPath('/api/advisory/run')).toBe(true)
+    expect(isCsrfExemptPath('/api/templates/generate-tasks')).toBe(true)
   })
 
   it('exempts staff and customer Telegram webhooks', () => {

@@ -19,6 +19,22 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
 ])
 const DEFAULT_FINANCE_INBOUND_RECIPIENT = 'finance@trovara.farm'
 
+export function isAllowedInboundDownloadUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    if (host === 'resend.com' || host.endsWith('.resend.com')) return true
+    if (host.endsWith('.amazonaws.com')) return true
+    if (process.env.NODE_ENV !== 'production' && (host === 'files.test' || host.endsWith('.test'))) {
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 function normalizeEmailAddress(value: string): string | null {
   const angle = value.match(/<([^>]+)>/)
   const email = (angle?.[1] ?? value).trim().toLowerCase()
@@ -372,6 +388,7 @@ export async function processFinanceInboundWebhook(params: {
       const mime = (attachment.content_type ?? '').toLowerCase()
       if (!ALLOWED_ATTACHMENT_TYPES.has(mime)) continue
       if (!attachment.download_url) continue
+      if (!isAllowedInboundDownloadUrl(attachment.download_url)) continue
       const response = await fetch(attachment.download_url)
       if (!response.ok) continue
       const buffer = Buffer.from(await response.arrayBuffer())

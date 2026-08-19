@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, opendir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -8,6 +8,7 @@ import { getEvidenceStorageRoot } from './evidence-store.js'
 import {
   BRAND_MAX_DATA_URL_DECODED,
   BRAND_MAX_DATA_URL_LENGTH,
+  BRAND_MAX_FARM_STORAGE_BYTES,
   BRAND_MAX_UPLOAD_BYTES,
 } from './brand-limits.js'
 
@@ -15,7 +16,6 @@ const MIME_TO_EXT = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
-  'image/svg+xml': 'svg',
   'video/mp4': 'mp4',
 } as const
 
@@ -23,7 +23,6 @@ const EXT_TO_MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
-  svg: 'image/svg+xml',
   mp4: 'video/mp4',
 }
 
@@ -38,7 +37,7 @@ function safeFarmId(value: string): boolean {
 }
 
 function safeFilename(value: string): boolean {
-  return /^[A-Za-z0-9_-]{20,64}\.(?:jpg|png|webp|svg|mp4)$/.test(value)
+  return /^[A-Za-z0-9_-]{20,64}\.(?:jpg|png|webp|mp4)$/.test(value)
 }
 
 function safeTempSegment(value: string): boolean {
@@ -83,8 +82,37 @@ function hasExpectedSignature(mime: BrandStoredMime, buffer: Buffer): boolean {
     // ISO BMFF: size(4) + 'ftyp' at offset 4
     return buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp'
   }
-  const head = buffer.subarray(0, Math.min(buffer.length, 256)).toString('utf8').trimStart()
-  return head.startsWith('<svg') || head.startsWith('<?xml')
+  return false
+}
+
+/** Total on-disk Brand Kit footprint, including in-progress uploads. */
+async function farmStorageBytes(farmId: string): Promise<number> {
+  let total = 0
+  const root = brandFarmRoot(farmId)
+  try {
+    const directory = await opendir(root)
+    for await (const entry of directory) {
+      const entryPath = resolve(root, entry.name)
+      if (entry.isFile()) total += (await stat(entryPath)).size
+      if (entry.isDirectory()) {
+        const nested = await opendir(entryPath)
+        for await (const child of nested) {
+          if (child.isFile()) total += (await stat(resolve(entryPath, child.name))).size
+        }
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  return total
+}
+
+export async function assertBrandStorageCapacity(farmId: string, incomingBytes: number): Promise<void> {
+  if (!Number.isFinite(incomingBytes) || incomingBytes < 1) throw new Error('Invalid upload size')
+  if (incomingBytes > BRAND_MAX_UPLOAD_BYTES) throw new Error('Brand upload too large')
+  if ((await farmStorageBytes(farmId)) + incomingBytes > BRAND_MAX_FARM_STORAGE_BYTES) {
+    throw new Error('Brand storage quota exceeded')
+  }
 }
 
 export type StoredBrandMedia = {
@@ -96,7 +124,7 @@ export type StoredBrandMedia = {
 export async function storeBrandMedia(farmId: string, dataUrl: string): Promise<StoredBrandMedia> {
   if (dataUrl.length > BRAND_MAX_DATA_URL_LENGTH) throw new Error('Brand image too large')
   const match = dataUrl.match(
-    /^data:(image\/(?:jpeg|png|webp|svg\+xml));base64,([A-Za-z0-9+/]+={0,2})$/i,
+    /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i,
   )
   if (!match) throw new Error('Invalid brand image data URL')
 
@@ -105,6 +133,7 @@ export async function storeBrandMedia(farmId: string, dataUrl: string): Promise<
   if (buffer.length === 0 || buffer.length > BRAND_MAX_DATA_URL_DECODED) {
     throw new Error('Brand image too large')
   }
+  await assertBrandStorageCapacity(farmId, buffer.length)
   if (!hasExpectedSignature(mime, buffer)) {
     throw new Error('Brand image content does not match MIME type')
   }
@@ -181,7 +210,7 @@ export async function promoteBrandFile(
   sourcePath: string,
   mime: BrandStoredMime,
 ): Promise<StoredBrandMedia> {
-  const probe = await sniffFileHead(sourcePath, mime === 'image/svg+xml' ? 512 : 256)
+  const probe = await sniffFileHead(sourcePath)
   if (!hasExpectedSignature(mime, probe)) {
     throw new Error('Brand media content does not match MIME type')
   }

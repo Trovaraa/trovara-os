@@ -6,6 +6,7 @@ import { secureCompare } from './secure-compare.js'
 import { withAccessMeta } from './request-access-meta.js'
 
 export const CSRF_COOKIE = 'trovara_csrf'
+export const SHOP_CSRF_COOKIE = 'trovara_shop_csrf'
 export const CSRF_HEADER = 'X-CSRF-Token'
 
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE'])
@@ -35,6 +36,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/shop/reset-password',
   '/shop/verify-email',
   '/shop/resend-verification',
+  '/shop/credits/claim',
   // Public double-opt-in actions carry no staff session cookie. Confirmation
   // and unsubscribe are authorized by high-entropy, single-purpose tokens;
   // the Resend webhook verifies its Svix signature.
@@ -59,6 +61,9 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/api/alerts/run-proactive',
   '/api/alerts/evening-digest',
   '/api/alerts/run-health-sla',
+  '/api/alerts/run-health-snapshot',
+  '/api/advisory/run',
+  '/api/templates/generate-tasks',
 ])
 
 export function isCsrfExemptPath(path: string): boolean {
@@ -86,6 +91,10 @@ function shouldLogCsrfFailure(path: string): boolean {
   return !CSRF_FAILURE_NOISE_PATHS.has(normalized)
 }
 
+export function csrfCookieNameForPath(path: string): string {
+  return path.startsWith('/shop') ? SHOP_CSRF_COOKIE : CSRF_COOKIE
+}
+
 export function generateCsrfToken(): string {
   return randomBytes(32).toString('base64url')
 }
@@ -102,7 +111,7 @@ export function csrfCookieOptions(secure: boolean) {
 
 export function setCsrfCookie(c: Context, token: string) {
   const secure = process.env.NODE_ENV === 'production'
-  setCookie(c, CSRF_COOKIE, token, csrfCookieOptions(secure))
+  setCookie(c, csrfCookieNameForPath(c.req.path), token, csrfCookieOptions(secure))
 }
 
 export async function csrfMiddleware(c: Context, next: Next) {
@@ -122,7 +131,7 @@ export async function csrfMiddleware(c: Context, next: Next) {
     return
   }
 
-  const cookieToken = getCookie(c, CSRF_COOKIE)
+  const cookieToken = getCookie(c, csrfCookieNameForPath(c.req.path))
   const headerToken = c.req.header(CSRF_HEADER)
 
   if (!cookieToken || !headerToken || !secureCompare(cookieToken, headerToken)) {

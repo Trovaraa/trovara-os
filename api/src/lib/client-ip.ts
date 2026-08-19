@@ -10,6 +10,39 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
+function signedProxyClientId(
+  getHeader: (name: string) => string | undefined,
+): string | null {
+  const secret = process.env.FORM_PROXY_SIGNING_SECRET?.trim()
+  const clientId = getHeader('x-trovara-client-id')?.trim()
+  const rawTimestamp = getHeader('x-trovara-client-timestamp')?.trim()
+  const signature = getHeader('x-trovara-client-signature')?.trim()
+  const timestamp = Number(rawTimestamp)
+  if (
+    !secret ||
+    !clientId ||
+    !/^[A-Za-z0-9_-]{32,64}$/.test(clientId) ||
+    !rawTimestamp ||
+    !Number.isFinite(timestamp) ||
+    Math.abs(Date.now() - timestamp) > 5 * 60_000 ||
+    !signature
+  ) {
+    return null
+  }
+  const expected = createHmac('sha256', secret)
+    .update(`${rawTimestamp}.${clientId}`)
+    .digest('base64url')
+  const expectedBuffer = Buffer.from(expected)
+  const signatureBuffer = Buffer.from(signature)
+  if (
+    expectedBuffer.length !== signatureBuffer.length ||
+    !timingSafeEqual(expectedBuffer, signatureBuffer)
+  ) {
+    return null
+  }
+  return clientId
+}
+
 function trustedProxyHops(): number {
   const raw = process.env.TRUSTED_PROXY_HOPS?.trim()
   if (raw !== undefined && raw !== '') {
@@ -48,34 +81,28 @@ export function resolveClientIp(params: {
 export function clientIpFromHeaders(
   getHeader: (name: string) => string | undefined,
 ): string {
-  const secret = process.env.FORM_PROXY_SIGNING_SECRET?.trim()
-  const clientId = getHeader('x-trovara-client-id')?.trim()
-  const rawTimestamp = getHeader('x-trovara-client-timestamp')?.trim()
-  const signature = getHeader('x-trovara-client-signature')?.trim()
-  const timestamp = Number(rawTimestamp)
-  if (
-    secret &&
-    clientId &&
-    /^[A-Za-z0-9_-]{32,64}$/.test(clientId) &&
-    rawTimestamp &&
-    Number.isFinite(timestamp) &&
-    Math.abs(Date.now() - timestamp) <= 5 * 60_000 &&
-    signature
-  ) {
-    const expected = createHmac('sha256', secret)
-      .update(`${rawTimestamp}.${clientId}`)
-      .digest('base64url')
-    const expectedBuffer = Buffer.from(expected)
-    const signatureBuffer = Buffer.from(signature)
-    if (
-      expectedBuffer.length === signatureBuffer.length &&
-      timingSafeEqual(expectedBuffer, signatureBuffer)
-    ) {
-      return `proxy:${clientId}`
-    }
-  }
+  const clientId = signedProxyClientId(getHeader)
+  if (clientId) return `proxy:${clientId}`
   return resolveClientIp({
     forwardedFor: getHeader('x-forwarded-for'),
     fallback: getHeader('x-real-ip') ?? 'local',
   })
+}
+
+/** True when FORM_PROXY_SIGNING_SECRET is set and the request carries a valid HMAC. */
+export function formProxySignatureValid(
+  getHeader: (name: string) => string | undefined,
+): boolean {
+  return signedProxyClientId(getHeader) !== null
+}
+
+/** When the form-proxy secret is configured in production, unsigned public-form posts are rejected. */
+export function rejectUnsignedFormProxy(c: {
+  req: { header: (name: string) => string | undefined }
+  json: (body: unknown, status?: number) => Response
+}): Response | null {
+  if (process.env.NODE_ENV !== 'production') return null
+  if (!process.env.FORM_PROXY_SIGNING_SECRET?.trim()) return null
+  if (formProxySignatureValid((name) => c.req.header(name))) return null
+  return c.json({ error: 'Unauthorized' }, 401)
 }

@@ -10,7 +10,7 @@ import {
   newsletterWebhookEvents,
 } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
-import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { clientIpFromHeaders, rejectUnsignedFormProxy } from '../lib/client-ip.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import {
   newsletterConsentVersion,
@@ -196,6 +196,8 @@ async function deliverConfirmation(subscriber: Subscriber, token: string): Promi
 }
 
 publicNewsletterRoutes.post('/subscribe', zValidator('json', subscribeSchema), async (c) => {
+  const unsigned = rejectUnsignedFormProxy(c)
+  if (unsigned) return unsigned
   if (!(await publicRateLimit(c, 'subscribe', 10))) {
     return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   }

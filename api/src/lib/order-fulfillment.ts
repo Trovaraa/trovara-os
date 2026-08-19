@@ -20,6 +20,7 @@ import {
   staffLocale,
 } from './order-messages.js'
 import { applyOrderSaleOnDispatch } from './inventory-stock.js'
+import { recordReferralQualifyingPurchase } from './customer-credits.js'
 
 export { ORDER_STAFF_ROLES, ORDER_ALERT_ALWAYS_ROLES } from './rbac.js'
 
@@ -226,6 +227,7 @@ export async function transitionOrder(params: {
     updates.dispatchedAt = new Date()
   }
   if (params.toStatus === 'delivered') {
+    updates.deliveredAt = new Date()
     if (params.deliveryPhotoUrl) updates.deliveryPhotoUrl = params.deliveryPhotoUrl
     updates.feedbackRequestedAt = new Date()
   }
@@ -258,6 +260,17 @@ export async function transitionOrder(params: {
     entityId: params.orderId,
     metadata: { status: order.status },
   })
+
+  if (params.toStatus === 'delivered') {
+    try {
+      await recordReferralQualifyingPurchase({ farmId: params.farmId, orderId: params.orderId })
+    } catch (error) {
+      console.error(
+        'Referral purchase qualification failed:',
+        error instanceof Error ? error.message : error,
+      )
+    }
+  }
 
   const reference = orderReference(order.id)
 
