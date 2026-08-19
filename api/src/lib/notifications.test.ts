@@ -119,7 +119,6 @@ describe('notification delivery', () => {
     const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))
     expect(body.from).toBe('Trovara Farm <no-reply@trovara.farm>')
   })
-
   it('passes a reply-to address to Resend', async () => {
     process.env.RESEND_API_KEY = 're_test'
     process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'
