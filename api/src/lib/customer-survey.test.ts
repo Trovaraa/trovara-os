@@ -104,4 +104,14 @@ describe('customer survey validation', () => {
     expect(rows.find((row) => row.key === 'location')?.value).toBe('Abeokuta')
     expect(rows.find((row) => row.key === 'sourceMatters')?.value).toBe('Definitely')
   })
+
+  it('normalizes a Trovara Farm Credits referral code and rejects malformed links', () => {
+    const parsed = customerSurveySchema.parse(
+      validSurvey({ referralCode: 'trvabcdef123456' }),
+    )
+    expect(parseCustomerSurvey(parsed).attribution.referralCode).toBe('TRVABCDEF123456')
+    expect(
+      customerSurveySchema.safeParse(validSurvey({ referralCode: 'not-a-code' })).success,
+    ).toBe(false)
+  })
 })

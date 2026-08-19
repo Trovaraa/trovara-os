@@ -29,6 +29,11 @@ import {
   type ContentTranslationStatus,
 } from '../lib/task-drafts.js'
 import { detectReplyLocale, resolveStaffReplyLocale } from '../lib/reply-locale.js'
+import {
+  cronFarmIdAllowed,
+  getOwnerUserByFarmId,
+  requestHasCronSecret,
+} from '../lib/cron-auth.js'
 
 /**
  * Template prose: `name`, `description` and every `checklist` item - the three
@@ -285,7 +290,13 @@ async function localizeTemplates<
 
 export const templateRoutes = new Hono<{ Variables: AppVariables }>()
 
-templateRoutes.use('*', authMiddleware)
+templateRoutes.use('*', async (c, next) => {
+  if (c.req.path.endsWith('/generate-tasks') && c.req.method === 'POST' && requestHasCronSecret(c)) {
+    await next()
+    return
+  }
+  return authMiddleware(c, next)
+})
 
 /**
  * The lifecycles this farm's own crop cycles are running on.
@@ -740,8 +751,26 @@ templateRoutes.delete('/schedules/:id', async (c) => {
 })
 
 templateRoutes.post('/generate-tasks', async (c) => {
-  const user = c.get('user')
-  if (!canAssignTasks(user)) return c.json({ error: 'Forbidden' }, 403)
+  let bodyFarmId: string | undefined
+  try {
+    const parsed = (await c.req.json()) as { farmId?: unknown }
+    if (typeof parsed?.farmId === 'string') bodyFarmId = parsed.farmId
+  } catch {
+    bodyFarmId = undefined
+  }
+
+  let user = c.get('user')
+  if (requestHasCronSecret(c)) {
+    if (!bodyFarmId || !cronFarmIdAllowed(bodyFarmId)) {
+      return c.json({ error: 'Unauthorized' }, 401)
+    }
+    const owner = await getOwnerUserByFarmId(bodyFarmId)
+    if (!owner) return c.json({ error: 'Unauthorized' }, 401)
+    user = owner
+  } else if (!user || !canAssignTasks(user)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
   const now = new Date()
 

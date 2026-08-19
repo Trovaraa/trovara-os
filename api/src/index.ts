@@ -70,6 +70,7 @@ import {
 } from './routes/customer-surveys.js'
 import { momentsRoutes, publicMomentsRoutes } from './routes/moments.js'
 import { shopCustomerRoutes } from './routes/shop-customers.js'
+import { customerCreditRoutes } from './routes/customer-credits.js'
 import { newsletterConfigMissing } from './lib/newsletter-resend.js'
 import {
   apiMutationRateLimit,
@@ -116,6 +117,7 @@ app.route('/api/customer-surveys', customerSurveyRoutes)
 app.route('/api/moments', momentsRoutes)
 app.route('/api/careers', careersRoutes)
 app.route('/api/shop-customers', shopCustomerRoutes)
+app.route('/api/customer-credits', customerCreditRoutes)
 app.route('/api/reports', reportRoutes)
 app.route('/api/crops', cropRoutes)
 app.route('/api/livestock', livestockRoutes)

@@ -7,6 +7,11 @@ import { farms, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import { requireRole } from '../lib/rbac.js'
 import {
+  cronFarmIdAllowed,
+  getOwnerUserByFarmId,
+  requestHasCronSecret,
+} from '../lib/cron-auth.js'
+import {
   checkProactiveAlerts,
   renderProactiveAlertPush,
   type ProactiveAlert,
@@ -28,7 +33,6 @@ import {
   healthSlaEnvEnabled,
   renderHealthSnapshotTelegram,
 } from '../lib/health-sla.js'
-import { secureCompare } from '../lib/secure-compare.js'
 import type { SessionUser } from '../lib/session.js'
 import { deliverCriticalAlert } from '../lib/notifications.js'
 import { runAnomalyObservationMode } from '../lib/anomaly-observations.js'
@@ -80,23 +84,6 @@ function duplicateRunResponse(c: any, farmId: string) {
 
 type AuthResult = { user: SessionUser; usedCronSecret: boolean } | null
 
-async function getOwnerUserByFarmId(farmId: string): Promise<SessionUser | null> {
-  const [owner] = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.farmId, farmId), eq(users.role, 'owner')))
-    .limit(1)
-  if (!owner) return null
-  return {
-    id: owner.id,
-    farmId: owner.farmId,
-    email: owner.email,
-    name: owner.name,
-    role: owner.role,
-    mustChangePassword: owner.mustChangePassword,
-  }
-}
-
 /**
  * A farm's human-readable name, never its id. `farms.id` and `farms.name` are
  * both plain strings, which is how a UUID ended up inside copy that reads
@@ -131,11 +118,8 @@ async function resolveAlertActor(
   c: any,
   payloadFarmId?: string,
 ): Promise<AuthResult> {
-  const cronSecret = process.env.CRON_SECRET?.trim()
-  const provided = c.req.header('x-cron-secret')?.trim()
-
-  if (cronSecret && provided && secureCompare(provided, cronSecret)) {
-    if (!payloadFarmId) return null
+  if (requestHasCronSecret(c)) {
+    if (!payloadFarmId || !cronFarmIdAllowed(payloadFarmId)) return null
     const owner = await getOwnerUserByFarmId(payloadFarmId)
     if (!owner) return null
     return { user: owner, usedCronSecret: true }
@@ -180,9 +164,7 @@ function renderCriticalAlert(
 export const alertsRoutes = new Hono<{ Variables: AppVariables }>()
 
 alertsRoutes.use('*', async (c, next) => {
-  const cronSecret = process.env.CRON_SECRET?.trim()
-  const provided = c.req.header('x-cron-secret')?.trim()
-  if (cronSecret && provided && secureCompare(provided, cronSecret)) {
+  if (requestHasCronSecret(c)) {
     await next()
     return
   }

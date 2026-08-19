@@ -92,13 +92,14 @@ NODE_ENV=production
 API_HOST=127.0.0.1
 API_PORT=3000
 TRUSTED_PROXY_HOPS=1
-CORS_ORIGIN=https://os.trovara.farm,https://trovara.farm,https://www.trovara.farm
+CORS_ORIGIN=https://os.trovara.farm,https://shop.trovara.farm,https://trovara.farm,https://www.trovara.farm
 
 PUBLIC_APP_URL=https://os.trovara.farm
 VITE_API_URL=https://os.trovara.farm
 VITE_PUBLIC_APP_URL=https://os.trovara.farm
 VITE_PUBLIC_MARKETING_URL=https://trovara.farm
 PUBLIC_MARKETING_URL=https://trovara.farm
+PUBLIC_SHOP_URL=https://shop.trovara.farm
 
 TOTP_ENCRYPTION_KEY=<openssl output>
 VAULT_ENCRYPTION_KEY=<separate openssl output>
@@ -119,8 +120,9 @@ REQUIRE_EVIDENCE_BACKUP=1
 # BACKUP_RCLONE_DESTINATION=<configured-rclone-remote>:trovara/production
 BACKUP_MAX_AGE_HOURS=26
 # USE_DOCKER_PG_TOOLS=1  # enable only when using this repo's Docker Postgres
-# Brand Kit photo/video (optional overrides; defaults 500 MB / 10 min)
-# BRAND_UPLOAD_MAX_BYTES=524288000
+# Brand Kit photo/video (optional overrides; defaults 100 MB / 10 min, 2 GB/farm)
+# BRAND_UPLOAD_MAX_BYTES=104857600
+# BRAND_MAX_FARM_STORAGE_BYTES=2147483648
 # BRAND_UPLOAD_MAX_DURATION_SEC=600
 
 LLM_DAILY_BUDGET_PER_FARM=500
@@ -187,7 +189,7 @@ consent and must not be synced to Resend Contacts or the newsletter Segment.
 
 `VITE_API_URL` is the SPA’s API base (baked in at `npm run build`).  
 `VITE_PUBLIC_APP_URL` / `PUBLIC_APP_URL` are the public OS URL for emails, certificates, labels, and the OS lot SPA fallback.  
-`PUBLIC_MARKETING_URL` (and build-time `VITE_PUBLIC_MARKETING_URL`) is the brand site. When set, QR codes and buyer lot links prefer `${PUBLIC_MARKETING_URL}/lot/:farmSlug/:token` so scanners open the marketing-branded page; OS still serves `/lot/...` and `GET /public/lots/...`. Also used for shop account links in customer order emails. Ensure `CORS_ORIGIN` includes `https://trovara.farm` if the marketing site ever calls the API cross-origin (same-origin `/lot-api` and `/shop-api` proxies do not need CORS).
+`PUBLIC_MARKETING_URL` (and build-time `VITE_PUBLIC_MARKETING_URL`) is the brand site. When set, QR codes and buyer lot links prefer `${PUBLIC_MARKETING_URL}/lot/:farmSlug/:token` so scanners open the marketing-branded page; OS still serves `/lot/...` and `GET /public/lots/...`. Customer account email links use `PUBLIC_SHOP_URL` (`https://shop.trovara.farm`). Ensure `CORS_ORIGIN` includes `https://shop.trovara.farm` and `https://trovara.farm` if those hosts ever call the API cross-origin (same-origin `/shop` on the shop host and `/lot-api` on marketing do not need CORS).
 
 `BREAK_GLASS_PASSWORD` is the emergency owner secret (env only, not the DB hash).
 Env login also requires `BREAK_GLASS_ENABLED=true` — leave it **unset** in production
@@ -514,9 +516,11 @@ Coordinated OS-first release: [`RELEASE-CHECKLIST.md`](./RELEASE-CHECKLIST.md).
 
 **nginx CSP:** apply the `Content-Security-Policy` (and related) headers from
 [`nginx-os.trovara.farm.conf.example`](./nginx-os.trovara.farm.conf.example) on the
-live vhost. The SPA also ships a matching meta CSP; `frame-ancestors` only works
+OS vhost. Customer Accounts (`shop.trovara.farm`) is a **separate** CloudPanel
+site and repo (`trovara-shop`); nginx lives in that repo’s
+`docs/nginx-shop.trovara.farm.conf.example`. The SPA also ships a matching meta CSP; `frame-ancestors` only works
 as a response header. For Brand Kit video uploads, also apply the
-`/api/brand/assets/upload` locations (520m body, `proxy_request_buffering off`,
+`/api/brand/assets/upload` locations (120m body, `proxy_request_buffering off`,
 900s timeouts) from that example.
 
 **ffmpeg (Brand Kit):** install system packages before enabling photo/video packs:

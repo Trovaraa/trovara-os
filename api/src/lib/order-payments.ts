@@ -23,7 +23,7 @@ import {
   type NotifyRenderer,
 } from './farm-notify.js'
 import type { ReplyLocale } from './reply-locale.js'
-import { initializeTransaction, isPaystackConfigured, refundTransaction } from './paystack.js'
+import { initializeTransaction, isPaystackConfigured, refundTransaction, safePaystackCheckoutUrl } from './paystack.js'
 import { logAudit } from './audit.js'
 
 const CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -272,9 +272,18 @@ export async function createPaymentAttemptForOrder(params: {
       .where(eq(orders.id, params.orderId))
   }
 
+  const authorizationUrl = safePaystackCheckoutUrl(init.data.authorizationUrl, init.data.accessCode)
+  if (!authorizationUrl) {
+    await db
+      .update(paymentAttempts)
+      .set({ status: 'failed', updatedAt: new Date() })
+      .where(and(eq(paymentAttempts.id, attempt.id), ne(paymentAttempts.status, 'success')))
+    return { error: 'Paystack returned an unexpected checkout URL' }
+  }
+
   return {
     attempt: initializedAttempt ?? { ...attempt, accessCode: init.data.accessCode },
-    authorizationUrl: init.data.authorizationUrl,
+    authorizationUrl,
   }
 }
 

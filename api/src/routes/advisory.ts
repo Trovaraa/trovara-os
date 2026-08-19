@@ -35,7 +35,10 @@ import {
 import { containsPesticideLanguage } from '../lib/pesticide-filter.js'
 import { resolveMarketplaceProducts } from '../lib/marketplace-search.js'
 import { resolveStaffReplyLocale, type ReplyLocale } from '../lib/reply-locale.js'
-import { secureCompare } from '../lib/secure-compare.js'
+import {
+  cronFarmIdAllowed,
+  requestHasCronSecret,
+} from '../lib/cron-auth.js'
 
 export const advisoryRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -275,13 +278,9 @@ function stageSubjects(batch: ProseBatch, subjects: AdvisorySubject[]): Staged<A
 }
 
 advisoryRoutes.use('*', async (c, next) => {
-  if (c.req.path.endsWith('/run') && c.req.method === 'POST') {
-    const cronSecret = process.env.CRON_SECRET?.trim()
-    const provided = c.req.header('x-cron-secret')?.trim()
-    if (cronSecret && provided && secureCompare(provided, cronSecret)) {
-      await next()
-      return
-    }
+  if (c.req.path.endsWith('/run') && c.req.method === 'POST' && requestHasCronSecret(c)) {
+    await next()
+    return
   }
   return authMiddleware(c, next)
 })
@@ -533,14 +532,12 @@ advisoryRoutes.post('/observations', zValidator('json', observationSchema), asyn
 
 advisoryRoutes.post('/run', zValidator('json', cronSchema), async (c) => {
   const body = c.req.valid('json')
-  const cronSecret = process.env.CRON_SECRET?.trim()
-  const provided = c.req.header('x-cron-secret')?.trim()
-  const usedCron = Boolean(cronSecret && provided && secureCompare(provided, cronSecret))
+  const usedCron = requestHasCronSecret(c)
 
   let farmId: string
   if (usedCron) {
-    if (!body.farmId) return c.json({ error: 'farmId required for cron' }, 400)
-    farmId = body.farmId
+    if (!cronFarmIdAllowed(body.farmId)) return c.json({ error: 'Unauthorized' }, 401)
+    farmId = body.farmId!
   } else {
     const user = c.get('user')
     requireRole(user, 'owner', 'supervisor')

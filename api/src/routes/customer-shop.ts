@@ -33,7 +33,13 @@ import {
 } from '../lib/customer-orders.js'
 import { orderReference } from '../lib/customer-cart.js'
 import { generateCsrfToken, setCsrfCookie } from '../lib/csrf.js'
-import { publicLotPageUrl, publicMarketingUrlOrDefault } from '../lib/public-app-url.js'
+import { publicLotPageUrl, shopResetPasswordUrl, shopVerifyEmailUrl } from '../lib/public-app-url.js'
+import {
+  claimCreditInvitation,
+  customerCreditsSnapshot,
+  inspectCreditInvitation,
+  linkReferralAttributionsToCustomerAccount,
+} from '../lib/customer-credits.js'
 import { getDummyPasswordHash, hashPassword, verifyPassword } from '../lib/session.js'
 import { emailProviderReady, sendEmail } from '../lib/notifications.js'
 import {
@@ -96,6 +102,14 @@ const resendVerificationSchema = z.object({
   email: z.string().trim().email().max(254),
 })
 
+const creditInvitationSchema = z.object({
+  token: z.string().min(20).max(512),
+})
+
+const claimCreditsSchema = creditInvitationSchema.extend({
+  password: z.string().min(8).max(128),
+})
+
 const SHOP_EMAIL_RATE_LIMIT_MSG = 'Too many requests. Please try again later.'
 const EMAIL_DELIVERY_UNAVAILABLE_MSG =
   'Email delivery is temporarily unavailable. Please try again later.'
@@ -108,11 +122,6 @@ function secureCookies(): boolean {
 /** Production fail-closed on verify mail; local/dev keep the account + log the link. */
 function requireLiveShopEmail(): boolean {
   return process.env.NODE_ENV === 'production'
-}
-
-function marketingUrl(): string {
-  // Prefer www: apex 301s there, and the marketing PWA is registered on www.
-  return publicMarketingUrlOrDefault()
 }
 
 /** Local/dev only: print the link so inbox delivery is not required to test. */
@@ -159,6 +168,55 @@ customerShopRoutes.get('/session', async (c) => {
   setCsrfCookie(c, csrfToken)
   const account = await currentCustomer(c)
   return c.json({ csrfToken, account })
+})
+
+customerShopRoutes.get(
+  '/credits/invitation',
+  zValidator('query', creditInvitationSchema),
+  async (c) => {
+    const invitation = await inspectCreditInvitation(c.req.valid('query').token)
+    if (!invitation) return c.json({ error: 'This invitation is invalid or has expired.' }, 404)
+    return c.json({ invitation })
+  },
+)
+
+customerShopRoutes.post('/credits/claim', zValidator('json', claimCreditsSchema), async (c) => {
+  const body = c.req.valid('json')
+  const result = await claimCreditInvitation({
+    token: body.token,
+    passwordHash: await hashPassword(body.password),
+  })
+  if (!result) return c.json({ error: 'This invitation is invalid or has expired.' }, 400)
+  if (result.status === 'needs_sign_in') {
+    return c.json(
+      {
+        error: 'This email already has a Trovara Farm account. Sign in to see your Trovara Farm Credits.',
+        needsSignIn: true,
+      },
+      409,
+    )
+  }
+
+  const account = result.account
+  const token = await createCustomerSession(account.id)
+  setCustomerSession(c, token)
+  const csrfToken = generateCsrfToken()
+  setCsrfCookie(c, csrfToken)
+  const credits = await customerCreditsSnapshot(account.id, account.farmId)
+  logSecurityEvent(
+    'customer_credit_invitation_claimed',
+    withAccessMeta((name) => c.req.header(name), {
+      accountId: account.id,
+      farmId: account.farmId,
+    }),
+  )
+  return c.json({ account, csrfToken, credits })
+})
+
+customerShopRoutes.get('/credits', async (c) => {
+  const account = await currentCustomer(c)
+  if (!account) return c.json({ error: 'Sign in required.' }, 401)
+  return c.json({ credits: await customerCreditsSnapshot(account.id, account.farmId) })
 })
 
 customerShopRoutes.get('/catalog', async (c) => {
@@ -215,7 +273,7 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
       .limit(1)
     if (unverified?.active) {
       const { rawToken } = await createCustomerEmailVerificationToken(unverified.id)
-      const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+      const verifyUrl = shopVerifyEmailUrl(rawToken)
       logShopEmailLinkLocally('verify', email, verifyUrl)
       if (emailProviderReady()) {
         const mail = shopVerifyEmailContent(unverified.name, verifyUrl)
@@ -261,7 +319,7 @@ customerShopRoutes.post('/register', zValidator('json', registerSchema), async (
     })
 
   const { rawToken } = await createCustomerEmailVerificationToken(account.id)
-  const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+  const verifyUrl = shopVerifyEmailUrl(rawToken)
   logShopEmailLinkLocally('verify', email, verifyUrl)
 
   if (!emailProviderReady()) {
@@ -327,11 +385,17 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
     ? await verifyPassword(account.passwordHash, body.password)
     : await verifyPassword(await getDummyPasswordHash(), body.password)
   
-  if (!account || !account.active || !valid) {
+  if (!account || !account.active || !valid || !account.emailVerifiedAt) {
     logSecurityEvent(
       'failed_customer_login',
       withAccessMeta((name) => c.req.header(name), {
-        reason: !account ? 'unknown_email' : !account.active ? 'inactive' : 'invalid_password',
+        reason: !account
+          ? 'unknown_email'
+          : !account.active
+            ? 'inactive'
+            : !valid
+              ? 'invalid_password'
+              : 'email_unverified',
         email: body.email.toLowerCase(),
       }),
     )
@@ -341,24 +405,6 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
           "We couldn't sign you in. Check your email and password, or create an account if you're new.",
       },
       401,
-    )
-  }
-
-  if (!account.emailVerifiedAt) {
-    logSecurityEvent(
-      'failed_customer_login',
-      withAccessMeta((name) => c.req.header(name), {
-        reason: 'email_unverified',
-        email: account.email,
-        accountId: account.id,
-      }),
-    )
-    return c.json(
-      {
-        error: 'Please verify your email before signing in. Check your inbox for the verification link.',
-        needsVerification: true,
-      },
-      403,
     )
   }
 
@@ -389,7 +435,7 @@ customerShopRoutes.post('/login', zValidator('json', credentialsSchema), async (
 
 customerShopRoutes.post('/logout', async (c) => {
   await deleteCustomerSession(getCookie(c, CUSTOMER_SESSION_COOKIE))
-  deleteCookie(c, CUSTOMER_SESSION_COOKIE, { path: '/' })
+  deleteCookie(c, CUSTOMER_SESSION_COOKIE, customerSessionCookieOptions(secureCookies()))
   return c.json({ ok: true })
 })
 
@@ -414,7 +460,7 @@ customerShopRoutes.post('/forgot-password', zValidator('json', forgotPasswordSch
 
   if (account && account.active) {
     const { rawToken } = await createCustomerPasswordResetToken(account.id)
-    const resetUrl = `${marketingUrl()}/shop/reset-password?token=${encodeURIComponent(rawToken)}`
+    const resetUrl = shopResetPasswordUrl(rawToken)
     logShopEmailLinkLocally('reset', email, resetUrl)
     const mail = shopResetPasswordEmailContent(account.name, resetUrl)
 
@@ -468,6 +514,8 @@ customerShopRoutes.post('/verify-email', zValidator('json', verifyEmailSchema), 
     return c.json({ error: 'Invalid or expired verification token.' }, 400)
   }
 
+  await revokeAllCustomerSessions(tokenData.accountId)
+
   const token = await createCustomerSession(tokenData.accountId)
   setCustomerSession(c, token)
   const csrfToken = generateCsrfToken()
@@ -484,6 +532,14 @@ customerShopRoutes.post('/verify-email', zValidator('json', verifyEmailSchema), 
     .from(customerAccounts)
     .where(eq(customerAccounts.id, tokenData.accountId))
     .limit(1)
+
+  if (account) {
+    await linkReferralAttributionsToCustomerAccount({
+      farmId: account.farmId,
+      accountId: account.id,
+      email: account.email,
+    })
+  }
 
   logSecurityEvent(
     'customer_email_verified',
@@ -528,7 +584,7 @@ customerShopRoutes.post('/resend-verification', zValidator('json', resendVerific
 
   if (account && account.active) {
     const { rawToken } = await createCustomerEmailVerificationToken(account.id)
-    const verifyUrl = `${marketingUrl()}/shop/verify-email?token=${encodeURIComponent(rawToken)}`
+    const verifyUrl = shopVerifyEmailUrl(rawToken)
     logShopEmailLinkLocally('verify', email, verifyUrl)
     const mail = shopVerifyEmailContent(account.name, verifyUrl)
 

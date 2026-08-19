@@ -7,6 +7,7 @@ import {
   newsletterWelcomeEmailContent,
   shopResetPasswordEmailContent,
   shopVerifyEmailContent,
+  trovaraCreditInvitationEmailContent,
 } from './email-template.js'
 
 describe('email-template (canonical FARM OS card)', () => {
@@ -29,7 +30,26 @@ describe('email-template (canonical FARM OS card)', () => {
     expect(html).toContain('Body')
     expect(html).toContain('© Trovara Farm | All Rights Reserved')
     expect(html).toContain('instagram.com/trovara_farm')
+    expect(html).toContain('tiktok.com/@trovarafarm')
+    expect(html).toContain('facebook.com/trovarafarm')
     expect(html).toContain('Privacy')
+  })
+
+  it('builds the short Trovara Farm Credits invitation with required disclosures', () => {
+    const mail = trovaraCreditInvitationEmailContent(
+      'Ada Lovelace',
+      'https://shop.trovara.farm/credits/claim?token=abc',
+    )
+    expect(mail.subject).toBe('Trovara Farm account invitation')
+    expect(mail.html).toContain('An invitation to create your Trovara Farm account.')
+    expect(mail.text).toContain('2,000 Trovara Farm Credits')
+    expect(mail.html).toContain('Claim my Trovara Farm Credits')
+    expect(mail.html).toContain('1,000 referral')
+    expect(mail.html).toContain("first eligible Trovara Farm purchase passes its refund period")
+    expect(mail.html).toContain('only be used to buy eligible products sold by Trovara Farm')
+    expect(mail.html).toContain('promotional credits, not cash')
+    expect(mail.html).toContain('shop.trovara.farm/credits/claim?token=abc')
+    expect(mail.text).toContain('P.P.S.')
   })
 
   it('builds a structured footer with social, copyright, and utility links', () => {
@@ -39,7 +59,9 @@ describe('email-template (canonical FARM OS card)', () => {
     })
     expect(footer).toContain('Facebook')
     expect(footer).toContain('Instagram')
+    expect(footer).toContain('TikTok')
     expect(footer).toContain('LinkedIn')
+    expect(footer).toContain('https://www.tiktok.com/@trovarafarm')
     expect(footer).toContain('#2f6b3b')
     expect(footer).toContain('© Trovara Farm | All Rights Reserved')
     expect(footer).toContain('Unsubscribe')
@@ -47,18 +69,20 @@ describe('email-template (canonical FARM OS card)', () => {
   })
 
   it('builds branded shop verify mail', () => {
-    const mail = shopVerifyEmailContent('Ada Lovelace', 'https://trovara.farm/shop/verify-email?token=abc')
+    const mail = shopVerifyEmailContent('Ada Lovelace', 'https://shop.trovara.farm/verify-email?token=abc')
     expect(mail.html).toContain('FARM OS')
     expect(mail.html).toContain('SHOP ACCOUNT')
     expect(mail.html).toContain('Verify email')
     expect(mail.html).toContain('Ada Lovelace')
+    expect(mail.html).toContain('https://shop.trovara.farm/verify-email?token=abc')
     expect(mail.html).toContain('© Trovara Farm | All Rights Reserved')
   })
 
   it('builds branded shop reset mail', () => {
-    const mail = shopResetPasswordEmailContent('Ada', 'https://example.test/reset')
+    const mail = shopResetPasswordEmailContent('Ada', 'https://shop.trovara.farm/reset-password?token=xyz')
     expect(mail.html).toContain('PASSWORD RESET')
     expect(mail.html).toContain('#2f6b3b')
+    expect(mail.html).toContain('https://shop.trovara.farm/reset-password?token=xyz')
   })
 
   it('puts unsubscribe into the newsletter welcome footer', () => {

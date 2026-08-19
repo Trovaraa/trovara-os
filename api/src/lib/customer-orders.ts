@@ -18,7 +18,7 @@ import {
   logInquiry,
   suggestedQuestions,
 } from './customer-inquiry.js'
-import { publicLotPageUrl, publicMarketingBaseUrl } from './public-app-url.js'
+import { publicLotPageUrl, shopAccountUrl } from './public-app-url.js'
 import {
   addToCart,
   firstMissingDetailStep,
@@ -546,7 +546,7 @@ async function createOrderFromCart(params: {
       .where(eq(customerContacts.id, params.contactId))
       .limit(1)
     if (recipient) {
-      const accountUrl = `${publicMarketingBaseUrl() ?? 'https://trovara.farm'}/shop`
+      const accountUrl = shopAccountUrl()
       const traceabilityUrl = lotPublicToken
         ? publicLotPageUrl(recipient.farmSlug, lotPublicToken)
         : null

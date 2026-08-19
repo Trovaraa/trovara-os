@@ -23,6 +23,10 @@ upstream trovara_app {
   keepalive 8;
 }
 
+# If a CDN/load balancer sits in front of nginx, configure its published IP
+# ranges with `set_real_ip_from` and `real_ip_header` here. `$remote_addr` must
+# be the actual visitor before it is forwarded to the API.
+
 # Redirect plain HTTP to HTTPS
 server {
   listen 80;
@@ -69,12 +73,14 @@ server {
   #   POST  /api/brand/assets/upload
   #   PATCH /api/brand/assets/upload/:id
   location ^~ /api/brand/assets/upload {
-    client_max_body_size 520m;
+    client_max_body_size 120m;
     proxy_pass http://trovara_api;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Do not forward a visitor-supplied X-Forwarded-For value. The API trusts
+    # this single proxy hop for rate limits and login telemetry.
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Request-ID $request_id;
     proxy_set_header Connection "";
@@ -83,13 +89,16 @@ server {
     proxy_send_timeout 900s;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
   # Real client IP for rate limiting and session metadata
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
-  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  # Strip untrusted client-supplied forwarding chains before the API sees them.
+  proxy_set_header X-Forwarded-For $remote_addr;
   proxy_set_header X-Forwarded-Proto $scheme;
   proxy_set_header X-Request-ID $request_id;
   # Optional geo (when Cloudflare or nginx geo module sets these):
@@ -98,7 +107,7 @@ server {
   # proxy_set_header X-Country-Code $geoip_country_code;
   # proxy_set_header X-Region-Code $geoip_region_name;
 
-  # API + auth + shop: prefix ^~ so these win over static-extension regexes
+  # API + auth: prefix ^~ so these win over static-extension regexes
   # (e.g. location ~* \.(jpg|png)$) that would otherwise look for files under the
   # SPA document root and 404 journal/evidence image previews.
   location ^~ /api/ {
@@ -108,6 +117,8 @@ server {
     proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
@@ -120,18 +131,8 @@ server {
     proxy_set_header X-Request-ID $request_id;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
-    add_header X-Request-ID $request_id always;
-    proxy_read_timeout 120s;
-    proxy_send_timeout 120s;
-  }
-
-  location ^~ /shop/ {
-    proxy_pass http://trovara_api;
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
-    proxy_set_header X-Request-ID $request_id;
-    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
-    add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
@@ -147,6 +148,8 @@ server {
     client_max_body_size 12M;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
@@ -161,6 +164,8 @@ server {
     client_max_body_size 12M;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
@@ -171,6 +176,8 @@ server {
     proxy_set_header X-Request-ID $request_id;
     client_max_body_size 12M;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
@@ -181,6 +188,8 @@ server {
     proxy_set_header X-Request-ID $request_id;
     client_max_body_size 12M;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
@@ -194,6 +203,8 @@ server {
     client_max_body_size 12M;
     add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     add_header Pragma "no-cache" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
     add_header X-Request-ID $request_id always;
   }
 
@@ -207,6 +218,12 @@ server {
     proxy_pass http://trovara_api/ready;
     proxy_set_header X-Request-ID $request_id;
     access_log off;
+  }
+
+  location ~ /\. {
+    deny all;
+    access_log off;
+    log_not_found off;
   }
 
   # Vue SPA (production: serve built assets from disk or upstream preview)

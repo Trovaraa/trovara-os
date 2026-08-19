@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { copyFile } from 'node:fs/promises'
+import { copyFile, readFile } from 'node:fs/promises'
 import { db } from '../db/index.js'
 import { brandAssets } from '../db/schema.js'
 import {
@@ -10,6 +10,7 @@ import {
   writeBrandPosterFromFile,
 } from './brand-media.js'
 import { transcodeBrandUpload } from './brand-transcode.js'
+import { assertBufferIsClean } from './malware-scan.js'
 
 type QueueItem = { assetId: string; farmId: string }
 
@@ -105,6 +106,9 @@ export async function processBrandAsset(assetId: string, farmId: string): Promis
         .set({ status: 'processing', processingError: null, updatedAt: new Date() })
         .where(eq(brandAssets.id, assetId))
     }
+
+    const sourceBuffer = await readFile(sourcePath)
+    await assertBufferIsClean(sourceBuffer)
 
     const result = await transcodeBrandUpload({
       sourcePath,
