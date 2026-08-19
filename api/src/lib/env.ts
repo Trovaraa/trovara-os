@@ -58,6 +58,14 @@ if (process.env.NODE_ENV === 'production') {
     configurationErrors.push('CRON_SECRET is required in production')
   }
 
+  if (!process.env.CRON_FARM_ID?.trim()) {
+    configurationErrors.push('CRON_FARM_ID is required in production so cron jobs cannot target another farm')
+  }
+
+  if (!process.env.FORM_PROXY_SIGNING_SECRET?.trim()) {
+    configurationErrors.push('FORM_PROXY_SIGNING_SECRET is required in production for public-form rate limits')
+  }
+
   if (!process.env.BREAK_GLASS_PASSWORD?.trim()) {
     configurationErrors.push('BREAK_GLASS_PASSWORD is required in production for emergency owner login')
   }
@@ -88,18 +96,32 @@ if (process.env.NODE_ENV === 'production') {
   }
 
   if (process.env.TELEGRAM_BOT_TOKEN?.trim() && !process.env.TELEGRAM_WEBHOOK_SECRET?.trim()) {
-    console.warn(
-      'WARNING: TELEGRAM_BOT_TOKEN is set but TELEGRAM_WEBHOOK_SECRET is unset in production - webhook mode will not verify inbound requests.',
-    )
+    if ((process.env.TELEGRAM_MODE?.trim() || 'polling') === 'webhook') {
+      configurationErrors.push('TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_MODE=webhook')
+    }
   }
 
   if (
     process.env.TELEGRAM_CUSTOMER_BOT_TOKEN?.trim() &&
     !process.env.TELEGRAM_CUSTOMER_WEBHOOK_SECRET?.trim()
   ) {
-    console.warn(
-      'WARNING: TELEGRAM_CUSTOMER_BOT_TOKEN is set but TELEGRAM_CUSTOMER_WEBHOOK_SECRET is unset in production - the customer bot webhook will not verify inbound requests.',
-    )
+    if ((process.env.TELEGRAM_MODE?.trim() || 'polling') === 'webhook') {
+      configurationErrors.push('TELEGRAM_CUSTOMER_WEBHOOK_SECRET is required when TELEGRAM_MODE=webhook')
+    }
+  }
+
+  if (
+    (process.env.WHATSAPP_ACCESS_TOKEN?.trim() || process.env.WHATSAPP_CUSTOMER_ACCESS_TOKEN?.trim()) &&
+    !process.env.META_APP_SECRET?.trim()
+  ) {
+    configurationErrors.push('META_APP_SECRET is required when WhatsApp is configured')
+  }
+
+  for (const name of ['BRAND_UPLOAD_MAX_BYTES', 'BRAND_MAX_FARM_STORAGE_BYTES']) {
+    const value = process.env[name]?.trim()
+    if (value && (!/^\d+$/.test(value) || Number(value) < 1)) {
+      configurationErrors.push(`${name} must be a positive integer`)
+    }
   }
 
   validateEmailDelivery()

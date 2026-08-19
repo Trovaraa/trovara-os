@@ -264,7 +264,7 @@ https://www.trovara.farm/brand/<shareToken>
 
 Marketing proxies `/brand-api/*` → OS `/public/brand/*`. Unlock sets an HttpOnly pack-session cookie; gallery media and zip download require that cookie when a pack password is set.
 
-Photos and videos (including iPhone HEIC / MOV / HEVC) upload via streamed `POST /api/brand/assets/upload` (max 500 MB / 10 minutes). The API converts HEIC→JPEG and video→H.264 MP4 (CRF 18, original pixel dimensions) with `ffmpeg`/`ffprobe` on the host. Visually lossless is not mathematically lossless, and efficient HEVC sources may not shrink.
+Photos and videos (including iPhone HEIC / MOV / HEVC) upload via streamed `POST /api/brand/assets/upload` (100 MB / 10 minutes by default; 2 GB stored-media quota per farm). The API converts HEIC→JPEG and video→H.264 MP4 (CRF 18, original pixel dimensions) with `ffmpeg`/`ffprobe` on the host. Visually lossless is not mathematically lossless, and efficient HEVC sources may not shrink. SVG uploads are intentionally rejected because they can carry active content.
 
 Production needs:
 

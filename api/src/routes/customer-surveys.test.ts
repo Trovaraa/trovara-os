@@ -35,7 +35,12 @@ vi.mock('../db/index.js', () => ({
       values: (values: Row) => {
         const row = { id: `row-${inserted.length + 1}`, ...values }
         inserted.push({ table: getTableName(table as never), values })
-        return { returning: async () => [row] }
+        const chain = {
+          onConflictDoUpdate: () => chain,
+          onConflictDoNothing: () => chain,
+          returning: async () => [row],
+        }
+        return chain
       },
     }),
   },
@@ -148,7 +153,11 @@ describe('public customer surveys', () => {
       })),
     })
     expect(response.status).toBe(202)
-    expect(inserted.map((row) => row.table)).toEqual(['marketing_leads', 'customer_survey_responses'])
+    expect(inserted.map((row) => row.table)).toEqual([
+      'marketing_leads',
+      'customer_survey_responses',
+      'customer_credit_invitations',
+    ])
     expect(inserted[0]?.values).toMatchObject({
       leadType: 'survey_followup',
       email: 'ada@example.com',
@@ -158,6 +167,11 @@ describe('public customer surveys', () => {
       followUp: 'yes',
       email: 'ada@example.com',
       leadId: 'row-1',
+    })
+    expect(inserted[2]?.values).toMatchObject({
+      email: 'ada@example.com',
+      normalizedEmail: 'ada@example.com',
+      surveyResponseId: 'row-2',
     })
   })
 })

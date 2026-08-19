@@ -10,7 +10,7 @@ import {
   customerEmailVerificationTokens,
 } from '../db/schema.js'
 
-const CUSTOMER_SESSION_DAYS = 30
+const CUSTOMER_SESSION_DAYS = 7
 const LINK_CODE_MINUTES = 15
 const LINK_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 

@@ -5,6 +5,7 @@ import {
   publicMarketingUrlOrDefault,
   publicShopBaseUrl,
   shopAccountUrl,
+  shopCreditClaimUrl,
   shopResetPasswordUrl,
   shopVerifyEmailUrl,
 } from './public-app-url.js'
@@ -72,5 +73,6 @@ describe('publicShopBaseUrl', () => {
     process.env.PUBLIC_SHOP_URL = 'https://shop.trovara.farm'
     expect(shopVerifyEmailUrl('abc')).toBe('https://shop.trovara.farm/verify-email?token=abc')
     expect(shopResetPasswordUrl('xyz')).toBe('https://shop.trovara.farm/reset-password?token=xyz')
+    expect(shopCreditClaimUrl('a b')).toBe('https://shop.trovara.farm/credits/claim?token=a%20b')
   })
 })

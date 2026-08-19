@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { getEvidenceStorageRoot } from './evidence-store.js'
 import { transcodeBrandUpload } from './brand-transcode.js'
+import { assertBufferIsClean } from './malware-scan.js'
 
 export const MOMENTS_MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 
@@ -168,6 +169,8 @@ export async function storeMomentMedia(
   }
   const kind = momentMediaKind(mime)
   if (!kind) throw new Error('Unsupported media type')
+
+  await assertBufferIsClean(buffer)
 
   const dir = farmRoot(farmId)
   const session = resolve(dir, '.tmp', randomBytes(12).toString('base64url'))

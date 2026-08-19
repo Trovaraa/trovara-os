@@ -1068,6 +1068,7 @@ export const customerSurveyResponses = pgTable(
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
     referrer: text('referrer'),
+    referralCode: text('referral_code'),
     consentAt: timestamp('consent_at', { withTimezone: true }).notNull(),
     consentVersion: text('consent_version').notNull(),
     privacyNoticeUrl: text('privacy_notice_url').notNull(),
@@ -1913,6 +1914,7 @@ export const orders = pgTable('orders', {
   source: text('source').default('staff').notNull(),
   notes: text('notes'),
   dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
   deliveryPhotoUrl: text('delivery_photo_url'),
   customerFeedback: text('customer_feedback'),
   customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
@@ -2010,6 +2012,116 @@ export const customerEmailVerificationTokens = pgTable('customer_email_verificat
   usedAt: timestamp('used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const customerCreditInvitations = pgTable(
+  'customer_credit_invitations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    surveyResponseId: uuid('survey_response_id').references(() => customerSurveyResponses.id, {
+      onDelete: 'set null',
+    }),
+    marketingLeadId: uuid('marketing_lead_id').references(() => marketingLeads.id, {
+      onDelete: 'set null',
+    }),
+    email: text('email').notNull(),
+    normalizedEmail: text('normalized_email').notNull(),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    claimedByAccountId: uuid('claimed_by_account_id').references(() => customerAccounts.id, {
+      onDelete: 'set null',
+    }),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_credit_invitations_farm_email_uq').on(t.farmId, t.normalizedEmail),
+    index('customer_credit_invitations_farm_status_idx').on(t.farmId, t.claimedAt, t.sentAt),
+  ],
+)
+
+export const customerReferralCodes = pgTable(
+  'customer_referral_codes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    accountId: uuid('account_id').references(() => customerAccounts.id, { onDelete: 'cascade' }).notNull(),
+    code: text('code').notNull().unique(),
+    active: boolean('active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_referral_codes_account_uq').on(t.accountId),
+    index('customer_referral_codes_farm_idx').on(t.farmId, t.active),
+  ],
+)
+
+export const customerCreditLedger = pgTable(
+  'customer_credit_ledger',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    accountId: uuid('account_id').references(() => customerAccounts.id, { onDelete: 'cascade' }).notNull(),
+    amount: integer('amount').notNull(),
+    eventType: text('event_type').notNull(),
+    sourceId: text('source_id').notNull(),
+    description: text('description').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_credit_ledger_event_source_uq').on(t.accountId, t.eventType, t.sourceId),
+    uniqueIndex('customer_credit_ledger_welcome_uq')
+      .on(t.accountId)
+      .where(sql`${t.eventType} = 'welcome'`),
+    index('customer_credit_ledger_account_created_idx').on(t.accountId, t.createdAt),
+    check('customer_credit_ledger_amount_nonzero', sql`${t.amount} <> 0`),
+    check(
+      'customer_credit_ledger_event_type_check',
+      sql`${t.eventType} in ('welcome', 'survey_referral', 'adjustment', 'redemption')`,
+    ),
+  ],
+)
+
+export const customerReferralAttributions = pgTable(
+  'customer_referral_attributions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    referralCodeId: uuid('referral_code_id').references(() => customerReferralCodes.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    referrerAccountId: uuid('referrer_account_id').references(() => customerAccounts.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    surveyResponseId: uuid('survey_response_id').references(() => customerSurveyResponses.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    referredNormalizedContact: text('referred_normalized_contact').notNull(),
+    referredAccountId: uuid('referred_account_id').references(() => customerAccounts.id, {
+      onDelete: 'set null',
+    }),
+    qualifyingOrderId: uuid('qualifying_order_id').references(() => orders.id, {
+      onDelete: 'set null',
+    }),
+    rewardEligibleAt: timestamp('reward_eligible_at', { withTimezone: true }),
+    creditedAt: timestamp('credited_at', { withTimezone: true }),
+    ledgerEntryId: uuid('ledger_entry_id').references(() => customerCreditLedger.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_referral_attributions_survey_uq').on(t.surveyResponseId),
+    uniqueIndex('customer_referral_attributions_contact_uq').on(t.farmId, t.referredNormalizedContact),
+    index('customer_referral_attributions_referrer_idx').on(t.referrerAccountId, t.createdAt),
+    index('customer_referral_attributions_referred_account_idx').on(t.referredAccountId, t.createdAt),
+    index('customer_referral_attributions_reward_due_idx').on(t.rewardEligibleAt, t.ledgerEntryId),
+  ],
+)
 
 // A buyer who reached the farm through a chat bot. Anonymous (no login / RBAC);
 // the customer analogue of the staff telegram_link. Scoped per farm + channel.

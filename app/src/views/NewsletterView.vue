@@ -27,6 +27,13 @@ type NewsletterResponse = {
   summary: NewsletterSummary
 }
 
+type CreditSummary = {
+  eligible: number
+  invitationsSent: number
+  invitationsClaimed: number
+  accountsCredited: number
+}
+
 type CampaignAudience = 'newsletter' | 'product_waitlist'
 type CampaignStatus = 'draft' | 'sending' | 'sent' | 'partial' | 'failed'
 type NewsletterCampaign = {
@@ -62,6 +69,9 @@ const statusFilter = ref<'all' | SubscriberStatus>('all')
 const activeAction = ref<string | null>(null)
 const campaigns = ref<NewsletterCampaign[]>([])
 const campaignSending = ref(false)
+const creditSummary = ref<CreditSummary | null>(null)
+const creditsLoading = ref(false)
+const creditsSending = ref(false)
 const audienceLoading = ref(false)
 const audienceCount = ref(0)
 const campaignForm = reactive({
@@ -166,6 +176,45 @@ async function loadAudienceCount() {
     audienceCount.value = 0
   } finally {
     audienceLoading.value = false
+  }
+}
+
+async function loadCreditSummary() {
+  creditsLoading.value = true
+  try {
+    const data = await api<{ summary: CreditSummary }>('/api/customer-credits/summary')
+    creditSummary.value = data.summary
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.creditsLoadFailed')
+  } finally {
+    creditsLoading.value = false
+  }
+}
+
+async function sendCreditInvitations() {
+  if (creditsSending.value || !creditSummary.value?.eligible) return
+  if (!window.confirm(t('newsletter.creditsSendConfirm', { count: creditSummary.value.eligible }))) return
+  creditsSending.value = true
+  clearMessages()
+  try {
+    const data = await api<{
+      result: { invitationsSent: number; accountsCredited: number; alreadyProcessed: number; failed: number }
+      summary: CreditSummary
+    }>('/api/customer-credits/invitations/send', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    })
+    creditSummary.value = data.summary
+    notice.value = t('newsletter.creditsSent', {
+      sent: data.result.invitationsSent,
+      credited: data.result.accountsCredited,
+      skipped: data.result.alreadyProcessed,
+      failed: data.result.failed,
+    })
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('newsletter.creditsSendFailed')
+  } finally {
+    creditsSending.value = false
   }
 }
 
@@ -310,7 +359,7 @@ watch(
   () => void loadAudienceCount(),
 )
 
-onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCount()]))
+onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCount(), loadCreditSummary()]))
 </script>
 
 <template>
@@ -358,6 +407,44 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
         <p class="mt-1 text-2xl font-black text-os-fg">{{ summary[status] }}</p>
       </div>
     </section>
+
+    <details class="group mt-6 rounded-2xl border border-farm-green/25 bg-slate-900/80" open>
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-4 p-4 sm:p-6">
+        <div>
+          <p class="text-xs font-black uppercase tracking-[0.18em] text-farm-green">{{ t('newsletter.creditsEyebrow') }}</p>
+          <h3 class="mt-1 text-lg font-black text-white">{{ t('newsletter.creditsTitle') }}</h3>
+          <p class="mt-1 max-w-3xl text-sm text-slate-400">{{ t('newsletter.creditsSubtitle') }}</p>
+        </div>
+        <span aria-hidden="true" class="shrink-0 text-xl text-slate-400 group-open:rotate-180">⌄</span>
+      </summary>
+      <div class="border-t border-slate-800 p-4 sm:p-6">
+        <p v-if="creditsLoading" class="text-sm text-slate-400">{{ t('newsletter.creditsLoading') }}</p>
+        <template v-else-if="creditSummary">
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div class="rounded-xl bg-slate-950 p-4">
+              <p class="text-xs text-slate-500">{{ t('newsletter.creditsEligible') }}</p>
+              <p class="mt-1 text-2xl font-black text-white">{{ creditSummary.eligible }}</p>
+            </div>
+            <div class="rounded-xl bg-slate-950 p-4">
+              <p class="text-xs text-slate-500">{{ t('newsletter.creditsInvited') }}</p>
+              <p class="mt-1 text-2xl font-black text-white">{{ creditSummary.invitationsSent }}</p>
+            </div>
+            <div class="rounded-xl bg-slate-950 p-4">
+              <p class="text-xs text-slate-500">{{ t('newsletter.creditsClaimed') }}</p>
+              <p class="mt-1 text-2xl font-black text-white">{{ creditSummary.invitationsClaimed }}</p>
+            </div>
+            <div class="rounded-xl bg-slate-950 p-4">
+              <p class="text-xs text-slate-500">{{ t('newsletter.creditsAccounts') }}</p>
+              <p class="mt-1 text-2xl font-black text-white">{{ creditSummary.accountsCredited }}</p>
+            </div>
+          </div>
+          <p class="mt-4 text-xs leading-5 text-slate-500">{{ t('newsletter.creditsSafety') }}</p>
+          <button type="button" class="mt-4 rounded-lg bg-farm-green px-4 py-2.5 text-sm font-black text-slate-950 disabled:opacity-50" :disabled="creditsSending || !creditSummary.eligible" @click="sendCreditInvitations">
+            {{ creditsSending ? t('newsletter.creditsSending') : t('newsletter.creditsSend') }}
+          </button>
+        </template>
+      </div>
+    </details>
 
     <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-6">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

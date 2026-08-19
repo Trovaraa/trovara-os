@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { customerSurveyResponses, marketingLeads, users } from '../db/schema.js'
-import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { clientIpFromHeaders, rejectUnsignedFormProxy } from '../lib/client-ip.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import {
   CUSTOMER_SURVEY_KEY,
@@ -22,6 +22,10 @@ import {
   marketingLeadEmailContent,
 } from '../lib/email-template.js'
 import { sendEmail } from '../lib/notifications.js'
+import {
+  createOrRefreshCreditInvitation,
+  processSurveyReferral,
+} from '../lib/customer-credits.js'
 import { checkDurableRateLimit } from '../lib/rate-limit.js'
 import { getBreakGlassEmail } from '../lib/registration.js'
 import { hasPermission } from '../lib/rbac.js'
@@ -90,6 +94,7 @@ function serializeSurvey(row: typeof customerSurveyResponses.$inferSelect) {
     utmMedium: row.utmMedium,
     utmCampaign: row.utmCampaign,
     referrer: row.referrer,
+    referralCode: row.referralCode,
     leadId: row.leadId,
     consentVersion: row.consentVersion,
     createdAt: row.createdAt,
@@ -174,6 +179,8 @@ function startSurveyNotification(farmId: string, parsed: ParsedCustomerSurvey): 
 }
 
 publicCustomerSurveyRoutes.post('/', zValidator('json', customerSurveySchema), async (c) => {
+  const unsigned = rejectUnsignedFormProxy(c)
+  if (unsigned) return unsigned
   if (!(await publicRateLimit(c))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)
@@ -204,7 +211,7 @@ publicCustomerSurveyRoutes.post('/', zValidator('json', customerSurveySchema), a
     leadId = lead?.id ?? null
   }
 
-  await db.insert(customerSurveyResponses).values({
+  const [surveyResponse] = await db.insert(customerSurveyResponses).values({
     farmId: farm.id,
     surveyKey: CUSTOMER_SURVEY_KEY,
     answers: parsed.answers,
@@ -219,10 +226,34 @@ publicCustomerSurveyRoutes.post('/', zValidator('json', customerSurveySchema), a
     utmMedium: parsed.attribution.utmMedium,
     utmCampaign: parsed.attribution.utmCampaign,
     referrer: parsed.attribution.referrer,
+    referralCode: parsed.attribution.referralCode,
     consentAt: now,
     consentVersion: parsed.consentVersion,
     privacyNoticeUrl: DEFAULT_SURVEY_PRIVACY_NOTICE_URL,
-  })
+  }).returning({ id: customerSurveyResponses.id })
+
+  if (surveyResponse && parsed.contact?.email) {
+    try {
+      await createOrRefreshCreditInvitation({
+        farmId: farm.id,
+        email: parsed.contact.email,
+        name: parsed.name,
+        surveyResponseId: surveyResponse.id,
+        marketingLeadId: leadId,
+      })
+      if (parsed.attribution.referralCode) {
+        await processSurveyReferral({
+          farmId: farm.id,
+          surveyResponseId: surveyResponse.id,
+          referralCode: parsed.attribution.referralCode,
+          referredEmail: parsed.contact.email,
+        })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn('Trovara Farm Credits survey eligibility failed:', message.slice(0, 500))
+    }
+  }
 
   startSurveyNotification(farm.id, parsed)
   return c.json(PUBLIC_ACCEPTED, 202)

@@ -41,7 +41,7 @@ export {
 // Brand Kit streaming uploads use a dedicated higher limit (see isBrandUploadPath).
 export const MAX_BODY_BYTES = 12 * 1024 * 1024
 export const BRAND_UPLOAD_BODY_BYTES = Number(
-  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 100 * 1024 * 1024,
 )
 
 /** Authenticated Brand Kit binary upload / replace paths — streamed, not JSON. */
@@ -124,9 +124,7 @@ export function securityMiddleware() {
       c.header('X-Request-ID', requestId)
       await next()
     },
-    // cross-origin: marketing shop (trovara.farm) may call this API directly;
-    // same-origin proxy (/shop-api) also works. Default same-origin CORP blocks
-    // credentialed cross-origin fetches even when CORS allows the origin.
+    // credentialed same-origin fetches from shop.trovara.farm / os.trovara.farm.
     secureHeaders({
       crossOriginResourcePolicy: 'cross-origin',
     }),

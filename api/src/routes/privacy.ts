@@ -24,7 +24,7 @@ import {
   sanitizeAnonymizedEmail,
 } from '../lib/tenant-scope.js'
 import { removeStaffUser } from '../lib/user-remove.js'
-import { secureCompare } from '../lib/secure-compare.js'
+import { cronFarmIdAllowed, requestHasCronSecret } from '../lib/cron-auth.js'
 import type { SessionUser } from '../lib/session.js'
 
 const retentionSchema = z.object({
@@ -40,9 +40,7 @@ const anonymizeContactSchema = z.object({
 })
 
 function hasValidCronSecret(c: any): boolean {
-  const configured = process.env.CRON_SECRET?.trim()
-  const provided = c.req.header('x-cron-secret')?.trim()
-  return Boolean(configured && provided && secureCompare(provided, configured))
+  return requestHasCronSecret(c)
 }
 
 async function loadActorForRetention(c: any): Promise<{ user: SessionUser | null; cron: boolean }> {
@@ -278,8 +276,8 @@ privacyRoutes.post('/system/run-retention', zValidator('json', retentionSchema),
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
-  if (actor.cron && !body.farmId) {
-    return c.json({ error: 'farmId required for cron retention' }, 400)
+  if (actor.cron && (!body.farmId || !cronFarmIdAllowed(body.farmId))) {
+    return c.json({ error: 'Unauthorized' }, 401)
   }
 
   const farmId = actor.cron ? body.farmId : (body.farmId ?? actor.user?.farmId)

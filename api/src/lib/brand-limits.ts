@@ -1,7 +1,10 @@
 /** Shared Brand Kit upload / transcode limits. */
 
 export const BRAND_MAX_UPLOAD_BYTES = Number(
-  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 100 * 1024 * 1024,
+)
+export const BRAND_MAX_FARM_STORAGE_BYTES = Number(
+  process.env.BRAND_MAX_FARM_STORAGE_BYTES?.trim() || 2 * 1024 * 1024 * 1024,
 )
 export const BRAND_MAX_VIDEO_DURATION_SEC = Number(
   process.env.BRAND_UPLOAD_MAX_DURATION_SEC?.trim() || 600,
@@ -19,7 +22,6 @@ export const BRAND_IMAGE_MIME = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
-  'image/svg+xml',
   'image/heic',
   'image/heif',
 ])
@@ -37,7 +39,6 @@ export const BRAND_PASSTHROUGH_IMAGE_MIME = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
-  'image/svg+xml',
 ])
 
 export function mediaKindForMime(mime: string): BrandMediaKind | null {
@@ -60,7 +61,6 @@ export function normalizeBrandMime(raw: string | null | undefined, filename?: st
   if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg'
   if (name.endsWith('.png')) return 'image/png'
   if (name.endsWith('.webp')) return 'image/webp'
-  if (name.endsWith('.svg')) return 'image/svg+xml'
   if (name.endsWith('.3gp')) return 'video/3gpp'
   return fromHeader || null
 }

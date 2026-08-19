@@ -6,7 +6,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index.js'
 import { marketingLeads, users } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
-import { clientIpFromHeaders } from '../lib/client-ip.js'
+import { clientIpFromHeaders, rejectUnsignedFormProxy } from '../lib/client-ip.js'
 import { resolveCustomerFarm } from '../lib/customer-orders.js'
 import {
   escapeEmailHtml,
@@ -292,6 +292,8 @@ function startNotification(lead: MarketingLead): void {
 }
 
 publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), async (c) => {
+  const unsigned = rejectUnsignedFormProxy(c)
+  if (unsigned) return unsigned
   if (!(await publicRateLimit(c, 'contact'))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)
@@ -319,6 +321,8 @@ publicMarketingLeadRoutes.post('/contact', zValidator('json', contactSchema), as
 })
 
 publicMarketingLeadRoutes.post('/waitlist', zValidator('json', waitlistSchema), async (c) => {
+  const unsigned = rejectUnsignedFormProxy(c)
+  if (unsigned) return unsigned
   if (!(await publicRateLimit(c, 'waitlist'))) return c.json({ error: 'Too many requests - try again shortly.' }, 429)
   const body = c.req.valid('json')
   if (body.honey?.trim()) return c.json(PUBLIC_ACCEPTED, 202)

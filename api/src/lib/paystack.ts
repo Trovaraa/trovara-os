@@ -43,7 +43,25 @@ export function getPaystackPublicKey(): string | undefined {
 
 /** Reconstruct checkout URL from a stored access code (reuse initiated attempts). */
 export function authorizationUrlFromAccessCode(accessCode: string): string {
-  return `https://checkout.paystack.com/${accessCode}`
+  return `https://checkout.paystack.com/${encodeURIComponent(accessCode)}`
+}
+
+export function isAllowedPaystackCheckoutUrl(value: string | undefined): boolean {
+  if (!value) return false
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    return host === 'checkout.paystack.com' || host.endsWith('.paystack.com')
+  } catch {
+    return false
+  }
+}
+
+export function safePaystackCheckoutUrl(authorizationUrl: string, accessCode: string): string | null {
+  if (isAllowedPaystackCheckoutUrl(authorizationUrl)) return authorizationUrl
+  const fallback = authorizationUrlFromAccessCode(accessCode)
+  return isAllowedPaystackCheckoutUrl(fallback) ? fallback : null
 }
 
 async function paystackFetch<T>(
