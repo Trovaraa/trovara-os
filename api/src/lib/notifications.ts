@@ -21,6 +21,8 @@ type EmailMessage = {
   html?: string
   replyTo?: string
   headers?: Record<string, string>
+  /** Optional trusted display-name override while retaining the configured sender address. */
+  senderName?: string
 }
 
 type SmsMessage = {
@@ -71,6 +73,14 @@ function resendConfigured(): { apiKey: string; from: string } | null {
   return { apiKey, from }
 }
 
+function senderWithName(configuredFrom: string, senderName?: string): string {
+  const name = senderName?.trim()
+  if (!name) return configuredFrom
+  const bracketed = configuredFrom.match(/<\s*([^<>]+)\s*>$/)
+  const address = (bracketed?.[1] ?? configuredFrom).trim()
+  return `${name.replace(/[\r\n<>]/g, '')} <${address}>`
+}
+
 export function emailProviderReady(): boolean {
   return Boolean(resendConfigured())
 }
@@ -94,7 +104,7 @@ async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        from: config.from,
+        from: senderWithName(config.from, message.senderName),
         to: [message.to],
         subject: message.subject,
         text: message.text,

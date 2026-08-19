@@ -13,6 +13,7 @@ export function escapeEmailHtml(value: string): string {
 }
 
 export type EmailFooterVariant = 'default' | 'shop' | 'newsletter' | 'transactional' | 'staff'
+export type EmailBrandVariant = 'os' | 'farm'
 
 export type EmailFooterOptions = {
   variant?: EmailFooterVariant
@@ -42,6 +43,8 @@ export type EmailLayoutOptions = {
   footer?: string
   footerVariant?: EmailFooterVariant
   unsubscribeUrl?: string
+  /** Public/customer mail uses FARM; internal staff mail keeps FARM OS. */
+  brandVariant?: EmailBrandVariant
 }
 
 const PRIVACY_URL = 'https://www.trovara.farm/privacy'
@@ -102,7 +105,7 @@ export function emailFooterHtml(options: EmailFooterOptions = {}): string {
 ${utilityHtml}`
 }
 
-function brandHeaderHtml(): string {
+function brandHeaderHtml(variant: EmailBrandVariant = 'os'): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0">
   <tr>
     <td style="padding-right:12px;vertical-align:middle">
@@ -110,7 +113,7 @@ function brandHeaderHtml(): string {
     </td>
     <td style="vertical-align:middle">
       <span style="display:block;color:#ffffff;font-size:19px;font-weight:800;letter-spacing:1.5px;line-height:1.1">TROVARA</span>
-      <span style="display:block;margin-top:4px;color:#c5ce82;font-size:9px;font-weight:700;letter-spacing:3.5px;line-height:1">FARM OS</span>
+      <span style="display:block;margin-top:4px;color:#c5ce82;font-size:9px;font-weight:700;letter-spacing:3.5px;line-height:1">${variant === 'farm' ? 'FARM' : 'FARM OS'}</span>
     </td>
   </tr>
 </table>`
@@ -144,6 +147,35 @@ export function emailCallout(label: string, bodyHtml: string): string {
   <p style="margin:0 0 8px;color:#617064;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase">${escapeEmailHtml(label)}</p>
   <p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">${bodyHtml}</p>
 </div>`
+}
+
+function trovaraCreditsWelcomeCard(claimUrl: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#123a27;border:2px solid #d4af57;border-radius:22px;overflow:hidden">
+  <tr>
+    <td style="padding:28px 28px 18px">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding-right:12px;vertical-align:middle">
+            <img src="${TROVARA_CREDITS_MARK_URL}" width="54" height="54" alt="Trovara Credits" style="display:block;width:54px;height:54px;border:0;outline:none;text-decoration:none">
+          </td>
+          <td style="vertical-align:middle">
+            <span style="display:block;color:#ffffff;font-size:19px;font-weight:800;letter-spacing:1.4px;line-height:1.1">TROVARA</span>
+            <span style="display:block;margin-top:4px;color:#d4af57;font-size:10px;font-weight:800;letter-spacing:2.4px;line-height:1">CREDITS</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:22px 28px 32px">
+      <p style="margin:0;color:#ffffff;font-size:52px;font-weight:900;line-height:1">2,000</p>
+      <p style="margin:8px 0 0;color:#d4af57;font-size:13px;font-weight:800;letter-spacing:1.5px">WELCOME CREDITS</p>
+      <p style="margin:26px 0 0">
+        <a href="${escapeEmailHtml(claimUrl)}" style="display:inline-block;padding:14px 24px;background:#ffffff;color:#123a27;text-decoration:none;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.4px">ACTIVATE MY ACCOUNT</a>
+      </p>
+    </td>
+  </tr>
+</table>`
 }
 
 /**
@@ -193,7 +225,7 @@ export function emailLayout(options: EmailLayoutOptions): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:#ffffff;border:1px solid #dfe8dc;border-radius:14px;overflow:hidden">
           <tr>
             <td style="padding:24px 28px;background:#18311f">
-              ${brandHeaderHtml()}
+              ${brandHeaderHtml(options.brandVariant)}
             </td>
           </tr>
           <tr>
@@ -234,6 +266,7 @@ export function shopVerifyEmailContent(
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">This link expires in 48 hours. If you did not create an account, you can ignore this email.</p>`,
       cta: { href: verifyUrl, label: 'Verify email' },
       footerVariant: 'shop',
+      brandVariant: 'farm',
     }),
   }
 }
@@ -248,12 +281,11 @@ export function trovaraCreditInvitationEmailContent(
     '',
     'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Credits.',
     '',
-    'Claim your Trovara Farm account to receive 2,000 Trovara Credits and unlock your personal referral link.',
+    'Your 2,000 Trovara Credits are ready.',
+    '',
+    'Activate your Trovara Account and unlock your Trovara Credits:',
     '',
     claimUrl,
-    '',
-    "P.S. Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.",
-    'P.P.S. Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.',
   ].join('\n')
 
   return {
@@ -266,16 +298,10 @@ export function trovaraCreditInvitationEmailContent(
       headline: `Your 2,000 Trovara Credits are ready, ${firstName}`,
       intro:
         'Because you asked Trovara Farm to stay in touch by filling our survey, you are eligible for Trovara Credits.',
-      body: `<div style="margin:4px 0 0;padding:22px;background:#18311f;border-radius:14px;text-align:center">
-  <img src="${TROVARA_CREDITS_MARK_URL}" width="72" height="72" alt="Trovara Credits" style="display:block;width:72px;height:72px;margin:0 auto 12px;border:0">
-  <p style="margin:0;color:#c5ce82;font-size:34px;font-weight:800;line-height:1">2,000</p>
-  <p style="margin:8px 0 0;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:1.2px">TROVARA CREDITS</p>
-</div>
-<p style="margin:24px 0 0;color:#28382f;font-size:15px;line-height:1.65">Claim your Trovara Farm account and unlock your personal referral link.</p>
-<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.</p>
-<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
-      cta: { href: claimUrl, label: 'Claim my Trovara Credits' },
+      body: `${trovaraCreditsWelcomeCard(claimUrl)}
+<p style="margin:24px 0 0;color:#28382f;font-size:15px;line-height:1.65"><a href="${escapeEmailHtml(claimUrl)}" style="color:#2f6b3b;font-weight:700">Activate your Trovara Account</a> and unlock your Trovara Credits.</p>`,
       footerVariant: 'shop',
+      brandVariant: 'farm',
     }),
   }
 }
@@ -287,18 +313,17 @@ export function trovaraCreditsReadyEmailContent(
   const firstName = name.trim().split(/\s+/)[0] || 'there'
   return {
     subject: '2,000 Trovara Credits have been added to your account',
-    text: `Hi ${firstName},\n\nWe added 2,000 Trovara Credits to your Trovara Farm account. Sign in to see your balance and personal referral link:\n${accountUrl}\n\nP.S. Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.\nP.P.S. Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.`,
+    text: `Hi ${firstName},\n\nWe added 2,000 Trovara Credits to your Trovara Farm account. Sign in to see your balance and personal referral link:\n${accountUrl}`,
     html: emailLayout({
       preheader: 'Your Trovara Credits are now in your shop account.',
       documentTitle: 'Trovara Credits added',
       badge: 'TROVARA CREDITS',
       headline: `2,000 Trovara Credits added, ${firstName}`,
       intro: 'Your Trovara Farm shop account now includes your welcome Trovara Credits.',
-      body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">Sign in to see your balance and personal referral link.</p>
-<p style="margin:24px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.S.</strong> Get 1,000 more Trovara Credits when your referral completes their first eligible Trovara Farm purchase. The credits become available after the purchase passes its refund period without a refund.</p>
-<p style="margin:8px 0 0;color:#617064;font-size:13px;line-height:1.6"><strong>P.P.S.</strong> Trovara Credits can only be used to buy eligible products sold by Trovara Farm. They are promotional credits, not cash.</p>`,
+      body: `<p style="margin:0;color:#28382f;font-size:15px;line-height:1.65">Sign in to see your balance and personal referral link.</p>`,
       cta: { href: accountUrl, label: 'Open my account' },
       footerVariant: 'shop',
+      brandVariant: 'farm',
     }),
   }
 }
@@ -319,6 +344,7 @@ export function shopResetPasswordEmailContent(
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">If you did not request this, you can ignore this message. Your password will stay the same.</p>`,
       cta: { href: resetUrl, label: 'Reset password' },
       footerVariant: 'shop',
+      brandVariant: 'farm',
     }),
   }
 }
@@ -339,6 +365,7 @@ export function newsletterConfirmEmailContent(
       body: `<p style="margin:0;color:#617064;font-size:14px;line-height:1.5">This link expires in 48 hours. If you did not request this, you can ignore this email.</p>`,
       cta: { href: confirmUrl, label: 'Confirm subscription' },
       footerVariant: 'newsletter',
+      brandVariant: 'farm',
     }),
   }
 }
@@ -360,6 +387,7 @@ export function newsletterWelcomeEmailContent(
       body: `<p style="margin:0;color:#617064;font-size:13px;line-height:1.5">You can <a href="${escapeEmailHtml(unsubscribeUrl)}" style="color:#276338;font-weight:700;text-decoration:none">unsubscribe at any time</a>.</p>`,
       footerVariant: 'newsletter',
       unsubscribeUrl,
+      brandVariant: 'farm',
     }),
   }
 }

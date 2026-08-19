@@ -150,6 +150,9 @@ describe('single Trovara Credits invitation', () => {
       }),
     )
     expect(sendEmail).toHaveBeenCalledTimes(1)
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ senderName: 'Trovara Farm' }),
+    )
     expect(markCreditInvitationSent).toHaveBeenCalledWith('invite-1')
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ mode: 'single' }) }),
@@ -191,6 +194,9 @@ describe('single Trovara Credits invitation', () => {
       },
     })
     expect(sendEmail).toHaveBeenCalledTimes(1)
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ senderName: 'Trovara Farm' }),
+    )
   })
   it('does not send when the email is not an eligible survey respondent', async () => {
     distinctQueue.push([])
