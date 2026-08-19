@@ -112,6 +112,7 @@ type CreditRecipient = Awaited<ReturnType<typeof eligibleCreditRecipients>>[numb
 async function deliverCreditInvitations(
   rows: CreditRecipient[],
   user: AppVariables['user'],
+  options: { resendExisting?: boolean } = {},
 ) {
   const result = {
     eligible: rows.length,
@@ -119,6 +120,10 @@ async function deliverCreditInvitations(
     accountsCredited: 0,
     alreadyProcessed: 0,
     failed: 0,
+    delivery: null as null | {
+      outcome: 'invitation_accepted' | 'account_credited' | 'already_processed' | 'provider_failed'
+      providerMessageId?: string
+    },
   }
 
   for (const row of rows) {
@@ -131,14 +136,17 @@ async function deliverCreditInvitations(
         surveyResponseId: row.id,
         marketingLeadId: row.leadId,
         createdById: user.id,
+        resendExisting: options.resendExisting,
       })
       if (invitation.kind === 'already_invited') {
         result.alreadyProcessed += 1
+        result.delivery = { outcome: 'already_processed' }
         continue
       }
       if (invitation.kind === 'account_ready') {
-        if (!invitation.awarded) {
+        if (!invitation.awarded && !options.resendExisting) {
           result.alreadyProcessed += 1
+          result.delivery = { outcome: 'already_processed' }
           continue
         }
         const mail = trovaraCreditsReadyEmailContent(invitation.name, shopAccountUrl())
@@ -149,7 +157,15 @@ async function deliverCreditInvitations(
           html: mail.html,
         })
         result.accountsCredited += 1
-        if (delivery.status !== 'delivered') result.failed += 1
+        if (delivery.status !== 'delivered') {
+          result.failed += 1
+          result.delivery = { outcome: 'provider_failed' }
+        } else {
+          result.delivery = {
+            outcome: 'account_credited',
+            ...(delivery.providerMessageId ? { providerMessageId: delivery.providerMessageId } : {}),
+          }
+        }
         continue
       }
 
@@ -166,11 +182,17 @@ async function deliverCreditInvitations(
       if (delivery.status === 'delivered') {
         await markCreditInvitationSent(invitation.id)
         result.invitationsSent += 1
+        result.delivery = {
+          outcome: 'invitation_accepted',
+          ...(delivery.providerMessageId ? { providerMessageId: delivery.providerMessageId } : {}),
+        }
       } else {
         result.failed += 1
+        result.delivery = { outcome: 'provider_failed' }
       }
     } catch (error) {
       result.failed += 1
+      result.delivery = { outcome: 'provider_failed' }
       const message = error instanceof Error ? error.message : String(error)
       console.warn('Trovara Credits invitation failed:', message.slice(0, 500))
     }
@@ -221,7 +243,7 @@ customerCreditRoutes.post('/invitations/send-one', zValidator('json', sendOneSch
     return c.json({ error: 'That email is not an eligible survey respondent.' }, 404)
   }
 
-  const result = await deliverCreditInvitations(rows, user)
+  const result = await deliverCreditInvitations(rows, user, { resendExisting: true })
   await logAudit({
     farmId: user.farmId,
     userId: user.id,

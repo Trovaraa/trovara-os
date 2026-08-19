@@ -6,7 +6,7 @@ import { loginRateLimits } from '../db/schema.js'
 export const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000
 export const LOGIN_RATE_MAX_ATTEMPTS = 5
 export const SHOP_EMAIL_IP_MAX_ATTEMPTS = 10
-export const SHOP_EMAIL_ADDR_MAX_ATTEMPTS = 3
+export const SHOP_EMAIL_ADDR_MAX_ATTEMPTS = 10
 
 /** sha256 hex of `scope + '\\0' + identity` — no raw IPs or emails in DB. */
 export function hashedRateKey(scope: string, identity: string): string {

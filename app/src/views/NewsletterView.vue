@@ -228,19 +228,36 @@ async function sendSingleCreditInvitation() {
   clearMessages()
   try {
     const data = await api<{
-      result: { invitationsSent: number; accountsCredited: number; alreadyProcessed: number; failed: number }
+      result: {
+        invitationsSent: number
+        accountsCredited: number
+        alreadyProcessed: number
+        failed: number
+        delivery: null | {
+          outcome: 'invitation_accepted' | 'account_credited' | 'already_processed' | 'provider_failed'
+          providerMessageId?: string
+        }
+      }
       summary: CreditSummary
     }>('/api/customer-credits/invitations/send-one', {
       method: 'POST',
       body: JSON.stringify({ confirm: true, email }),
     })
     creditSummary.value = data.summary
-    notice.value = t('newsletter.creditsSent', {
-      sent: data.result.invitationsSent,
-      credited: data.result.accountsCredited,
-      skipped: data.result.alreadyProcessed,
-      failed: data.result.failed,
-    })
+    const delivery = data.result.delivery
+    if (delivery?.outcome === 'provider_failed') {
+      error.value = t('newsletter.creditsSingleProviderFailed')
+    } else if (delivery?.outcome === 'invitation_accepted') {
+      notice.value = delivery.providerMessageId
+        ? t('newsletter.creditsSingleAcceptedWithReference', { reference: delivery.providerMessageId })
+        : t('newsletter.creditsSingleAccepted')
+    } else if (delivery?.outcome === 'account_credited') {
+      notice.value = delivery.providerMessageId
+        ? t('newsletter.creditsSingleAccountCreditedWithReference', { reference: delivery.providerMessageId })
+        : t('newsletter.creditsSingleAccountCredited')
+    } else {
+      notice.value = t('newsletter.creditsSingleAlreadyProcessed')
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('newsletter.creditsSendFailed')
   } finally {
@@ -482,6 +499,8 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
               />
             </label>
             <p class="mt-2 text-xs leading-5 text-slate-500">{{ t('newsletter.creditsSingleHint') }}</p>
+            <p v-if="error" class="mt-2 text-sm text-red-300">{{ error }}</p>
+            <p v-else-if="notice" class="mt-2 text-sm text-farm-green">{{ notice }}</p>
             <button
               type="submit"
               class="mt-3 rounded-lg border border-farm-green/50 px-4 py-2.5 text-sm font-black text-farm-green disabled:cursor-not-allowed disabled:opacity-50"

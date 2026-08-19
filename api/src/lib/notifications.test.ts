@@ -86,6 +86,24 @@ describe('notification delivery', () => {
     expect(body.text).toBe('Click here')
   })
 
+  it('returns the Resend message ID so accepted mail can be traced', async () => {
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ id: 'email-provider-reference' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await expect(
+      sendEmail({ to: 'owner@example.com', subject: 'Trace me', text: 'Hello' }),
+    ).resolves.toMatchObject({
+      status: 'delivered',
+      providerMessageId: 'email-provider-reference',
+    })
+  })
+
   it('passes a reply-to address to Resend', async () => {
     process.env.RESEND_API_KEY = 're_test'
     process.env.EMAIL_FROM = 'Trovara OS <no-reply@trovara.farm>'

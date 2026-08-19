@@ -10,6 +10,8 @@ type DeliveryResult = {
   channel: Channel
   status: 'delivered' | 'disabled' | 'failed'
   required: boolean
+  /** Provider acknowledgement ID. This confirms acceptance, not inbox delivery. */
+  providerMessageId?: string
 }
 
 type EmailMessage = {
@@ -104,16 +106,28 @@ async function sendViaResend(message: EmailMessage): Promise<DeliveryResult> {
       }),
       signal: AbortSignal.timeout(10_000),
     })
+    const detail = await response.text().catch(() => '')
     if (!response.ok) {
-      const detail = await response.text().catch(() => '')
       console.error(
         `Resend email failed (${response.status}) to=${message.to} subject=${JSON.stringify(message.subject)}: ${detail.slice(0, 400)}`,
       )
+    }
+    let providerMessageId: string | undefined
+    if (response.ok && detail) {
+      try {
+        const payload = JSON.parse(detail) as { id?: unknown }
+        if (typeof payload.id === 'string' && payload.id.trim()) {
+          providerMessageId = payload.id.trim()
+        }
+      } catch {
+        // A successful response without JSON is still an accepted provider request.
+      }
     }
     return {
       channel: 'email',
       status: response.ok ? 'delivered' : 'failed',
       required,
+      ...(providerMessageId ? { providerMessageId } : {}),
     }
   } catch (err) {
     console.error(

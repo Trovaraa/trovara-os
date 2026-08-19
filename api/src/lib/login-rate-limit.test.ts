@@ -100,7 +100,7 @@ describe('checkDurableRateLimit', () => {
 
   it('uses shop email IP max constant', () => {
     expect(SHOP_EMAIL_IP_MAX_ATTEMPTS).toBe(10)
-    expect(SHOP_EMAIL_ADDR_MAX_ATTEMPTS).toBe(3)
+    expect(SHOP_EMAIL_ADDR_MAX_ATTEMPTS).toBe(10)
   })
 
   it('resets by deleting the rate key', async () => {
