@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator'
-import { and, count, countDistinct, desc, eq, isNotNull, ne } from 'drizzle-orm'
+import { and, count, countDistinct, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -24,6 +24,10 @@ import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 
 const sendSchema = z.object({ confirm: z.literal(true) }).strict()
+const sendOneSchema = z.object({
+  confirm: z.literal(true),
+  email: z.string().trim().email().max(254),
+}).strict()
 
 export const customerCreditRoutes = new Hono<{ Variables: AppVariables }>()
 customerCreditRoutes.use('*', authMiddleware)
@@ -80,20 +84,17 @@ async function creditSummary(farmId: string) {
   }
 }
 
-customerCreditRoutes.get('/summary', async (c) => {
-  const user = c.get('user')
-  if (!canManageCredits(user)) return c.json({ error: 'Forbidden' }, 403)
-  return c.json({ summary: await creditSummary(user.farmId) })
-})
-
-customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), async (c) => {
-  const user = c.get('user')
-  if (!canManageCredits(user)) return c.json({ error: 'Forbidden' }, 403)
-  if (!emailProviderReady()) {
-    return c.json({ error: 'Email delivery is not configured.' }, 503)
+async function eligibleCreditRecipients(farmId: string, onlyEmail?: string) {
+  const filters = [
+    eq(customerSurveyResponses.farmId, farmId),
+    ne(customerSurveyResponses.followUp, 'no'),
+    isNotNull(customerSurveyResponses.email),
+  ]
+  if (onlyEmail) {
+    filters.push(sql`lower(${customerSurveyResponses.email}) = ${onlyEmail.trim().toLowerCase()}`)
   }
 
-  const rows = await db
+  return db
     .selectDistinctOn([customerSurveyResponses.email], {
       id: customerSurveyResponses.id,
       email: customerSurveyResponses.email,
@@ -102,15 +103,16 @@ customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), a
       createdAt: customerSurveyResponses.createdAt,
     })
     .from(customerSurveyResponses)
-    .where(
-      and(
-        eq(customerSurveyResponses.farmId, user.farmId),
-        ne(customerSurveyResponses.followUp, 'no'),
-        isNotNull(customerSurveyResponses.email),
-      ),
-    )
+    .where(and(...filters))
     .orderBy(customerSurveyResponses.email, desc(customerSurveyResponses.createdAt))
+}
 
+type CreditRecipient = Awaited<ReturnType<typeof eligibleCreditRecipients>>[number]
+
+async function deliverCreditInvitations(
+  rows: CreditRecipient[],
+  user: AppVariables['user'],
+) {
   const result = {
     eligible: rows.length,
     invitationsSent: 0,
@@ -174,6 +176,27 @@ customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), a
     }
   }
 
+  return result
+}
+
+customerCreditRoutes.get('/summary', async (c) => {
+  const user = c.get('user')
+  if (!canManageCredits(user)) return c.json({ error: 'Forbidden' }, 403)
+  return c.json({ summary: await creditSummary(user.farmId) })
+})
+
+customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), async (c) => {
+  const user = c.get('user')
+  if (!canManageCredits(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!emailProviderReady()) {
+    return c.json({ error: 'Email delivery is not configured.' }, 503)
+  }
+
+  const result = await deliverCreditInvitations(
+    await eligibleCreditRecipients(user.farmId),
+    user,
+  )
+
   await logAudit({
     farmId: user.farmId,
     userId: user.id,
@@ -181,6 +204,32 @@ customerCreditRoutes.post('/invitations/send', zValidator('json', sendSchema), a
     entityType: 'customer_credit_invitation',
     access: requestAccessMeta((name) => c.req.header(name)),
     metadata: result,
+  })
+  return c.json({ result, summary: await creditSummary(user.farmId) })
+})
+
+customerCreditRoutes.post('/invitations/send-one', zValidator('json', sendOneSchema), async (c) => {
+  const user = c.get('user')
+  if (!canManageCredits(user)) return c.json({ error: 'Forbidden' }, 403)
+  if (!emailProviderReady()) {
+    return c.json({ error: 'Email delivery is not configured.' }, 503)
+  }
+
+  const { email } = c.req.valid('json')
+  const rows = await eligibleCreditRecipients(user.farmId, email)
+  if (!rows.length) {
+    return c.json({ error: 'That email is not an eligible survey respondent.' }, 404)
+  }
+
+  const result = await deliverCreditInvitations(rows, user)
+  await logAudit({
+    farmId: user.farmId,
+    userId: user.id,
+    action: 'trovara_credits_invitation_send',
+    entityType: 'customer_credit_invitation',
+    entityId: rows[0]?.id,
+    access: requestAccessMeta((name) => c.req.header(name)),
+    metadata: { ...result, mode: 'single' },
   })
   return c.json({ result, summary: await creditSummary(user.farmId) })
 })
