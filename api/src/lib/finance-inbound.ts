@@ -25,6 +25,7 @@ export function isAllowedInboundDownloadUrl(url: string): boolean {
     if (parsed.protocol !== 'https:') return false
     const host = parsed.hostname.toLowerCase()
     if (host === 'resend.com' || host.endsWith('.resend.com')) return true
+    if (host === 'resend.app' || host.endsWith('.resend.app')) return true
     if (host.endsWith('.amazonaws.com')) return true
     if (process.env.NODE_ENV !== 'production' && (host === 'files.test' || host.endsWith('.test'))) {
       return true
