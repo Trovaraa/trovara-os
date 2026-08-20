@@ -3,6 +3,11 @@ import readWorkbook from 'read-excel-file/node'
 import JSZip from 'jszip'
 import { extractPdfPlainText } from './invoice-extract.js'
 import { COST_CENTRES, COST_CENTRE_CODES, type CostCentreCode } from './cost-centres.js'
+import {
+  DEFAULT_FINANCE_ENTITY_CODE,
+  FINANCE_ENTITY_CODES,
+  type FinanceEntityCode,
+} from './finance-entities.js'
 
 export const IMPORT_CATEGORIES = ['inputs', 'labour', 'equipment', 'transport', 'utilities', 'feed', 'medicine', 'other'] as const
 export type ImportCategory = (typeof IMPORT_CATEGORIES)[number]
@@ -32,6 +37,7 @@ export type FinanceImportRow = {
   fundingStatus: string
   projectPhase: string
   receiptRef: string
+  entityCode: FinanceEntityCode
   costCentreCode: CostCentreCode | ''
   issues: string[]
 }
@@ -89,6 +95,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   fundingStatus: ['fundingstatus', 'fundstatus', 'fundedstatus'],
   projectPhase: ['projectphase', 'phase', 'section'],
   receiptRef: ['receiptref', 'receipt', 'reference', 'ref', 'invoicenumber'],
+  entityCode: ['entity', 'entitycode', 'legalentity', 'company', 'companycode'],
   costCentreCode: ['costcentre', 'costcentercode', 'costcentrecode', 'department', 'crop'],
 }
 
@@ -165,6 +172,15 @@ function mapCostCentre(value: unknown): CostCentreCode | '' {
   return centre?.code ?? ''
 }
 
+function mapFinanceEntity(value: unknown): FinanceEntityCode {
+  const text = valueText(value).trim().toLowerCase()
+  const code = FINANCE_ENTITY_CODES.find((item) => item === text)
+  if (code) return code
+  if (text.includes('green frontier')) return '001'
+  if (text.includes('trovara')) return '002'
+  return DEFAULT_FINANCE_ENTITY_CODE
+}
+
 function normalizeStableText(value: unknown) {
   return valueText(value).normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
 }
@@ -185,6 +201,7 @@ function normalizeRow(
   const expenseDate = parseDate(source.expenseDate)
   const description = valueText(source.description).slice(0, 500)
   const category = mapCategory(source.category)
+  const entityCode = mapFinanceEntity(source.entityCode)
   const costCentreCode = mapCostCentre(source.costCentreCode)
   const issues: string[] = []
   if (!expenseDate) issues.push('Add or confirm the expense date')
@@ -211,6 +228,7 @@ function normalizeRow(
     fundingStatus: valueText(source.fundingStatus).slice(0, 50),
     projectPhase: valueText(source.projectPhase || projectPhase).slice(0, 200),
     receiptRef: valueText(source.receiptRef).slice(0, 200),
+    entityCode,
     costCentreCode,
     issues,
   }
@@ -411,7 +429,7 @@ export async function previewFinanceImport(
   }
 }
 
-export function financeImportFingerprint(row: Pick<FinanceImportRow, 'expenseDate' | 'description' | 'amount' | 'currency' | 'vendor' | 'receiptRef'>) {
+export function financeImportFingerprint(row: Pick<FinanceImportRow, 'expenseDate' | 'description' | 'amount' | 'currency' | 'vendor' | 'receiptRef' | 'entityCode'>) {
   // Deliberately exclude filename, file hash, sheet, row, funding state, and
   // classification fields. Those change between workbook revisions while the
   // underlying expense remains the same.
@@ -422,6 +440,7 @@ export function financeImportFingerprint(row: Pick<FinanceImportRow, 'expenseDat
     row.currency.trim().toUpperCase(),
     normalizeStableText(row.vendor),
     normalizeStableText(row.receiptRef),
+    row.entityCode,
   ].join('\u001f')
   return createHash('sha256').update(stable).digest('hex')
 }

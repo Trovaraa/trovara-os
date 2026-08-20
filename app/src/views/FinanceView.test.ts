@@ -28,6 +28,7 @@ vi.mock('vue-i18n', () => ({
 
 const expense = {
   id: 'expense-1',
+  entityCode: '002',
   costCentreCode: 'CC10',
   category: 'transport',
   description: 'Fuel delivery',
@@ -45,6 +46,7 @@ const expense = {
 
 const summary = {
   generatedAt: '2026-08-10T12:00:00.000Z',
+  entityScope: { code: 'consolidated', name: 'Green Frontier Group', relationship: 'group', parentCode: null },
   currency: 'NGN',
   revenue: 50000,
   deliveredRevenue: 40000,
@@ -65,6 +67,11 @@ const costCentres = [
   { code: 'CC40', name: 'Poultry', covers: 'Project Feather' },
 ]
 
+const entities = [
+  { code: '001', name: 'Green Frontier', relationship: 'parent', parentCode: null },
+  { code: '002', name: 'Trovara', relationship: 'child', parentCode: '001' },
+]
+
 async function mountView() {
   const FinanceView = (await import('./FinanceView.vue')).default
   const wrapper = mount(FinanceView)
@@ -79,6 +86,7 @@ describe('FinanceView expense list', () => {
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path === '/api/finance') return { expenses: [expense] }
       if (path === '/api/finance/summary') return { summary }
+      if (path === '/api/finance/entities') return { entities }
       if (path === '/api/finance/cost-centres') return { costCentres }
       if (path === '/api/finance/labels' && options?.method === 'POST') {
         return { label: { id: 'label-2', name: 'Travel', slug: 'travel' } }
@@ -125,6 +133,9 @@ describe('FinanceView expense list', () => {
     expect(cards.text()).toContain('finance.retryExtraction')
     expect(cards.get('a').attributes('href')).toBe('/api/finance/expense-1/attachment')
     expect(cards.text()).toContain('finance.edit')
+    expect(cards.get('details').attributes('open')).toBeUndefined()
+    expect(cards.get('summary').text()).toContain('finance.detailsAndActions')
+    expect(cards.get('[data-testid="mobile-primary-action"]').text()).toBe('finance.approve')
 
     expect(table.classes()).toContain('table-fixed')
     expect(table.text()).toContain('Fuel delivery')
@@ -132,6 +143,45 @@ describe('FinanceView expense list', () => {
     expect(table.text()).toContain('finance.status.pending')
     expect(table.text()).toContain('finance.edit')
     expect(table.text()).toContain('finance.delete')
+  })
+
+  it('reloads the expense list and summary for the selected legal entity', async () => {
+    const requestedPaths: string[] = []
+    api.mockImplementation(async (path: string) => {
+      requestedPaths.push(path)
+      if (path.startsWith('/api/finance/summary')) return { summary }
+      if (path === '/api/finance/entities') return { entities }
+      if (path === '/api/finance/cost-centres') return { costCentres }
+      if (path === '/api/finance/labels') return { labels: expense.labels }
+      if (path.startsWith('/api/finance')) return { expenses: [expense] }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    const wrapper = await mountView()
+    await wrapper.get('#finance-entity-filter').setValue('001')
+    await flushPromises()
+
+    expect(requestedPaths).toContain('/api/finance?entityCode=001')
+    expect(requestedPaths).toContain('/api/finance/summary?entityCode=001')
+  })
+
+  it('uses cost-centre assignment as the single primary action for an unassigned mobile expense', async () => {
+    const unassignedExpense = { ...expense, costCentreCode: null }
+    api.mockImplementation(async (path: string) => {
+      if (path === '/api/finance') return { expenses: [unassignedExpense] }
+      if (path === '/api/finance/summary') return { summary }
+      if (path === '/api/finance/entities') return { entities }
+      if (path === '/api/finance/cost-centres') return { costCentres }
+      if (path === '/api/finance/labels') return { labels: expense.labels }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    const wrapper = await mountView()
+    const card = wrapper.get('[data-testid="expense-cards"] article')
+
+    expect(card.get('[data-testid="mobile-primary-action"]').text()).toBe('finance.assignCostCentre')
+    expect(card.get('details').attributes('open')).toBeUndefined()
+    expect(card.get('summary').text()).toContain('finance.detailsAndActions')
   })
 
   it('opens the edit form from a mobile expense card', async () => {
@@ -218,6 +268,7 @@ describe('FinanceView expense list', () => {
     api.mockImplementation(async (path: string) => {
       if (path === '/api/finance') return { expenses: [foreignExpense] }
       if (path === '/api/finance/summary') return { summary }
+      if (path === '/api/finance/entities') return { entities }
       if (path === '/api/finance/cost-centres') return { costCentres }
       if (path === '/api/finance/labels') return { labels: expense.labels }
       if (path === '/api/finance/expense-1/convert-currency') {

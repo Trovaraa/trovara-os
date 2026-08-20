@@ -1921,43 +1921,51 @@ export const shopDeliverySlots = pgTable(
   ],
 )
 
-export const orders = pgTable('orders', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  farmId: uuid('farm_id').references(() => farms.id).notNull(),
-  customerName: text('customer_name').notNull(),
-  customerPhone: text('customer_phone'),
-  status: orderStatusEnum('status').default('pending').notNull(),
-  // Existing rows default to not_required; paid-path orders set unpaid at create.
-  paymentStatus: paymentStatusEnum('payment_status').default('not_required').notNull(),
-  totalAmount: integer('total_amount').default(0).notNull(),
-  currency: text('currency').default('NGN').notNull(),
-  lotId: uuid('lot_id').references(() => harvestLots.id),
-  // Set when the order was placed by a customer via a chat bot; null for
-  // staff-entered orders. `source` records the channel it came in on.
-  customerContactId: uuid('customer_contact_id').references(() => customerContacts.id),
-  source: text('source').default('staff').notNull(),
-  notes: text('notes'),
-  deliverySlotId: uuid('delivery_slot_id').references(() => shopDeliverySlots.id, {
-    onDelete: 'set null',
-  }),
-  deliveryDate: date('delivery_date'),
-  dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
-  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
-  deliveryPhotoUrl: text('delivery_photo_url'),
-  customerFeedback: text('customer_feedback'),
-  customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
-  // Covers `notes` and `customerFeedback`. `customerName` is a proper noun and
-  // `cancelledBy` holds the sentinel 'customer'.
-  sourceLocale: text('source_locale'),
-  translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
-  translationAttempts: integer('translation_attempts').default(0).notNull(),
-  feedbackRequestedAt: timestamp('feedback_requested_at', { withTimezone: true }),
-  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
-  cancelledBy: text('cancelled_by'),
-  refundRequestedAt: timestamp('refund_requested_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const orders = pgTable(
+  'orders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    entityCode: text('entity_code').default('002').notNull(),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone'),
+    status: orderStatusEnum('status').default('pending').notNull(),
+    // Existing rows default to not_required; paid-path orders set unpaid at create.
+    paymentStatus: paymentStatusEnum('payment_status').default('not_required').notNull(),
+    totalAmount: integer('total_amount').default(0).notNull(),
+    currency: text('currency').default('NGN').notNull(),
+    lotId: uuid('lot_id').references(() => harvestLots.id),
+    // Set when the order was placed by a customer via a chat bot; null for
+    // staff-entered orders. `source` records the channel it came in on.
+    customerContactId: uuid('customer_contact_id').references(() => customerContacts.id),
+    source: text('source').default('staff').notNull(),
+    notes: text('notes'),
+    deliverySlotId: uuid('delivery_slot_id').references(() => shopDeliverySlots.id, {
+      onDelete: 'set null',
+    }),
+    deliveryDate: date('delivery_date'),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    deliveryPhotoUrl: text('delivery_photo_url'),
+    customerFeedback: text('customer_feedback'),
+    customerFeedbackAt: timestamp('customer_feedback_at', { withTimezone: true }),
+    // Covers `notes` and `customerFeedback`. `customerName` is a proper noun and
+    // `cancelledBy` holds the sentinel 'customer'.
+    sourceLocale: text('source_locale'),
+    translationStatus: translationStatusEnum('translation_status').default('done').notNull(),
+    translationAttempts: integer('translation_attempts').default(0).notNull(),
+    feedbackRequestedAt: timestamp('feedback_requested_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledBy: text('cancelled_by'),
+    refundRequestedAt: timestamp('refund_requested_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('orders_farm_entity_idx').on(t.farmId, t.entityCode),
+    check('orders_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
+  ],
+)
 
 // Sellable catalog shown by the customer order bot. Prices are in kobo (integer
 // minor units); price_kobo = 0 means "price on request" until a Founder sets it.
@@ -2236,6 +2244,7 @@ export const paymentAttempts = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    entityCode: text('entity_code').default('002').notNull(),
     orderId: uuid('order_id').references(() => orders.id).notNull(),
     provider: text('provider').default('paystack').notNull(),
     providerReference: text('provider_reference').notNull().unique(),
@@ -2252,6 +2261,7 @@ export const paymentAttempts = pgTable(
   },
   (t) => [
     index('payment_attempts_order_id_idx').on(t.orderId),
+    index('payment_attempts_farm_entity_idx').on(t.farmId, t.entityCode),
     uniqueIndex('payment_attempts_provider_event_uq')
       .on(t.providerEventId)
       .where(sql`${t.providerEventId} is not null`),
@@ -2259,6 +2269,7 @@ export const paymentAttempts = pgTable(
       'payment_attempts_status_check',
       sql`${t.status} in ('initializing', 'initiated', 'initialization_unknown', 'success', 'failed', 'abandoned')`,
     ),
+    check('payment_attempts_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
   ],
 )
 
@@ -2268,6 +2279,7 @@ export const invoices = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    entityCode: text('entity_code').default('002').notNull(),
     orderId: uuid('order_id').references(() => orders.id).notNull(),
     invoiceNumber: text('invoice_number').notNull(),
     snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
@@ -2279,6 +2291,8 @@ export const invoices = pgTable(
   (t) => [
     uniqueIndex('invoices_order_id_uq').on(t.orderId),
     uniqueIndex('invoices_farm_number_uq').on(t.farmId, t.invoiceNumber),
+    index('invoices_farm_entity_idx').on(t.farmId, t.entityCode),
+    check('invoices_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
   ],
 )
 
@@ -2307,6 +2321,7 @@ export const paymentRefunds = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    entityCode: text('entity_code').default('002').notNull(),
     paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id).notNull(),
     orderId: uuid('order_id').references(() => orders.id).notNull(),
     amountKobo: integer('amount_kobo').notNull(),
@@ -2325,6 +2340,7 @@ export const paymentRefunds = pgTable(
   },
   (t) => [
     index('payment_refunds_order_id_idx').on(t.orderId),
+    index('payment_refunds_farm_entity_idx').on(t.farmId, t.entityCode),
     uniqueIndex('payment_refunds_idempotency_uq').on(t.paymentAttemptId, t.idempotencyKey),
     uniqueIndex('payment_refunds_provider_id_uq')
       .on(t.providerRefundId)
@@ -2333,6 +2349,7 @@ export const paymentRefunds = pgTable(
       'payment_refunds_status_check',
       sql`${t.status} in ('pending', 'submitting', 'unknown', 'success', 'failed')`,
     ),
+    check('payment_refunds_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
   ],
 )
 
@@ -2686,6 +2703,7 @@ export const expenses = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     farmId: uuid('farm_id').references(() => farms.id).notNull(),
+    entityCode: text('entity_code').default('002').notNull(),
     costCentreCode: text('cost_centre_code'),
     category: expenseCategoryEnum('category').notNull(),
     description: text('description').notNull(),
@@ -2734,6 +2752,7 @@ export const expenses = pgTable(
   },
   (t) => [
     uniqueIndex('expenses_farm_id_uq').on(t.farmId, t.id),
+    index('expenses_farm_entity_idx').on(t.farmId, t.entityCode),
     index('expenses_farm_cost_centre_idx').on(t.farmId, t.costCentreCode),
     index('expenses_farm_import_source_hash_idx').on(t.farmId, t.importSourceHash),
     uniqueIndex('expenses_farm_import_fingerprint_uq')
@@ -2743,6 +2762,7 @@ export const expenses = pgTable(
       .on(t.farmId, t.inboundMessageId)
       .where(sql`${t.inboundMessageId} is not null`),
     check('expenses_source_check', sql`${t.source} in ('manual', 'inbound_email', 'import')`),
+    check('expenses_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
     check(
       'expenses_cost_centre_check',
       sql`${t.costCentreCode} is null or ${t.costCentreCode} in ('CC01', 'CC10', 'CC20', 'CC30', 'CC40', 'CC50', 'CC60', 'CC70', 'CC80')`,
