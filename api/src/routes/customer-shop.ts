@@ -7,11 +7,13 @@ import { db } from '../db/index.js'
 import {
   customerAccounts,
   customerContacts,
+  customerRecurringOrders,
   farms,
   harvestLots,
   orderItems,
   orders,
   products,
+  shopDeliverySlots,
 } from '../db/schema.js'
 import {
   CUSTOMER_SESSION_COOKIE,
@@ -83,6 +85,10 @@ const orderSchema = z.object({
     .max(20),
   address: z.string().trim().min(5).max(500),
   phone: z.string().trim().min(7).max(30).optional(),
+  deliverySlotId: z.string().uuid().optional(),
+  deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  recurrenceFrequency: z.enum(['weekly', 'fortnightly', 'monthly']).optional(),
+  recurringOrderId: z.string().uuid().optional(),
 })
 
 const forgotPasswordSchema = z.object({
@@ -162,6 +168,14 @@ function emailSendFailed(c: { json: (body: unknown, status?: number) => Response
   return c.json({ error: EMAIL_SEND_FAILED_MSG }, 503)
 }
 
+function nextRecurringCheckout(date: Date, frequency: 'weekly' | 'fortnightly' | 'monthly') {
+  const next = new Date(date)
+  if (frequency === 'weekly') next.setUTCDate(next.getUTCDate() + 7)
+  else if (frequency === 'fortnightly') next.setUTCDate(next.getUTCDate() + 14)
+  else next.setUTCMonth(next.getUTCMonth() + 1)
+  return next
+}
+
 
 customerShopRoutes.get('/session', async (c) => {
   const csrfToken = generateCsrfToken()
@@ -230,11 +244,27 @@ customerShopRoutes.get('/catalog', async (c) => {
       unit: products.unit,
       priceKobo: products.priceKobo,
       currency: products.currency,
+      description: products.description,
+      category: products.category,
+      provenance: products.provenance,
+      familyBasketQuantity: products.familyBasketQuantity,
     })
     .from(products)
     .where(and(eq(products.farmId, farm.id), eq(products.active, true)))
     .orderBy(asc(products.sortOrder), asc(products.name))
-  return c.json({ farm, products: rows })
+  const deliverySlots = await db
+    .select({
+      id: shopDeliverySlots.id,
+      label: shopDeliverySlots.label,
+      dayOfWeek: shopDeliverySlots.dayOfWeek,
+      startTime: shopDeliverySlots.startTime,
+      endTime: shopDeliverySlots.endTime,
+      cutoffHours: shopDeliverySlots.cutoffHours,
+    })
+    .from(shopDeliverySlots)
+    .where(and(eq(shopDeliverySlots.farmId, farm.id), eq(shopDeliverySlots.active, true)))
+    .orderBy(asc(shopDeliverySlots.sortOrder), asc(shopDeliverySlots.dayOfWeek))
+  return c.json({ farm, products: rows, deliverySlots })
 })
 
 customerShopRoutes.post('/register', zValidator('json', registerSchema), async (c) => {
@@ -629,6 +659,55 @@ customerShopRoutes.post('/link-code', async (c) => {
   })
 })
 
+customerShopRoutes.get('/recurring-orders', async (c) => {
+  const account = await currentCustomer(c)
+  if (!account) return c.json({ error: 'Sign in required.' }, 401)
+  const recurringOrders = await db
+    .select({
+      id: customerRecurringOrders.id,
+      frequency: customerRecurringOrders.frequency,
+      items: customerRecurringOrders.items,
+      deliverySlotId: customerRecurringOrders.deliverySlotId,
+      address: customerRecurringOrders.address,
+      phone: customerRecurringOrders.phone,
+      nextCheckoutAt: customerRecurringOrders.nextCheckoutAt,
+      active: customerRecurringOrders.active,
+      deliveryLabel: shopDeliverySlots.label,
+      deliveryDayOfWeek: shopDeliverySlots.dayOfWeek,
+      deliveryStartTime: shopDeliverySlots.startTime,
+      deliveryEndTime: shopDeliverySlots.endTime,
+    })
+    .from(customerRecurringOrders)
+    .leftJoin(shopDeliverySlots, eq(shopDeliverySlots.id, customerRecurringOrders.deliverySlotId))
+    .where(
+      and(
+        eq(customerRecurringOrders.accountId, account.id),
+        eq(customerRecurringOrders.farmId, account.farmId),
+        eq(customerRecurringOrders.active, true),
+      ),
+    )
+    .orderBy(asc(customerRecurringOrders.nextCheckoutAt))
+  return c.json({ recurringOrders })
+})
+
+customerShopRoutes.delete('/recurring-orders/:id', async (c) => {
+  const account = await currentCustomer(c)
+  if (!account) return c.json({ error: 'Sign in required.' }, 401)
+  const [stopped] = await db
+    .update(customerRecurringOrders)
+    .set({ active: false, updatedAt: new Date() })
+    .where(
+      and(
+        eq(customerRecurringOrders.id, c.req.param('id')),
+        eq(customerRecurringOrders.accountId, account.id),
+        eq(customerRecurringOrders.farmId, account.farmId),
+      ),
+    )
+    .returning({ id: customerRecurringOrders.id })
+  if (!stopped) return c.json({ error: 'Recurring basket not found.' }, 404)
+  return c.json({ ok: true })
+})
+
 customerShopRoutes.get('/orders', async (c) => {
   const account = await currentCustomer(c)
   if (!account) return c.json({ error: 'Sign in required.' }, 401)
@@ -648,12 +727,18 @@ customerShopRoutes.get('/orders', async (c) => {
       currency: orders.currency,
       source: orders.source,
       createdAt: orders.createdAt,
+      deliveryDate: orders.deliveryDate,
+      deliverySlotId: orders.deliverySlotId,
+      deliveryLabel: shopDeliverySlots.label,
+      deliveryStartTime: shopDeliverySlots.startTime,
+      deliveryEndTime: shopDeliverySlots.endTime,
       publicToken: harvestLots.publicToken,
       lotCode: harvestLots.lotCode,
       farmSlug: farms.slug,
     })
     .from(orders)
     .innerJoin(farms, eq(orders.farmId, farms.id))
+    .leftJoin(shopDeliverySlots, eq(shopDeliverySlots.id, orders.deliverySlotId))
     .leftJoin(harvestLots, eq(harvestLots.orderId, orders.id))
     .where(and(eq(orders.farmId, account.farmId), inArray(orders.customerContactId, contactIds)))
     .orderBy(desc(orders.createdAt))
@@ -663,11 +748,14 @@ customerShopRoutes.get('/orders', async (c) => {
     ? await db
         .select({
           orderId: orderItems.orderId,
+          productId: orderItems.productId,
           productName: orderItems.productName,
           quantity: orderItems.quantity,
           unit: orderItems.unit,
+          provenance: products.provenance,
         })
         .from(orderItems)
+        .leftJoin(products, eq(products.id, orderItems.productId))
         .where(inArray(orderItems.orderId, ids))
     : []
 
@@ -721,6 +809,7 @@ customerShopRoutes.post(
         unit: products.unit,
         priceKobo: products.priceKobo,
         currency: products.currency,
+        provenance: products.provenance,
       })
       .from(products)
       .where(
@@ -732,6 +821,56 @@ customerShopRoutes.post(
       )
     if (catalog.length !== ids.length) {
       return c.json({ error: 'One or more products are unavailable.' }, 400)
+    }
+
+    const activeSlots = await db
+      .select()
+      .from(shopDeliverySlots)
+      .where(
+        and(
+          eq(shopDeliverySlots.farmId, account.farmId),
+          eq(shopDeliverySlots.active, true),
+        ),
+      )
+    let selectedSlot: (typeof activeSlots)[number] | undefined
+    let deliveryDate: Date | undefined
+    if (activeSlots.length) {
+      if (!body.deliverySlotId || !body.deliveryDate) {
+        return c.json({ error: 'Choose an available delivery day before checkout.' }, 400)
+      }
+      selectedSlot = activeSlots.find((slot) => slot.id === body.deliverySlotId)
+      if (!selectedSlot) return c.json({ error: 'That delivery window is no longer available.' }, 400)
+      const [year, month, day] = body.deliveryDate.split('-').map(Number)
+      const [hour, minute] = selectedSlot.startTime.split(':').map(Number)
+      deliveryDate = new Date(Date.UTC(year, month - 1, day, hour, minute))
+      if (
+        Number.isNaN(deliveryDate.getTime()) ||
+        deliveryDate.getUTCDay() !== selectedSlot.dayOfWeek ||
+        deliveryDate.toISOString().slice(0, 10) !== body.deliveryDate
+      ) {
+        return c.json({ error: 'The selected date does not match that delivery day.' }, 400)
+      }
+      if (deliveryDate.getTime() - Date.now() < selectedSlot.cutoffHours * 60 * 60 * 1000) {
+        return c.json({ error: 'The ordering cutoff for that delivery date has passed.' }, 400)
+      }
+    }
+
+    let recurringPlan: typeof customerRecurringOrders.$inferSelect | undefined
+    if (body.recurringOrderId) {
+      const [row] = await db
+        .select()
+        .from(customerRecurringOrders)
+        .where(
+          and(
+            eq(customerRecurringOrders.id, body.recurringOrderId),
+            eq(customerRecurringOrders.accountId, account.id),
+            eq(customerRecurringOrders.farmId, account.farmId),
+            eq(customerRecurringOrders.active, true),
+          ),
+        )
+        .limit(1)
+      if (!row) return c.json({ error: 'That recurring basket is no longer active.' }, 400)
+      recurringPlan = row
     }
 
     const contact = await upsertCustomerContact(
@@ -754,10 +893,57 @@ customerShopRoutes.post(
         phone: body.phone || account.phone || undefined,
         address: body.address,
       },
-      catalog,
+      catalog: catalog.map((product) => ({
+        ...product,
+        provenance: product.provenance as 'trovara_grown' | 'trovara_sourced',
+      })),
     })
     if ('error' in result) return c.json({ error: result.error }, 400)
 
-    return c.json(result, 201)
+    await db
+      .update(orders)
+      .set({
+        deliverySlotId: selectedSlot?.id ?? null,
+        deliveryDate: body.deliveryDate ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, result.orderId))
+
+    const frequency = recurringPlan?.frequency ?? body.recurrenceFrequency
+    if (frequency) {
+      const baseDate = deliveryDate ?? new Date()
+      const nextCheckoutAt = nextRecurringCheckout(
+        baseDate,
+        frequency as 'weekly' | 'fortnightly' | 'monthly',
+      )
+      if (recurringPlan) {
+        await db
+          .update(customerRecurringOrders)
+          .set({
+            items: body.items,
+            deliverySlotId: selectedSlot?.id ?? null,
+            address: body.address,
+            phone: body.phone || account.phone || null,
+            nextCheckoutAt,
+            lastOrderId: result.orderId,
+            updatedAt: new Date(),
+          })
+          .where(eq(customerRecurringOrders.id, recurringPlan.id))
+      } else {
+        await db.insert(customerRecurringOrders).values({
+          farmId: account.farmId,
+          accountId: account.id,
+          frequency,
+          items: body.items,
+          deliverySlotId: selectedSlot?.id ?? null,
+          address: body.address,
+          phone: body.phone || account.phone || null,
+          nextCheckoutAt,
+          lastOrderId: result.orderId,
+        })
+      }
+    }
+
+    return c.json({ ...result, recurrenceSaved: Boolean(frequency) }, 201)
   },
 )

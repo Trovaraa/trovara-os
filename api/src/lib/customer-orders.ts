@@ -170,6 +170,7 @@ async function loadCatalog(farmId: string): Promise<CatalogItem[]> {
     unit: p.unit,
     priceKobo: p.priceKobo,
     currency: p.currency,
+    provenance: p.provenance as 'trovara_grown' | 'trovara_sourced',
   }))
 }
 
@@ -452,18 +453,22 @@ async function createOrderFromCart(params: {
   let lotCode: string | undefined
   let lotPublicToken: string | undefined
   try {
-    const lot = await createHarvestLotForOrder({
+    const traceableItems = items.filter((item) => {
+      const catalogItem = params.catalog.find((product) => product.id === item.productId)
+      return catalogItem?.provenance !== 'trovara_sourced'
+    })
+    const lot = traceableItems.length ? await createHarvestLotForOrder({
       farmId: params.farmId,
       orderId: order.id,
-      lines: items.map((i) => ({
+      lines: traceableItems.map((i) => ({
         productId: i.productId,
         productName: i.productName,
         unit: i.unit,
         quantity: i.quantity,
       })),
-    })
-    lotCode = lot.lotCode
-    lotPublicToken = lot.publicToken
+    }) : null
+    lotCode = lot?.lotCode
+    lotPublicToken = lot?.publicToken
   } catch (err) {
     console.error('Auto harvest lot failed:', err instanceof Error ? err.message : err)
   }
