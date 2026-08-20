@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
@@ -17,6 +17,10 @@ type Product = {
   unit: string
   priceKobo: number
   currency: string
+  description?: string | null
+  category: string
+  provenance: 'trovara_grown' | 'trovara_sourced'
+  familyBasketQuantity: number
   active: boolean
   sortOrder: number
   inventoryItemId?: string | null
@@ -34,10 +38,22 @@ type InventoryOption = {
   productId?: string | null
 }
 
+type DeliverySlot = {
+  id: string
+  label: string
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  cutoffHours: number
+  active: boolean
+  sortOrder: number
+}
+
 const UNIT_OPTIONS = ['kg', 'tonne', 'crate', 'tray', 'bag', 'bunch', 'piece', 'pack', 'bird', 'litre', 'unit']
 
 const products = ref<Product[]>([])
 const inventoryOptions = ref<InventoryOption[]>([])
+const deliverySlots = ref<DeliverySlot[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
@@ -45,6 +61,9 @@ const newName = ref('')
 const newSku = ref('')
 const newUnit = ref('unit')
 const newPriceNaira = ref<number | ''>('')
+const newProvenance = ref<'trovara_grown' | 'trovara_sourced'>('trovara_grown')
+const newCategory = ref('fresh_from_trovara')
+const newFamilyBasketQuantity = ref(0)
 const creating = ref(false)
 
 const editing = ref<Product | null>(null)
@@ -53,8 +72,19 @@ const editSku = ref('')
 const editUnit = ref('unit')
 const editPriceNaira = ref<number | ''>('')
 const editActive = ref(true)
+const editProvenance = ref<'trovara_grown' | 'trovara_sourced'>('trovara_grown')
+const editCategory = ref('fresh_from_trovara')
+const editFamilyBasketQuantity = ref(0)
 const editInventoryItemId = ref('')
 const savingEdit = ref(false)
+const newDelivery = reactive({
+  label: '',
+  dayOfWeek: 6,
+  startTime: '09:00',
+  endTime: '13:00',
+  cutoffHours: 24,
+})
+const savingDelivery = ref(false)
 
 function nairaToKobo(naira: number | ''): number {
   if (naira === '' || Number.isNaN(Number(naira))) return 0
@@ -72,12 +102,14 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const [productData, inventoryData] = await Promise.all([
+    const [productData, inventoryData, deliveryData] = await Promise.all([
       api<{ products: Product[] }>('/api/products'),
       api<{ items: InventoryOption[] }>('/api/inventory'),
+      api<{ deliverySlots: DeliverySlot[] }>('/api/products/delivery-slots'),
     ])
     products.value = productData.products
     inventoryOptions.value = inventoryData.items ?? []
+    deliverySlots.value = deliveryData.deliverySlots ?? []
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('products.loadFailed')
   } finally {
@@ -99,6 +131,9 @@ async function createProduct() {
         name: newName.value.trim(),
         unit: newUnit.value.trim() || 'unit',
         priceKobo: nairaToKobo(newPriceNaira.value),
+        provenance: newProvenance.value,
+        category: newCategory.value,
+        familyBasketQuantity: newFamilyBasketQuantity.value,
         sortOrder: products.value.length + 1,
       }),
     })
@@ -106,6 +141,9 @@ async function createProduct() {
     newSku.value = ''
     newUnit.value = 'unit'
     newPriceNaira.value = ''
+    newProvenance.value = 'trovara_grown'
+    newCategory.value = 'fresh_from_trovara'
+    newFamilyBasketQuantity.value = 0
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('products.addFailed')
@@ -121,6 +159,9 @@ function openEdit(p: Product) {
   editUnit.value = p.unit
   editPriceNaira.value = p.priceKobo > 0 ? p.priceKobo / 100 : ''
   editActive.value = p.active
+  editProvenance.value = p.provenance
+  editCategory.value = p.category
+  editFamilyBasketQuantity.value = p.familyBasketQuantity
   editInventoryItemId.value = p.inventoryItemId ?? ''
 }
 
@@ -147,6 +188,9 @@ async function saveEdit() {
         unit: editUnit.value.trim() || 'unit',
         priceKobo: nairaToKobo(editPriceNaira.value),
         active: editActive.value,
+        provenance: editProvenance.value,
+        category: editCategory.value,
+        familyBasketQuantity: editFamilyBasketQuantity.value,
         inventoryItemId: editInventoryItemId.value || null,
       }),
     })
@@ -158,6 +202,54 @@ async function saveEdit() {
     savingEdit.value = false
   }
 }
+
+async function addDeliverySlot() {
+  if (!newDelivery.label.trim()) return
+  savingDelivery.value = true
+  error.value = null
+  try {
+    await api('/api/products/delivery-slots', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newDelivery,
+        label: newDelivery.label.trim(),
+        sortOrder: deliverySlots.value.length + 1,
+      }),
+    })
+    newDelivery.label = ''
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('products.deliverySaveFailed')
+  } finally {
+    savingDelivery.value = false
+  }
+}
+
+async function toggleDeliverySlot(slot: DeliverySlot) {
+  savingDelivery.value = true
+  error.value = null
+  try {
+    await api(`/api/products/delivery-slots/${slot.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active: !slot.active }),
+    })
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('products.deliverySaveFailed')
+  } finally {
+    savingDelivery.value = false
+  }
+}
+
+const dayNames = computed(() => [
+  t('products.sunday'),
+  t('products.monday'),
+  t('products.tuesday'),
+  t('products.wednesday'),
+  t('products.thursday'),
+  t('products.friday'),
+  t('products.saturday'),
+])
 
 async function deactivate(p: Product) {
   error.value = null
@@ -228,6 +320,118 @@ async function deactivate(p: Product) {
           {{ creating ? t('products.adding') : t('products.add') }}
         </button>
       </div>
+      <div class="mt-3 grid gap-3 sm:grid-cols-3">
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.provenance') }}</span>
+          <select
+            v-model="newProvenance"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="trovara_grown">{{ t('products.trovaraGrown') }}</option>
+            <option value="trovara_sourced">{{ t('products.trovaraSourced') }}</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.category') }}</span>
+          <input
+            v-model="newCategory"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.familyBasketQuantity') }}</span>
+          <input
+            v-model.number="newFamilyBasketQuantity"
+            type="number"
+            min="0"
+            step="1"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <span class="mt-1 block text-[11px] text-slate-500">{{ t('products.familyBasketHint') }}</span>
+        </label>
+      </div>
+    </CollapsibleSection>
+
+    <CollapsibleSection
+      class="mt-4"
+      :title="t('products.deliveryDays')"
+      :default-open="false"
+      test-id="products-delivery-section"
+    >
+      <p class="mb-4 text-sm text-slate-400">{{ t('products.deliveryDaysHint') }}</p>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_auto]">
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.deliveryLabel') }}</span>
+          <input
+            v-model="newDelivery.label"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.deliveryDay') }}</span>
+          <select
+            v-model.number="newDelivery.dayOfWeek"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option v-for="(day, index) in dayNames" :key="day" :value="index">{{ day }}</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.startTime') }}</span>
+          <input
+            v-model="newDelivery.startTime"
+            type="time"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.endTime') }}</span>
+          <input
+            v-model="newDelivery.endTime"
+            type="time"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-400">{{ t('products.cutoffHours') }}</span>
+          <input
+            v-model.number="newDelivery.cutoffHours"
+            type="number"
+            min="0"
+            class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <button
+          :disabled="savingDelivery || !newDelivery.label.trim()"
+          class="self-end px-4 py-2 rounded-lg bg-farm-green/20 text-farm-green text-sm font-semibold hover:bg-farm-green/30 disabled:opacity-40"
+          @click="addDeliverySlot"
+        >
+          {{ t('products.addDeliveryDay') }}
+        </button>
+      </div>
+      <div v-if="deliverySlots.length" class="mt-4 grid gap-2 sm:grid-cols-2">
+        <div
+          v-for="slot in deliverySlots"
+          :key="slot.id"
+          class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"
+          :class="{ 'opacity-50': !slot.active }"
+        >
+          <div>
+            <p class="font-semibold text-white">{{ slot.label }}</p>
+            <p class="text-xs text-slate-400">
+              {{ dayNames[slot.dayOfWeek] }} · {{ slot.startTime }}–{{ slot.endTime }} ·
+              {{ slot.cutoffHours }}h {{ t('products.cutoffHours').toLowerCase() }}
+            </p>
+          </div>
+          <button
+            class="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
+            :disabled="savingDelivery"
+            @click="toggleDeliverySlot(slot)"
+          >
+            {{ slot.active ? t('products.disable') : t('products.enable') }}
+          </button>
+        </div>
+      </div>
     </CollapsibleSection>
 
     <div v-if="loading" class="mt-8 text-slate-400">{{ t('products.loading') }}</div>
@@ -251,6 +455,12 @@ async function deactivate(p: Product) {
           <p class="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-farm-green">{{ p.sku }}</p>
           <p class="text-xs text-slate-400 mt-0.5">
             {{ priceLabel(p) }} <span class="text-slate-600">/ {{ p.unit }}</span>
+          </p>
+          <p class="mt-1 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
+            {{ p.provenance === 'trovara_sourced' ? t('products.trovaraSourced') : t('products.trovaraGrown') }}
+          </p>
+          <p v-if="p.familyBasketQuantity > 0" class="mt-1 text-[11px] text-farm-green">
+            {{ t('products.familyBasketIncluded', { quantity: p.familyBasketQuantity, unit: p.unit }) }}
           </p>
           <p class="text-[11px] mt-1" :class="p.inventoryItemId ? 'text-farm-green' : 'text-slate-600'">
             <template v-if="p.inventoryItemId">
@@ -324,6 +534,33 @@ async function deactivate(p: Product) {
               type="number"
               min="0"
               step="0.01"
+              class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </label>
+          <label class="block">
+            <span class="text-xs text-slate-400">{{ t('products.provenance') }}</span>
+            <select
+              v-model="editProvenance"
+              class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="trovara_grown">{{ t('products.trovaraGrown') }}</option>
+              <option value="trovara_sourced">{{ t('products.trovaraSourced') }}</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-xs text-slate-400">{{ t('products.category') }}</span>
+            <input
+              v-model="editCategory"
+              class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </label>
+          <label class="block">
+            <span class="text-xs text-slate-400">{{ t('products.familyBasketQuantity') }}</span>
+            <input
+              v-model.number="editFamilyBasketQuantity"
+              type="number"
+              min="0"
+              step="1"
               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
             />
           </label>

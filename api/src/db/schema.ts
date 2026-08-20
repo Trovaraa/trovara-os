@@ -1897,6 +1897,30 @@ export const harvestLots = pgTable('harvest_lots', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+// Delivery windows configured in Trovara OS and shown verbatim at customer
+// checkout. `day_of_week` follows JavaScript/PostgreSQL convention (0=Sunday).
+export const shopDeliverySlots = pgTable(
+  'shop_delivery_slots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    label: text('label').notNull(),
+    dayOfWeek: integer('day_of_week').notNull(),
+    startTime: text('start_time').notNull(),
+    endTime: text('end_time').notNull(),
+    cutoffHours: integer('cutoff_hours').default(24).notNull(),
+    active: boolean('active').default(true).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('shop_delivery_slots_farm_active_idx').on(t.farmId, t.active, t.sortOrder),
+    check('shop_delivery_slots_day_check', sql`${t.dayOfWeek} between 0 and 6`),
+    check('shop_delivery_slots_cutoff_check', sql`${t.cutoffHours} between 0 and 336`),
+  ],
+)
+
 export const orders = pgTable(
   'orders',
   {
@@ -1916,6 +1940,10 @@ export const orders = pgTable(
     customerContactId: uuid('customer_contact_id').references(() => customerContacts.id),
     source: text('source').default('staff').notNull(),
     notes: text('notes'),
+    deliverySlotId: uuid('delivery_slot_id').references(() => shopDeliverySlots.id, {
+      onDelete: 'set null',
+    }),
+    deliveryDate: date('delivery_date'),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     deliveryPhotoUrl: text('delivery_photo_url'),
@@ -1951,12 +1979,25 @@ export const products = pgTable(
     unit: text('unit').default('unit').notNull(),
     priceKobo: integer('price_kobo').default(0).notNull(),
     currency: text('currency').default('NGN').notNull(),
+    description: text('description'),
+    category: text('category').default('fresh_from_trovara').notNull(),
+    provenance: text('provenance').default('trovara_grown').notNull(),
+    // Minimum quantity included when a customer starts a Family Basket. Zero
+    // means the product is available only as an optional add-on.
+    familyBasketQuantity: integer('family_basket_quantity').default(0).notNull(),
     active: boolean('active').default(true).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex('products_farm_sku_uq').on(t.farmId, t.sku)],
+  (t) => [
+    uniqueIndex('products_farm_sku_uq').on(t.farmId, t.sku),
+    check(
+      'products_provenance_check',
+      sql`${t.provenance} in ('trovara_grown', 'trovara_sourced')`,
+    ),
+    check('products_family_basket_quantity_check', sql`${t.familyBasketQuantity} >= 0`),
+  ],
 )
 
 // Customer-facing shop identity. This is deliberately separate from staff
@@ -2161,6 +2202,40 @@ export const orderItems = pgTable('order_items', {
   quantity: integer('quantity').notNull(),
   lineTotalKobo: integer('line_total_kobo').default(0).notNull(),
 })
+
+// A recurring basket is a saved proposal, never an automatic charge. Each due
+// basket must be reviewed and submitted through the normal checkout endpoint.
+export const customerRecurringOrders = pgTable(
+  'customer_recurring_orders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    accountId: uuid('account_id')
+      .references(() => customerAccounts.id, { onDelete: 'cascade' })
+      .notNull(),
+    frequency: text('frequency').notNull(),
+    items: jsonb('items')
+      .$type<Array<{ productId: string; quantity: number }>>()
+      .notNull(),
+    deliverySlotId: uuid('delivery_slot_id').references(() => shopDeliverySlots.id, {
+      onDelete: 'set null',
+    }),
+    address: text('address').notNull(),
+    phone: text('phone'),
+    nextCheckoutAt: timestamp('next_checkout_at', { withTimezone: true }).notNull(),
+    active: boolean('active').default(true).notNull(),
+    lastOrderId: uuid('last_order_id').references(() => orders.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('customer_recurring_orders_account_idx').on(t.accountId, t.active, t.nextCheckoutAt),
+    check(
+      'customer_recurring_orders_frequency_check',
+      sql`${t.frequency} in ('weekly', 'fortnightly', 'monthly')`,
+    ),
+  ],
+)
 
 // Paystack (and future providers) payment attempts for an order. Status is kept
 // separate from fulfilment (`orders.status`). Amounts are always kobo.
