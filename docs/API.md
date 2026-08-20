@@ -602,9 +602,10 @@ Customer WhatsApp/Telegram order conversations also accept `4`, `complaint`,
 
 | Method | Path | Auth | Roles | Response |
 |--------|------|------|-------|----------|
-| GET | `/api/finance/` | Yes | owner | `{ expenses[] }` |
-| GET | `/api/finance/summary` | Yes | owner | `{ summary }` |
-| POST | `/api/finance/` | Yes | owner | `{ expense }` |
+| GET | `/api/finance/` | Yes | owner | `{ expenses[] }`; optional `entityCode=001|002` filter |
+| GET | `/api/finance/summary` | Yes | owner | `{ summary }`; optional `entityCode=001|002` filter, omitted for consolidated reporting |
+| GET | `/api/finance/entities` | Yes | owner | Legal-entity catalogue: `001` Green Frontier (parent), `002` Trovara (child) |
+| POST | `/api/finance/` | Yes | owner | `{ expense }`; `entityCode` is required and is separate from `costCentreCode` |
 | PATCH | `/api/finance/:id` | Yes | owner | `{ expense }` |
 | DELETE | `/api/finance/:id` | Yes | owner | `{ ok: true }` |
 | POST | `/api/finance/imports/inspect` | Yes | `finance.write` | List workbook sheets, suggested classifications, row counts, and a detected ledger total |

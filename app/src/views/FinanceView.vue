@@ -12,9 +12,16 @@ const auth = useAuthStore()
 
 type ExpenseLabel = { id: string; name: string; slug: string }
 type CostCentre = { code: string; name: string; covers: string }
+type FinanceEntity = {
+  code: '001' | '002'
+  name: string
+  relationship: 'parent' | 'child'
+  parentCode: '001' | null
+}
 
 type Expense = {
   id: string
+  entityCode: '001' | '002'
   costCentreCode?: string | null
   category: string
   description: string
@@ -40,6 +47,7 @@ type Expense = {
 
 type Summary = {
   generatedAt: string
+  entityScope: { code: string; name: string; relationship: string; parentCode: string | null }
   currency: string
   revenue: number
   deliveredRevenue: number
@@ -76,12 +84,14 @@ const CATEGORIES = [
 const expenses = ref<Expense[]>([])
 const labels = ref<ExpenseLabel[]>([])
 const costCentres = ref<CostCentre[]>([])
+const entities = ref<FinanceEntity[]>([])
 const summary = ref<Summary | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const labelFilter = ref('')
 const costCentreFilter = ref('')
+const entityFilter = ref<'consolidated' | '001' | '002'>('consolidated')
 const editingId = ref<string | null>(null)
 const showForm = ref(false)
 const showImport = ref(false)
@@ -99,6 +109,7 @@ const visibleExpenses = computed(() =>
 )
 
 const form = ref({
+  entityCode: '002' as '001' | '002',
   costCentreCode: '',
   category: 'other' as (typeof CATEGORIES)[number],
   description: '',
@@ -137,6 +148,14 @@ function costCentreCovers(costCentre: CostCentre) {
   const key = `finance.costCentreCovers.${costCentre.code}`
   const translated = t(key)
   return translated !== key ? translated : costCentre.covers
+}
+
+function entityName(code: string) {
+  return entities.value.find((entity) => entity.code === code)?.name ?? code
+}
+
+function entityRelationship(entity: FinanceEntity) {
+  return t(entity.relationship === 'parent' ? 'finance.parentEntity' : 'finance.childEntity')
 }
 
 function formatAmount(amount: number, currency = 'NGN') {
@@ -244,6 +263,7 @@ async function deleteExpense(expense: Expense) {
 function resetForm() {
   editingId.value = null
   form.value = {
+    entityCode: '002',
     costCentreCode: '',
     category: 'other',
     description: '',
@@ -267,6 +287,7 @@ function startEdit(expense: Expense) {
   editingId.value = expense.id
   showForm.value = true
   form.value = {
+    entityCode: expense.entityCode,
     costCentreCode: expense.costCentreCode ?? '',
     category: (CATEGORIES.includes(expense.category as (typeof CATEGORIES)[number])
       ? expense.category
@@ -289,12 +310,14 @@ async function load() {
     const search = new URLSearchParams()
     if (labelFilter.value) search.set('labelId', labelFilter.value)
     if (costCentreFilter.value) search.set('costCentreCode', costCentreFilter.value)
+    if (entityFilter.value !== 'consolidated') search.set('entityCode', entityFilter.value)
     const query = search.size ? `?${search.toString()}` : ''
-    const [expenseData, summaryData, labelData, costCentreData] = await Promise.all([
+    const [expenseData, summaryData, labelData, costCentreData, entityData] = await Promise.all([
       api<{ expenses: Expense[] }>(`/api/finance${query}`),
       api<{ summary: Summary }>(`/api/finance/summary${query}`),
       api<{ labels: ExpenseLabel[] }>('/api/finance/labels'),
       api<{ costCentres: CostCentre[] }>('/api/finance/cost-centres'),
+      api<{ entities: FinanceEntity[] }>('/api/finance/entities'),
     ])
     if (requestId !== loadRequestId) return
     expenses.value = expenseData.expenses
@@ -302,6 +325,7 @@ async function load() {
     summary.value = summaryData.summary
     labels.value = labelData.labels
     costCentres.value = costCentreData.costCentres
+    entities.value = entityData.entities
   } catch (e) {
     if (requestId !== loadRequestId) return
     error.value = e instanceof Error ? e.message : t('finance.loadFailed')
@@ -319,6 +343,7 @@ async function saveExpense() {
     if (!Number.isFinite(amount) || amount < 0) throw new Error(t('finance.invalidAmount'))
     if (!form.value.costCentreCode) throw new Error(t('finance.costCentreRequired'))
     const payload = {
+      entityCode: form.value.entityCode,
       costCentreCode: form.value.costCentreCode,
       category: form.value.category,
       description: form.value.description.trim(),
@@ -392,6 +417,18 @@ onMounted(load)
         <p class="text-slate-400 text-sm mt-1">{{ t('finance.subtitle') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <label class="sr-only" for="finance-entity-filter">{{ t('finance.entity') }}</label>
+        <select
+          id="finance-entity-filter"
+          v-model="entityFilter"
+          class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-200"
+          @change="load"
+        >
+          <option value="consolidated">{{ t('finance.consolidatedEntities') }}</option>
+          <option v-for="entity in entities" :key="entity.code" :value="entity.code">
+            {{ entity.code }} · {{ entity.name }} ({{ entityRelationship(entity) }})
+          </option>
+        </select>
         <button
           v-if="canWrite"
           type="button"
@@ -451,6 +488,7 @@ onMounted(load)
         v-if="activeSection === 'expenses' && showImport && canWrite"
         class="mt-6"
         :cost-centres="costCentres"
+        :entities="entities"
         :categories="CATEGORIES"
         @imported="load"
       />
@@ -462,6 +500,18 @@ onMounted(load)
           {{ editingId ? t('finance.editExpense') : t('finance.addExpense') }}
         </h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label class="text-sm text-slate-400 space-y-1">
+            <span>{{ t('finance.entity') }}</span>
+            <select
+              v-model="form.entityCode"
+              required
+              class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
+            >
+              <option v-for="entity in entities" :key="entity.code" :value="entity.code">
+                {{ entity.code }} · {{ entity.name }} ({{ entityRelationship(entity) }})
+              </option>
+            </select>
+          </label>
           <label class="text-sm text-slate-400 space-y-1 md:col-span-2">
             <span>{{ t('finance.costCentre') }}</span>
             <select
@@ -835,158 +885,181 @@ onMounted(load)
             :key="expense.id"
             class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4"
           >
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {{ formatDate(expense.expenseDate) }} · {{ t(`finance.categories.${expense.category}`) }}
                 </p>
-                <h4 class="mt-1 break-words font-bold text-white">{{ expense.description }}</h4>
-                <p
-                  class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-semibold"
-                  :class="expense.costCentreCode ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/10 text-amber-300'"
-                >
-                  {{ expense.costCentreCode ? `${expense.costCentreCode} · ${costCentreName(expense.costCentreCode)}` : costCentreName(null) }}
+                <p class="mt-1 text-xs font-bold text-farm-green">
+                  {{ expense.entityCode }} · {{ entityName(expense.entityCode) }}
                 </p>
               </div>
-              <div class="shrink-0 text-right">
-                <p class="font-mono text-sm font-bold text-red-300">
-                  {{ formatAmount(expense.amount, expense.currency) }}
-                </p>
-                <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
-                  {{ t('finance.convertedFrom', {
-                    amount: formatAmount(Number(expense.originalAmount), expense.originalCurrency),
-                  }) }}
-                </p>
-              </div>
+              <span
+                class="inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold"
+                :class="statusClasses(expense.approvalStatus)"
+              >
+                {{ statusLabel(expense.approvalStatus) }}
+              </span>
             </div>
 
-            <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <div>
-                <dt class="text-xs text-slate-500">{{ t('finance.vendor') }}</dt>
-                <dd class="mt-1 break-words text-slate-300">{{ expense.vendor ?? '—' }}</dd>
-              </div>
-              <div v-if="expense.source === 'inbound_email'" class="col-span-2">
-                <dt class="text-xs text-slate-500">{{ t('finance.inboundSender') }}</dt>
-                <dd class="mt-1 break-words text-slate-300">
-                  <template v-if="expense.inboundSenderEmail">
-                    <span v-if="expense.inboundSenderName">{{ expense.inboundSenderName }} · </span>
-                    {{ expense.inboundSenderEmail }}
-                  </template>
-                  <span v-else class="text-slate-500">{{ t('finance.inboundSenderUnknown') }}</span>
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-slate-500">{{ t('finance.approvalStatus') }}</dt>
-                <dd class="mt-1">
-                  <span
-                    class="inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold"
-                    :class="statusClasses(expense.approvalStatus)"
-                  >
-                    {{ statusLabel(expense.approvalStatus) }}
-                  </span>
-                </dd>
-              </div>
-              <div v-if="isInboundAttachment(expense)" class="col-span-2">
-                <dt class="text-xs text-slate-500">{{ t('finance.extraction') }}</dt>
-                <dd class="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                  <span class="font-semibold text-slate-300">
-                    {{ extractionStatusLabel(expense.extractionStatus) }}
-                  </span>
-                  <span class="text-slate-500">
-                    {{ extractionMethodLabel(expense.extractionMethod) }}
-                  </span>
-                </dd>
-              </div>
-              <div class="col-span-2">
-                <dt class="text-xs text-slate-500">{{ t('finance.labels') }}</dt>
-                <dd class="mt-1 flex flex-wrap gap-1.5">
-                  <span v-if="!(expense.labels ?? []).length" class="text-slate-500">—</span>
-                  <span
-                    v-for="label in expense.labels ?? []"
-                    :key="label.id"
-                    class="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300"
-                  >
-                    {{ label.name }}
-                  </span>
-                </dd>
-              </div>
-            </dl>
-
-            <div
-              v-if="expense.hasAttachment || hasExpenseActions"
-              class="mt-4 flex items-center justify-end gap-3 border-t border-slate-800 pt-3"
+            <h4
+              class="mt-2 break-words text-base font-bold leading-6 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden"
             >
-              <a
-                v-if="expense.hasAttachment"
-                :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
-                target="_blank"
-                rel="noopener"
-                class="min-h-9 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-farm-green"
+              {{ expense.description }}
+            </h4>
+            <p class="mt-3 font-mono text-2xl font-black tracking-tight text-red-300">
+              {{ formatAmount(expense.amount, expense.currency) }}
+            </p>
+            <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
+              {{ t('finance.convertedFrom', {
+                amount: formatAmount(Number(expense.originalAmount), expense.originalCurrency),
+              }) }}
+            </p>
+            <p
+              class="mt-3 inline-flex max-w-full rounded-md px-2 py-1 text-xs font-semibold"
+              :class="expense.costCentreCode ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/10 text-amber-300'"
+            >
+              <span class="truncate">
+                {{ expense.costCentreCode ? `${expense.costCentreCode} · ${costCentreName(expense.costCentreCode)}` : costCentreName(null) }}
+              </span>
+            </p>
+
+            <button
+              v-if="canWrite && expense.currency !== 'NGN'"
+              type="button"
+              class="mt-4 min-h-11 w-full rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 text-sm font-bold text-blue-300 disabled:opacity-50"
+              :disabled="updatingIds.has(expense.id)"
+              data-testid="mobile-primary-action"
+              @click="convertCurrency(expense)"
+            >
+              {{ t('finance.convertToNgn') }}
+            </button>
+            <button
+              v-else-if="canWrite && expense.approvalStatus === 'pending' && !expense.costCentreCode"
+              type="button"
+              class="mt-4 min-h-11 w-full rounded-xl bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-300"
+              data-testid="mobile-primary-action"
+              @click="startEdit(expense)"
+            >
+              {{ t('finance.assignCostCentre') }}
+            </button>
+            <button
+              v-else-if="canWrite && expense.approvalStatus === 'pending'"
+              type="button"
+              class="mt-4 min-h-11 w-full rounded-xl bg-farm-green/15 px-4 py-2.5 text-sm font-bold text-farm-green disabled:opacity-50"
+              :disabled="updatingIds.has(expense.id)"
+              data-testid="mobile-primary-action"
+              @click="updateStatus(expense, 'approved')"
+            >
+              {{ t('finance.approve') }}
+            </button>
+
+            <details class="group mt-3 border-t border-slate-800 pt-3">
+              <summary
+                class="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl border border-slate-700 px-3 py-2.5 text-sm font-bold text-slate-300 [&::-webkit-details-marker]:hidden"
               >
-                {{ t('finance.attachment') }}
-              </a>
-              <button
-                v-if="canRetryExtraction && isInboundAttachment(expense) && expense.approvalStatus === 'pending'"
-                type="button"
-                class="min-h-9 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300 disabled:opacity-50"
-                :disabled="retryingExtractionIds.has(expense.id)"
-                @click="retryExtraction(expense)"
-              >
-                {{ retryingExtractionIds.has(expense.id) ? t('finance.retryingExtraction') : t('finance.retryExtraction') }}
-              </button>
-              <button
-                v-if="canWrite && expense.currency !== 'NGN'"
-                type="button"
-                class="min-h-9 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300 disabled:opacity-50"
-                :disabled="updatingIds.has(expense.id)"
-                @click="convertCurrency(expense)"
-              >
-                {{ t('finance.convertToNgn') }}
-              </button>
-              <button
-                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && expense.costCentreCode"
-                type="button"
-                class="min-h-9 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green disabled:opacity-50"
-                :disabled="updatingIds.has(expense.id)"
-                @click="updateStatus(expense, 'approved')"
-              >
-                {{ t('finance.approve') }}
-              </button>
-              <button
-                v-if="canWrite && expense.approvalStatus === 'pending' && expense.currency === 'NGN' && !expense.costCentreCode"
-                type="button"
-                class="min-h-9 rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300"
-                @click="startEdit(expense)"
-              >
-                {{ t('finance.assignCostCentre') }}
-              </button>
-              <button
-                v-if="canWrite && expense.approvalStatus === 'pending'"
-                type="button"
-                class="min-h-9 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-50"
-                :disabled="updatingIds.has(expense.id)"
-                @click="updateStatus(expense, 'rejected')"
-              >
-                {{ t('finance.reject') }}
-              </button>
-              <button
-                v-if="canWrite"
-                type="button"
-                class="min-h-9 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green"
-                @click="startEdit(expense)"
-              >
-                {{ t('finance.edit') }}
-              </button>
-              <button
-                v-if="canDelete"
-                type="button"
-                class="min-h-9 rounded-lg px-3 py-2 text-xs font-bold text-red-400 disabled:opacity-50"
-                :disabled="updatingIds.has(expense.id)"
-                @click="deleteExpense(expense)"
-              >
-                {{ t('finance.delete') }}
-              </button>
-            </div>
+                <span>{{ t('finance.detailsAndActions') }}</span>
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+
+              <div class="mt-3 rounded-xl bg-slate-950/40 p-3">
+                <dl class="space-y-3 text-sm">
+                  <div>
+                    <dt class="text-xs text-slate-500">{{ t('finance.vendor') }}</dt>
+                    <dd class="mt-1 break-words text-slate-300">{{ expense.vendor ?? '—' }}</dd>
+                  </div>
+                  <div v-if="expense.source === 'inbound_email'">
+                    <dt class="text-xs text-slate-500">{{ t('finance.inboundSender') }}</dt>
+                    <dd class="mt-1 break-all text-slate-300">
+                      <template v-if="expense.inboundSenderEmail">
+                        <span v-if="expense.inboundSenderName">{{ expense.inboundSenderName }} · </span>
+                        {{ expense.inboundSenderEmail }}
+                      </template>
+                      <span v-else class="text-slate-500">{{ t('finance.inboundSenderUnknown') }}</span>
+                    </dd>
+                  </div>
+                  <div v-if="isInboundAttachment(expense)">
+                    <dt class="text-xs text-slate-500">{{ t('finance.extraction') }}</dt>
+                    <dd class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                      <span class="font-semibold text-slate-300">
+                        {{ extractionStatusLabel(expense.extractionStatus) }}
+                      </span>
+                      <span class="text-slate-500">
+                        {{ extractionMethodLabel(expense.extractionMethod) }}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs text-slate-500">{{ t('finance.labels') }}</dt>
+                    <dd class="mt-1 flex flex-wrap gap-1.5">
+                      <span v-if="!(expense.labels ?? []).length" class="text-slate-500">—</span>
+                      <span
+                        v-for="label in expense.labels ?? []"
+                        :key="label.id"
+                        class="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300"
+                      >
+                        {{ label.name }}
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
+
+                <div v-if="expense.hasAttachment || hasExpenseActions" class="mt-4 grid grid-cols-2 gap-2">
+                  <a
+                    v-if="expense.hasAttachment"
+                    :href="resolveApiUrl(`/api/finance/${expense.id}/attachment`)"
+                    target="_blank"
+                    rel="noopener"
+                    class="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-700 px-3 py-2 text-center text-xs font-semibold text-farm-green"
+                  >
+                    {{ t('finance.attachment') }}
+                  </a>
+                  <button
+                    v-if="canRetryExtraction && isInboundAttachment(expense) && expense.approvalStatus === 'pending'"
+                    type="button"
+                    class="min-h-11 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300 disabled:opacity-50"
+                    :disabled="retryingExtractionIds.has(expense.id)"
+                    @click="retryExtraction(expense)"
+                  >
+                    {{ retryingExtractionIds.has(expense.id) ? t('finance.retryingExtraction') : t('finance.retryExtraction') }}
+                  </button>
+                  <button
+                    v-if="canWrite && expense.approvalStatus === 'pending'"
+                    type="button"
+                    class="min-h-11 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-50"
+                    :disabled="updatingIds.has(expense.id)"
+                    @click="updateStatus(expense, 'rejected')"
+                  >
+                    {{ t('finance.reject') }}
+                  </button>
+                  <button
+                    v-if="canWrite"
+                    type="button"
+                    class="min-h-11 rounded-lg bg-farm-green/15 px-3 py-2 text-xs font-bold text-farm-green"
+                    @click="startEdit(expense)"
+                  >
+                    {{ t('finance.edit') }}
+                  </button>
+                  <button
+                    v-if="canDelete"
+                    type="button"
+                    class="min-h-11 rounded-lg border border-red-500/20 px-3 py-2 text-xs font-bold text-red-400 disabled:opacity-50"
+                    :disabled="updatingIds.has(expense.id)"
+                    @click="deleteExpense(expense)"
+                  >
+                    {{ t('finance.delete') }}
+                  </button>
+                </div>
+              </div>
+            </details>
           </article>
         </div>
 
@@ -1021,6 +1094,9 @@ onMounted(load)
                   :class="expense.costCentreCode ? 'text-slate-400' : 'text-amber-300'"
                 >
                   {{ expense.costCentreCode ? `${expense.costCentreCode} · ${costCentreName(expense.costCentreCode)}` : costCentreName(null) }}
+                </p>
+                <p class="mt-1 text-xs font-bold text-farm-green">
+                  {{ expense.entityCode }} · {{ entityName(expense.entityCode) }}
                 </p>
                 <a
                   v-if="expense.hasAttachment"

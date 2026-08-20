@@ -40,6 +40,12 @@ import {
   isCostCentreCode,
 } from '../lib/cost-centres.js'
 import {
+  FINANCE_ENTITIES,
+  FINANCE_ENTITY_CODES,
+  isFinanceEntityCode,
+  type FinanceEntityCode,
+} from '../lib/finance-entities.js'
+import {
   createFinanceImportToken,
   financeImportFingerprint,
   IMPORT_CATEGORIES,
@@ -61,6 +67,7 @@ const EXPENSE_CATEGORIES = [
 ] as const
 
 const createExpenseSchema = z.object({
+  entityCode: z.enum(FINANCE_ENTITY_CODES),
   costCentreCode: z.enum(COST_CENTRE_CODES),
   category: z.enum(EXPENSE_CATEGORIES),
   description: z.string().min(1).max(500),
@@ -93,6 +100,7 @@ const financeImportRowSchema = z.object({
   fundingStatus: z.string().trim().max(50),
   projectPhase: z.string().trim().max(200),
   receiptRef: z.string().trim().max(200),
+  entityCode: z.enum(FINANCE_ENTITY_CODES),
   costCentreCode: z.enum(COST_CENTRE_CODES),
 })
 
@@ -310,6 +318,12 @@ financeRoutes.get('/cost-centres', async (c) => {
   return c.json({ costCentres: COST_CENTRES })
 })
 
+financeRoutes.get('/entities', async (c) => {
+  const user = requireFinanceAccess(c.get('user'))
+  if (!user) return c.json({ error: 'Forbidden' }, 403)
+  return c.json({ entities: FINANCE_ENTITIES })
+})
+
 financeRoutes.post('/imports/inspect', async (c) => {
   const user = requireFinanceAccess(c.get('user'))
   if (!user || !hasPermission(user, 'finance.write')) return c.json({ error: 'Forbidden' }, 403)
@@ -410,6 +424,7 @@ financeRoutes.post('/imports/commit', zValidator('json', financeImportCommitSche
       const canonical = await canonicalDescription(row.description, user.farmId, authorLocale)
       values.push({
         farmId: user.farmId,
+        entityCode: row.entityCode,
         costCentreCode: row.costCentreCode,
         category: row.category,
         description: canonical.english ?? row.description,
@@ -509,6 +524,12 @@ financeRoutes.get('/', async (c) => {
 
   const labelFilter = c.req.query('labelId')
   const costCentreFilter = c.req.query('costCentreCode')
+  const entityFilter = c.req.query('entityCode')
+  if (entityFilter && entityFilter !== 'consolidated' && !isFinanceEntityCode(entityFilter)) {
+    return c.json({ error: 'Invalid entity' }, 400)
+  }
+  const selectedEntityCode: FinanceEntityCode | null =
+    entityFilter && entityFilter !== 'consolidated' ? entityFilter as FinanceEntityCode : null
   if (
     costCentreFilter &&
     costCentreFilter !== 'unassigned' &&
@@ -531,9 +552,11 @@ financeRoutes.get('/', async (c) => {
     .select()
     .from(expenses)
     .where(
-      expenseIdsFilter
-        ? and(eq(expenses.farmId, user.farmId), inArray(expenses.id, expenseIdsFilter))
-        : eq(expenses.farmId, user.farmId),
+      and(
+        eq(expenses.farmId, user.farmId),
+        ...(selectedEntityCode ? [eq(expenses.entityCode, selectedEntityCode)] : []),
+        ...(expenseIdsFilter ? [inArray(expenses.id, expenseIdsFilter)] : []),
+      ),
     )
     .orderBy(desc(expenses.expenseDate))
 
@@ -564,6 +587,12 @@ financeRoutes.get('/summary', async (c) => {
 
   const labelFilter = c.req.query('labelId')
   const costCentreFilter = c.req.query('costCentreCode')
+  const entityFilter = c.req.query('entityCode')
+  if (entityFilter && entityFilter !== 'consolidated' && !isFinanceEntityCode(entityFilter)) {
+    return c.json({ error: 'Invalid entity' }, 400)
+  }
+  const selectedEntityCode: FinanceEntityCode | null =
+    entityFilter && entityFilter !== 'consolidated' ? entityFilter as FinanceEntityCode : null
   if (
     costCentreFilter &&
     costCentreFilter !== 'unassigned' &&
@@ -581,16 +610,24 @@ financeRoutes.get('/summary', async (c) => {
           and(
             eq(orders.farmId, user.farmId),
             inArray(orders.status, ['confirmed', 'dispatched', 'delivered']),
+            ...(selectedEntityCode ? [eq(orders.entityCode, selectedEntityCode)] : []),
           ),
         ),
-      db.select().from(expenses).where(eq(expenses.farmId, user.farmId)),
+      db.select().from(expenses).where(and(
+        eq(expenses.farmId, user.farmId),
+        ...(selectedEntityCode ? [eq(expenses.entityCode, selectedEntityCode)] : []),
+      )),
       db
         .select({
           totalKobo: sql<number>`coalesce(sum(${paymentAttempts.amountKobo}), 0)`,
         })
         .from(paymentAttempts)
         .where(
-          and(eq(paymentAttempts.farmId, user.farmId), eq(paymentAttempts.status, 'success')),
+          and(
+            eq(paymentAttempts.farmId, user.farmId),
+            eq(paymentAttempts.status, 'success'),
+            ...(selectedEntityCode ? [eq(paymentAttempts.entityCode, selectedEntityCode)] : []),
+          ),
         ),
       db
         .select({
@@ -598,18 +635,28 @@ financeRoutes.get('/summary', async (c) => {
           currency: orders.currency,
         })
         .from(orders)
-        .where(and(eq(orders.farmId, user.farmId), eq(orders.paymentStatus, 'unpaid'))),
+        .where(and(
+          eq(orders.farmId, user.farmId),
+          eq(orders.paymentStatus, 'unpaid'),
+          ...(selectedEntityCode ? [eq(orders.entityCode, selectedEntityCode)] : []),
+        )),
       db
         .select({
           amountKobo: paymentRefunds.amountKobo,
           status: paymentRefunds.status,
         })
         .from(paymentRefunds)
-        .where(eq(paymentRefunds.farmId, user.farmId)),
+        .where(and(
+          eq(paymentRefunds.farmId, user.farmId),
+          ...(selectedEntityCode ? [eq(paymentRefunds.entityCode, selectedEntityCode)] : []),
+        )),
       db
         .select({ total: sql<number>`count(*)::int` })
         .from(invoices)
-        .where(eq(invoices.farmId, user.farmId)),
+        .where(and(
+          eq(invoices.farmId, user.farmId),
+          ...(selectedEntityCode ? [eq(invoices.entityCode, selectedEntityCode)] : []),
+        )),
       db
         .select({
           expenseId: expenseLabelLinks.expenseId,
@@ -620,7 +667,11 @@ financeRoutes.get('/summary', async (c) => {
         .from(expenseLabelLinks)
         .innerJoin(expenseLabels, eq(expenseLabelLinks.labelId, expenseLabels.id))
         .innerJoin(expenses, eq(expenseLabelLinks.expenseId, expenses.id))
-        .where(and(eq(expenses.farmId, user.farmId), eq(expenseLabels.farmId, user.farmId))),
+        .where(and(
+          eq(expenses.farmId, user.farmId),
+          eq(expenseLabels.farmId, user.farmId),
+          ...(selectedEntityCode ? [eq(expenses.entityCode, selectedEntityCode)] : []),
+        )),
     ])
 
   const labelScopedExpenses = filterAndGroupExpensesByLabel(
@@ -697,6 +748,9 @@ financeRoutes.get('/summary', async (c) => {
   return c.json({
     summary: {
       generatedAt: new Date().toISOString(),
+      entityScope: selectedEntityCode
+        ? FINANCE_ENTITIES.find((entity) => entity.code === selectedEntityCode)
+        : { code: 'consolidated', name: 'Green Frontier Group', relationship: 'consolidated', parentCode: null },
       currency: 'NGN',
       revenue,
       deliveredRevenue,
@@ -947,6 +1001,7 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
         .insert(expenses)
         .values({
           farmId: user.farmId,
+          entityCode: body.entityCode,
           costCentreCode: body.costCentreCode,
           category: body.category,
           description: canonical.english ?? body.description,
@@ -980,6 +1035,7 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
     entityId: expense.id,
     metadata: {
       category: expense.category,
+      entityCode: expense.entityCode,
       costCentreCode: expense.costCentreCode,
       amount: expense.amount,
     },
@@ -1031,6 +1087,7 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
   const authorLocale = authorLocaleHint(viewerLocale)
 
   const updates: Partial<typeof existing> = {}
+  if (body.entityCode !== undefined) updates.entityCode = body.entityCode
   if (body.costCentreCode !== undefined) updates.costCentreCode = body.costCentreCode
   if (body.category !== undefined) updates.category = body.category
   if (body.amount !== undefined) updates.amount = body.amount

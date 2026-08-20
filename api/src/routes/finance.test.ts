@@ -168,6 +168,7 @@ const ENGLISH_TO_FRENCH: Record<string, string> = {
 
 /** A create whose vendor, receipt reference and money must survive untouched. */
 const FRENCH_EXPENSE = {
+  entityCode: '002' as const,
   costCentreCode: 'CC01' as const,
   category: 'utilities' as const,
   description: 'Carburant pour le générateur pendant la panne',
@@ -182,6 +183,7 @@ function expenseRow(overrides: Row = {}): Row {
   return {
     id: 'expense-1',
     farmId: 'farm-1',
+    entityCode: '002',
     costCentreCode: 'CC01',
     category: 'utilities',
     description: 'Fuel for the generator during the outage',
@@ -666,6 +668,23 @@ describe('POST /finance/:id/retry-extraction', () => {
 })
 
 describe('GET /finance - viewer locale on read', () => {
+  it('returns the legal-entity catalogue with parent and child relationships', async () => {
+    const res = await (await app()).request('/finance/entities')
+    const body = (await res.json()) as { entities: Row[] }
+
+    expect(res.status).toBe(200)
+    expect(body.entities).toEqual([
+      { code: '001', name: 'Green Frontier', relationship: 'parent', parentCode: null },
+      { code: '002', name: 'Trovara', relationship: 'child', parentCode: '001' },
+    ])
+  })
+
+  it('rejects unknown legal-entity filters', async () => {
+    const res = await (await app()).request('/finance?entityCode=999')
+
+    expect(res.status).toBe(400)
+  })
+
   it('returns the stable cost-centre catalogue from the Finance workbook', async () => {
     const res = await (await app()).request('/finance/cost-centres')
     const body = (await res.json()) as { costCentres: Row[] }
@@ -924,6 +943,7 @@ describe('POST /finance/imports/commit - workbook controls', () => {
     fundingStatus: 'Unfunded',
     projectPhase: 'Pre 16/11',
     receiptRef: '',
+    entityCode: '002',
     costCentreCode: 'CC01',
   }
 

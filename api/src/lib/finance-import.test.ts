@@ -15,7 +15,7 @@ describe('finance transaction imports', () => {
     ].join('\n')
     const preview = await previewFinanceImport('history.csv', Buffer.from(csv))
     expect(preview.rows).toHaveLength(2)
-    expect(preview.rows[0]).toMatchObject({ sourceRecordId: '1', description: 'Poultry feed', amount: 125000, category: 'feed', costCentreCode: 'CC30', payer: 'Investors', fundingStatus: 'Funded', projectPhase: 'Farm preparation', issues: [] })
+    expect(preview.rows[0]).toMatchObject({ sourceRecordId: '1', description: 'Poultry feed', amount: 125000, category: 'feed', entityCode: '002', costCentreCode: 'CC30', payer: 'Investors', fundingStatus: 'Funded', projectPhase: 'Farm preparation', issues: [] })
     expect(preview.rows[1]?.issues).toContain('Choose a cost centre')
     expect(preview.rows[1]?.issues).toContain('Choose an expense category')
   })
@@ -27,8 +27,9 @@ describe('finance transaction imports', () => {
   })
 
   it('creates stable duplicate fingerprints', () => {
-    const row = { expenseDate: '2026-08-15T12:00:00.000Z', description: ' Feed ', amount: 100, currency: 'NGN', vendor: 'Ade Supplies', receiptRef: '' }
+    const row = { entityCode: '002' as const, expenseDate: '2026-08-15T12:00:00.000Z', description: ' Feed ', amount: 100, currency: 'NGN', vendor: 'Ade Supplies', receiptRef: '' }
     expect(financeImportFingerprint(row)).toBe(financeImportFingerprint({ ...row, description: 'feed' }))
     expect(financeImportFingerprint(row)).not.toBe(financeImportFingerprint({ ...row, amount: 101 }))
+    expect(financeImportFingerprint(row)).not.toBe(financeImportFingerprint({ ...row, entityCode: '001' }))
   })
 })

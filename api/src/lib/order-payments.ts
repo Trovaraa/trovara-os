@@ -212,6 +212,7 @@ export async function createPaymentAttemptForOrder(params: {
     .insert(paymentAttempts)
     .values({
       farmId: params.farmId,
+      entityCode: order.entityCode,
       orderId: params.orderId,
       provider: 'paystack',
       providerReference: reference,
@@ -343,6 +344,7 @@ export async function applySuccessfulPayment(params: {
       .insert(paymentAttempts)
       .values({
         farmId,
+        entityCode: order.entityCode,
         orderId,
         provider: 'paystack',
         providerReference: params.reference,
@@ -439,6 +441,7 @@ export async function applySuccessfulPayment(params: {
         .insert(invoices)
         .values({
           farmId: attempt.farmId,
+          entityCode: attempt.entityCode,
           orderId: attempt.orderId,
           invoiceNumber: `${prefix}${String(Number(row?.total ?? 0) + 1).padStart(5, '0')}`,
           currency: attempt.currency,
@@ -742,6 +745,7 @@ export async function initiateRefund(params: {
       .insert(paymentRefunds)
       .values({
         farmId: params.farmId,
+        entityCode: attempt.entityCode,
         paymentAttemptId: attempt.id,
         orderId: params.orderId,
         amountKobo,

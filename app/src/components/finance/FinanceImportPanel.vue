@@ -4,6 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { api } from '@/lib/api'
 
 type CostCentre = { code: string; name: string }
+type FinanceEntity = {
+  code: '001' | '002'
+  name: string
+  relationship: 'parent' | 'child'
+  parentCode: '001' | null
+}
 type SheetClassification = 'expenses' | 'budget' | 'contributions' | 'ignore'
 type ImportSheet = { name: string; suggestedClassification: SheetClassification; classification: SheetClassification; rowCount: number | null; detectedTotal: number | null }
 type ImportRow = {
@@ -24,13 +30,18 @@ type ImportRow = {
   fundingStatus: string
   projectPhase: string
   receiptRef: string
+  entityCode: '001' | '002' | ''
   costCentreCode: string
   issues: string[]
 }
 
-defineProps<{ costCentres: CostCentre[]; categories: readonly string[] }>()
+defineProps<{ costCentres: CostCentre[]; entities: FinanceEntity[]; categories: readonly string[] }>()
 const emit = defineEmits<{ imported: [] }>()
 const { t } = useI18n()
+
+function entityRelationship(entity: FinanceEntity) {
+  return t(entity.relationship === 'parent' ? 'finance.parentEntity' : 'finance.childEntity')
+}
 
 const file = ref<File | null>(null)
 const sheets = ref<ImportSheet[]>([])
@@ -51,7 +62,7 @@ const canPreview = computed(() => Boolean(file.value && sheets.value.length && h
 const money = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 })
 
 function isValid(row: ImportRow) {
-  return Boolean(row.expenseDate && row.description.trim() && row.category && row.costCentreCode && Number.isInteger(row.amount) && row.amount >= 0 && (!row.amountDerivedFromFormula || row.amountReviewed))
+  return Boolean(row.expenseDate && row.description.trim() && row.category && row.entityCode && row.costCentreCode && Number.isInteger(row.amount) && row.amount >= 0 && (!row.amountDerivedFromFormula || row.amountReviewed))
 }
 
 function choose(event: Event) {
@@ -216,6 +227,7 @@ async function commit() {
             <span v-if="row.included && !isValid(row)" class="text-xs font-semibold text-amber-300">{{ t('financeImport.attention') }}</span>
           </div>
           <div v-if="row.included" class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label class="text-xs text-slate-400">{{ t('financeImport.entity') }}<select v-model="row.entityCode" required class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white"><option value="">{{ t('financeImport.choose') }}</option><option v-for="entity in entities" :key="entity.code" :value="entity.code">{{ entity.code }} · {{ entity.name }} ({{ entityRelationship(entity) }})</option></select></label>
             <label class="text-xs text-slate-400">{{ t('financeImport.date') }}<input v-model="row.expenseDate" type="date" required class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white" /></label>
             <label class="text-xs text-slate-400">{{ t('financeImport.amount') }}<input v-model.number="row.amount" type="number" min="0" step="1" required class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white" /></label>
             <label class="text-xs text-slate-400">{{ t('financeImport.category') }}<select v-model="row.category" required class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white"><option value="">{{ t('financeImport.choose') }}</option><option v-for="category in categories" :key="category" :value="category">{{ category }}</option></select></label>
