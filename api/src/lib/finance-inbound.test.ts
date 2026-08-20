@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  isAllowedInboundDownloadUrl,
   isFinanceInboundRecipient,
   processFinanceInboundWebhook,
 } from './finance-inbound.js'
@@ -357,6 +358,59 @@ describe('processFinanceInboundWebhook', () => {
     expect(insertedValues).toHaveLength(1)
   })
 
+  it('ignores a PDF whose download host is outside the Resend allowlist', async () => {
+    resendAttachmentList.mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            id: 'pdf-1',
+            filename: 'invoice.pdf',
+            content_type: 'application/pdf',
+            download_url: 'https://files.example/invoice.pdf',
+          },
+        ],
+      },
+      error: null,
+    })
+
+    const result = await processFinanceInboundWebhook({
+      rawBody: '{}',
+      svixId: 'msg_blocked_host',
+      svixTimestamp: '1',
+      svixSignature: 'v1,sig',
+    })
+
+    expect(result).toEqual({ ok: true, ignored: true })
+    expect(expenseInsertReturning).not.toHaveBeenCalled()
+  })
+
+  it('stores a PDF from the Resend attachment CDN', async () => {
+    resendAttachmentList.mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            id: 'pdf-cdn',
+            filename: 'invoice.pdf',
+            content_type: 'application/pdf',
+            download_url: 'https://cdn.resend.app/attachments/invoice.pdf',
+          },
+        ],
+      },
+      error: null,
+    })
+
+    const result = await processFinanceInboundWebhook({
+      rawBody: '{}',
+      svixId: 'msg_resend_cdn',
+      svixTimestamp: '1',
+      svixSignature: 'v1,sig',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.expenseId).toBe('exp-1')
+    expect(expenseInsertReturning).toHaveBeenCalled()
+  })
+
   it('downloads and stores the first allowed attachment on the draft', async () => {
     resendAttachmentList.mockResolvedValueOnce({
       data: {
@@ -427,5 +481,19 @@ describe('isFinanceInboundRecipient', () => {
       'accounts@example.test, invoices@billing.example.test'
     expect(isFinanceInboundRecipient(['accounts@receive.example.test'])).toBe(true)
     expect(isFinanceInboundRecipient(['finance@trovara.farm'])).toBe(false)
+  })
+})
+
+describe('isAllowedInboundDownloadUrl', () => {
+  it('accepts Resend CDN hosts used for receiving attachments', () => {
+    expect(isAllowedInboundDownloadUrl('https://cdn.resend.app/attachments/invoice.pdf')).toBe(true)
+    expect(isAllowedInboundDownloadUrl('https://files.resend.com/attachments/invoice.pdf')).toBe(true)
+    expect(isAllowedInboundDownloadUrl('https://bucket.s3.amazonaws.com/invoice.pdf')).toBe(true)
+  })
+
+  it('rejects http and unrelated hosts', () => {
+    expect(isAllowedInboundDownloadUrl('http://cdn.resend.app/invoice.pdf')).toBe(false)
+    expect(isAllowedInboundDownloadUrl('https://evil.example/invoice.pdf')).toBe(false)
+    expect(isAllowedInboundDownloadUrl('https://cdn.resend.app.evil.example/invoice.pdf')).toBe(false)
   })
 })
