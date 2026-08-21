@@ -199,7 +199,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 
 if (
   process.env.NODE_ENV === 'production' &&
-  process.env.WHATSAPP_ACCESS_TOKEN &&
+  (process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_CUSTOMER_ACCESS_TOKEN) &&
   !process.env.META_APP_SECRET?.trim()
 ) {
   console.warn(

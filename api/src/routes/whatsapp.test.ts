@@ -152,7 +152,7 @@ describe('GET /whatsapp/webhook - customer-only Meta verification', () => {
             accessToken: 'customer-token',
             phoneNumberId: 'customer-number-id',
             verifyToken: 'customer-verify-token',
-            apiVersion: 'v21.0',
+            apiVersion: 'v25.0',
           }
         : null,
     )

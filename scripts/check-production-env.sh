@@ -41,8 +41,21 @@ if [[ "${BACKUP_REMOTE_ENABLED:-}" == "1" || "${BACKUP_REMOTE_REQUIRED:-}" == "1
   fi
 fi
 
-if [[ -n "${WHATSAPP_ACCESS_TOKEN:-}" && -z "${META_APP_SECRET:-}" ]]; then
+if [[ -n "${WHATSAPP_ACCESS_TOKEN:-}" || -n "${WHATSAPP_CUSTOMER_ACCESS_TOKEN:-}" ]] &&
+   [[ -z "${META_APP_SECRET:-}" ]]; then
   missing+=("META_APP_SECRET (WhatsApp enabled)")
+fi
+if [[ -n "${WHATSAPP_PHONE_NUMBER_ID:-}" || -n "${WHATSAPP_ACCESS_TOKEN:-}" ]]; then
+  [[ -n "${WHATSAPP_PHONE_NUMBER_ID:-}" ]] || missing+=("WHATSAPP_PHONE_NUMBER_ID (staff WhatsApp enabled)")
+  [[ -n "${WHATSAPP_ACCESS_TOKEN:-}" ]] || missing+=("WHATSAPP_ACCESS_TOKEN (staff WhatsApp enabled)")
+  [[ -n "${WHATSAPP_VERIFY_TOKEN:-}" ]] || missing+=("WHATSAPP_VERIFY_TOKEN (WhatsApp enabled)")
+fi
+if [[ -n "${WHATSAPP_CUSTOMER_PHONE_NUMBER_ID:-}" || -n "${WHATSAPP_CUSTOMER_ACCESS_TOKEN:-}" ]]; then
+  [[ -n "${WHATSAPP_CUSTOMER_PHONE_NUMBER_ID:-}" ]] || missing+=("WHATSAPP_CUSTOMER_PHONE_NUMBER_ID (customer WhatsApp enabled)")
+  if [[ -z "${WHATSAPP_CUSTOMER_ACCESS_TOKEN:-}" && -z "${WHATSAPP_ACCESS_TOKEN:-}" ]]; then
+    missing+=("WHATSAPP_CUSTOMER_ACCESS_TOKEN (or WHATSAPP_ACCESS_TOKEN; customer WhatsApp enabled)")
+  fi
+  [[ -n "${WHATSAPP_VERIFY_TOKEN:-}" ]] || missing+=("WHATSAPP_VERIFY_TOKEN (WhatsApp enabled)")
 fi
 if [[ "${TELEGRAM_MODE:-polling}" == "webhook" &&
       -n "${TELEGRAM_BOT_TOKEN:-}" &&

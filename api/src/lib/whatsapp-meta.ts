@@ -43,7 +43,7 @@ export function getWhatsAppConfig(kind: WhatsAppKind = 'staff'): WhatsAppConfig 
     accessToken,
     phoneNumberId,
     verifyToken,
-    apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v21.0',
+    apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v25.0',
   }
 }
 
