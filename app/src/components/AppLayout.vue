@@ -194,15 +194,20 @@ const navGroups = computed<NavGroup[]>(() => {
         items: [
           { to: '/sales', labelKey: 'nav.sales' },
           { to: '/support', labelKey: 'nav.support' },
-          { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
-          { to: '/customer-surveys', labelKey: 'nav.customerSurveys' },
-          { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
           { to: '/products', labelKey: 'nav.products' },
           { to: '/whatsapp', labelKey: 'nav.whatsapp' },
           { to: '/telegram', labelKey: 'nav.telegram' },
           { to: '/traceability', labelKey: 'nav.traceability' },
           { to: '/finance', labelKey: 'nav.finance' },
           { to: '/anomalies', labelKey: 'nav.anomalies' },
+        ],
+      },
+      {
+        titleKey: 'nav.grpContent',
+        items: [
+          { to: '/marketing-leads', labelKey: 'nav.marketingLeads' },
+          { to: '/customer-surveys', labelKey: 'nav.customerSurveys' },
+          { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
         ],
       },
       {
@@ -632,14 +637,17 @@ async function handleRetry() {
             v-if="group.titleKey"
             type="button"
             :aria-expanded="isExpanded(group.titleKey)"
-            class="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-transparent text-[11px] font-black uppercase tracking-[0.16em] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/70"
+            :class="isExpanded(group.titleKey)
+              ? 'bg-farm-green/10 border-farm-green/20 text-slate-100'
+              : 'bg-white/[0.035] text-slate-300 hover:bg-white/[0.07] hover:text-white'"
             @click="toggleGroup(group.titleKey)"
           >
             <span>{{ t(group.titleKey) }}</span>
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4 shrink-0 transition-transform text-slate-400"
-              :class="{ 'rotate-180': isExpanded(group.titleKey) }"
+              class="h-4 w-4 shrink-0 transition-all"
+              :class="isExpanded(group.titleKey) ? 'rotate-180 text-farm-green' : 'text-slate-400'"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"

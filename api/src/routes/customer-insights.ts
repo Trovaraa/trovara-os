@@ -11,13 +11,13 @@ export const customerInsightsRoutes = new Hono<{ Variables: AppVariables }>()
 customerInsightsRoutes.use('*', authMiddleware)
 
 /**
- * Founder view of what customers ask the order bot: most-asked questions,
- * channel breakdown, and recent questions. Owner-only.
+ * Authorized view of what customers ask the order bot: most-asked questions,
+ * channel breakdown, and recent questions.
  */
 customerInsightsRoutes.get('/', async (c) => {
   const user = c.get('user')
   try {
-    requirePermission(user, 'farm.manage')
+    requirePermission(user, 'orders.pii')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }
