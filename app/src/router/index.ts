@@ -254,8 +254,7 @@ const router = createRouter({
       component: () => import('@/views/ShopCustomersView.vue'),
       meta: {
         requiresAuth: true,
-        allowedRoles: ['owner', 'supervisor', 'sales'],
-        anyPermission: ['orders.manage', 'finance.read'],
+        anyPermission: ['orders.manage', 'finance.read', 'newsletter.manage', 'leads.manage'],
       },
     },
     {

@@ -14,6 +14,10 @@ type ShopCustomer = {
   createdAt: string
   updatedAt: string
   channels: { channel: string; name: string | null }[]
+  creditsBalance: number
+  referralCount: number
+  rewardsActivated: number
+  referralCode: string | null
 }
 
 type ShopCustomersResponse = {
@@ -23,6 +27,9 @@ type ShopCustomersResponse = {
     verified: number
     unverified: number
     inactive: number
+    creditsBalance: number
+    referrals: number
+    rewardsActivated: number
   }
 }
 
@@ -31,7 +38,15 @@ type ActiveFilter = 'all' | 'yes' | 'no'
 
 const { t, locale } = useI18n()
 const customers = ref<ShopCustomer[]>([])
-const summary = ref({ total: 0, verified: 0, unverified: 0, inactive: 0 })
+const summary = ref({
+  total: 0,
+  verified: 0,
+  unverified: 0,
+  inactive: 0,
+  creditsBalance: 0,
+  referrals: 0,
+  rewardsActivated: 0,
+})
 const loading = ref(true)
 const error = ref<string | null>(null)
 const search = ref('')
@@ -46,7 +61,13 @@ const filteredCustomers = computed(() => {
     if (activeFilter.value === 'yes' && !customer.active) return false
     if (activeFilter.value === 'no' && customer.active) return false
     if (!term) return true
-    return [customer.name, customer.email, customer.phone, ...customer.channels.map((c) => c.channel)]
+    return [
+      customer.name,
+      customer.email,
+      customer.phone,
+      customer.referralCode,
+      ...customer.channels.map((c) => c.channel),
+    ]
       .filter((value): value is string => Boolean(value))
       .some((value) => value.toLocaleLowerCase(locale.value).includes(term))
   })
@@ -60,6 +81,10 @@ function formatDate(value: string | null | undefined): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat(locale.value).format(value)
 }
 
 function verificationLabel(customer: ShopCustomer): string {
@@ -94,6 +119,9 @@ async function loadCustomers() {
       verified: data.summary?.verified ?? 0,
       unverified: data.summary?.unverified ?? 0,
       inactive: data.summary?.inactive ?? 0,
+      creditsBalance: data.summary?.creditsBalance ?? 0,
+      referrals: data.summary?.referrals ?? 0,
+      rewardsActivated: data.summary?.rewardsActivated ?? 0,
     }
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('shopCustomers.loadFailed')
@@ -111,6 +139,10 @@ function exportCsv() {
     t('shopCustomers.verifiedAt'),
     t('shopCustomers.statusLabel'),
     t('shopCustomers.channels'),
+    t('shopCustomers.creditsBalance'),
+    t('shopCustomers.referrals'),
+    t('shopCustomers.rewardsActivated'),
+    t('shopCustomers.referralCode'),
     t('shopCustomers.createdAt'),
     t('shopCustomers.updatedAt'),
   ]
@@ -122,6 +154,10 @@ function exportCsv() {
     customer.emailVerifiedAt ?? '',
     activeLabel(customer),
     channelsLabel(customer),
+    customer.creditsBalance,
+    customer.referralCount,
+    customer.rewardsActivated,
+    customer.referralCode ?? '',
     customer.createdAt,
     customer.updatedAt,
   ])
@@ -171,19 +207,19 @@ onMounted(loadCustomers)
     <section class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" :aria-label="t('shopCustomers.summary')">
       <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.total') }}</p>
-        <p class="mt-2 text-2xl font-black text-os-fg">{{ summary.total }}</p>
+        <p class="mt-2 text-2xl font-black text-os-fg">{{ formatNumber(summary.total) }}</p>
       </div>
       <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.verified') }}</p>
-        <p class="mt-2 text-2xl font-black text-emerald-300">{{ summary.verified }}</p>
+        <p class="mt-2 text-2xl font-black text-emerald-300">{{ formatNumber(summary.verified) }}</p>
       </div>
       <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.unverified') }}</p>
-        <p class="mt-2 text-2xl font-black text-amber-300">{{ summary.unverified }}</p>
+        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.totalCredits') }}</p>
+        <p class="mt-2 text-2xl font-black text-amber-300">{{ formatNumber(summary.creditsBalance) }}</p>
       </div>
       <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.inactive') }}</p>
-        <p class="mt-2 text-2xl font-black text-slate-300">{{ summary.inactive }}</p>
+        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">{{ t('shopCustomers.totalReferrals') }}</p>
+        <p class="mt-2 text-2xl font-black text-farm-green">{{ formatNumber(summary.referrals) }}</p>
       </div>
     </section>
 
@@ -274,6 +310,21 @@ onMounted(loadCustomers)
             </div>
           </div>
 
+          <dl class="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs sm:grid-cols-3">
+            <div>
+              <dt class="text-slate-500">{{ t('shopCustomers.creditsBalance') }}</dt>
+              <dd class="mt-1 text-lg font-black text-amber-300">{{ formatNumber(customer.creditsBalance) }}</dd>
+            </div>
+            <div>
+              <dt class="text-slate-500">{{ t('shopCustomers.referrals') }}</dt>
+              <dd class="mt-1 text-lg font-black text-os-fg">{{ formatNumber(customer.referralCount) }}</dd>
+            </div>
+            <div>
+              <dt class="text-slate-500">{{ t('shopCustomers.rewardsActivated') }}</dt>
+              <dd class="mt-1 text-lg font-black text-farm-green">{{ formatNumber(customer.rewardsActivated) }}</dd>
+            </div>
+          </dl>
+
           <dl class="mt-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt class="text-slate-500">{{ t('shopCustomers.verifiedAt') }}</dt>
@@ -290,6 +341,10 @@ onMounted(loadCustomers)
             <div>
               <dt class="text-slate-500">{{ t('shopCustomers.channels') }}</dt>
               <dd class="mt-0.5 capitalize text-slate-300">{{ channelsLabel(customer) }}</dd>
+            </div>
+            <div>
+              <dt class="text-slate-500">{{ t('shopCustomers.referralCode') }}</dt>
+              <dd class="mt-0.5 break-all font-mono text-slate-300">{{ customer.referralCode ?? t('shopCustomers.notAvailable') }}</dd>
             </div>
           </dl>
         </article>

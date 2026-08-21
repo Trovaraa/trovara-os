@@ -243,7 +243,6 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/support', labelKey: 'nav.support' },
         { to: '/products', labelKey: 'nav.products' },
         { to: '/customer-insights', labelKey: 'nav.customerInsights' },
-        { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
         { to: '/whatsapp', labelKey: 'nav.whatsapp' },
         { to: '/telegram', labelKey: 'nav.telegram' },
       ],
@@ -258,6 +257,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/moments', labelKey: 'nav.moments' },
         { to: '/careers', labelKey: 'nav.careers' },
         { to: '/newsletter', labelKey: 'nav.newsletter' },
+        { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
       ],
     },
     {

@@ -3,7 +3,13 @@ import { and, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { customerAccounts, customerContacts } from '../db/schema.js'
+import {
+  customerAccounts,
+  customerContacts,
+  customerCreditLedger,
+  customerReferralAttributions,
+  customerReferralCodes,
+} from '../db/schema.js'
 import { hasPermission } from '../lib/rbac.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
 import type { SessionUser } from '../lib/session.js'
@@ -18,7 +24,12 @@ export const shopCustomerRoutes = new Hono<{ Variables: AppVariables }>()
 shopCustomerRoutes.use('*', authMiddleware)
 
 function canViewShopCustomers(user: SessionUser): boolean {
-  return hasPermission(user, 'orders.manage') || hasPermission(user, 'finance.read')
+  return (
+    hasPermission(user, 'orders.manage') ||
+    hasPermission(user, 'finance.read') ||
+    hasPermission(user, 'newsletter.manage') ||
+    hasPermission(user, 'leads.manage')
+  )
 }
 
 shopCustomerRoutes.get('/', zValidator('query', listSchema), async (c) => {
@@ -60,22 +71,63 @@ shopCustomerRoutes.get('/', zValidator('query', listSchema), async (c) => {
     .limit(500)
 
   const accountIds = rows.map((row) => row.id)
-  const contactRows =
+  const [contactRows, creditRows, referralRows, referralCodeRows] =
     accountIds.length === 0
-      ? []
-      : await db
-          .select({
-            customerAccountId: customerContacts.customerAccountId,
-            channel: customerContacts.channel,
-            name: customerContacts.name,
-          })
-          .from(customerContacts)
-          .where(
-            and(
-              eq(customerContacts.farmId, user.farmId),
-              inArray(customerContacts.customerAccountId, accountIds),
+      ? [[], [], [], []]
+      : await Promise.all([
+          db
+            .select({
+              customerAccountId: customerContacts.customerAccountId,
+              channel: customerContacts.channel,
+              name: customerContacts.name,
+            })
+            .from(customerContacts)
+            .where(
+              and(
+                eq(customerContacts.farmId, user.farmId),
+                inArray(customerContacts.customerAccountId, accountIds),
+              ),
             ),
-          )
+          db
+            .select({
+              accountId: customerCreditLedger.accountId,
+              balance: sql<number>`coalesce(sum(${customerCreditLedger.amount}), 0)`,
+            })
+            .from(customerCreditLedger)
+            .where(
+              and(
+                eq(customerCreditLedger.farmId, user.farmId),
+                inArray(customerCreditLedger.accountId, accountIds),
+              ),
+            )
+            .groupBy(customerCreditLedger.accountId),
+          db
+            .select({
+              accountId: customerReferralAttributions.referrerAccountId,
+              referralCount: count(),
+              rewardsActivated: sql<number>`count(*) filter (where ${customerReferralAttributions.creditedAt} is not null)`,
+            })
+            .from(customerReferralAttributions)
+            .where(
+              and(
+                eq(customerReferralAttributions.farmId, user.farmId),
+                inArray(customerReferralAttributions.referrerAccountId, accountIds),
+              ),
+            )
+            .groupBy(customerReferralAttributions.referrerAccountId),
+          db
+            .select({
+              accountId: customerReferralCodes.accountId,
+              code: customerReferralCodes.code,
+            })
+            .from(customerReferralCodes)
+            .where(
+              and(
+                eq(customerReferralCodes.farmId, user.farmId),
+                inArray(customerReferralCodes.accountId, accountIds),
+              ),
+            ),
+        ])
 
   const channelsByAccount = new Map<string, { channel: string; name: string | null }[]>()
   for (const contact of contactRows) {
@@ -85,20 +137,55 @@ shopCustomerRoutes.get('/', zValidator('query', listSchema), async (c) => {
     channelsByAccount.set(contact.customerAccountId, list)
   }
 
+  const creditsByAccount = new Map(
+    creditRows.map((row) => [row.accountId, Number(row.balance ?? 0)]),
+  )
+  const referralsByAccount = new Map(
+    referralRows.map((row) => [
+      row.accountId,
+      {
+        referralCount: Number(row.referralCount ?? 0),
+        rewardsActivated: Number(row.rewardsActivated ?? 0),
+      },
+    ]),
+  )
+  const referralCodesByAccount = new Map(
+    referralCodeRows.map((row) => [row.accountId, row.code]),
+  )
+
   const customers = rows.map((row) => ({
     ...row,
     channels: channelsByAccount.get(row.id) ?? [],
+    creditsBalance: creditsByAccount.get(row.id) ?? 0,
+    referralCount: referralsByAccount.get(row.id)?.referralCount ?? 0,
+    rewardsActivated: referralsByAccount.get(row.id)?.rewardsActivated ?? 0,
+    referralCode: referralCodesByAccount.get(row.id) ?? null,
   }))
 
-  const [totals] = await db
-    .select({
-      total: count(),
-      verified: sql<number>`count(*) filter (where ${customerAccounts.emailVerifiedAt} is not null)`,
-      unverified: sql<number>`count(*) filter (where ${customerAccounts.emailVerifiedAt} is null)`,
-      inactive: sql<number>`count(*) filter (where ${customerAccounts.active} = false)`,
-    })
-    .from(customerAccounts)
-    .where(eq(customerAccounts.farmId, user.farmId))
+  const [[totals], [creditTotals], [referralTotals]] = await Promise.all([
+    db
+      .select({
+        total: count(),
+        verified: sql<number>`count(*) filter (where ${customerAccounts.emailVerifiedAt} is not null)`,
+        unverified: sql<number>`count(*) filter (where ${customerAccounts.emailVerifiedAt} is null)`,
+        inactive: sql<number>`count(*) filter (where ${customerAccounts.active} = false)`,
+      })
+      .from(customerAccounts)
+      .where(eq(customerAccounts.farmId, user.farmId)),
+    db
+      .select({
+        creditsBalance: sql<number>`coalesce(sum(${customerCreditLedger.amount}), 0)`,
+      })
+      .from(customerCreditLedger)
+      .where(eq(customerCreditLedger.farmId, user.farmId)),
+    db
+      .select({
+        referrals: count(),
+        rewardsActivated: sql<number>`count(*) filter (where ${customerReferralAttributions.creditedAt} is not null)`,
+      })
+      .from(customerReferralAttributions)
+      .where(eq(customerReferralAttributions.farmId, user.farmId)),
+  ])
 
   return c.json({
     customers,
@@ -107,6 +194,9 @@ shopCustomerRoutes.get('/', zValidator('query', listSchema), async (c) => {
       verified: Number(totals?.verified ?? 0),
       unverified: Number(totals?.unverified ?? 0),
       inactive: Number(totals?.inactive ?? 0),
+      creditsBalance: Number(creditTotals?.creditsBalance ?? 0),
+      referrals: Number(referralTotals?.referrals ?? 0),
+      rewardsActivated: Number(referralTotals?.rewardsActivated ?? 0),
     },
   })
 })
