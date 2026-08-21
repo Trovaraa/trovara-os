@@ -98,6 +98,14 @@ identifier remains for compatibility. Toggle in Settings or via
   Paystack, tracking, cancellation, support, feedback, FAQs, and `link CODE`
   account linking. Trovara uses separate public-customer and internal-staff
   business numbers, routed through the same webhook by Meta phone number ID.
+- **Shop and rewards help:** both customer bots link customers to
+  `https://shop.trovara.farm` and answer questions about the food survey,
+  current products, baskets, Trovara Credits, and referrals. Product data comes
+  from the active OS catalogue. A linked customer can also receive their own
+  current credit balance, referral code/link, and referral counts; unlinked
+  chats receive only public programme information and instructions for linking
+  the account. Unfinished browser baskets remain private to the shop until the
+  customer checks out.
 
 Quick status checks (session cookie may be required for some routes):
 

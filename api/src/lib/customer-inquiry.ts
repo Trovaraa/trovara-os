@@ -21,6 +21,10 @@ import { formatCatalog, type CatalogItem } from './customer-cart.js'
 import { foldForMatch } from './crop-normalize.js'
 import { farmKnowledgeText } from './farm-knowledge.js'
 import {
+  publicMarketingUrlOrDefault,
+  publicShopBaseUrl,
+} from './public-app-url.js'
+import {
   CUSTOMER_FAQ_MATCHERS,
   customerCatalogReply,
   customerDeliveryReply,
@@ -36,9 +40,24 @@ type AnsweredVia = 'catalog' | 'llm' | 'faq' | 'suggested'
 export const DEFAULT_SUGGESTIONS = [
   'What do you sell?',
   'How much is plantain?',
+  'How do Trovara Credits work?',
+  'Where is the online shop?',
   'Where are you located?',
   'How does delivery work?',
 ]
+
+export type CustomerRewardsContext = {
+  balance: number
+  referralCode: string
+  referralUrl: string
+  referralCount: number
+  referralPendingCount: number
+  referralActivatedCount: number
+  welcomeCredits: number
+  welcomeCreditAwarded: boolean
+  referralCredits: number
+  referralRefundWindowDays: number
+}
 
 /**
  * Curated labels for bot suggestion chips. More-specific topics first.
@@ -46,6 +65,14 @@ export const DEFAULT_SUGGESTIONS = [
  * go through {@link canonicalizeForSuggestion}.
  */
 const CANONICAL_TOPICS: { label: string; match: (normalized: string) => boolean }[] = [
+  {
+    label: 'How do Trovara Credits work?',
+    match: (n) => /\b(trovara )?credits?\b/.test(n),
+  },
+  {
+    label: 'Where is the online shop?',
+    match: (n) => /\b(online shop|shop website|shop link|where.*shop)\b/.test(n),
+  },
   {
     label: 'How much is plantain?',
     match: (n) =>
@@ -83,6 +110,13 @@ export function normalizeQuestion(text: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 160)
+}
+
+/** Questions whose answers depend on exact customer-programme terms or links. */
+export function isCustomerProgrammeQuestion(question: string): boolean {
+  return /\b(referral|refer|invite friend|ref code|referral code|personal link|(trovara )?credits?|credit balance|welcome credits?|basket|cart|buy again|repeat order|recurring order|family basket|survey|questionnaire|shop|online shop|shop website|shop link|customer account|sign up|register|log in|login)\b/.test(
+    foldForMatch(question),
+  )
 }
 
 /**
@@ -178,6 +212,11 @@ function policyLines(): string[] {
     'How to order: reply "1" and pick items by number.',
     'Payment: pay online via the Paystack link we send after you order (when prices are set), or pay on delivery otherwise. Cancel within 24h: cancel TRV-ORD-…',
     'Delivery: we call to confirm your order, then deliver to your address.',
+    `Online shop and customer account: ${publicShopBaseUrl()}`,
+    `Customer food survey: ${new URL('/survey', publicMarketingUrlOrDefault()).toString()}`,
+    'Baskets: customers can build or customise a basket in the shop. Recurring baskets are optional and require customer approval at checkout each time.',
+    'Trovara Credits: eligible invited survey respondents receive 2,000 promotional credits after activating their Trovara account. Credits are not cash and can only be used on eligible Trovara Farm products.',
+    'Referrals: a linked account has a personal survey link. The referrer receives 1,000 credits only after the referred customer completes the survey, activates an account, completes a first eligible purchase, and the refund period passes without a refund.',
   ]
 }
 
@@ -185,7 +224,9 @@ function publicInfo(params: {
   farmName: string
   farmLocation: string
   catalog: CatalogItem[]
+  rewards?: CustomerRewardsContext | null
 }): string {
+  const rewards = params.rewards
   return [
     `Farm: ${params.farmName}`,
     `Location: ${params.farmLocation}`,
@@ -194,6 +235,16 @@ function publicInfo(params: {
     formatCatalog(params.catalog),
     '',
     ...policyLines(),
+    ...(rewards
+      ? [
+          '',
+          'Linked customer rewards (private to this customer):',
+          `Available balance: ${rewards.balance.toLocaleString('en-NG')} Trovara Credits`,
+          `Referral code: ${rewards.referralCode}`,
+          `Personal referral survey link: ${rewards.referralUrl}`,
+          `Referrals: ${rewards.referralCount}; pending: ${rewards.referralPendingCount}; activated: ${rewards.referralActivatedCount}`,
+        ]
+      : []),
     '',
     farmKnowledgeText(),
   ].join('\n')
@@ -205,6 +256,7 @@ function deterministicAnswer(params: {
   farmLocation: string
   catalog: CatalogItem[]
   question: string
+  rewards?: CustomerRewardsContext | null
 }): { reply: string; answeredVia: AnsweredVia } {
   const { catalog, farmName, farmLocation } = params
   const locale = detectReplyLocale(params.question)
@@ -214,6 +266,63 @@ function deterministicAnswer(params: {
   // substring search, not the exact-name resolution `entity-name-match` does —
   // a question is prose that happens to contain a product name.
   const q = foldForMatch(params.question)
+  const shopUrl = publicShopBaseUrl()
+  const surveyUrl = new URL('/survey', publicMarketingUrlOrDefault()).toString()
+
+  if (/\b(referral|refer|invite friend|ref code|referral code|personal link)\b/.test(q)) {
+    if (params.rewards) {
+      return {
+        reply: [
+          `Your referral code is ${params.rewards.referralCode}.`,
+          `Share this personal survey link: ${params.rewards.referralUrl}`,
+          `You have ${params.rewards.referralCount} referred survey${params.rewards.referralCount === 1 ? '' : 's'} (${params.rewards.referralPendingCount} pending, ${params.rewards.referralActivatedCount} activated).`,
+          `You receive ${params.rewards.referralCredits.toLocaleString('en-NG')} Trovara Credits after a referred customer activates their account, completes their first eligible purchase, and its ${params.rewards.referralRefundWindowDays}-day refund period passes without a refund.`,
+        ].join('\n'),
+        answeredVia: 'faq',
+      }
+    }
+    return {
+      reply: `Your personal referral code and survey link are in the Trovara Credits tab after you sign in. To let me show account details here, link this chat from Connect Chat in ${shopUrl}.`,
+      answeredVia: 'faq',
+    }
+  }
+
+  if (/\b(trovara )?credits?\b|\bcredit balance\b|\bwelcome (award|credits?)\b/.test(q)) {
+    if (params.rewards) {
+      const welcome = params.rewards.welcomeCreditAwarded
+        ? `${params.rewards.welcomeCredits.toLocaleString('en-NG')} welcome credits were awarded.`
+        : 'No welcome-credit award is recorded on this account.'
+      return {
+        reply: `You have ${params.rewards.balance.toLocaleString('en-NG')} Trovara Credits available. ${welcome}\nView your balance and activity: ${shopUrl}`,
+        answeredVia: 'faq',
+      }
+    }
+    return {
+      reply: `Trovara Credits are promotional credits for eligible Trovara Farm products, not cash. Eligible invited survey respondents receive 2,000 after activating their account. Sign in or connect this chat at ${shopUrl}.`,
+      answeredVia: 'faq',
+    }
+  }
+
+  if (/\b(basket|cart|buy again|repeat order|recurring order|family basket)\b/.test(q)) {
+    return {
+      reply: `Build or customise a basket at ${shopUrl}. Recurring baskets are optional, and you approve each one at checkout. You can also place an order here by replying "1". I cannot see an unfinished browser basket until it is checked out.`,
+      answeredVia: 'faq',
+    }
+  }
+
+  if (/\b(survey|questionnaire)\b/.test(q)) {
+    return {
+      reply: `Our food survey records the products and basket options customers want. Complete it here: ${surveyUrl}\nCurrent products and availability are shown in the shop: ${shopUrl}`,
+      answeredVia: 'faq',
+    }
+  }
+
+  if (/\b(shop|online shop|shop website|shop link|customer account|sign up|register|log in|login)\b/.test(q)) {
+    return {
+      reply: `Trovara Farm Shop is ${shopUrl}. You can create or manage your account, build a basket, view orders, connect WhatsApp or Telegram, and see Trovara Credits there.`,
+      answeredVia: 'faq',
+    }
+  }
   const matched = catalog.filter((p) => {
     const name = foldForMatch(p.name)
     // An empty fold (a name that is only punctuation or a script the fold drops)
@@ -231,14 +340,14 @@ function deterministicAnswer(params: {
         } - available`,
     )
     return {
-      reply: customerCatalogReply(locale, lines.join('\n'), { kind: 'matched' }),
+      reply: `${customerCatalogReply(locale, lines.join('\n'), { kind: 'matched' })}\n\nShop online: ${shopUrl}`,
       answeredVia: 'catalog',
     }
   }
 
   if (CUSTOMER_FAQ_MATCHERS.price.test(q)) {
     return {
-      reply: customerCatalogReply(locale, formatCatalog(catalog), { kind: 'priceList' }),
+      reply: `${customerCatalogReply(locale, formatCatalog(catalog), { kind: 'priceList' })}\n\nShop online: ${shopUrl}`,
       answeredVia: 'catalog',
     }
   }
@@ -262,7 +371,7 @@ function deterministicAnswer(params: {
   }
   if (CUSTOMER_FAQ_MATCHERS.catalog.test(q)) {
     return {
-      reply: customerCatalogReply(locale, formatCatalog(catalog), { kind: 'whatWeSell' }),
+      reply: `${customerCatalogReply(locale, formatCatalog(catalog), { kind: 'whatWeSell' })}\n\nShop online: ${shopUrl}`,
       answeredVia: 'catalog',
     }
   }
@@ -278,7 +387,7 @@ function deterministicAnswer(params: {
 
 const CUSTOMER_PERSONA = [
   'You are the friendly sales assistant for a farm in Nigeria that sells fresh produce directly to customers over chat.',
-  'Answer ONLY using the PUBLIC INFO provided below (products, prices, location, delivery and payment policy, how to order).',
+  'Answer ONLY using the PUBLIC INFO provided below (products, prices, location, delivery and payment policy, customer shop, survey, baskets, Trovara Credits, referrals, and how to order).',
   'If asked about anything not covered - internal operations, staff, finances, other customers, or topics unrelated to buying our produce - politely say you can only help with our produce and orders.',
   'Never invent products, prices, or availability that are not in the PUBLIC INFO. If a product is not listed, say we do not currently sell it.',
   'Reply in the SAME language the customer used (English, Nigerian Pidgin, Yoruba, French, Hausa, or Igbo). Be warm, short, and plain text - no markdown, no tables.',
@@ -295,8 +404,16 @@ export async function answerCustomerInquiry(params: {
   catalog: CatalogItem[]
   question: string
   farmId?: string
+  rewards?: CustomerRewardsContext | null
 }): Promise<{ reply: string; answeredVia: AnsweredVia }> {
   const fallback = deterministicAnswer(params)
+
+  // Programme answers contain exact URLs, eligibility rules, and (when the
+  // chat is linked) private customer balances. Keep these deterministic so an
+  // LLM cannot alter the programme terms or expose a different customer's data.
+  if (isCustomerProgrammeQuestion(params.question)) {
+    return fallback
+  }
 
   if (!isLlmConfigured()) return fallback
 
