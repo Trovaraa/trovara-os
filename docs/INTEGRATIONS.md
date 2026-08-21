@@ -94,7 +94,18 @@ identifier remains for compatibility. Toggle in Settings or via
 - **WhatsApp (Meta Cloud API):** account, webhook, verify token, dual phone numbers, and go-live — [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
 - **Telegram:** BotFather, polling/webhook, link codes, ops commands — [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md).
 - **Staff clock-in/out:** `/clockin` and `/clockout` work on both Telegram and WhatsApp for every staff role (owner, supervisor, sales, field worker).
-- **Deferred:** WhatsApp customer shop account-linking UX stays documentation-only; Telegram remains the primary customer commerce messenger.
+- **Customer commerce:** WhatsApp and Telegram share catalogue, cart, checkout,
+  Paystack, tracking, cancellation, support, feedback, FAQs, and `link CODE`
+  account linking. Trovara uses separate public-customer and internal-staff
+  business numbers, routed through the same webhook by Meta phone number ID.
+- **Shop and rewards help:** both customer bots link customers to
+  `https://shop.trovara.farm` and answer questions about the food survey,
+  current products, baskets, Trovara Credits, and referrals. Product data comes
+  from the active OS catalogue. A linked customer can also receive their own
+  current credit balance, referral code/link, and referral counts; unlinked
+  chats receive only public programme information and instructions for linking
+  the account. Unfinished browser baskets remain private to the shop until the
+  customer checks out.
 
 Quick status checks (session cookie may be required for some routes):
 

@@ -153,7 +153,7 @@ npm run db:migrate -w api
 # Telegram customer bot (existing)
 TELEGRAM_CUSTOMER_BOT_TOKEN=
 
-# WhatsApp customer number (optional second Meta phone id)
+# WhatsApp customer number (can be the only Meta number in a customer-only setup)
 WHATSAPP_CUSTOMER_PHONE_NUMBER_ID=
-# WHATSAPP_CUSTOMER_ACCESS_TOKEN=   # only if separate from staff token
+# WHATSAPP_CUSTOMER_ACCESS_TOKEN=   # preferred when staff WhatsApp is disabled
 ```

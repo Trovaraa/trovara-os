@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the customer order flow - cart math and message formatting.
  * No DB / IO imports so these stay trivially unit-testable and channel-agnostic
- * (shared by the Telegram bot now and WhatsApp later).
+ * (shared by the Telegram and WhatsApp customer bots).
  */
 
 export type CartLine = { productId: string; qty: number }

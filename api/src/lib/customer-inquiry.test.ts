@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://test:test@127.0.0.1:5432/test'
+  process.env.PUBLIC_SHOP_URL = 'https://shop.trovara.farm'
+  process.env.PUBLIC_MARKETING_URL = 'https://www.trovara.farm'
 })
 
 // With no LLM configured, answerCustomerInquiry returns the deterministic
@@ -15,6 +17,7 @@ import {
   answerCustomerInquiry,
   canonicalizeForSuggestion,
   DEFAULT_SUGGESTIONS,
+  isCustomerProgrammeQuestion,
   normalizeQuestion,
 } from './customer-inquiry.js'
 import type { CatalogItem } from './customer-cart.js'
@@ -33,6 +36,12 @@ describe('canonicalizeForSuggestion', () => {
     expect(canonicalizeForSuggestion('do u deliver to abuja')).toBe('How does delivery work?')
     expect(canonicalizeForSuggestion('can i pay by transfer')).toBe('How do I pay?')
     expect(canonicalizeForSuggestion('how much are eggs')).toBe('What are your prices?')
+    expect(canonicalizeForSuggestion('how do my credits work')).toBe(
+      'How do Trovara Credits work?',
+    )
+    expect(canonicalizeForSuggestion('where is your online shop')).toBe(
+      'Where is the online shop?',
+    )
   })
 
   it('returns DEFAULT_SUGGESTIONS labels for punct/case variants', () => {
@@ -43,6 +52,102 @@ describe('canonicalizeForSuggestion', () => {
 
   it('falls back to trimmed original when topic is unknown', () => {
     expect(canonicalizeForSuggestion('  do you grow cacao?  ')).toBe('do you grow cacao?')
+  })
+})
+
+describe('customer programme answers', () => {
+  const base = {
+    farmName: 'Trovara Farm',
+    farmLocation: 'Ogun',
+    catalog: [] as CatalogItem[],
+  }
+
+  it.each([
+    'How do Trovara Credits work?',
+    'What is my referral code?',
+    'Where is the shop?',
+    'Can I make a recurring basket?',
+    'Where is the survey?',
+  ])('recognizes programme question %j', (question) => {
+    expect(isCustomerProgrammeQuestion(question)).toBe(true)
+  })
+
+  it('explains credits and sends an unlinked customer to the shop', async () => {
+    const answer = await answerCustomerInquiry({ ...base, question: 'How do credits work?' })
+    expect(answer.reply).toContain('2,000')
+    expect(answer.reply).toContain('not cash')
+    expect(answer.reply).toContain('https://shop.trovara.farm')
+  })
+
+  it('returns a linked customer referral code, link, and counts', async () => {
+    const answer = await answerCustomerInquiry({
+      ...base,
+      question: 'What is my referral code?',
+      rewards: {
+        balance: 2_000,
+        referralCode: 'TRVTEST123',
+        referralUrl: 'https://www.trovara.farm/survey?ref=TRVTEST123',
+        referralCount: 2,
+        referralPendingCount: 1,
+        referralActivatedCount: 1,
+        welcomeCredits: 2_000,
+        welcomeCreditAwarded: true,
+        referralCredits: 1_000,
+        referralRefundWindowDays: 2,
+      },
+    })
+    expect(answer.reply).toContain('TRVTEST123')
+    expect(answer.reply).toContain('survey?ref=TRVTEST123')
+    expect(answer.reply).toContain('2 referred surveys (1 pending, 1 activated)')
+    expect(answer.reply).toContain('1,000 Trovara Credits')
+  })
+
+  it('asks an unlinked customer to link before showing a private website basket', async () => {
+    const answer = await answerCustomerInquiry({
+      ...base,
+      question: 'Can you see my basket?',
+    })
+    expect(answer.reply).toContain('Recurring baskets are optional')
+    expect(answer.reply).toContain('link this chat')
+  })
+
+  it('shows a linked customer the unfinished website basket', async () => {
+    const catalog: CatalogItem[] = [
+      { id: 'p1', name: 'Plantain', unit: 'bunch', priceKobo: 180000, currency: 'NGN' },
+    ]
+    const answer = await answerCustomerInquiry({
+      ...base,
+      catalog,
+      question: 'What is in my basket?',
+      basket: {
+        items: [{ productId: 'p1', qty: 2 }],
+        updatedAt: new Date('2026-08-21T12:00:00Z'),
+      },
+    })
+    expect(answer.reply).toContain('Your saved website basket')
+    expect(answer.reply).toContain('2 × Plantain')
+    expect(answer.reply).toContain('₦3,600')
+    expect(answer.reply).not.toContain('link this chat')
+  })
+
+  it('distinguishes an empty linked basket from an unlinked chat', async () => {
+    const answer = await answerCustomerInquiry({
+      ...base,
+      question: 'What is in my cart?',
+      basket: { items: [], updatedAt: null },
+    })
+    expect(answer.reply).toContain('saved website basket is empty')
+    expect(answer.reply).not.toContain('link this chat')
+  })
+
+  it('links the customer survey and separates it from current availability', async () => {
+    const answer = await answerCustomerInquiry({
+      ...base,
+      question: 'Which products are in your survey?',
+    })
+    expect(answer.reply).toContain('https://www.trovara.farm/survey')
+    expect(answer.reply).toContain('Current products and availability')
+    expect(answer.reply).toContain('https://shop.trovara.farm')
   })
 })
 
@@ -68,6 +173,10 @@ describe('deterministic product matching', () => {
     ]) {
       expect(await ask(question)).toContain('Noix de Coco')
     }
+  })
+
+  it('includes the online shop in product answers', async () => {
+    expect(await ask('how much is plantain?')).toContain('https://shop.trovara.farm')
   })
 
   it('quotes the stored spelling back, not the folded form', async () => {

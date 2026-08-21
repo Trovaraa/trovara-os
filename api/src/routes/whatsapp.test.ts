@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Row = Record<string, unknown>
 
@@ -34,6 +34,14 @@ vi.mock('../middleware/auth.js', () => ({
 
 const sendWhatsAppText = vi.fn(async (to: string, _body: string) => ({ messageId: `wa-${to}` }))
 const isWhatsAppConfigured = vi.fn(() => true)
+const isWhatsAppCustomerConfigured = vi.fn(() => false)
+const handleInboundCustomerWhatsApp = vi.fn(async (_payload: unknown) => ({ handled: 1 }))
+const getWhatsAppConfig = vi.fn((_kind?: 'staff' | 'customer') => null as null | {
+  accessToken: string
+  phoneNumberId: string
+  verifyToken: string
+  apiVersion: string
+})
 const toViewerLocale = vi.fn(
   async (args: { english: string; targetLocale?: string | null }) =>
     args.targetLocale && args.targetLocale !== 'en'
@@ -42,11 +50,15 @@ const toViewerLocale = vi.fn(
 )
 
 vi.mock('../lib/whatsapp-meta.js', () => ({
-  getWhatsAppConfig: () => null,
+  getWhatsAppConfig: (kind?: 'staff' | 'customer') => getWhatsAppConfig(kind),
   isWhatsAppConfigured: () => isWhatsAppConfigured(),
-  isWhatsAppCustomerConfigured: () => false,
+  isWhatsAppCustomerConfigured: () => isWhatsAppCustomerConfigured(),
   renderTemplate: () => '',
   sendWhatsAppText: (to: string, body: string) => sendWhatsAppText(to, body),
+}))
+
+vi.mock('../lib/whatsapp-customer-inbound.js', () => ({
+  handleInboundCustomerWhatsApp: (payload: unknown) => handleInboundCustomerWhatsApp(payload),
 }))
 
 vi.mock('../lib/telegram.js', () => ({
@@ -119,11 +131,105 @@ beforeEach(() => {
   }
   notifyRecipientRows = owners('en', 'fr')
   isWhatsAppConfigured.mockReturnValue(true)
+  isWhatsAppCustomerConfigured.mockReturnValue(false)
+  getWhatsAppConfig.mockReturnValue(null)
   toViewerLocale.mockImplementation(async (args) =>
     args.targetLocale && args.targetLocale !== 'en'
       ? `[${args.targetLocale}] ${args.english}`
       : args.english,
   )
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+describe('GET /whatsapp/webhook - customer-only Meta verification', () => {
+  it('accepts the shared verify token when only the customer number is configured', async () => {
+    getWhatsAppConfig.mockImplementation((kind) =>
+      kind === 'customer'
+        ? {
+            accessToken: 'customer-token',
+            phoneNumberId: 'customer-number-id',
+            verifyToken: 'customer-verify-token',
+            apiVersion: 'v25.0',
+          }
+        : null,
+    )
+
+    const { whatsappRoutes } = await import('./whatsapp.js')
+    const app = new Hono()
+    app.route('/whatsapp', whatsappRoutes)
+    const res = await app.request(
+      '/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=customer-verify-token&hub.challenge=meta-challenge',
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('meta-challenge')
+  })
+})
+
+describe('GET /whatsapp/status - channel readiness', () => {
+  it('reports staff and customer configuration independently', async () => {
+    isWhatsAppConfigured.mockReturnValue(false)
+    isWhatsAppCustomerConfigured.mockReturnValue(true)
+
+    const { whatsappRoutes } = await import('./whatsapp.js')
+    const app = new Hono()
+    app.route('/whatsapp', whatsappRoutes)
+    const res = await app.request('/whatsapp/status')
+    const body = (await res.json()) as Record<string, unknown>
+
+    expect(res.status).toBe(200)
+    expect(body.configured).toBe(false)
+    expect(body.customerConfigured).toBe(true)
+    expect(body.customerHint).toContain('Customer order bot ready')
+  })
+})
+
+describe('POST /whatsapp/webhook - customer number routing', () => {
+  it('routes messages addressed to the customer number into the order bot', async () => {
+    vi.stubEnv('WHATSAPP_CUSTOMER_PHONE_NUMBER_ID', 'customer-number-id')
+    vi.stubEnv('META_APP_SECRET', '')
+    isWhatsAppConfigured.mockReturnValue(false)
+    isWhatsAppCustomerConfigured.mockReturnValue(true)
+
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: 'customer-number-id' },
+                messages: [
+                  {
+                    from: '2348031350724',
+                    id: 'wamid.customer-test',
+                    timestamp: '1700000000',
+                    type: 'text',
+                    text: { body: 'hi' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+
+    const { whatsappRoutes } = await import('./whatsapp.js')
+    const app = new Hono()
+    app.route('/whatsapp', whatsappRoutes)
+    const res = await app.request('/whatsapp/webhook', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, handled: 1 })
+    expect(handleInboundCustomerWhatsApp).toHaveBeenCalledWith(payload)
+  })
 })
 
 describe('POST /whatsapp/notify-owner - free-form body', () => {

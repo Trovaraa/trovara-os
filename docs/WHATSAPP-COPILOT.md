@@ -30,22 +30,24 @@ The same brain powers the web app at **AI Assistant** (`/ai`): Copilot chat, "Wh
 | --- | --- |
 | AI key | `OPENAI_API_KEY` in `.env` (vision needs `gpt-4o-mini` or `gpt-4o` - already the default) |
 | Meta WhatsApp app + permanent token | This doc, **Part C - Go live with Meta** |
-| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` | `.env` (staff butler) |
-| Optional `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` | Second Meta number for public ordering (same webhook URL) |
+| Customer bot credentials | `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`, `WHATSAPP_CUSTOMER_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN` |
+| Optional staff butler credentials | `WHATSAPP_PHONE_NUMBER_ID` plus `WHATSAPP_ACCESS_TOKEN` |
 | A public URL to your laptop | `ngrok http 3000` (or a deployed HTTPS domain) |
 | Worker/owner rows with a `phone` that matches their WhatsApp number | Users page or seed data (staff only) |
 
 > **Staff butler:** matches inbound WhatsApp to a Trovara user by phone. **If the
 > number isn't on any user, the message is ignored.** Set phones first.
 >
-> **Customer number:** when `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID` is set, messages to
-> that number run the order catalogue (no staff user match). Paystack pay links use
-> the same flow as the Telegram customer bot — see [`PAYSTACK.md`](./PAYSTACK.md).
+> **Customer number:** messages sent to the configured customer number run the order
+> catalogue without a staff-user match. Catalogue, cart, checkout, Paystack payment,
+> order tracking, cancellation, support, feedback, FAQs, and `link CODE` account
+> linking use the same customer-commerce service as Telegram.
 >
-> **Deferred:** richer WhatsApp **customer shop linking** (account linking UX parity
-> with Telegram) remains out of scope for now; Telegram is the live customer
-> commerce channel. Staff WhatsApp `/clockin` · `/clockout` is supported for all
-> roles.
+> **Trovara's dual-number setup:** **+234 803 135 0724** is the public customer
+> number and is configured as `WHATSAPP_CUSTOMER_PHONE_NUMBER_ID`. The separate
+> staff business number is configured as `WHATSAPP_PHONE_NUMBER_ID` and runs the
+> internal, role-aware Butler just like the Telegram staff bot. Both numbers use
+> the same webhook URL and verify token; routing uses Meta's phone number ID.
 
 ---
 
@@ -114,23 +116,36 @@ phone — supervisors (and owners subscribed to Worker alerts) should receive th
 
 ## Part C - Go live with Meta (real phones)
 
-1. **Fill `.env`** with the three `WHATSAPP_*` values + your `OPENAI_API_KEY`; restart the API.
-2. **Expose the API:** `ngrok http 3000` → copy the `https://….ngrok-free.app` URL.
-3. **Configure the webhook** in Meta Developer Console → WhatsApp → Configuration:
-   - Callback URL: `https://YOUR_NGROK_HOST/api/whatsapp/webhook`
+1. **Add the customer number** in Meta WhatsApp Manager and record its **phone number ID**.
+2. **Create a permanent system-user access token** with access to that WhatsApp Business Account.
+3. **Fill `.env`** for the dual-number deployment, then restart the API:
+
+   ```env
+   WHATSAPP_PHONE_NUMBER_ID=<Meta phone number ID for the staff number>
+   WHATSAPP_ACCESS_TOKEN=<permanent system-user token with staff-number access>
+   WHATSAPP_CUSTOMER_PHONE_NUMBER_ID=<Meta phone number ID for +2348031350724>
+   WHATSAPP_CUSTOMER_ACCESS_TOKEN=<dedicated customer token, or leave blank to share the staff token>
+   WHATSAPP_VERIFY_TOKEN=<a private random value shared with Meta>
+   META_APP_SECRET=<Meta app secret>
+   CUSTOMER_FARM_ID=<farm UUID sold by the bot>
+   ```
+
+4. **Expose the API:** use the production HTTPS origin, or `ngrok http 3000` for a local test.
+5. **Configure the webhook** in Meta Developer Console → WhatsApp → Configuration:
+   - Production callback URL: `https://os.trovara.farm/api/whatsapp/webhook`
+   - Local test callback URL: `https://YOUR_NGROK_HOST/api/whatsapp/webhook`
    - Verify token: same string as `WHATSAPP_VERIFY_TOKEN`
    - Click **Verify and save** (Meta calls the GET endpoint and expects the challenge back).
-4. **Subscribe to the `messages` field** (Webhook fields → toggle `messages`). This is required for inbound text AND image events.
-5. **Add tester numbers:** in WhatsApp → API Setup, add the phone numbers you'll test with as **recipients** (required until your number is out of test mode / approved).
-6. **Map those numbers to users:** open the app → Users, set each tester's `phone` to their full international number (e.g. `2348012345678`).
-7. **Send a test from your phone** to the business number:
-   - "hi" → help menu
-   - "What needs restocking?" → data answer
-   - "my goats are coughing and have nasal discharge" → diagnosis (+ worker alert to supervisors / subscribed owners)
-   - Send a photo of a plant/animal → vision diagnosis
-8. **Worker alert:** from a *field worker's* phone send "many birds died" →
-   **supervisors** (and owners who opted into Worker alerts in Settings) get the
-   escalation on WhatsApp/Telegram.
+6. **Subscribe to the `messages` field.** This is required for inbound text and media events.
+7. **Add a tester recipient** while the Meta app/number is still in test mode.
+8. **Send a customer smoke test** to **+234 803 135 0724**:
+   - `hi` → customer menu
+   - `catalog` → products and prices
+   - add an item, view `cart`, and confirm checkout
+   - open the Paystack link, then use `track TRV-ORD-…`
+   - generate a shop link code and send `link CODE`
+9. Open **Settings → WhatsApp** and confirm both the **API configured** and
+   **Customer bot ready** badges.
 
 ---
 

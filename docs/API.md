@@ -164,6 +164,8 @@ Customer-facing shop authentication with email verification and password reset.
 | POST | `/shop/resend-verification` | No | `{ email }` | `{ ok: true, message }`. Generic response for anti-enumeration. |
 | GET | `/shop/orders` | Yes | - | `{ orders }` with items and traceability. |
 | POST | `/shop/orders` | Yes | `{ items, address, phone? }` | Order created. Requires emailVerifiedAt. |
+| GET | `/shop/basket` | Yes | - | The account's unfinished basket, shared with linked customer bots. Unavailable products are omitted. |
+| PUT | `/shop/basket` | Yes | `{ items, familyBasketActive }` | Replaces the account's unfinished basket after validating active products. |
 | GET | `/shop/catalog` | No | - | `{ farm, products }` |
 | POST | `/shop/link-code` | Yes | - | `{ code, expiresAt, instruction }` for linking chat bots. |
 
@@ -172,6 +174,7 @@ Customer-facing shop authentication with email verification and password reset.
 - New registrations: `emailVerifiedAt` null until verified; no session created.
 - Login: requires verified email; rate limited (5/15min per IP).
 - Orders: require verified email (`emailVerifiedAt IS NOT NULL`).
+- Draft baskets are account-scoped; only authenticated shop sessions and chat contacts explicitly linked to that account can read them.
 - Password reset links expire in 1 hour, verification links in 48 hours.
 - All tokens are high-entropy, single-use, SHA256 hashed.
 - Anti-enumeration: register/forgot-password/resend-verification return generic messages.

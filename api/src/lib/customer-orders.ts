@@ -15,9 +15,11 @@ import { logAudit } from './audit.js'
 import { notifyStaffNewOrder } from './order-fulfillment.js'
 import {
   answerCustomerInquiry,
+  isCustomerProgrammeQuestion,
   logInquiry,
   suggestedQuestions,
 } from './customer-inquiry.js'
+import { customerCreditsSnapshot } from './customer-credits.js'
 import { publicLotPageUrl, shopAccountUrl } from './public-app-url.js'
 import {
   addToCart,
@@ -39,6 +41,7 @@ import {
   type OrderDraft,
   type OrderStep,
 } from './customer-cart.js'
+import { getCustomerDraftBasket } from './customer-draft-baskets.js'
 import {
   MAX_CART_LINES,
   MAX_QTY_PER_LINE,
@@ -116,7 +119,7 @@ function mainMenu(farmName: string): string {
     'Reply with a number:',
     '1 - Place an order',
     '2 - Track my order',
-    '3 - Ask about our farm & produce',
+    '3 - Ask about products, the shop & Trovara Credits',
     '4 - Report a problem',
     '',
     'Or just type your question. Type "cancel" any time to start over.',
@@ -125,8 +128,8 @@ function mainMenu(farmName: string): string {
 
 /** Build the "ask a question" prompt with popular/suggested questions. */
 async function askPrompt(farmId: string): Promise<{ text: string; suggestions: string[] }> {
-  const suggestions = await suggestedQuestions(farmId, 3)
-  const lines = ['Ask me anything about our farm and produce 🌱', '']
+  const suggestions = await suggestedQuestions(farmId, 4)
+  const lines = ['Ask about our products, shop, baskets, survey or Trovara Credits 🌱', '']
   if (suggestions.length) {
     lines.push('People often ask:')
     suggestions.forEach((q, i) => lines.push(`${i + 1} - ${q}`))
@@ -136,6 +139,51 @@ async function askPrompt(farmId: string): Promise<{ text: string; suggestions: s
     lines.push('Type your question below.')
   }
   return { text: lines.join('\n'), suggestions }
+}
+
+async function rewardsForLinkedContact(farmId: string, contactId: string) {
+  try {
+    const [contact] = await db
+      .select({ accountId: customerContacts.customerAccountId })
+      .from(customerContacts)
+      .where(and(eq(customerContacts.id, contactId), eq(customerContacts.farmId, farmId)))
+      .limit(1)
+    if (!contact?.accountId) return null
+    return customerCreditsSnapshot(contact.accountId, farmId)
+  } catch (err) {
+    // An account lookup must never prevent public product/help answers.
+    console.error(
+      'Customer rewards lookup failed:',
+      err instanceof Error ? err.message : err,
+    )
+    return null
+  }
+}
+
+async function basketForLinkedContact(
+  farmId: string,
+  contactId: string,
+  catalog: CatalogItem[],
+) {
+  try {
+    const [contact] = await db
+      .select({ accountId: customerContacts.customerAccountId })
+      .from(customerContacts)
+      .where(and(eq(customerContacts.id, contactId), eq(customerContacts.farmId, farmId)))
+      .limit(1)
+    if (!contact?.accountId) return null
+    const basket = await getCustomerDraftBasket(contact.accountId, farmId)
+    const activeProductIds = new Set(catalog.map((product) => product.id))
+    return {
+      items: basket.items
+        .filter((item) => activeProductIds.has(item.productId))
+        .map((item) => ({ productId: item.productId, qty: item.quantity })),
+      updatedAt: basket.updatedAt,
+    }
+  } catch (err) {
+    console.error('Customer basket lookup failed:', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 /** Which farm the customer bot sells for (single-farm pilot; slug-pinned). */
@@ -759,12 +807,20 @@ async function advanceOrderConversation(params: {
     question: string,
     via?: 'suggested',
   ): Promise<string> => {
+    const rewards = isCustomerProgrammeQuestion(question)
+      ? await rewardsForLinkedContact(farmId, params.contactId)
+      : null
+    const basket = isCustomerProgrammeQuestion(question)
+      ? await basketForLinkedContact(farmId, params.contactId, catalog)
+      : null
     const { reply, answeredVia } = await answerCustomerInquiry({
       farmName: params.farmName,
       farmLocation: params.farmLocation,
       catalog,
       question,
       farmId,
+      rewards,
+      basket,
     })
     await logInquiry({
       farmId,

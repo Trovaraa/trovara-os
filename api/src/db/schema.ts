@@ -2029,6 +2029,30 @@ export const customerAccountSessions = pgTable('customer_account_sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+// The customer's unfinished website basket. It belongs to the account rather
+// than a browser or chat channel so a linked WhatsApp/Telegram contact can read
+// the same draft without exposing it to unlinked contacts.
+export const customerDraftBaskets = pgTable(
+  'customer_draft_baskets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    farmId: uuid('farm_id').references(() => farms.id, { onDelete: 'cascade' }).notNull(),
+    accountId: uuid('account_id')
+      .references(() => customerAccounts.id, { onDelete: 'cascade' })
+      .notNull(),
+    items: jsonb('items')
+      .$type<Array<{ productId: string; quantity: number }>>()
+      .default([])
+      .notNull(),
+    familyBasketActive: boolean('family_basket_active').default(false).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('customer_draft_baskets_account_uq').on(t.accountId),
+    index('customer_draft_baskets_farm_updated_idx').on(t.farmId, t.updatedAt),
+  ],
+)
+
 export const customerAccountLinkCodes = pgTable('customer_account_link_codes', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id')
