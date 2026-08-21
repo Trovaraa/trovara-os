@@ -51,9 +51,9 @@ export function isWhatsAppConfigured(): boolean {
   return getWhatsAppConfig('staff') !== null
 }
 
-/** Customer ordering number is enabled when its phone number ID is set. */
+/** Customer ordering is ready only when the number, token, and verify token resolve. */
 export function isWhatsAppCustomerConfigured(): boolean {
-  return Boolean(phoneNumberIdFor('customer'))
+  return getWhatsAppConfig('customer') !== null
 }
 
 type TemplateDef = {

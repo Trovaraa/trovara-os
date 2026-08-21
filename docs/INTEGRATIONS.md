@@ -94,7 +94,10 @@ identifier remains for compatibility. Toggle in Settings or via
 - **WhatsApp (Meta Cloud API):** account, webhook, verify token, dual phone numbers, and go-live — [`WHATSAPP-COPILOT.md`](./WHATSAPP-COPILOT.md).
 - **Telegram:** BotFather, polling/webhook, link codes, ops commands — [`TELEGRAM-COPILOT.md`](./TELEGRAM-COPILOT.md).
 - **Staff clock-in/out:** `/clockin` and `/clockout` work on both Telegram and WhatsApp for every staff role (owner, supervisor, sales, field worker).
-- **Deferred:** WhatsApp customer shop account-linking UX stays documentation-only; Telegram remains the primary customer commerce messenger.
+- **Customer commerce:** WhatsApp and Telegram share catalogue, cart, checkout,
+  Paystack, tracking, cancellation, support, feedback, FAQs, and `link CODE`
+  account linking. Trovara uses separate public-customer and internal-staff
+  business numbers, routed through the same webhook by Meta phone number ID.
 
 Quick status checks (session cookie may be required for some routes):
 

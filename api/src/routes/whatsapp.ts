@@ -42,7 +42,9 @@ export const whatsappRoutes = new Hono<{ Variables: AppVariables }>()
 
 /** Meta webhook verification + inbound messages (no session auth) */
 whatsappRoutes.get('/webhook', async (c) => {
-  const config = getWhatsAppConfig()
+  // Meta uses one callback URL and verify token for both staff and customer
+  // numbers. A customer-only deployment must still be able to verify the URL.
+  const config = getWhatsAppConfig('staff') ?? getWhatsAppConfig('customer')
   if (!config) {
     return c.json({ error: 'WhatsApp not configured' }, 501)
   }
@@ -141,9 +143,13 @@ whatsappRoutes.get('/status', async (c) => {
   }
   return c.json({
     configured: isWhatsAppConfigured(),
+    customerConfigured: isWhatsAppCustomerConfigured(),
     hint: isWhatsAppConfigured()
       ? 'Ready to send via Meta Cloud API'
       : 'Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN - see docs/INTEGRATIONS.md',
+    customerHint: isWhatsAppCustomerConfigured()
+      ? 'Customer order bot ready on the Meta WhatsApp Cloud API.'
+      : 'Set WHATSAPP_CUSTOMER_PHONE_NUMBER_ID plus a customer or shared access token and WHATSAPP_VERIFY_TOKEN.',
   })
 })
 

@@ -26,7 +26,9 @@ type ApiTemplate = {
 
 type WhatsAppStatus = {
   configured: boolean
+  customerConfigured: boolean
   hint?: string
+  customerHint?: string
 }
 
 const staticTemplates: StaticTemplate[] = [
@@ -89,7 +91,7 @@ onMounted(async () => {
       templateId.value = tplData.templates[0].id
     }
   } catch {
-    waStatus.value = { configured: false }
+    waStatus.value = { configured: false, customerConfigured: false }
   }
 })
 
@@ -142,13 +144,20 @@ async function sendMessageForm() {
           {{ t('whatsapp.subtitle') }}
         </p>
       </div>
-      <span
-        v-if="waStatus"
-        class="text-xs font-bold px-2.5 py-1 rounded-full shrink-0"
-        :class="waStatus.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
-      >
-        {{ waStatus.configured ? t('whatsapp.apiConfigured') : t('whatsapp.copyOnlyMode') }}
-      </span>
+      <div v-if="waStatus" class="flex flex-wrap justify-end gap-2">
+        <span
+          class="text-xs font-bold px-2.5 py-1 rounded-full shrink-0"
+          :class="waStatus.configured ? 'bg-farm-green/20 text-farm-green' : 'bg-slate-700 text-slate-400'"
+        >
+          {{ waStatus.configured ? t('whatsapp.apiConfigured') : t('whatsapp.copyOnlyMode') }}
+        </span>
+        <span
+          class="text-xs font-bold px-2.5 py-1 rounded-full shrink-0"
+          :class="waStatus.customerConfigured ? 'bg-farm-green/20 text-farm-green' : 'bg-amber-400/10 text-amber-300'"
+        >
+          {{ waStatus.customerConfigured ? t('whatsapp.customerBotReady') : t('whatsapp.customerBotNotConfigured') }}
+        </span>
+      </div>
     </div>
 
     <p
@@ -223,6 +232,7 @@ async function sendMessageForm() {
     </form>
 
     <p v-else-if="waStatus?.hint" class="mt-6 text-xs text-slate-500">{{ waStatus.hint }}</p>
+    <p v-if="waStatus?.customerHint" class="mt-2 text-xs text-slate-500">{{ waStatus.customerHint }}</p>
 
     <div class="mt-8 space-y-6">
       <div
