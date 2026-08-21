@@ -60,6 +60,11 @@ import {
 import { clientIpFromHeaders } from '../lib/client-ip.js'
 import { logSecurityEvent } from '../lib/security-log.js'
 import { withAccessMeta } from '../lib/request-access-meta.js'
+import {
+  clearCustomerDraftBasket,
+  getCustomerDraftBasket,
+  saveCustomerDraftBasket,
+} from '../lib/customer-draft-baskets.js'
 
 export const customerShopRoutes = new Hono()
 
@@ -89,6 +94,22 @@ const orderSchema = z.object({
   deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   recurrenceFrequency: z.enum(['weekly', 'fortnightly', 'monthly']).optional(),
   recurringOrderId: z.string().uuid().optional(),
+})
+
+const draftBasketSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().min(1).max(100),
+      }),
+    )
+    .max(20)
+    .refine(
+      (items) => new Set(items.map((item) => item.productId)).size === items.length,
+      'A product can appear only once in a basket.',
+    ),
+  familyBasketActive: z.boolean().default(false),
 })
 
 const forgotPasswordSchema = z.object({
@@ -659,6 +680,68 @@ customerShopRoutes.post('/link-code', async (c) => {
   })
 })
 
+customerShopRoutes.get('/basket', async (c) => {
+  const account = await currentCustomer(c)
+  if (!account) return c.json({ error: 'Sign in required.' }, 401)
+  const basket = await getCustomerDraftBasket(account.id, account.farmId)
+  if (!basket.items.length) return c.json({ basket })
+
+  const activeProducts = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(
+      and(
+        eq(products.farmId, account.farmId),
+        eq(products.active, true),
+        inArray(products.id, basket.items.map((item) => item.productId)),
+      ),
+    )
+  const activeIds = new Set(activeProducts.map((product) => product.id))
+  return c.json({
+    basket: {
+      ...basket,
+      items: basket.items.filter((item) => activeIds.has(item.productId)),
+    },
+  })
+})
+
+customerShopRoutes.put(
+  '/basket',
+  async (c, next) => {
+    if (!(await currentCustomer(c))) return c.json({ error: 'Sign in required.' }, 401)
+    await next()
+  },
+  zValidator('json', draftBasketSchema),
+  async (c) => {
+    const account = await currentCustomer(c)
+    if (!account) return c.json({ error: 'Sign in required.' }, 401)
+    const body = c.req.valid('json')
+    const ids = body.items.map((item) => item.productId)
+    if (ids.length) {
+      const activeProducts = await db
+        .select({ id: products.id })
+        .from(products)
+        .where(
+          and(
+            eq(products.farmId, account.farmId),
+            eq(products.active, true),
+            inArray(products.id, ids),
+          ),
+        )
+      if (activeProducts.length !== ids.length) {
+        return c.json({ error: 'One or more products are unavailable.' }, 400)
+      }
+    }
+    const basket = await saveCustomerDraftBasket({
+      accountId: account.id,
+      farmId: account.farmId,
+      items: body.items,
+      familyBasketActive: body.familyBasketActive && body.items.length > 0,
+    })
+    return c.json({ basket })
+  },
+)
+
 customerShopRoutes.get('/recurring-orders', async (c) => {
   const account = await currentCustomer(c)
   if (!account) return c.json({ error: 'Sign in required.' }, 401)
@@ -943,6 +1026,8 @@ customerShopRoutes.post(
         })
       }
     }
+
+    await clearCustomerDraftBasket(account.id, account.farmId)
 
     return c.json({ ...result, recurrenceSaved: Boolean(frequency) }, 201)
   },

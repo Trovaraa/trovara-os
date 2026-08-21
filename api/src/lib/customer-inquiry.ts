@@ -17,7 +17,7 @@ import { customerInquiries } from '../db/schema.js'
 import { PROMPT_INJECTION_RULES } from './ai-advisor.js'
 import { completeChat, isLlmConfigured } from './llm.js'
 import { checkLlmBudget, consumeLlmBudget } from './llm-budget.js'
-import { formatCatalog, type CatalogItem } from './customer-cart.js'
+import { formatCart, formatCatalog, type CartLine, type CatalogItem } from './customer-cart.js'
 import { foldForMatch } from './crop-normalize.js'
 import { farmKnowledgeText } from './farm-knowledge.js'
 import {
@@ -57,6 +57,11 @@ export type CustomerRewardsContext = {
   welcomeCreditAwarded: boolean
   referralCredits: number
   referralRefundWindowDays: number
+}
+
+export type CustomerBasketContext = {
+  items: CartLine[]
+  updatedAt: Date | null
 }
 
 /**
@@ -257,6 +262,7 @@ function deterministicAnswer(params: {
   catalog: CatalogItem[]
   question: string
   rewards?: CustomerRewardsContext | null
+  basket?: CustomerBasketContext | null
 }): { reply: string; answeredVia: AnsweredVia } {
   const { catalog, farmName, farmLocation } = params
   const locale = detectReplyLocale(params.question)
@@ -304,8 +310,20 @@ function deterministicAnswer(params: {
   }
 
   if (/\b(basket|cart|buy again|repeat order|recurring order|family basket)\b/.test(q)) {
+    if (params.basket) {
+      if (params.basket.items.length) {
+        return {
+          reply: `Your saved website basket:\n\n${formatCart(params.basket.items, catalog)}\n\nContinue or change it at ${shopUrl}. Recurring baskets are optional, and you approve each one at checkout.`,
+          answeredVia: 'faq',
+        }
+      }
+      return {
+        reply: `Your saved website basket is empty. Build or customise one at ${shopUrl}. You can also place an order here by replying "1".`,
+        answeredVia: 'faq',
+      }
+    }
     return {
-      reply: `Build or customise a basket at ${shopUrl}. Recurring baskets are optional, and you approve each one at checkout. You can also place an order here by replying "1". I cannot see an unfinished browser basket until it is checked out.`,
+      reply: `Build or customise a basket at ${shopUrl}. Recurring baskets are optional, and you approve each one at checkout. To let me see your unfinished website basket, sign in and link this chat from Connect Chat.`,
       answeredVia: 'faq',
     }
   }
@@ -405,6 +423,7 @@ export async function answerCustomerInquiry(params: {
   question: string
   farmId?: string
   rewards?: CustomerRewardsContext | null
+  basket?: CustomerBasketContext | null
 }): Promise<{ reply: string; answeredVia: AnsweredVia }> {
   const fallback = deterministicAnswer(params)
 

@@ -102,13 +102,42 @@ describe('customer programme answers', () => {
     expect(answer.reply).toContain('1,000 Trovara Credits')
   })
 
-  it('explains browser baskets without claiming the bot can see an unfinished one', async () => {
+  it('asks an unlinked customer to link before showing a private website basket', async () => {
     const answer = await answerCustomerInquiry({
       ...base,
       question: 'Can you see my basket?',
     })
     expect(answer.reply).toContain('Recurring baskets are optional')
-    expect(answer.reply).toContain('cannot see an unfinished browser basket')
+    expect(answer.reply).toContain('link this chat')
+  })
+
+  it('shows a linked customer the unfinished website basket', async () => {
+    const catalog: CatalogItem[] = [
+      { id: 'p1', name: 'Plantain', unit: 'bunch', priceKobo: 180000, currency: 'NGN' },
+    ]
+    const answer = await answerCustomerInquiry({
+      ...base,
+      catalog,
+      question: 'What is in my basket?',
+      basket: {
+        items: [{ productId: 'p1', qty: 2 }],
+        updatedAt: new Date('2026-08-21T12:00:00Z'),
+      },
+    })
+    expect(answer.reply).toContain('Your saved website basket')
+    expect(answer.reply).toContain('2 × Plantain')
+    expect(answer.reply).toContain('₦3,600')
+    expect(answer.reply).not.toContain('link this chat')
+  })
+
+  it('distinguishes an empty linked basket from an unlinked chat', async () => {
+    const answer = await answerCustomerInquiry({
+      ...base,
+      question: 'What is in my cart?',
+      basket: { items: [], updatedAt: null },
+    })
+    expect(answer.reply).toContain('saved website basket is empty')
+    expect(answer.reply).not.toContain('link this chat')
   })
 
   it('links the customer survey and separates it from current availability', async () => {

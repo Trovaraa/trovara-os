@@ -41,6 +41,7 @@ import {
   type OrderDraft,
   type OrderStep,
 } from './customer-cart.js'
+import { getCustomerDraftBasket } from './customer-draft-baskets.js'
 import {
   MAX_CART_LINES,
   MAX_QTY_PER_LINE,
@@ -155,6 +156,32 @@ async function rewardsForLinkedContact(farmId: string, contactId: string) {
       'Customer rewards lookup failed:',
       err instanceof Error ? err.message : err,
     )
+    return null
+  }
+}
+
+async function basketForLinkedContact(
+  farmId: string,
+  contactId: string,
+  catalog: CatalogItem[],
+) {
+  try {
+    const [contact] = await db
+      .select({ accountId: customerContacts.customerAccountId })
+      .from(customerContacts)
+      .where(and(eq(customerContacts.id, contactId), eq(customerContacts.farmId, farmId)))
+      .limit(1)
+    if (!contact?.accountId) return null
+    const basket = await getCustomerDraftBasket(contact.accountId, farmId)
+    const activeProductIds = new Set(catalog.map((product) => product.id))
+    return {
+      items: basket.items
+        .filter((item) => activeProductIds.has(item.productId))
+        .map((item) => ({ productId: item.productId, qty: item.quantity })),
+      updatedAt: basket.updatedAt,
+    }
+  } catch (err) {
+    console.error('Customer basket lookup failed:', err instanceof Error ? err.message : err)
     return null
   }
 }
@@ -783,6 +810,9 @@ async function advanceOrderConversation(params: {
     const rewards = isCustomerProgrammeQuestion(question)
       ? await rewardsForLinkedContact(farmId, params.contactId)
       : null
+    const basket = isCustomerProgrammeQuestion(question)
+      ? await basketForLinkedContact(farmId, params.contactId, catalog)
+      : null
     const { reply, answeredVia } = await answerCustomerInquiry({
       farmName: params.farmName,
       farmLocation: params.farmLocation,
@@ -790,6 +820,7 @@ async function advanceOrderConversation(params: {
       question,
       farmId,
       rewards,
+      basket,
     })
     await logInquiry({
       farmId,
