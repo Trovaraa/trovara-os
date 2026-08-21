@@ -63,7 +63,7 @@ describe('shop-customers staff list', () => {
     expect(res.status).toBe(403)
   })
 
-  it('lists customers with linked channels and summary', async () => {
+  it('lists customers with linked channels, credits, referrals, and summary', async () => {
     selectQueue.push(
       [
         {
@@ -78,7 +78,12 @@ describe('shop-customers staff list', () => {
         },
       ],
       [{ customerAccountId: 'cust-1', channel: 'telegram', name: 'Ada TG' }],
+      [{ accountId: 'cust-1', balance: 3000 }],
+      [{ accountId: 'cust-1', referralCount: 2, rewardsActivated: 1 }],
+      [{ accountId: 'cust-1', code: 'TRVADA' }],
       [{ total: 1, verified: 1, unverified: 0, inactive: 0 }],
+      [{ creditsBalance: 3000 }],
+      [{ referrals: 2, rewardsActivated: 1 }],
     )
 
     const res = await app().request('/api/shop-customers')
@@ -87,18 +92,48 @@ describe('shop-customers staff list', () => {
     expect(body.customers).toHaveLength(1)
     expect(body.customers[0].email).toBe('ada@example.com')
     expect(body.customers[0].channels).toEqual([{ channel: 'telegram', name: 'Ada TG' }])
+    expect(body.customers[0]).toMatchObject({
+      creditsBalance: 3000,
+      referralCount: 2,
+      rewardsActivated: 1,
+      referralCode: 'TRVADA',
+    })
     expect(body.summary).toEqual({
       total: 1,
       verified: 1,
       unverified: 0,
       inactive: 0,
+      creditsBalance: 3000,
+      referrals: 2,
+      rewardsActivated: 1,
     })
     expect(JSON.stringify(body)).not.toContain('password')
   })
 
   it('allows sales role', async () => {
     sessionUser.role = 'sales'
-    selectQueue.push([], [], [{ total: 0, verified: 0, unverified: 0, inactive: 0 }])
+    selectQueue.push(
+      [],
+      [{ total: 0, verified: 0, unverified: 0, inactive: 0 }],
+      [{ creditsBalance: 0 }],
+      [{ referrals: 0, rewardsActivated: 0 }],
+    )
+    const res = await app().request('/api/shop-customers')
+    expect(res.status).toBe(200)
+  })
+
+  it('allows a custom content role with leads permission', async () => {
+    sessionUser = {
+      ...sessionUser,
+      role: 'supervisor',
+      permissions: ['leads.manage'],
+    }
+    selectQueue.push(
+      [],
+      [{ total: 0, verified: 0, unverified: 0, inactive: 0 }],
+      [{ creditsBalance: 0 }],
+      [{ referrals: 0, rewardsActivated: 0 }],
+    )
     const res = await app().request('/api/shop-customers')
     expect(res.status).toBe(200)
   })
