@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { getTableName } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Row = Record<string, unknown>
 
@@ -290,6 +290,17 @@ describe('self-attendance role access', () => {
 })
 
 describe('submitted hours workflow', () => {
+  // Keep the fixed work-date fixtures within the worker submission window.
+  // Without a frozen clock these tests expire as calendar time passes.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('requires a work summary and submits a worker entry for approval', async () => {
     queueSelect('users', [{ monthlyWageNgn: 220_000, preferredLocale: 'en' }])
     const res = await submitHours({ workDate: '2026-08-15', submittedMinutes: 450, workSummary: 'Weeded Block 1 and checked irrigation.' })
