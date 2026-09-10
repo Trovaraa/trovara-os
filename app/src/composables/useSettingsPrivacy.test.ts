@@ -48,7 +48,8 @@ describe('useSettingsPrivacy', () => {
   })
 
   it('runRetentionNow confirms then posts', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
     api
       .mockResolvedValueOnce({
         purgedTaskEvidence: 1,

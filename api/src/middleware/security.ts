@@ -112,7 +112,11 @@ async function bodySizeLimit(c: Context, next: Next) {
 }
 
 export function securityMiddleware() {
-  const allowedOrigins = (process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5173')
+  // A missing production allow-list must never grant a browser origin access to
+  // credentialed endpoints. Local development retains its convenient default.
+  const defaultOrigin =
+    process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:5173'
+  const allowedOrigins = (process.env.CORS_ORIGIN ?? defaultOrigin)
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean)
@@ -131,7 +135,7 @@ export function securityMiddleware() {
     bodySizeLimit,
     cors({
       origin: (origin) => {
-        if (!origin) return allowedOrigins[0] ?? 'http://127.0.0.1:5173'
+        if (!origin) return allowedOrigins[0] ?? null
         return allowedOrigins.includes(origin) ? origin : null
       },
       credentials: true,

@@ -82,7 +82,7 @@ async function mountView() {
 describe('FinanceView expense list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.stubGlobal('confirm', vi.fn(() => true))
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path === '/api/finance') return { expenses: [expense] }
       if (path === '/api/finance/summary') return { summary }
