@@ -1,9 +1,8 @@
 # Trovara surface audit — 2026-09-10
 
 Scope: `trovara.farm`, `os.trovara.farm`, and `shop.trovara.farm`, plus the
-`trovera`, `trovara-os`, and `trovara-shop` repositories. The requested host
-`shop.trovara.far` does not resolve; it appears to be a typo for
-`shop.trovara.farm`.
+`trovera`, `trovara-os`, and `trovara-shop` repositories. The owner confirmed
+`shop.trovara.farm` as the intended shop domain.
 
 ## Fixed in the repositories
 
@@ -17,15 +16,14 @@ Scope: `trovara.farm`, `os.trovara.farm`, and `shop.trovara.farm`, plus the
   origin. Set an explicit production allow-list before deployment, for example
   `CORS_ORIGIN=https://os.trovara.farm,https://shop.trovara.farm`.
 
-## Deployment action required
+## Shop header remediation
 
-**Medium — shop response headers are incomplete in production.** On the live
-shop, the HTTP response has HSTS, frame, MIME-sniffing, and referrer headers,
-but it does not contain the Content-Security-Policy or Permissions-Policy that
-the checked-in nginx template specifies. This makes an XSS defect materially
-more damaging and permits browser capabilities by default. Reinstall/reload
-the nginx configuration from
-`trovara-shop/docs/nginx-shop.trovara.farm.conf.example`, then verify with:
+The initial live response was missing Content-Security-Policy and
+Permissions-Policy despite their presence in the repository template. The
+active shop nginx configuration was subsequently backed up, patched,
+syntax-checked, and reloaded. Both headers were verified on the public
+response. Shop deployments now check for the required header names.
+To verify the current response:
 
 ```sh
 curl -I https://shop.trovara.farm
@@ -55,6 +53,19 @@ Policy at the time of this audit.
 ## Validation record
 
 - `npm audit` reports zero vulnerabilities after the lockfile updates.
-- No API keys or local `.env` files are tracked by the three repositories.
-- The live hosts use HTTPS and HSTS. `shop.trovara.far` returned DNS
-  `ERR_NAME_NOT_RESOLVED`.
+- The local `.env` and `.env.deploy` files checked are not tracked. This is
+  not a complete historical secret scan.
+- The live hosts use HTTPS and HSTS.
+
+## Follow-up after merging the initial fixes
+
+GitHub confirms that Farm #50, Farm OS #47, and shop #11 were merged.
+On rechecking September 10, all three repositories have zero open Dependabot
+alerts and zero open code-scanning alerts. The remaining Dependabot PRs are
+grouped version updates, not proof of remaining vulnerability alerts.
+
+Fresh `fix/dependabot-updates-20260910` branches were created from current
+`main` in each repository to incorporate those updates. Farm OS also raises
+the stale `fast-uri` override from 3.1.5 to 3.1.6 and the Hono minimum to
+4.13.5, preventing later installs from undoing the security fixes. The
+earlier lockfile-only update had not corrected that override.
