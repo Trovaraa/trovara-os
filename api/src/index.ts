@@ -14,6 +14,8 @@ import { productRoutes } from './routes/products.js'
 import { financeRoutes } from './routes/finance.js'
 import { publicFinanceInboundRoutes } from './routes/finance-inbound.js'
 import { careersRoutes, publicCareersRoutes } from './routes/careers.js'
+import { talentRoutes } from './routes/talent.js'
+import { publicTalentRoutes } from './routes/talent-public.js'
 import { traceabilityRoutes } from './routes/traceability.js'
 import { assetRoutes } from './routes/assets.js'
 import { maintenanceRoutes } from './routes/maintenance.js'
@@ -116,6 +118,7 @@ app.route('/api/marketing-leads', marketingLeadRoutes)
 app.route('/api/customer-surveys', customerSurveyRoutes)
 app.route('/api/moments', momentsRoutes)
 app.route('/api/careers', careersRoutes)
+app.route('/api/talent', talentRoutes)
 app.route('/api/shop-customers', shopCustomerRoutes)
 app.route('/api/customer-credits', customerCreditRoutes)
 app.route('/api/reports', reportRoutes)
@@ -143,6 +146,7 @@ app.route('/public/newsletter', publicNewsletterRoutes)
 app.route('/public/leads', publicMarketingLeadRoutes)
 app.route('/public/surveys', publicCustomerSurveyRoutes)
 app.route('/public/moments', publicMomentsRoutes)
+app.route('/public/careers', publicTalentRoutes)
 app.route('/public/careers', publicCareersRoutes)
 app.route('/shop', customerShopRoutes)
 app.route('/api/templates', templateRoutes)

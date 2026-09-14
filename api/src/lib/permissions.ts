@@ -2,6 +2,9 @@ import type { UserRole } from '../db/schema.js'
 
 /** Stable permission keys. Catalog is code-owned; DB stores grants only. */
 export const PERMISSION_CATALOG = [
+  { key: 'talent.read', category: 'people', description: 'Read private recruitment applications and CVs' },
+  { key: 'talent.manage', category: 'people', description: 'Import applications, review candidates and manage hiring' },
+  { key: 'talent.admin', category: 'people', description: 'Manage recruitment retention, deletion and Zoho intake' },
   { key: 'users.view', category: 'people', description: 'View staff roster' },
   { key: 'users.manage', category: 'people', description: 'Create and update staff' },
   { key: 'sessions.revoke', category: 'people', description: 'Revoke own or others sessions' },
