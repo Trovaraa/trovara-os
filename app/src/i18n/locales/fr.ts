@@ -54,6 +54,7 @@ export default {
       customerSurveys: 'Enquêtes alimentaires',
       moments: 'Moments',
       careers: 'Carrières',
+      talent: 'Talents',
       shopCustomers: 'Clients inscrits',
       menu: 'Menu',
       more: 'Plus',

@@ -261,6 +261,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { to: '/brand-kits', labelKey: 'nav.brandKits' },
         { to: '/moments', labelKey: 'nav.moments' },
         { to: '/careers', labelKey: 'nav.careers' },
+        { to: '/talent', labelKey: 'nav.talent' },
         { to: '/newsletter', labelKey: 'nav.newsletter' },
         { to: '/shop-customers', labelKey: 'nav.shopCustomers' },
       ],

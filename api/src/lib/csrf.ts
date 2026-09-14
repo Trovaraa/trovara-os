@@ -50,6 +50,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   '/public/leads/contact',
   '/public/leads/waitlist',
   '/public/surveys',
+  '/public/careers/applications',
   // Public Moments gallery upload (protected by rate-limit + honeypot)
   '/public/moments',
   '/health',

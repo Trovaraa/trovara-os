@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
             // Authenticated task/today APIs must never be cached offline.
             urlPattern: ({ url }) => {
               const path = url.pathname
-              return path === '/api/tasks' || path.startsWith('/api/today')
+              return path === '/api/tasks' || path.startsWith('/api/today') || path.startsWith('/api/talent')
             },
             handler: 'NetworkOnly',
           },

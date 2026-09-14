@@ -2977,6 +2977,7 @@ export const careerPosts = pgTable(
   },
   (t) => [
     uniqueIndex('career_posts_farm_slug_uq').on(t.farmId, t.slug),
+    uniqueIndex('career_posts_talent_scope_uq').on(t.farmId, t.id),
     index('career_posts_farm_created_idx').on(t.farmId, t.createdAt),
     index('career_posts_public_idx')
       .on(t.farmId, t.publishedAt)
@@ -2992,6 +2993,102 @@ export const careerPosts = pgTable(
     ),
   ],
 )
+
+export const talentCandidates = pgTable('talent_candidates', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  email: text('email'),
+  phone: text('phone'),
+  location: text('location'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('talent_candidates_scope_uq').on(t.farmId, t.id),
+  uniqueIndex('talent_candidates_email_uq').on(t.farmId, t.email).where(sql`${t.email} is not null`),
+])
+
+export const talentApplications = pgTable('talent_applications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  candidateId: uuid('candidate_id').notNull(),
+  careerPostId: uuid('career_post_id'),
+  roleLabel: text('role_label').default('Unassigned / general interest').notNull(),
+  stage: text('stage').default('new').notNull(),
+  source: text('source').notNull(),
+  sourceKey: text('source_key').notNull(),
+  needsReview: boolean('needs_review').default(true).notNull(),
+  assignedToId: uuid('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
+  nextAction: text('next_action'),
+  dueAt: timestamp('due_at', { withTimezone: true }),
+  receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+  retentionUntil: timestamp('retention_until', { withTimezone: true }).default(sql`now() + interval '180 days'`).notNull(),
+  privacyNoticeVersion: text('privacy_notice_version'),
+  acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('talent_applications_scope_uq').on(t.farmId, t.id),
+  uniqueIndex('talent_applications_source_uq').on(t.farmId, t.sourceKey),
+  index('talent_applications_queue_idx').on(t.farmId, t.stage, t.receivedAt),
+  index('talent_applications_retention_idx').on(t.retentionUntil),
+  foreignKey({ columns: [t.farmId, t.candidateId], foreignColumns: [talentCandidates.farmId, talentCandidates.id] }),
+  foreignKey({ columns: [t.farmId, t.careerPostId], foreignColumns: [careerPosts.farmId, careerPosts.id] }),
+  check('talent_applications_stage_check', sql`${t.stage} in ('new','reviewing','shortlisted','interview','offer','hired','rejected','withdrawn')`),
+  check('talent_applications_source_check', sql`${t.source} in ('cv_upload','email_import','zoho','website')`),
+])
+
+export const talentDocuments = pgTable('talent_documents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  applicationId: uuid('application_id').notNull(),
+  filename: text('filename').notNull(),
+  mimeType: text('mime_type').notNull(),
+  storageKey: text('storage_key').notNull(),
+  sha256: text('sha256').notNull(),
+  kind: text('kind').default('cv').notNull(),
+  extractionStatus: text('extraction_status').default('pending').notNull(),
+  extractedText: text('extracted_text'),
+  extractedFields: jsonb('extracted_fields').$type<Record<string, string | null>>(),
+  warnings: jsonb('warnings').$type<string[]>().default([]).notNull(),
+  processingAt: timestamp('processing_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  foreignKey({ columns: [t.farmId, t.applicationId], foreignColumns: [talentApplications.farmId, talentApplications.id] }).onDelete('cascade'),
+  uniqueIndex('talent_documents_hash_uq').on(t.applicationId, t.sha256),
+  index('talent_documents_processing_idx').on(t.extractionStatus, t.createdAt),
+  check('talent_documents_kind_check', sql`${t.kind} in ('cv','supporting','email')`),
+  check('talent_documents_status_check', sql`${t.extractionStatus} in ('pending','processing','ready','needs_review','not_applicable')`),
+])
+
+export const talentEvents = pgTable('talent_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  applicationId: uuid('application_id').notNull(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  kind: text('kind').notNull(),
+  body: text('body').notNull(),
+  messageKey: text('message_key'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  foreignKey({ columns: [t.farmId, t.applicationId], foreignColumns: [talentApplications.farmId, talentApplications.id] }).onDelete('cascade'),
+  uniqueIndex('talent_events_message_uq').on(t.farmId, t.messageKey),
+  index('talent_events_application_idx').on(t.applicationId, t.occurredAt),
+])
+
+export const talentMailCursors = pgTable('talent_mail_cursors', {
+  id: text('id').primaryKey(),
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  startAt: integer('start_at').default(0).notNull(),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  lastError: text('last_error'),
+})
+
+export const talentSuppressedSources = pgTable('talent_suppressed_sources', {
+  farmId: uuid('farm_id').notNull().references(() => farms.id, { onDelete: 'cascade' }),
+  fingerprint: text('fingerprint').notNull(),
+}, (t) => [primaryKey({ columns: [t.farmId, t.fingerprint] })])
 
 export const cropCensusSurveys = pgTable('crop_census_surveys', {
   id: uuid('id').defaultRandom().primaryKey(),

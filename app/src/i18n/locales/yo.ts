@@ -54,6 +54,7 @@ export default {
       customerSurveys: 'Ìwádìí oúnjẹ',
       moments: 'Àwọn àkókò',
       careers: 'Iṣẹ́',
+      talent: 'Talent',
       shopCustomers: 'Àwọn oníbàárà tó forúkọ sílẹ̀',
       menu: 'Àkójọ',
       more: 'Àfikún',
