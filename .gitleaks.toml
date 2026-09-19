@@ -6,17 +6,16 @@ title = "trovara-os"
 [extend]
 useDefault = true
 
-[allowlist]
-description = "False positives: advisory rule keys, PWA localStorage keys, docs placeholders, test fixtures"
-paths = [
-  '''(^|/)docs/''',
-  '''\.test\.ts$''',
-  '''\.test\.js$''',
-  '''advisory-playbooks\.ts$''',
-  '''useInstallPrompt\.ts$''',
-]
+[[allowlists]]
+description = "Exact non-secret placeholders and advisory identifiers"
 regexes = [
-  '''YOUR_CSRF''',
-  '''a2hs-dismissed''',
-  '''ruleKey:\s*'[a-z0-9._-]+'''',
+  '''^YOUR_CSRF$''',
+  '''^trovara-os-a2hs-dismissed-until$''',
+  '''^(noiler|broiler)\.day(1\.brooding|7\.gumboro|14\.newcastle|21\.litter|28\.closeout)$''',
 ]
+
+[[allowlists]]
+description = "Deterministic encryption fixture only in its unit test"
+condition = "AND"
+paths = ['''^api/src/lib/secret-box\.test\.ts$''']
+regexes = ['''^0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef$''']
