@@ -70,7 +70,7 @@ describe('Talent database and HTTP integration', () => {
   it('dry-runs and atomically repairs an eight-record cohort without changing stages or source evidence', async () => {
     const repairFarm = randomUUID()
     await db.insert(farms).values({ id: repairFarm, name: 'Disposable repair fixture', slug: `repair-${repairFarm}`, location: 'Test' })
-    const records = []
+    const records: Awaited<ReturnType<typeof create>>[] = []
     let firstSender = ''
     for (let n = 0; n < 8; n++) {
       const sender = `${randomUUID()}@example.com`
