@@ -17,6 +17,7 @@ export async function ingestTalentApplication(input: {
   farmId: string; actorId?: string; name: string; email?: string | null; phone?: string | null;
   careerPostId?: string | null; roleLabel?: string; source: 'cv_upload' | 'email_import' | 'zoho' | 'website';
   sourceKey: string; receivedAt?: Date; privacyNoticeVersion?: string; documents: PreparedTalentDocument[];
+  isolateCandidate?: boolean;
   message?: { key: string; body: string; references: string[]; applicationReference?: string };
 }) {
   const unused = new Set(input.documents.map((document) => document.storageKey))
@@ -71,10 +72,13 @@ export async function ingestTalentApplication(input: {
           (job.applicationDeadline && Date.now() > new Date(`${job.applicationDeadline}T23:59:59.999+01:00`).getTime()))) {
           throw new Error('This role is no longer accepting applications')
         }
-        const email = input.email?.trim().toLowerCase() || null
+        let email = input.email?.trim().toLowerCase() || null
         let candidate: typeof talentCandidates.$inferSelect | undefined
         if (email) {
           ;[candidate] = await tx.select().from(talentCandidates).where(and(eq(talentCandidates.farmId, input.farmId), eq(talentCandidates.email, email))).limit(1)
+          // Forwarded identities are suggestions, never proof that two submissions belong together.
+          // Keep the suggested address in the received event when it is already in use.
+          if (candidate && input.isolateCandidate) { candidate = undefined; email = null }
         }
         if (!candidate) {
           ;[candidate] = await tx.insert(talentCandidates).values({
@@ -122,6 +126,7 @@ export async function importTalentEmail(input: {
   const email = await parseTalentEmail(input.buffer)
   const documents: PreparedTalentDocument[] = []
   const skipped: string[] = []
+  if (email.warning) skipped.push(email.warning)
   try {
     documents.push(await prepareTalentDocument(input.farmId, input.filename, input.buffer, 'email'))
     for (const attachment of email.attachments) {
@@ -135,10 +140,11 @@ export async function importTalentEmail(input: {
   }
   const result = await ingestTalentApplication({
     ...input, name: email.name, email: email.email, roleLabel: email.subject,
+    isolateCandidate: email.forwarded,
     source: input.source ?? 'email_import', sourceKey: `email:${email.messageKey}`,
     receivedAt: input.receivedAt ?? email.receivedAt, documents,
     message: { key: email.messageKey, references: email.references, applicationReference: email.applicationReference,
-      body: `From: ${email.email}\nSubject: ${email.subject}\n\n${email.body}${skipped.length ? `\n\nImport warning: ${skipped.join(' ')}` : ''}` },
+      body: `From: ${email.senderEmail}\nSubject: ${email.subject}\n\n${email.body}${skipped.length ? `\n\nImport warning: ${skipped.join(' ')}` : ''}` },
   })
   return { ...result, warnings: skipped }
 }

@@ -27,6 +27,20 @@ beforeEach(() => {
 })
 
 describe('Talent workspace', () => {
+  it('offers independent separation without automatically saving or retaining shared contact details', async () => {
+    api.mockImplementation(async (path: string) => {
+      if (path.endsWith('/metadata')) return metadata
+      if (path === '/api/talent/app-1') return { ...detail, candidate: { ...candidate, email: 'info@trovara.farm', phone: '123' },
+        otherApplications: [...detail.otherApplications, { id: 'app-2', roleLabel: 'Other role', stage: 'new' }] }
+      return { applications: [{ application, candidate }], hasMore: false }
+    })
+    const wrapper = render(); await flushPromises(); await wrapper.find('button.application').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('2 applications share this profile')
+    await wrapper.findAll('button').find(button => button.text() === 'Separate this applicant')!.trigger('click')
+    expect((wrapper.find('input[type=email]').element as HTMLInputElement).value).toBe('')
+    expect(api.mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0)
+    expect(wrapper.text()).toContain('Other applications will not change')
+  })
   it('shows Zoho hello intake, needs-review and overdue indicators', async () => {
     const wrapper = render(); await flushPromises()
     expect(wrapper.text()).toContain('Zoho · hello@trovara.farm')

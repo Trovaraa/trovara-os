@@ -5,6 +5,7 @@ import { inspectKnowledgeDocument, extractKnowledgeDocument } from './knowledge-
 import { assertBufferIsClean } from './malware-scan.js'
 import { ocrPdf } from './knowledge-ocr.js'
 import { putKnowledgeObject, deleteKnowledgeObject } from './knowledge-storage.js'
+import { resolveTalentEmailIdentity } from './talent-identity.js'
 
 export const TALENT_FILE_LIMIT = 10 * 1024 * 1024
 export const TALENT_STAGES = ['new', 'reviewing', 'shortlisted', 'interview', 'offer', 'hired', 'rejected', 'withdrawn'] as const
@@ -127,13 +128,15 @@ export async function parseTalentEmail(buffer: Buffer) {
   if (!sender?.address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender.address)) throw new Error('Email has no valid sender')
   if (mail.attachments.length > 20) throw new Error('Email has too many attachments (maximum 20)')
   const subject = (mail.subject ?? 'Application').slice(0, 300)
+  const body = (mail.text ?? '').slice(0, 100_000)
+  const identity = resolveTalentEmailIdentity({ senderName: sender.name, senderEmail: sender.address, subject, body })
   return {
-    name: sender.name || sender.address, email: sender.address.toLowerCase(),
-    subject, body: (mail.text ?? '').slice(0, 100_000),
-    applicationReference: subject.match(/\[Trovara ([a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\]/i)?.[1]?.toLowerCase(),
+    ...identity, senderEmail: sender.address.toLowerCase(),
+    subject, body,
+    applicationReference: identity.forwarded ? undefined : subject.match(/\[Trovara ([a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\]/i)?.[1]?.toLowerCase(),
     receivedAt: mail.date && Number.isFinite(mail.date.getTime()) ? mail.date : new Date(),
     messageKey: digest(mail.messageId?.trim() || buffer),
-    references: [...(mail.references ?? []), ...(mail.inReplyTo ? [mail.inReplyTo] : [])].map(digest),
+    references: identity.forwarded ? [] : [...(mail.references ?? []), ...(mail.inReplyTo ? [mail.inReplyTo] : [])].map(digest),
     // Subject alone is NOT an identity: unrelated submissions must not be merged automatically.
     attachments: mail.attachments,
   }

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -64,6 +67,72 @@ afterAll(async () => {
 })
 
 describe('Talent database and HTTP integration', () => {
+  it('dry-runs and atomically repairs an eight-record cohort without changing stages or source evidence', async () => {
+    const repairFarm = randomUUID()
+    await db.insert(farms).values({ id: repairFarm, name: 'Disposable repair fixture', slug: `repair-${repairFarm}`, location: 'Test' })
+    const records = []
+    for (let n = 0; n < 8; n++) {
+      const sender = `${randomUUID()}@example.com`
+      records.push(await create({ farmId: repairFarm, actorId: undefined, email: 'info@trovara.farm', name: 'Incorrect shared profile', source: 'zoho',
+        message: { key: randomUUID(), references: [], body: `From: info@trovara.farm\nSubject: Fwd: Application\n\n============ Forwarded message ============\nFrom: Applicant ${n} <${sender}>\nTo: info@trovara.farm\nDate: Thursday\nSubject: Application\n` } }))
+    }
+    const snapshot = join(storage, 'repair-snapshot.json')
+    const script = fileURLToPath(new URL('../../../scripts/repair-talent-forwarded-identities.mjs', import.meta.url))
+    const args = [script, '--anchor', records[0].application.id, '--expected-count', '8', '--snapshot', snapshot]
+    const run = (extra: string[] = []) => execFileSync(process.execPath, [...args, ...extra], { env: { ...process.env, DATABASE_URL: process.env.TALENT_TEST_DATABASE_URL }, stdio: 'pipe' })
+    run()
+    const plan = JSON.parse(readFileSync(snapshot, 'utf8'))
+    const before = await db.select().from(talentApplications).where(eq(talentApplications.farmId, repairFarm))
+    expect(new Set(before.map(row => row.candidateId)).size).toBe(1)
+    expect(() => run(['--apply', 'incorrect'])).toThrow()
+    run(['--apply', plan.fingerprint])
+    const after = await db.select().from(talentApplications).where(eq(talentApplications.farmId, repairFarm))
+    expect(new Set(after.map(row => row.candidateId)).size).toBe(8)
+    expect(after.every(row => row.stage === 'new')).toBe(true)
+    expect(await db.select().from(talentEvents).where(and(eq(talentEvents.farmId, repairFarm), eq(talentEvents.kind, 'email')))).toHaveLength(8)
+    expect(() => run(['--apply', plan.fingerprint])).toThrow()
+  })
+  it('keeps different forwarded applicants independent and never links forwarded references', async () => {
+    const original = await create({ email: 'info@trovara.farm' })
+    const message = (email: string, id: string) => Buffer.from(`From: Info <info@trovara.farm>\r\nMessage-ID: <${id}@example.com>\r\nSubject: Fwd: [Trovara ${original.application.id}] Application\r\n\r\n============ Forwarded message ============\nFrom: Applicant <${email}>\nTo: info@trovara.farm\nDate: Thursday\nSubject: Application\n`)
+    const firstId = randomUUID(); const firstEmail = `${randomUUID()}@example.com`
+    const first = await importTalentEmail({ farmId, filename: 'forward.eml', buffer: message(firstEmail, firstId) })
+    const second = await importTalentEmail({ farmId, filename: 'other.eml', buffer: message(`${randomUUID()}@example.com`, randomUUID()) })
+    const repeatedSender = await importTalentEmail({ farmId, filename: 'another.eml', buffer: message(firstEmail, randomUUID()) })
+    expect(new Set([first.application.candidateId, second.application.candidateId, repeatedSender.application.candidateId, original.application.candidateId]).size).toBe(4)
+    expect((await importTalentEmail({ farmId, filename: 'retry.eml', buffer: message(firstEmail, firstId) })).application.id).toBe(first.application.id)
+    const detail = await (await request(`/${repeatedSender.application.id}`)).json()
+    expect(detail.candidate.email).toBeNull()
+    expect(detail.events.some((event: {body: string}) => event.body.includes(firstEmail))).toBe(true)
+  })
+  it('separates corrected contacts by default without changing another application or its documents/notes', async () => {
+    const email = `${randomUUID()}@example.com`; const first = await create({ email }); const second = await create({ email })
+    await request(`/${first.application.id}/notes`, 'POST', { body: 'Keep this note' })
+    const body = { stage: 'interview', careerPostId: null, assignedToId: null, nextAction: null, dueAt: null, needsReview: true,
+      candidate: { name: 'Corrected Applicant', email: `${randomUUID()}@example.com`, phone: null, location: null } }
+    expect((await request(`/${first.application.id}`, 'PATCH', body)).status).toBe(200)
+    const corrected = await (await request(`/${first.application.id}`)).json()
+    const unchanged = await (await request(`/${second.application.id}`)).json()
+    expect(corrected.candidate.id).not.toBe(unchanged.candidate.id)
+    expect(unchanged.candidate.email).toBe(email); expect(unchanged.application.stage).toBe('new')
+    expect(corrected.events.some((event: {body: string}) => event.body === 'Keep this note')).toBe(true)
+    expect(corrected.application.stage).toBe('interview')
+  })
+  it('requires an explicit shared edit or a different/blank email; stage-only saves do not separate', async () => {
+    const email = `${randomUUID()}@example.com`; const first = await create({ email }); const second = await create({ email })
+    const before = await (await request(`/${first.application.id}`)).json()
+    const body = { stage: 'interview', careerPostId: null, assignedToId: null, nextAction: null, dueAt: null, needsReview: true,
+      candidate: { name: before.candidate.name, email, phone: null, location: null } }
+    expect((await request(`/${first.application.id}`, 'PATCH', body)).status).toBe(200)
+    expect((await (await request(`/${first.application.id}`)).json()).candidate.id).toBe(second.application.candidateId)
+    body.candidate.name = 'Shared correction'
+    expect((await request(`/${first.application.id}`, 'PATCH', body)).status).toBe(409)
+    expect((await request(`/${first.application.id}`, 'PATCH', { ...body, updateSharedCandidate: true })).status).toBe(200)
+    expect((await (await request(`/${second.application.id}`)).json()).candidate.name).toBe('Shared correction')
+    expect((await request(`/${first.application.id}`, 'PATCH', { ...body, separateCandidate: true, candidate: { ...body.candidate, email: null } })).status).toBe(200)
+    expect((await (await request(`/${first.application.id}`)).json()).candidate.id).not.toBe(second.application.candidateId)
+    expect((await request(`/${first.application.id}`, 'PATCH', { ...body, expectedCandidateId: second.application.candidateId })).status).toBe(409)
+  })
   it('denies anonymous and careers-only users; catalog access does not leak applicants', async () => {
     session = null; expect((await request('')).status).toBe(401)
     session = { ...owner(), role: 'supervisor', permissions: ['careers.manage'] }

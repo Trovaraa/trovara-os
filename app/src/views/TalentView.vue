@@ -45,7 +45,7 @@ const retentionDate = ref('')
 const retentionReason = ref('')
 const filters = reactive({ q: '', stage: '', job: '', assigned: '', review: false, from: '', to: '' })
 const form = reactive({ name: '', email: '', phone: '', location: '', stage: 'new', careerPostId: '', assignedToId: '',
-  nextAction: '', dueAt: '', needsReview: true, linkExistingCandidate: false })
+  nextAction: '', dueAt: '', needsReview: true, linkExistingCandidate: false, updateSharedCandidate: false, separateCandidate: false })
 
 function label(value: string) { return value.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) }
 function date(value: string | null) { return value ? new Date(value).toLocaleDateString() : '—' }
@@ -78,19 +78,27 @@ async function select(id: string) {
   Object.assign(form, { name: result.candidate.name, email: result.candidate.email ?? '', phone: result.candidate.phone ?? '',
     location: result.candidate.location ?? '', stage: result.application.stage, careerPostId: result.application.careerPostId ?? '',
     assignedToId: result.application.assignedToId ?? '', nextAction: result.application.nextAction ?? '',
-    dueAt: localDateTime(result.application.dueAt), needsReview: result.application.needsReview, linkExistingCandidate: false })
+    dueAt: localDateTime(result.application.dueAt), needsReview: result.application.needsReview, linkExistingCandidate: false,
+    updateSharedCandidate: false, separateCandidate: false })
   note.value = ''; emailBody.value = ''; emailSubject.value = `Your Trovara application — ${result.application.roleLabel}`
   sendRequestId.value = crypto.randomUUID(); retentionDate.value = result.application.retentionUntil.slice(0, 10)
 }
 async function save() {
   if (!detail.value) return
+  if (form.updateSharedCandidate && !confirm('Update contact details on ALL applications linked to this candidate? Only confirm if they belong to the same person.')) return
   const id = detail.value.application.id
   await api(`/api/talent/${id}`, { method: 'PATCH', body: JSON.stringify({ stage: form.stage,
     careerPostId: form.careerPostId || null, assignedToId: form.assignedToId || null, nextAction: form.nextAction || null,
     dueAt: form.dueAt ? new Date(form.dueAt).toISOString() : null, needsReview: form.needsReview,
     candidate: { name: form.name, email: form.email || null, phone: form.phone || null, location: form.location || null },
-    linkExistingCandidate: form.linkExistingCandidate }) })
+    linkExistingCandidate: form.linkExistingCandidate, updateSharedCandidate: form.updateSharedCandidate,
+    separateCandidate: form.separateCandidate, expectedCandidateId: detail.value.candidate.id }) })
   await select(id); await load(); notice.value = 'Application saved.'
+}
+function separateApplicant() {
+  form.separateCandidate = true; form.updateSharedCandidate = false; form.linkExistingCandidate = false
+  form.email = ''; form.phone = ''; form.location = ''; form.needsReview = true
+  notice.value = 'Independent applicant selected. Check the name and enter contact details from this application’s original email/CV, then save. Other applications will not change.'
 }
 function useSuggestions(document: TalentDocument) {
   const fields = document.extractedFields
@@ -220,9 +228,14 @@ onMounted(() => action(load))
               <label>Assigned reviewer<select v-model="form.assignedToId"><option value="">Unassigned</option><option v-for="reviewer in metadata?.reviewers" :key="reviewer.id" :value="reviewer.id">{{ reviewer.name }}</option></select></label>
               <label>Follow-up due<input v-model="form.dueAt" type="datetime-local" /></label><label class="wide">Next action<input v-model="form.nextAction" maxlength="1000" placeholder="e.g. Arrange a supervisor interview" /></label>
               <label class="check wide"><input v-model="form.needsReview" type="checkbox" />Needs human review — uncheck only after checking the source documents</label>
-              <label class="check wide"><input v-model="form.linkExistingCandidate" type="checkbox" />If this email already exists, link to that candidate without replacing their profile</label>
+              <label class="check wide"><input v-model="form.linkExistingCandidate" :disabled="form.separateCandidate" type="checkbox" />If this email already exists, link to that candidate without replacing their profile</label>
             </fieldset>
-            <p class="text-xs text-slate-400">Contact changes affect this candidate’s other applications. Extracted information is unverified until you review it.</p>
+            <div v-if="canManage && detail.otherApplications.length > 1" class="rounded border border-amber-500 p-3 space-y-2" role="status">
+              <p>{{ detail.otherApplications.length }} applications share this profile. Contact edits apply only to this application by default. Use the applicant’s own email, or leave it blank if unknown.</p>
+              <button type="button" class="button" :disabled="busy" @click="separateApplicant">Separate this applicant</button>
+              <label v-if="!form.separateCandidate" class="check"><input v-model="form.updateSharedCandidate" type="checkbox" />Update contact details on all linked applications (same person only)</label>
+            </div>
+            <p class="text-xs text-slate-400">Extracted information is unverified until you review it. A forwarding mailbox is not the applicant’s email.</p>
             <button v-if="canManage" class="button primary" :disabled="busy">Save application</button>
           </form>
           <section v-if="detail.otherApplications.length > 1" class="space-y-2"><h3 class="font-semibold">This candidate’s applications</h3><button v-for="application in detail.otherApplications" :key="application.id" class="block text-sm text-emerald-300 underline" :disabled="busy" @click="action(() => select(application.id))">{{ application.roleLabel }} · {{ label(application.stage) }}</button></section>

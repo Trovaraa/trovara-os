@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { zValidator } from '@hono/zod-validator'
-import { and, asc, desc, eq, ilike, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { careerPosts, talentApplications, talentCandidates, talentDocuments, talentEvents, talentMailCursors, users } from '../db/schema.js'
@@ -21,7 +21,9 @@ const patchSchema = z.object({
   stage: z.enum(TALENT_STAGES), careerPostId: uuid.nullable(),
   assignedToId: uuid.nullable(), nextAction: nullableText(1000), dueAt: z.string().datetime().nullable(),
   needsReview: z.boolean(), candidate: candidateSchema, linkExistingCandidate: z.boolean().default(false),
-})
+  updateSharedCandidate: z.boolean().default(false), separateCandidate: z.boolean().default(false),
+  expectedCandidateId: uuid.optional(),
+}).refine((body) => !(body.separateCandidate && (body.updateSharedCandidate || body.linkExistingCandidate)), 'Separate and shared/link modes cannot be combined')
 
 export const talentRoutes = new Hono<{ Variables: AppVariables }>()
 talentRoutes.use('*', authMiddleware)
@@ -141,11 +143,27 @@ talentRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => {
   }
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`talent:${user.farmId}`}))`)
+      const [application] = await tx.select().from(talentApplications).where(and(
+        eq(talentApplications.farmId, user.farmId), eq(talentApplications.id, c.req.param('id')), isNull(talentApplications.deletedAt),
+      )).for('update')
+      if (!application || (body.expectedCandidateId && body.expectedCandidateId !== application.candidateId)) throw new Error('APPLICATION_CHANGED')
       let candidateId = application.candidateId
+      const [current] = await tx.select().from(talentCandidates).where(and(eq(talentCandidates.farmId, user.farmId), eq(talentCandidates.id, candidateId))).for('update')
+      if (!current) throw new Error('APPLICATION_CHANGED')
+      const related = await tx.select({ id: talentApplications.id }).from(talentApplications).where(and(
+        eq(talentApplications.farmId, user.farmId), eq(talentApplications.candidateId, candidateId),
+      ))
+      const changed = (['name', 'email', 'phone', 'location'] as const).some((key) => body.candidate[key] !== current[key])
+      const separate = body.separateCandidate || (related.length > 1 && changed && !body.updateSharedCandidate)
       const [existing] = body.candidate.email ? await tx.select().from(talentCandidates).where(and(eq(talentCandidates.farmId, user.farmId), eq(talentCandidates.email, body.candidate.email))).limit(1) : []
       if (existing && existing.id !== candidateId) {
-        if (!body.linkExistingCandidate) throw new Error('CANDIDATE_EXISTS')
+        if (!body.linkExistingCandidate || body.separateCandidate) throw new Error('CANDIDATE_EXISTS')
         candidateId = existing.id
+      } else if (separate && related.length > 1) {
+        if (existing) throw new Error('SHARED_EMAIL')
+        const [created] = await tx.insert(talentCandidates).values({ farmId: user.farmId, ...body.candidate }).returning()
+        candidateId = created.id
       } else {
         await tx.update(talentCandidates).set({ ...body.candidate, updatedAt: new Date() }).where(and(eq(talentCandidates.farmId, user.farmId), eq(talentCandidates.id, candidateId)))
       }
@@ -158,9 +176,11 @@ talentRoutes.patch('/:id', zValidator('json', patchSchema), async (c) => {
         if (!other) await tx.delete(talentCandidates).where(and(eq(talentCandidates.farmId, user.farmId), eq(talentCandidates.id, application.candidateId)))
       }
       await tx.insert(talentEvents).values({ farmId: user.farmId, applicationId: application.id, actorId: user.id,
-        kind: 'updated', body: `Stage: ${application.stage} → ${body.stage}. ${body.needsReview ? 'Needs review.' : 'Details reviewed.'}${candidateId !== application.candidateId ? ' Linked to an existing candidate; existing profile retained.' : ''}` })
+        kind: 'updated', body: `Stage: ${application.stage} → ${body.stage}. ${body.needsReview ? 'Needs review.' : 'Details reviewed.'}${candidateId !== application.candidateId ? (existing ? ' Linked to an existing candidate; existing profile retained.' : ' Separated into an independent candidate; other applications unchanged.') : changed && related.length > 1 ? ' Shared contact profile updated with explicit confirmation.' : ''}` })
     })
   } catch (error) {
+    if (error instanceof Error && error.message === 'APPLICATION_CHANGED') return c.json({ error: 'Application changed. Reload before saving.' }, 409)
+    if (error instanceof Error && error.message === 'SHARED_EMAIL') return c.json({ error: 'This email belongs to the shared profile. Enter this applicant’s own email (or clear it) to edit independently, or explicitly choose to update all linked applications.' }, 409)
     if ((error instanceof Error && error.message === 'CANDIDATE_EXISTS') || (error as { code?: string }).code === '23505') return c.json({ error: 'This email already belongs to a candidate. Confirm linking to their existing profile.' }, 409)
     throw error
   }
