@@ -71,11 +71,15 @@ describe('Talent database and HTTP integration', () => {
     const repairFarm = randomUUID()
     await db.insert(farms).values({ id: repairFarm, name: 'Disposable repair fixture', slug: `repair-${repairFarm}`, location: 'Test' })
     const records = []
+    let firstSender = ''
     for (let n = 0; n < 8; n++) {
       const sender = `${randomUUID()}@example.com`
+      if (n === 0) firstSender = sender
       records.push(await create({ farmId: repairFarm, actorId: undefined, email: 'info@trovara.farm', name: 'Incorrect shared profile', source: 'zoho',
         message: { key: randomUUID(), references: [], body: `From: info@trovara.farm\nSubject: Fwd: Application\n\n============ Forwarded message ============\nFrom: Applicant ${n} <${sender}>\nTo: info@trovara.farm\nDate: Thursday\nSubject: Application\n` } }))
     }
+    // A human corrected one name/email before discovering that all eight shared it.
+    await db.update(talentCandidates).set({ name: 'Applicant 0', email: firstSender }).where(eq(talentCandidates.id, records[0].application.candidateId))
     const snapshot = join(storage, 'repair-snapshot.json')
     const script = fileURLToPath(new URL('../../../scripts/repair-talent-forwarded-identities.mjs', import.meta.url))
     const args = [script, '--anchor', records[0].application.id, '--expected-count', '8', '--snapshot', snapshot]
@@ -88,6 +92,7 @@ describe('Talent database and HTTP integration', () => {
     run(['--apply', plan.fingerprint])
     const after = await db.select().from(talentApplications).where(eq(talentApplications.farmId, repairFarm))
     expect(new Set(after.map(row => row.candidateId)).size).toBe(8)
+    expect(after.find(row => row.id === records[0].application.id)?.candidateId).toBe(records[0].application.candidateId)
     expect(after.every(row => row.stage === 'new')).toBe(true)
     expect(await db.select().from(talentEvents).where(and(eq(talentEvents.farmId, repairFarm), eq(talentEvents.kind, 'email')))).toHaveLength(8)
     expect(() => run(['--apply', plan.fingerprint])).toThrow()

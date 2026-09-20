@@ -38,7 +38,9 @@ async function inspect(tx) {
     const fields = cv?.extracted_fields || cv?.extractedFields
     const name = row.id === anchor && option('--anchor-name') ? option('--anchor-name') :
       identity.name === identity.email && fields?.name ? fields.name : identity.name
-    const match = candidates.find(c => c.email === identity.email && c.id !== application.candidate_id)
+    // A reviewer may already have corrected the shared profile to one real applicant.
+    // Retain it for that person; split the other applications away without a duplicate email.
+    const match = candidates.find(c => c.email === identity.email)
     if (match && !sameName(match.name, name)) throw new Error('Existing candidate identity mismatch; manual review required')
     return { id: row.id, name, email: identity.email, existingCandidateId: match?.id || null,
       sourceName: identity.name, cvName: fields?.name || null, emailMatchesCv: Boolean(cv), documentCount: documents.filter(d => d.application_id === row.id).length }
