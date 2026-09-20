@@ -318,7 +318,15 @@ careersRoutes.delete('/:id', requireCareersManage, async (c) => {
     .limit(1)
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
-  await db.delete(careerPosts).where(eq(careerPosts.id, postId))
+  try {
+    await db.delete(careerPosts).where(and(eq(careerPosts.id, postId), eq(careerPosts.farmId, user.farmId)))
+  } catch (error) {
+    const failure = error as { code?: string; cause?: { code?: string } }
+    if ((failure.code ?? failure.cause?.code) === '23503') {
+      return c.json({ error: 'This role has applications in Talent. Unpublish it instead of deleting the hiring record.' }, 409)
+    }
+    throw error
+  }
   await logAudit({
     farmId: user.farmId,
     userId: user.id,

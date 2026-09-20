@@ -270,6 +270,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredPermission: 'careers.manage' },
     },
     {
+      path: '/talent',
+      name: 'talent',
+      component: () => import('@/views/TalentView.vue'),
+      meta: { requiresAuth: true, requiredPermission: 'talent.read' },
+    },
+    {
       path: '/templates',
       name: 'templates',
       component: () => import('@/views/TemplatesView.vue'),

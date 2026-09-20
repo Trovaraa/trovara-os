@@ -54,6 +54,7 @@ export default {
       customerSurveys: 'Food surveys',
       moments: 'Moments',
       careers: 'Careers',
+      talent: 'Talent',
       shopCustomers: 'Registered customers',
       menu: 'Menu',
       more: 'More',
