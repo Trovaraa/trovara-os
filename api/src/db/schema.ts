@@ -2722,6 +2722,23 @@ export const customerInquiries = pgTable('customer_inquiries', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+export const expensePayments = pgTable('expense_payments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  farmId: uuid('farm_id').references(() => farms.id).notNull(),
+  expenseId: uuid('expense_id').notNull(),
+  amount: integer('amount').notNull(),
+  currency: text('currency').notNull(),
+  paidOn: date('paid_on').notNull(),
+  reference: text('reference').notNull(),
+  requestId: uuid('request_id').notNull(),
+  recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  foreignKey({ columns: [t.farmId, t.expenseId], foreignColumns: [expenses.farmId, expenses.id] }),
+  uniqueIndex('expense_payments_request_uq').on(t.farmId, t.requestId),
+  check('expense_payments_amount_check', sql`${t.amount} > 0`),
+])
+
 export const expenses = pgTable(
   'expenses',
   {
@@ -2771,6 +2788,10 @@ export const expenses = pgTable(
     translationAttempts: integer('translation_attempts').default(0).notNull(),
     approvalStatus: text('approval_status').default('approved').notNull(),
     recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    paymentDueDate: date('payment_due_date'),
+    amountPaid: integer('amount_paid').default(0).notNull(),
+    paymentStatus: text('payment_status').default('unpaid').notNull(),
     expenseDate: timestamp('expense_date', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

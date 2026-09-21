@@ -1,5 +1,17 @@
 /** yo UI messages for Trovara OS */
 export default {
+    financeTracking: {
+      capex: 'CAPEX', assets: 'Àkọsílẹ̀ ohun-ìní', capexExpenses: 'Ìnáwó tí ó ní àmì CAPEX',
+      capexHint: 'Gbogbo ohun-ìní oko àti ìnáwó CAPEX ló wà níbí láìka àlẹ̀mọ́ ìnáwó sí. Àtòjọ ọ̀tọ̀ ni wọ́n, kì í ṣe iye àpapọ̀. Àmì lórí ìwé owó kì í dá ohun-ìní sílẹ̀.',
+      payments: 'Ìsanwó', unpaid: 'A kò tíì san', partially_paid: 'A ti san díẹ̀', paid: 'A ti san tán',
+      balance: 'Owó tí ó kù', dueDate: 'Ọjọ́ ìsanwó', saveDue: 'Fi ọjọ́ ìsanwó pamọ́',
+      reviewDue: 'Ṣàyẹ̀wò ọjọ́ ìsanwó', approvalRequired: 'Fọwọ́ sí ìwé owó yìí kí o tó ṣe àkọsílẹ̀ ìsanwó.',
+      recordOnly: 'Ṣe àkọsílẹ̀ owó tí o ti san. Èyí kì í fi owó ránṣẹ́. Ọjọ́ ìsanwó àkọ́kọ́ jẹ́ ọjọ́ méje lẹ́yìn ìfọwọ́sí.',
+      paidOn: 'Ọjọ́ tí a san', reference: 'Ìtọ́kasí ìsanwó', recordPayment: 'Ṣe àkọsílẹ̀ ìsanwó',
+      noPayments: 'Kò sí àkọsílẹ̀ ìsanwó.', failed: 'A kò lè parí iṣẹ́ yìí.', overdue: 'Ọjọ́ ìsanwó ti kọjá',
+      search: 'Wá ohun-ìní àti ìnáwó CAPEX', quantity: 'Iye', acquisitionCost: 'Iye rírà tí a kọ sílẹ̀',
+      inactive: 'Kò ṣiṣẹ́', noAssets: 'Kò sí ohun-ìní tó bá a mu.', noCapex: 'Kò sí ìnáwó CAPEX tó bá a mu. Fi àmì Capex sí ìnáwó láti fi hàn níbí.',
+    },
     brand: {
       name: 'Trovara OS',
       tagline: 'AI tí ń ṣiṣẹ́ oko',

@@ -1,5 +1,17 @@
 /** pcm UI messages for Trovara OS */
 export default {
+    financeTracking: {
+      capex: 'CAPEX', assets: 'Asset register', capexExpenses: 'Expenses wey get CAPEX label',
+      capexHint: 'All farm assets and CAPEX expenses dey here, no matter expense filters. Na separate lists, no be one total value. Invoice label no dey create asset.',
+      payments: 'Payments', unpaid: 'Never pay', partially_paid: 'Pay some part', paid: 'Don pay finish',
+      balance: 'Money wey remain', dueDate: 'Payment due date', saveDue: 'Save due date',
+      reviewDue: 'Check due date', approvalRequired: 'Approve this invoice before you record payment.',
+      recordOnly: 'Record payment wey you don make. This one no dey transfer money. New approval due date na seven days after approval.',
+      paidOn: 'Payment date', reference: 'Payment reference', recordPayment: 'Record payment',
+      noPayments: 'No payment record yet.', failed: 'This action no fit finish.', overdue: 'Due date don pass',
+      search: 'Search assets and CAPEX expenses', quantity: 'Quantity', acquisitionCost: 'Cost wey dem record to buy am',
+      inactive: 'No dey active', noAssets: 'No asset match.', noCapex: 'No CAPEX expense match. Add Capex label to expense make e show here.',
+    },
     brand: {
       name: 'Trovara OS',
       tagline: 'AI wey dey work the farm',
