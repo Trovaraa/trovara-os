@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import JournalRichTextEditor from '@/components/JournalRichTextEditor.vue'
 import { api } from '@/lib/api'
 import { prepareJournalCoverDataUrl } from '@/lib/journal-cover'
@@ -50,6 +51,8 @@ type JournalEngagement = {
 const { t, locale } = useI18n()
 const posts = ref<JournalPost[]>([])
 const selectedPost = ref<JournalPost | null>(null)
+const editorOpen = ref(false)
+const editorRevision = ref(0)
 const loading = ref(true)
 const loadingPost = ref(false)
 const saving = ref(false)
@@ -124,6 +127,7 @@ function populateForm(post: JournalPost) {
 }
 
 function startNewPost() {
+  editorOpen.value = true
   selectedPost.value = null
   Object.assign(form, {
     title: '',
@@ -154,6 +158,7 @@ async function loadPosts() {
 }
 
 async function selectPost(post: JournalPost) {
+  editorOpen.value = true
   clearMessages()
   populateForm(post)
   loadingPost.value = true
@@ -267,6 +272,7 @@ async function savePost(published?: boolean) {
     }
     replacePost(post)
     populateForm(post)
+    editorRevision.value++
     if (post.published) await loadEngagement(post.id)
     else engagement.value = null
     notice.value =
@@ -385,6 +391,7 @@ async function deletePost() {
     await api(`/api/journal/${post.id}`, { method: 'DELETE' })
     posts.value = posts.value.filter((item) => item.id !== post.id)
     startNewPost()
+    editorOpen.value = false
     notice.value = t('journal.deletedNotice')
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('journal.deleteFailed')
@@ -459,7 +466,7 @@ onMounted(loadPosts)
       </div>
     </section>
 
-    <div class="mt-4 grid min-w-0 gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
+    <div class="mt-4 min-w-0 space-y-6">
       <aside class="min-w-0 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
         <div class="flex items-center justify-between gap-3">
           <h3 class="font-bold text-white">{{ t('journal.posts') }}</h3>
@@ -472,7 +479,7 @@ onMounted(loadPosts)
             {{ t('journal.refresh') }}
           </button>
         </div>
-        <p v-if="loading" class="mt-6 text-sm text-slate-400">{{ t('journal.loading') }}</p>
+        <p v-if="loading && !posts.length" class="mt-6 text-sm text-slate-400">{{ t('journal.loading') }}</p>
         <ul v-else class="mt-4 space-y-2" :aria-label="t('journal.posts')">
           <li v-for="post in posts" :key="post.id">
             <button
@@ -507,7 +514,10 @@ onMounted(loadPosts)
         </p>
       </aside>
 
-      <section class="min-w-0 rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-6">
+      <EditorDrawer :open="editorOpen" :title="selectedPost ? t('journal.editPost') : t('journal.createPost')" :busy="saving || uploading || deleting || loadingPost || !!moderatingCommentId" :reset-key="editorRevision" @close="editorOpen = false">
+      <section class="min-w-0">
+        <p v-if="error" role="alert" class="mb-4 text-red-300">{{ error }}</p>
+        <p v-if="notice" role="status" class="mb-4 text-farm-green">{{ notice }}</p>
         <div class="border-b border-slate-800 pb-4">
           <div>
             <h3 class="font-bold text-white">
@@ -739,6 +749,7 @@ onMounted(loadPosts)
           </div>
         </details>
       </section>
+      </EditorDrawer>
     </div>
   </AppLayout>
 </template>

@@ -23,6 +23,7 @@ vi.mock('@/components/AppLayout.vue', () => ({
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
+    locale: { value: 'en' },
   }),
 }))
 
@@ -77,7 +78,7 @@ const entities = [
 
 async function mountView() {
   const FinanceView = (await import('./FinanceView.vue')).default
-  const wrapper = mount(FinanceView)
+  const wrapper = mount(FinanceView, { global: { stubs: { teleport: true } } })
   await flushPromises()
   return wrapper
 }
@@ -87,6 +88,7 @@ describe('FinanceView expense list', () => {
     vi.clearAllMocks()
     vi.stubGlobal('confirm', vi.fn(() => true))
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
+      if (path.endsWith('/payments')) return { payments: [] }
       if (path === '/api/finance') return { expenses: [expense] }
       if (path === '/api/finance/summary') return { summary }
       if (path === '/api/finance/entities') return { entities }
@@ -171,6 +173,7 @@ describe('FinanceView expense list', () => {
   it('uses cost-centre assignment as the single primary action for an unassigned mobile expense', async () => {
     const unassignedExpense = { ...expense, costCentreCode: null }
     api.mockImplementation(async (path: string) => {
+      if (path.endsWith('/payments')) return { payments: [] }
       if (path === '/api/finance') return { expenses: [unassignedExpense] }
       if (path === '/api/finance/summary') return { summary }
       if (path === '/api/finance/entities') return { entities }
@@ -269,6 +272,7 @@ describe('FinanceView expense list', () => {
       originalCurrency: 'USD',
     }
     api.mockImplementation(async (path: string) => {
+      if (path.endsWith('/payments')) return { payments: [] }
       if (path === '/api/finance') return { expenses: [foreignExpense] }
       if (path === '/api/finance/summary') return { summary }
       if (path === '/api/finance/entities') return { entities }

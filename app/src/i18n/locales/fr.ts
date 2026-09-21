@@ -1,6 +1,15 @@
 /** fr UI messages for Trovara OS */
 export default {
+    editor: { close: "Fermer", discard: "Abandonner les modifications non enregistrées et fermer ?" },
     financeTracking: {
+      saved: "Dépense enregistrée.",
+      unavailable: "Cette dépense n’est plus disponible. Fermez le panneau et actualisez la liste.",
+      refreshExpense: "Actualiser la dépense",
+      details: "Détails de la dépense",
+      paymentStatus: "Statut du paiement",
+      history: "Historique des paiements",
+      saveDetailsFirst: "Enregistrez la dépense avant de modifier l’échéance ou de saisir un paiement.",
+      retryHistory: "Recharger l’historique des paiements",
       capex: 'CAPEX', assets: 'Registre des actifs', capexExpenses: 'Dépenses étiquetées CAPEX',
       capexHint: 'Vue de tous les actifs et dépenses CAPEX de la ferme, indépendante des filtres. Ces listes ne constituent pas une valorisation combinée. Une étiquette ne crée pas un actif.',
       payments: 'Paiements', unpaid: 'Impayé', partially_paid: 'Partiellement payé', paid: 'Payé',
@@ -1127,7 +1136,7 @@ export default {
       labels: 'Libellés',
       addExpense: 'Ajouter une dépense',
       editExpense: 'Modifier la dépense',
-      approvalStatus: 'Statut',
+      approvalStatus: "Statut d’approbation",
       statusHelp:
         'Les brouillons en attente doivent être vérifiés. Seules les dépenses approuvées comptent dans le résultat.',
       status: {

@@ -1,6 +1,15 @@
 /** yo UI messages for Trovara OS */
 export default {
+    editor: { close: "Pa á", discard: "Pa àwọn àtúnṣe tí a kò tíì fi pamọ́ tì kí o sì pa á?" },
     financeTracking: {
+      saved: "A ti fi ìnáwó pamọ́.",
+      unavailable: "Ìnáwó yìí kò sí mọ́. Pa pánẹ́lì náà, kí o sì tún àkójọ náà gbé wọlé.",
+      refreshExpense: "Tún ìnáwó gbé wọlé",
+      details: "Àlàyé ìnáwó",
+      paymentStatus: "Ipò ìsanwó",
+      history: "Ìtàn ìsanwó",
+      saveDetailsFirst: "Fi àtúnṣe ìnáwó pamọ́ kí o tó yí ọjọ́ ìsanwó padà tàbí ṣàkọsílẹ̀ ìsanwó.",
+      retryHistory: "Tún gbé ìtàn ìsanwó wọlé",
       capex: 'CAPEX', assets: 'Àkọsílẹ̀ ohun-ìní', capexExpenses: 'Ìnáwó tí ó ní àmì CAPEX',
       capexHint: 'Gbogbo ohun-ìní oko àti ìnáwó CAPEX ló wà níbí láìka àlẹ̀mọ́ ìnáwó sí. Àtòjọ ọ̀tọ̀ ni wọ́n, kì í ṣe iye àpapọ̀. Àmì lórí ìwé owó kì í dá ohun-ìní sílẹ̀.',
       payments: 'Ìsanwó', unpaid: 'A kò tíì san', partially_paid: 'A ti san díẹ̀', paid: 'A ti san tán',
@@ -1054,7 +1063,7 @@ export default {
       labels: 'Àwọn àmì',
       addExpense: 'Fi ìnáwó kun',
       editExpense: 'Ṣàtúnṣe ìnáwó',
-      approvalStatus: 'Ipò',
+      approvalStatus: "Ipò ìfọwọ́sí",
       statusHelp:
         'Àwọn àkọsílẹ̀ tó ń dúró nílò àyẹ̀wò. Ìnáwó tí a fọwọ́ sí nìkan ni a kà sínú èrè àti àdánù.',
       status: {

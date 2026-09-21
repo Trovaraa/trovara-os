@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import FinanceImportPanel from '@/components/finance/FinanceImportPanel.vue'
 import ExpensePaymentsPanel from '@/components/finance/ExpensePaymentsPanel.vue'
@@ -94,10 +95,12 @@ const summary = ref<Summary | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
+const notice = ref('')
 const labelFilter = ref('')
 const costCentreFilter = ref('')
 const entityFilter = ref<'consolidated' | '001' | '002'>('consolidated')
 const editingId = ref<string | null>(null)
+const selectedExpense = ref<Expense | null>(null)
 const showForm = ref(false)
 const showImport = ref(false)
 const retryingExtractionIds = ref<Set<string>>(new Set())
@@ -106,11 +109,19 @@ const newLabelName = ref('')
 const addingLabel = ref(false)
 const page = ref(1)
 const activeSection = ref<'overview' | 'expenses' | 'capex'>('overview')
-const paymentExpenseId = ref<string | null>(null)
-const paymentExpense = computed(() => expenses.value.find(row => row.id === paymentExpenseId.value))
+const editor = ref<InstanceType<typeof EditorDrawer> | null>(null)
+const editorSection = ref<'details' | 'payments'>('details')
+const savedForm = ref('')
+const paymentBusy = ref(false)
+const paymentDirty = ref(false)
+const refreshing = ref(false)
+const formDirty = computed(() => JSON.stringify(form.value) !== savedForm.value)
 function showPayments(id: string) {
-  paymentExpenseId.value = id
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  const expense = expenses.value.find(row => row.id === id)
+  if (expense) {
+    startEdit(expense)
+    editorSection.value = 'payments'
+  }
 }
 function isOverdue(expense: Expense) {
   return expense.approvalStatus === 'approved' && expense.paymentStatus !== 'paid' && expense.amount > (expense.amountPaid ?? 0) &&
@@ -141,9 +152,7 @@ const canDelete = computed(() => auth.hasPermission('finance.delete'))
 const canRetryExtraction = computed(
   () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
 )
-const editingExpense = computed(() =>
-  editingId.value ? expenses.value.find((row) => row.id === editingId.value) ?? null : null,
-)
+const editingExpense = computed(() => editingId.value ? selectedExpense.value : null)
 const hasExpenseActions = computed(
   () => canWrite.value || canDelete.value || canRetryExtraction.value,
 )
@@ -214,7 +223,7 @@ async function retryExtraction(expense: Expense) {
   error.value = null
   try {
     await api(`/api/finance/${expense.id}/retry-extraction`, { method: 'POST' })
-    await load()
+    await refreshExpenses()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('finance.retryExtractionFailed')
   } finally {
@@ -233,7 +242,7 @@ async function updateStatus(expense: Expense, approvalStatus: 'approved' | 'reje
       method: 'PATCH',
       body: JSON.stringify({ approvalStatus }),
     })
-    await load()
+    await refreshExpenses()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('finance.statusUpdateFailed')
   } finally {
@@ -249,7 +258,7 @@ async function convertCurrency(expense: Expense) {
   error.value = null
   try {
     await api(`/api/finance/${expense.id}/convert-currency`, { method: 'POST' })
-    await load()
+    await refreshExpenses()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('finance.currencyConversionFailed')
   } finally {
@@ -265,7 +274,7 @@ async function deleteExpense(expense: Expense) {
   error.value = null
   try {
     await api(`/api/finance/${expense.id}`, { method: 'DELETE' })
-    await load()
+    await refreshExpenses()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('finance.deleteFailed')
   } finally {
@@ -277,6 +286,7 @@ async function deleteExpense(expense: Expense) {
 
 function resetForm() {
   editingId.value = null
+  selectedExpense.value = null
   form.value = {
     entityCode: '002',
     costCentreCode: '',
@@ -292,14 +302,22 @@ function resetForm() {
 }
 
 function startCreate() {
+  notice.value = ''
+  editorSection.value = 'details'
   resetForm()
-  activeSection.value = 'expenses'
+  savedForm.value = JSON.stringify(form.value)
+  error.value = null
+  paymentDirty.value = false
   showForm.value = true
 }
 
 function startEdit(expense: Expense) {
-  activeSection.value = 'expenses'
+  notice.value = ''
+  editorSection.value = 'details'
   editingId.value = expense.id
+  selectedExpense.value = expense
+  error.value = null
+  paymentDirty.value = false
   showForm.value = true
   form.value = {
     entityCode: expense.entityCode,
@@ -315,11 +333,24 @@ function startEdit(expense: Expense) {
     labelIds: (expense.labels ?? []).map((label) => label.id),
     approvalStatus: (expense.approvalStatus as 'pending' | 'approved' | 'rejected') ?? 'approved',
   }
+  savedForm.value = JSON.stringify(form.value)
 }
 
-async function load() {
+function closeEditor() {
+  showForm.value = false
+  resetForm()
+  newLabelName.value = ''
+}
+
+async function refreshExpenses() {
+  refreshing.value = true
+  try { await load(true) }
+  finally { refreshing.value = false }
+}
+
+async function load(preserveContext = false) {
   const requestId = ++loadRequestId
-  loading.value = true
+  if (!preserveContext) loading.value = true
   error.value = null
   try {
     const search = new URLSearchParams()
@@ -335,8 +366,20 @@ async function load() {
       api<{ entities: FinanceEntity[] }>('/api/finance/entities'),
     ])
     if (requestId !== loadRequestId) return
+    // Editing a cost centre/entity/label may remove the invoice from this
+    // filtered list. Keep its drawer current without changing the filters.
+    if (editingId.value) {
+      let selected = expenseData.expenses.find(row => row.id === editingId.value)
+      if (!selected && query) {
+        const unfiltered = await api<{ expenses: Expense[] }>('/api/finance')
+        if (requestId !== loadRequestId) return
+        selected = unfiltered.expenses.find(row => row.id === editingId.value)
+      }
+      if (!selected) throw new Error(t('financeTracking.unavailable'))
+      selectedExpense.value = selected
+    }
     expenses.value = expenseData.expenses
-    page.value = 1
+    page.value = preserveContext ? Math.min(page.value, pageCount.value) : 1
     summary.value = summaryData.summary
     labels.value = labelData.labels
     costCentres.value = costCentreData.costCentres
@@ -350,7 +393,7 @@ async function load() {
 }
 
 async function saveExpense() {
-  if (!canWrite.value) return
+  if (!canWrite.value || saving.value || paymentBusy.value) return
   saving.value = true
   error.value = null
   try {
@@ -380,9 +423,12 @@ async function saveExpense() {
         body: JSON.stringify(payload),
       })
     }
-    showForm.value = false
-    resetForm()
-    await load()
+    savedForm.value = JSON.stringify(form.value)
+    await refreshExpenses()
+    if (!error.value) notice.value = t('financeTracking.saved')
+    // Keep an existing invoice open so approval and payment can be completed
+    // in the same place. Creation returns to the unchanged list context.
+    if (!editingId.value) closeEditor()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('finance.saveFailed')
   } finally {
@@ -421,7 +467,7 @@ async function addLabel() {
   }
 }
 
-onMounted(load)
+onMounted(() => load())
 </script>
 
 <template>
@@ -437,7 +483,7 @@ onMounted(load)
           id="finance-entity-filter"
           v-model="entityFilter"
           class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-200"
-          @change="load"
+          @change="load()"
         >
           <option value="consolidated">{{ t('finance.consolidatedEntities') }}</option>
           <option v-for="entity in entities" :key="entity.code" :value="entity.code">
@@ -503,30 +549,40 @@ onMounted(load)
     <p v-if="error && !loading" class="mt-4 text-sm text-red-400" role="alert">{{ error }}</p>
     <div v-else-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('finance.loading') }}</div>
 
-    <template v-else-if="!error">
+    <template v-if="!loading">
       <CapexPanel v-if="activeSection === 'capex'" />
-      <ExpensePaymentsPanel v-if="activeSection === 'expenses' && paymentExpense" :key="paymentExpense.id"
-        :expense="paymentExpense" :can-write="canWrite" @saved="load" @close="paymentExpenseId = null" />
       <FinanceImportPanel
         v-if="activeSection === 'expenses' && showImport && canWrite"
         class="mt-6"
         :cost-centres="costCentres"
         :entities="entities"
         :categories="CATEGORIES"
-        @imported="load"
+        @imported="load()"
       />
-      <div
-        v-if="activeSection === 'expenses' && showForm && canWrite"
-        class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4"
-      >
-        <h3 class="font-bold text-white">
-          {{ editingId ? t('finance.editExpense') : t('finance.addExpense') }}
-        </h3>
+      <EditorDrawer ref="editor" :open="showForm" :title="editingId ? t('finance.editExpense') : t('finance.addExpense')"
+        :busy="saving || paymentBusy || addingLabel || refreshing" :track-changes="false" :dirty="formDirty || paymentDirty || !!newLabelName.trim()" @close="closeEditor">
+        <p v-if="error" role="alert" class="mb-4 text-red-300">{{ error }}</p>
+        <p v-if="notice && !error && !formDirty" role="status" class="mb-4 text-emerald-300">{{ notice }}</p>
+        <button v-if="error" type="button" class="mb-4 min-h-11 rounded border border-slate-600 px-3" :disabled="refreshing" @click="refreshExpenses">{{ t('financeTracking.refreshExpense') }}</button>
+        <div v-if="editingExpense" class="mb-5 grid gap-3 rounded-xl border border-slate-700 p-4 sm:grid-cols-2">
+          <p class="break-words font-bold sm:col-span-2">{{ editingExpense.description }}</p>
+          <p>{{ t('finance.approvalStatus') }}: <strong>{{ statusLabel(editingExpense.approvalStatus) }}</strong></p>
+          <p>{{ t('financeTracking.paymentStatus') }}: <strong>{{ t(`financeTracking.${editingExpense.paymentStatus ?? 'unpaid'}`) }}</strong></p>
+          <p>{{ t('financeTracking.dueDate') }}: <strong>{{ editingExpense.paymentDueDate ?? t('financeTracking.reviewDue') }}</strong></p>
+          <p>{{ t('financeTracking.balance') }}: <strong>{{ formatAmount(editingExpense.amount - (editingExpense.amountPaid ?? 0), editingExpense.currency) }}</strong></p>
+        </div>
+        <div v-if="editingExpense" class="mb-5 flex gap-2" :aria-label="t('finance.editExpense')">
+          <button type="button" class="min-h-11 rounded-xl border px-4 py-2 font-semibold" :class="editorSection === 'details' ? 'border-farm-green bg-farm-green/20 text-farm-green' : 'border-slate-700'" :aria-pressed="editorSection === 'details'" @click="editorSection = 'details'">{{ t('financeTracking.details') }}</button>
+          <button type="button" class="min-h-11 rounded-xl border px-4 py-2 font-semibold" :class="editorSection === 'payments' ? 'border-farm-green bg-farm-green/20 text-farm-green' : 'border-slate-700'" :aria-pressed="editorSection === 'payments'" @click="editorSection = 'payments'">{{ t('financeTracking.payments') }}</button>
+        </div>
+        <fieldset v-show="editorSection === 'details'" :disabled="!canWrite || saving || paymentBusy || refreshing" class="min-w-0 space-y-4">
+        <legend class="mb-4 font-bold">{{ t('financeTracking.details') }}</legend>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label class="text-sm text-slate-400 space-y-1">
             <span>{{ t('finance.entity') }}</span>
             <select
               v-model="form.entityCode"
+              :disabled="(editingExpense?.amountPaid ?? 0) > 0"
               required
               class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
             >
@@ -565,6 +621,7 @@ onMounted(load)
             <span>{{ t('finance.amount') }}</span>
             <input
               v-model="form.amount"
+              :disabled="(editingExpense?.amountPaid ?? 0) > 0"
               type="number"
               min="0"
               step="1"
@@ -638,6 +695,7 @@ onMounted(load)
             <span>{{ t('finance.approvalStatus') }}</span>
             <select
               v-model="form.approvalStatus"
+              :disabled="(editingExpense?.amountPaid ?? 0) > 0"
               class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
             >
               <option value="pending">{{ t('finance.status.pending') }}</option>
@@ -684,7 +742,7 @@ onMounted(load)
             </button>
           </div>
         </div>
-        <div class="flex gap-2">
+        <div v-if="canWrite" class="flex gap-2">
           <button
             type="button"
             class="rounded-xl bg-farm-green px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
@@ -696,12 +754,16 @@ onMounted(load)
           <button
             type="button"
             class="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300"
-            @click="showForm = false; resetForm()"
+            @click="editor?.requestClose()"
           >
             {{ t('finance.cancel') }}
           </button>
         </div>
-      </div>
+        </fieldset>
+        <p v-if="formDirty && editingExpense" class="mt-4 text-sm text-amber-300">{{ t('financeTracking.saveDetailsFirst') }}</p>
+        <ExpensePaymentsPanel v-if="editingExpense" v-show="editorSection === 'payments'" :key="editingExpense.id" :expense="editingExpense" :can-write="canWrite && !formDirty && !saving && !refreshing && !error"
+          @saved="refreshExpenses" @busy="paymentBusy = $event" @dirty="paymentDirty = $event" />
+      </EditorDrawer>
 
       <section
         id="finance-overview-panel"
@@ -883,7 +945,7 @@ onMounted(load)
               v-model="costCentreFilter"
               :aria-label="t('finance.costCentre')"
               class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-              @change="load"
+              @change="load()"
             >
               <option value="">{{ t('finance.allCostCentres') }}</option>
               <option v-for="costCentre in costCentres" :key="costCentre.code" :value="costCentre.code">
@@ -895,7 +957,7 @@ onMounted(load)
               v-model="labelFilter"
               :aria-label="t('finance.labels')"
               class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-              @change="load"
+              @change="load()"
             >
               <option value="">{{ t('finance.allLabels') }}</option>
               <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>

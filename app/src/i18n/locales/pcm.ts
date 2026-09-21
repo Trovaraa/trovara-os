@@ -1,6 +1,15 @@
 /** pcm UI messages for Trovara OS */
 export default {
+    editor: { close: "Close", discard: "Leave changes wey you never save and close?" },
     financeTracking: {
+      saved: "Expense don save.",
+      unavailable: "This expense no dey available again. Close this panel and reload the list.",
+      refreshExpense: "Reload expense",
+      details: "Expense details",
+      paymentStatus: "Payment status",
+      history: "Payment history",
+      saveDetailsFirst: "Save expense changes before you change due date or record payment.",
+      retryHistory: "Try load payment history again",
       capex: 'CAPEX', assets: 'Asset register', capexExpenses: 'Expenses wey get CAPEX label',
       capexHint: 'All farm assets and CAPEX expenses dey here, no matter expense filters. Na separate lists, no be one total value. Invoice label no dey create asset.',
       payments: 'Payments', unpaid: 'Never pay', partially_paid: 'Pay some part', paid: 'Don pay finish',
@@ -1055,7 +1064,7 @@ export default {
       labels: 'Labels',
       addExpense: 'Add expense',
       editExpense: 'Edit expense',
-      approvalStatus: 'Status',
+      approvalStatus: "Approval status",
       statusHelp:
         'Draft wey dey wait need review. Na only approved expense dey count for profit and loss.',
       status: {

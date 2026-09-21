@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 const api = vi.fn()
 let permissions = ['talent.read', 'talent.manage', 'talent.admin', 'careers.manage']
 vi.mock('@/lib/api', () => ({ api: (...args: unknown[]) => api(...args), resolveApiUrl: (path: string) => path }))
@@ -15,7 +16,7 @@ const detail = { application, candidate, otherApplications: [{ id: 'app-1', role
   documents: [{ id: 'doc-1', filename: 'CV.docx', kind: 'cv', extractionStatus: 'ready', extractedText: 'Ada Example\nSkills\nNursery management',
     extractedFields: { name: 'Ada Example', email: 'ada@example.com', skills: 'Nursery management' }, warnings: ['Review these suggestions against the original CV.'] }],
   events: [{ id: 'event-1', kind: 'email', body: '<img src=x onerror=alert(1)>', occurredAt: '2026-09-13T12:00:00Z' }] }
-const render = () => mount(TalentView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
+const render = () => mount(TalentView, { global: { stubs: { teleport: true, AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
 beforeEach(() => {
   permissions = ['talent.read', 'talent.manage', 'talent.admin', 'careers.manage']; api.mockReset()
   api.mockImplementation(async (path: string, options?: RequestInit) => {
@@ -27,6 +28,18 @@ beforeEach(() => {
 })
 
 describe('Talent workspace', () => {
+  it('protects suggested contact edits when closing the drawer', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('button.application').trigger('click'); await flushPromises()
+    const dialog = wrapper.get('[role="dialog"]')
+    await dialog.findAll('button').find(button => button.text() === 'Use suggested contact details')!.trigger('click')
+    await dialog.get('header button').trigger('click')
+    expect(window.confirm).toHaveBeenCalled()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    expect(api.mock.calls.filter(([, options]) => options?.method)).toHaveLength(0)
+    wrapper.unmount()
+  })
   it('offers independent separation without automatically saving or retaining shared contact details', async () => {
     api.mockImplementation(async (path: string) => {
       if (path.endsWith('/metadata')) return metadata

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import ChatMarkdown from '@/components/ChatMarkdown.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import { api, resolveApiUrl } from '@/lib/api'
@@ -137,7 +138,6 @@ function editGuideline(guideline: Guideline) {
     reviewDueAt: guideline.reviewDueAt?.slice(0, 10) ?? '',
   }
   showForm.value = true
-  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 async function closeForm() {
@@ -290,7 +290,9 @@ onMounted(load)
     </div>
 
     <p v-if="error" class="mt-4 text-sm text-red-400" role="alert">{{ error }}</p>
-    <form v-if="showForm && canWrite" class="mt-6 grid gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:grid-cols-2" @submit.prevent="create">
+    <EditorDrawer :open="showForm && canWrite" :title="editingId ? t('operationsLibrary.edit') : t('operationsLibrary.newGuideline')" :busy="saving || uploading || reextracting" @close="closeForm">
+    <p v-if="error" role="alert" class="mb-4 text-red-300">{{ error }}</p>
+    <form class="mt-6 grid gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:grid-cols-2" @submit.prevent="create">
       <div v-if="documentPreview" class="rounded-xl border border-emerald-700/50 bg-emerald-950/30 p-4 text-sm text-slate-300 sm:col-span-2">
         <strong class="text-white">{{ t('operationsLibrary.reviewExtraction') }}</strong>
         <p class="mt-1">{{ documentPreview.filename }} · {{ Math.ceil(documentPreview.sizeBytes / 1024) }} KB</p>
@@ -319,8 +321,9 @@ onMounted(load)
       </div>
       <div class="sm:col-span-2"><button type="submit" :disabled="saving" class="min-h-11 rounded-xl bg-farm-green px-5 py-2 font-bold text-white disabled:opacity-50">{{ saving ? t('operationsLibrary.saving') : editingId ? t('operationsLibrary.updateDraft') : t('operationsLibrary.saveDraft') }}</button></div>
     </form>
+    </EditorDrawer>
 
-    <div v-if="loading" class="mt-8 text-slate-400">{{ t('operationsLibrary.loading') }}</div>
+    <div v-if="loading && !guidelines.length" class="mt-8 text-slate-400">{{ t('operationsLibrary.loading') }}</div>
     <p v-else-if="!guidelines.length" class="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-8 text-sm text-slate-400">{{ t('operationsLibrary.empty') }}</p>
     <div v-else class="mt-8 space-y-4">
       <CollapsibleSection v-for="guideline in guidelines" :key="guideline.id" :title="guideline.title" :description="`${guideline.category} · ${t('operationsLibrary.version', { version: guideline.version })} · ${guideline.status}`" :default-open="false">
