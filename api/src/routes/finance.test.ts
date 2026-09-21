@@ -690,10 +690,13 @@ describe('GET /finance - viewer locale on read', () => {
     const body = (await res.json()) as { costCentres: Row[] }
 
     expect(res.status).toBe(200)
-    expect(body.costCentres).toHaveLength(9)
+    expect(body.costCentres).toHaveLength(12)
     expect(body.costCentres).toEqual(
       expect.arrayContaining([
         { code: 'CC01', name: 'Corporate / Admin', covers: 'General Trovara overhead' },
+        { code: 'CC02', name: 'Farm Operations & Shared Services', covers: 'General tools, community relations and travelling costs' },
+        { code: 'CC03', name: 'Infrastructure & Utilities', covers: 'Access roads, drainage and energy' },
+        { code: 'CC04', name: 'Land & Site Development', covers: 'Land acquisition, registration and site clearing' },
         { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
         { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
         { code: 'CC40', name: 'Poultry', covers: 'Project Feather' },
@@ -773,6 +776,9 @@ describe('GET /finance/summary - money only', () => {
       expenseRow({ id: 'plantain-2', costCentreCode: 'CC10', amount: 15000 }),
       expenseRow({ id: 'poultry-1', costCentreCode: 'CC40', amount: 25000 }),
       expenseRow({ id: 'legacy-1', costCentreCode: null, amount: 5000 }),
+      expenseRow({ id: 'operations-1', costCentreCode: 'CC02', amount: 2000 }),
+      expenseRow({ id: 'infrastructure-1', costCentreCode: 'CC03', amount: 3000 }),
+      expenseRow({ id: 'land-1', costCentreCode: 'CC04', amount: 4000 }),
     ])
     queueSelect('payment_attempts', [])
     queueSelect('orders', [])
@@ -788,6 +794,9 @@ describe('GET /finance/summary - money only', () => {
       CC10: { total: 75000, expenseCount: 2 },
       CC40: { total: 25000, expenseCount: 1 },
       CC20: { total: 0, expenseCount: 0 },
+      CC02: { total: 2000, expenseCount: 1 },
+      CC03: { total: 3000, expenseCount: 1 },
+      CC04: { total: 4000, expenseCount: 1 },
     })
     expect(body.summary).toMatchObject({
       unassignedCostCentreTotal: 5000,
@@ -999,5 +1008,15 @@ describe('POST /finance/imports/commit - workbook controls', () => {
       projectPhase: 'Pre 16/11',
     })
     expect(values[0]?.importFingerprint).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it.each(['CC02', 'CC03', 'CC04'])('accepts %s when committing reviewed imports', async (costCentreCode) => {
+    const response = await post('/finance/imports/commit', {
+      token: importToken(177000),
+      rows: [{ ...importRow, costCentreCode }],
+    })
+    expect(response.status).toBe(200)
+    const values = inserted.find((entry) => entry.table === 'expenses')?.values as unknown as Row[]
+    expect(values[0]).toMatchObject({ costCentreCode })
   })
 })

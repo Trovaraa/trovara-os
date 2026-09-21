@@ -96,3 +96,5 @@ jobs:
       - run: npm ci --include=dev
       - name: Upgrade previous migration fixture through current tip
         run: npm run test:migration-upgrade
+      - name: Verify cost-centre upgrade preserves historical assignments
+        run: FINANCE_TEST_DATABASE_URL="$DATABASE_URL" npm run test:cost-centre-migration

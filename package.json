@@ -39,6 +39,7 @@
     "test": "npm test -w api && npm test -w app && npm run test:release-tools",
     "test:release-tools": "bash scripts/test-release-tools.sh",
     "test:migration-upgrade": "bash scripts/test-migration-upgrade.sh",
+    "test:cost-centre-migration": "node scripts/test-cost-centre-migration.mjs",
     "brand:check": "node scripts/sync-brand-assets.mjs --check",
     "brand:sync": "node scripts/sync-brand-assets.mjs",
     "brand:sync:os": "node scripts/sync-brand-assets.mjs --os-only",

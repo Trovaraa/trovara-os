@@ -1075,12 +1075,16 @@ export default {
       costCentreTotalsHint:
         'Dépenses approuvées en nairas regroupées selon l’activité qui a utilisé les fonds.',
       costCentreNames: {
+        CC02: 'Opérations agricoles et services partagés', CC03: 'Infrastructures et services essentiels', CC04: 'Terrains et aménagement du site',
         CC01: 'Siège / Administration', CC10: 'Plantain', CC20: 'Cocotier',
         CC30: 'Palmier à huile', CC40: 'Volaille', CC50: 'Pépinière et arbres',
         CC60: 'Transformation', CC70: 'Négoce et approvisionnement',
         CC80: 'Ventes et distribution',
       },
       costCentreCovers: {
+        CC02: 'Outils généraux, relations communautaires et frais de déplacement',
+        CC03: 'Voies d’accès, drainage et énergie',
+        CC04: 'Acquisition de terrains, enregistrement et défrichement',
         CC01: 'Siège et frais généraux de Trovara',
         CC10: 'Production de plantain',
         CC20: 'Domaine de cocotiers',

@@ -1,5 +1,8 @@
 export const COST_CENTRE_CODES = [
   'CC01',
+  'CC02',
+  'CC03',
+  'CC04',
   'CC10',
   'CC20',
   'CC30',
@@ -18,6 +21,9 @@ export const COST_CENTRES: ReadonlyArray<{
   covers: string
 }> = [
   { code: 'CC01', name: 'Corporate / Admin', covers: 'General Trovara overhead' },
+  { code: 'CC02', name: 'Farm Operations & Shared Services', covers: 'General tools, community relations and travelling costs' },
+  { code: 'CC03', name: 'Infrastructure & Utilities', covers: 'Access roads, drainage and energy' },
+  { code: 'CC04', name: 'Land & Site Development', covers: 'Land acquisition, registration and site clearing' },
   { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
   { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
   { code: 'CC30', name: 'Oil Palm', covers: 'Oil palm estate' },
