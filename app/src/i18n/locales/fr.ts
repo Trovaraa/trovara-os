@@ -1,5 +1,17 @@
 /** fr UI messages for Trovara OS */
 export default {
+    financeTracking: {
+      capex: 'CAPEX', assets: 'Registre des actifs', capexExpenses: 'Dépenses étiquetées CAPEX',
+      capexHint: 'Vue de tous les actifs et dépenses CAPEX de la ferme, indépendante des filtres. Ces listes ne constituent pas une valorisation combinée. Une étiquette ne crée pas un actif.',
+      payments: 'Paiements', unpaid: 'Impayé', partially_paid: 'Partiellement payé', paid: 'Payé',
+      balance: 'Solde restant', dueDate: 'Date d’échéance', saveDue: 'Enregistrer l’échéance',
+      reviewDue: 'Échéance à vérifier', approvalRequired: 'Approuvez cette facture avant d’enregistrer un paiement.',
+      recordOnly: 'Enregistrez un paiement déjà effectué. Aucun argent ne sera transféré. L’échéance par défaut est sept jours après approbation.',
+      paidOn: 'Date du paiement', reference: 'Référence du paiement', recordPayment: 'Enregistrer le paiement',
+      noPayments: 'Aucun paiement enregistré.', failed: 'Impossible de terminer cette action.', overdue: 'En retard',
+      search: 'Rechercher des actifs et dépenses CAPEX', quantity: 'Quantité', acquisitionCost: 'Coût d’acquisition enregistré',
+      inactive: 'Inactif', noAssets: 'Aucun actif correspondant.', noCapex: 'Aucune dépense CAPEX correspondante. Ajoutez l’étiquette Capex à une dépense pour l’inclure ici.',
+    },
     brand: {
       name: 'Trovara OS',
       tagline: 'L’IA qui travaille la ferme',

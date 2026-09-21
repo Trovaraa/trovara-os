@@ -1,5 +1,17 @@
 /** en UI messages for Trovara OS */
 export default {
+    financeTracking: {
+      capex: 'CAPEX', assets: 'Asset register', capexExpenses: 'CAPEX-labelled expenses',
+      capexHint: 'Farm-wide view of existing assets and CAPEX-labelled expenses, independent of the expense filters. These are separate lists, not a combined valuation. Labelling an invoice does not create an asset.',
+      payments: 'Payments', unpaid: 'Unpaid', partially_paid: 'Partially paid', paid: 'Paid',
+      balance: 'Outstanding balance', dueDate: 'Payment due date', saveDue: 'Save due date',
+      reviewDue: 'Due date needs review', approvalRequired: 'Approve this invoice before recording payments.',
+      recordOnly: 'Record a payment already made. This does not transfer money. New approvals default to a due date seven days later.',
+      paidOn: 'Payment date', reference: 'Payment reference', recordPayment: 'Record payment',
+      noPayments: 'No payments recorded.', failed: 'Unable to complete this action.', overdue: 'Overdue',
+      search: 'Search assets and CAPEX expenses', quantity: 'Quantity', acquisitionCost: 'Recorded acquisition cost',
+      inactive: 'Inactive', noAssets: 'No matching assets.', noCapex: 'No matching CAPEX expenses. Add the Capex label to an expense to include it here.',
+    },
     brand: {
       name: 'Trovara OS',
       tagline: 'AI that works the farm',

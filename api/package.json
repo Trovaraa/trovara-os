@@ -6,6 +6,7 @@
   "scripts": {
     "talent-worker": "tsx src/scripts/run-talent-worker.ts",
     "test:talent-integration": "vitest run --config vitest.talent-integration.config.ts",
+    "test:finance-integration": "vitest run --config vitest.finance-integration.config.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
