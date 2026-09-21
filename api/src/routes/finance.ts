@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { financePaymentRoutes } from './finance-payments.js'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -78,6 +79,7 @@ const createExpenseSchema = z.object({
   expenseDate: z.string().datetime(),
   labelIds: z.array(z.string().uuid()).max(20).optional(),
   approvalStatus: z.enum(['pending', 'approved', 'rejected']).optional(),
+  paymentDueDate: z.string().date().optional(),
 })
 
 const updateExpenseSchema = createExpenseSchema.partial()
@@ -295,6 +297,7 @@ function isInvalidLabelError(error: unknown): boolean {
 export const financeRoutes = new Hono<{ Variables: AppVariables }>()
 
 financeRoutes.use('*', authMiddleware)
+financeRoutes.route('/', financePaymentRoutes)
 
 function requireFinanceAccess(user: SessionUser): SessionUser | null {
   return canAccessFinance(user) ? user : null
@@ -831,6 +834,7 @@ financeRoutes.post('/:id/retry-extraction', async (c) => {
   ) {
     return c.json({ error: 'Inbound expense attachment not found' }, 409)
   }
+  if (existing.amountPaid > 0) return c.json({ error: 'Cannot re-extract an invoice with recorded payments' }, 409)
 
   const root = path.resolve(getEvidenceStorageRoot())
   const filePath = path.resolve(root, existing.attachmentStorageKey)
@@ -928,6 +932,7 @@ financeRoutes.post('/:id/convert-currency', async (c) => {
     .limit(1)
   if (!existing) return c.json({ error: 'Not found' }, 404)
   if (existing.currency === 'NGN') return c.json({ expense: existing })
+  if (existing.amountPaid > 0) return c.json({ error: 'Cannot convert an invoice with recorded payments' }, 409)
 
   const sourceAmount = Number(existing.originalAmount ?? existing.amount)
   const sourceCurrency = existing.originalCurrency ?? existing.currency
@@ -1014,6 +1019,7 @@ financeRoutes.post('/', zValidator('json', createExpenseSchema), async (c) => {
           recordedById: user.id,
           expenseDate: new Date(body.expenseDate),
           approvalStatus: body.approvalStatus ?? 'approved',
+          paymentDueDate: body.paymentDueDate,
           source: 'manual',
         })
         .returning()
@@ -1076,6 +1082,12 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
   ) {
     return c.json({ error: 'Convert this expense to NGN before approving it' }, 409)
   }
+  if (existing.amountPaid > 0 && (
+    (body.amount !== undefined && body.amount !== existing.amount) ||
+    (body.currency !== undefined && body.currency !== existing.currency) ||
+    (body.entityCode !== undefined && body.entityCode !== existing.entityCode) ||
+    (body.approvalStatus !== undefined && body.approvalStatus !== 'approved')
+  )) return c.json({ error: 'Paid invoices cannot change amount, currency, entity or approval' }, 409)
   if (
     body.approvalStatus === 'approved' &&
     !(body.costCentreCode ?? existing.costCentreCode)
@@ -1109,6 +1121,7 @@ financeRoutes.patch('/:id', zValidator('json', updateExpenseSchema), async (c) =
   if (body.receiptRef !== undefined) updates.receiptRef = body.receiptRef
   if (body.expenseDate !== undefined) updates.expenseDate = new Date(body.expenseDate)
   if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus
+  if (body.paymentDueDate !== undefined) updates.paymentDueDate = body.paymentDueDate
 
   if (body.description !== undefined) {
     const canonical = await canonicalDescription(body.description, user.farmId, authorLocale)
@@ -1202,6 +1215,7 @@ financeRoutes.delete('/:id', async (c) => {
     .limit(1)
 
   if (!existing) return c.json({ error: 'Not found' }, 404)
+  if (existing.amountPaid > 0) return c.json({ error: 'Invoices with recorded payments cannot be deleted' }, 409)
 
   const root = path.resolve(getEvidenceStorageRoot())
   const filePath = existing.attachmentStorageKey

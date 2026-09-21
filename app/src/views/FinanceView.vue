@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import FinanceImportPanel from '@/components/finance/FinanceImportPanel.vue'
+import ExpensePaymentsPanel from '@/components/finance/ExpensePaymentsPanel.vue'
+import CapexPanel from '@/components/finance/CapexPanel.vue'
 import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -31,6 +33,9 @@ type Expense = {
   vendor?: string | null
   receiptRef?: string | null
   approvalStatus?: string
+  paymentStatus?: string
+  amountPaid?: number
+  paymentDueDate?: string | null
   source?: string
   inboundSenderEmail?: string | null
   inboundSenderName?: string | null
@@ -100,7 +105,17 @@ const updatingIds = ref<Set<string>>(new Set())
 const newLabelName = ref('')
 const addingLabel = ref(false)
 const page = ref(1)
-const activeSection = ref<'overview' | 'expenses'>('overview')
+const activeSection = ref<'overview' | 'expenses' | 'capex'>('overview')
+const paymentExpenseId = ref<string | null>(null)
+const paymentExpense = computed(() => expenses.value.find(row => row.id === paymentExpenseId.value))
+function showPayments(id: string) {
+  paymentExpenseId.value = id
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+function isOverdue(expense: Expense) {
+  return expense.approvalStatus === 'approved' && expense.paymentStatus !== 'paid' && expense.amount > (expense.amountPaid ?? 0) &&
+    !!expense.paymentDueDate && expense.paymentDueDate < new Date().toISOString().slice(0, 10)
+}
 const PAGE_SIZE = 25
 let loadRequestId = 0
 const pageCount = computed(() => Math.max(1, Math.ceil(expenses.value.length / PAGE_SIZE)))
@@ -478,12 +493,20 @@ onMounted(load)
         {{ t('finance.expenses') }}
         <span class="ml-1 text-xs opacity-80">{{ expenses.length }}</span>
       </button>
+      <button id="finance-capex-tab" type="button" role="tab" aria-controls="finance-capex-panel"
+        :aria-selected="activeSection === 'capex'" class="min-h-11 rounded-xl px-5 py-2.5 text-sm font-bold"
+        :class="activeSection === 'capex' ? 'bg-farm-green text-white' : 'text-slate-400'" @click="activeSection = 'capex'">
+        {{ t('financeTracking.capex') }}
+      </button>
     </div>
 
     <p v-if="error && !loading" class="mt-4 text-sm text-red-400" role="alert">{{ error }}</p>
     <div v-else-if="loading" class="mt-8 text-slate-400" role="status" aria-live="polite">{{ t('finance.loading') }}</div>
 
     <template v-else-if="!error">
+      <CapexPanel v-if="activeSection === 'capex'" />
+      <ExpensePaymentsPanel v-if="activeSection === 'expenses' && paymentExpense" :key="paymentExpense.id"
+        :expense="paymentExpense" :can-write="canWrite" @saved="load" @close="paymentExpenseId = null" />
       <FinanceImportPanel
         v-if="activeSection === 'expenses' && showImport && canWrite"
         class="mt-6"
@@ -910,6 +933,9 @@ onMounted(load)
             <p class="mt-3 font-mono text-2xl font-black tracking-tight text-red-300">
               {{ formatAmount(expense.amount, expense.currency) }}
             </p>
+            <p class="mt-2 text-sm text-slate-300">{{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }} · {{ expense.paymentDueDate ?? t('financeTracking.reviewDue') }}</p>
+            <p v-if="isOverdue(expense)" class="text-sm text-amber-300">{{ t('financeTracking.overdue') }}</p>
+            <button type="button" class="mt-2 min-h-11 text-sm font-bold text-farm-green" @click="showPayments(expense.id)">{{ t('financeTracking.payments') }}</button>
             <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
               {{ t('finance.convertedFrom', {
                 amount: formatAmount(Number(expense.originalAmount), expense.originalCurrency),
@@ -1137,6 +1163,10 @@ onMounted(load)
                 >
                   {{ statusLabel(expense.approvalStatus) }}
                 </span>
+                <p class="mt-2 text-xs text-slate-300">{{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }}</p>
+                <p class="mt-1 text-xs text-slate-400">{{ expense.paymentDueDate ?? t('financeTracking.reviewDue') }}</p>
+                <p v-if="isOverdue(expense)" class="text-xs text-amber-300">{{ t('financeTracking.overdue') }}</p>
+                <button type="button" class="mt-2 min-h-11 text-xs font-bold text-farm-green" @click="showPayments(expense.id)">{{ t('financeTracking.payments') }}</button>
               </td>
               <td class="whitespace-nowrap px-4 py-4 text-right">
                 <p class="font-mono text-red-300">{{ formatAmount(expense.amount, expense.currency) }}</p>
