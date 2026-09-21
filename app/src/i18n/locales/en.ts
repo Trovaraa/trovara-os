@@ -1101,11 +1101,15 @@ export default {
       costCentreTotalsHint:
         'Approved naira expenses grouped by the part of Trovara that used the money.',
       costCentreNames: {
+        CC02: 'Farm Operations & Shared Services', CC03: 'Infrastructure & Utilities', CC04: 'Land & Site Development',
         CC01: 'Corporate / Admin', CC10: 'Plantain', CC20: 'Coconut', CC30: 'Oil Palm',
         CC40: 'Poultry', CC50: 'Nursery & Trees', CC60: 'Processing',
         CC70: 'Trading & Sourcing', CC80: 'Sales & Distribution',
       },
       costCentreCovers: {
+        CC02: 'General tools, community relations and travelling costs',
+        CC03: 'Access roads, drainage and energy',
+        CC04: 'Land acquisition, registration and site clearing',
         CC01: 'Head office and general Trovara overhead',
         CC10: 'Plantain production',
         CC20: 'Coconut estate',

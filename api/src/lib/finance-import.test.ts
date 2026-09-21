@@ -7,6 +7,22 @@ import {
 } from './finance-import.js'
 
 describe('finance transaction imports', () => {
+  it.each([
+    ['CC02', 'CC02'], ['cc-02', 'CC02'], ['Farm Operations & Shared Services', 'CC02'],
+    ['CC03', 'CC03'], ['CC-03', 'CC03'], ['Infrastructure & Utilities', 'CC03'],
+    ['CC04', 'CC04'], ['CC-04', 'CC04'], ['Land & Site Development', 'CC04'],
+  ])('maps %s to canonical %s without requiring a cost-centre correction', async (input, expected) => {
+    const csv = `Date,Description,Amount,Category,Cost Centre\n21/09/2026,Test expense,100,other,${input}`
+    const preview = await previewFinanceImport('cost-centres.csv', Buffer.from(csv))
+    expect(preview.rows[0]).toMatchObject({ costCentreCode: expected, issues: [] })
+  })
+
+  it('leaves an unknown code unassigned for review', async () => {
+    const csv = 'Date,Description,Amount,Category,Cost Centre\n21/09/2026,Test expense,100,other,CC-99'
+    const preview = await previewFinanceImport('cost-centres.csv', Buffer.from(csv))
+    expect(preview.rows[0]).toMatchObject({ costCentreCode: '', issues: ['Choose a cost centre'] })
+  })
+
   it('normalizes CSV rows and flags a missing cost centre before commit', async () => {
     const csv = [
       'SN,Date,Cost description,Amount,Category,Cost Centre,Vendor,Payer,Funding status,Project phase',

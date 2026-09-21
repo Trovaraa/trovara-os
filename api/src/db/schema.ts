@@ -2810,7 +2810,7 @@ export const expenses = pgTable(
     check('expenses_entity_code_check', sql`${t.entityCode} in ('001', '002')`),
     check(
       'expenses_cost_centre_check',
-      sql`${t.costCentreCode} is null or ${t.costCentreCode} in ('CC01', 'CC10', 'CC20', 'CC30', 'CC40', 'CC50', 'CC60', 'CC70', 'CC80')`,
+      sql`${t.costCentreCode} is null or ${t.costCentreCode} in ('CC01', 'CC02', 'CC03', 'CC04', 'CC10', 'CC20', 'CC30', 'CC40', 'CC50', 'CC60', 'CC70', 'CC80')`,
     ),
     check(
       'expenses_extraction_method_check',

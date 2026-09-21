@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -8,6 +7,12 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+
+// Synthetic, non-functional fixture with fixed high entropy and no scanner stopwords.
+// Random hex canaries occasionally hit the generic rule's stopwords or entropy cutoff.
+// Assemble fragments so source scanning tests the written fixture, not this helper.
+const secretCanary = ['e4a971c02f6d385b', '39be6d08a5f217c4', '8c15b3970e4a6d2f', '27d4f9c6a801e35b'].join('')
+
 test('scanner download is SHA-256 verified before extraction/execution', () => {
   const workflow = readFileSync(join(root, '.github/workflows/security.yml'), 'utf8')
   assert.match(workflow, /SHA256=[a-f0-9]{64}/)
@@ -23,8 +28,8 @@ test('secret scanning detects newly introduced secrets in docs and tests', () =>
     for (const file of files) {
       const target = join(fixture, file)
       mkdirSync(dirname(target), { recursive: true })
-      // Disposable random canaries, not credentials for any real service.
-      writeFileSync(target, 'api_key = "' + randomBytes(32).toString('hex') + '"\n')
+      // Disposable canary, not a credential for any real service.
+      writeFileSync(target, 'api_key = "' + secretCanary + '"\n')
     }
     const report = join(fixture, 'findings.json')
     let code = 0

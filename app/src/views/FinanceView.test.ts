@@ -62,6 +62,9 @@ const summary = {
 
 const costCentres = [
   { code: 'CC01', name: 'Corporate / Admin', covers: 'General Trovara overhead' },
+  { code: 'CC02', name: 'Farm Operations & Shared Services', covers: 'General tools, community relations and travelling costs' },
+  { code: 'CC03', name: 'Infrastructure & Utilities', covers: 'Access roads, drainage and energy' },
+  { code: 'CC04', name: 'Land & Site Development', covers: 'Land acquisition, registration and site clearing' },
   { code: 'CC10', name: 'Plantain', covers: 'Plantain production' },
   { code: 'CC20', name: 'Coconut', covers: 'Coconut estate' },
   { code: 'CC40', name: 'Poultry', covers: 'Project Feather' },
@@ -309,6 +312,11 @@ describe('FinanceView expense list', () => {
     expect(section.get('button').attributes('aria-expanded')).toBe('true')
     expect(section.text()).toContain('CC01')
     expect(section.text()).toContain('Corporate / Admin')
+    for (const centre of costCentres.filter(({ code }) => ['CC02', 'CC03', 'CC04'].includes(code))) {
+      expect(section.text()).toContain(centre.code)
+      expect(section.text()).toContain(centre.name)
+      expect(wrapper.findAll('option').some((option) => option.element.value === centre.code)).toBe(true)
+    }
     expect(section.text()).toContain('CC10')
     expect(section.text()).toContain('Plantain')
   })

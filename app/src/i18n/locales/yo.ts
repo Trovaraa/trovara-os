@@ -1015,11 +1015,15 @@ export default {
       costCentreTotals: 'Ìnáwó ní ibi kọ̀ọ̀kan',
       costCentreTotalsHint: 'Ìnáwó naira tí a fọwọ́ sí, gẹ́gẹ́ bí iṣẹ́ tí ó lo owó náà.',
       costCentreNames: {
+        CC02: 'Iṣẹ́ oko àti àwọn iṣẹ́ àjọpín', CC03: 'Àwọn ohun àmúṣọrọ̀ àti iṣẹ́ ìpèsè', CC04: 'Ilẹ̀ àti ìdàgbàsókè ibi iṣẹ́',
         CC01: 'Ọ́fíìsì Àgbà / Ìṣàkóso', CC10: 'Ọ̀gẹ̀dẹ̀ àgbàgbà', CC20: 'Àgbọn',
         CC30: 'Ọ̀pẹ', CC40: 'Adìẹ', CC50: 'Ibi ìtọ́jú irúgbìn àti igi',
         CC60: 'Ṣíṣe oúnjẹ', CC70: 'Òwò àti ríra ọjà', CC80: 'Títà àti pípín ọjà',
       },
       costCentreCovers: {
+        CC02: 'Àwọn irinṣẹ́ gbogbogbò, ìbáṣepọ̀ àwùjọ àti owó ìrìnàjò',
+        CC03: 'Ọ̀nà àbáwọlé, ìṣàn omi àti agbára',
+        CC04: 'Rírà ilẹ̀, ìforúkọsílẹ̀ àti fífọ́ ilẹ̀',
         CC01: 'Ọ́fíìsì àgbà àti ìnáwó gbogbogbò Trovara',
         CC10: 'Ìmújáde ọ̀gẹ̀dẹ̀ àgbàgbà',
         CC20: 'Ọgbà àgbọn',

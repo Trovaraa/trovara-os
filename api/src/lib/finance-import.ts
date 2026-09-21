@@ -166,7 +166,9 @@ function mapCategory(value: unknown): ImportCategory | '' {
 
 function mapCostCentre(value: unknown): CostCentreCode | '' {
   const text = valueText(value).trim().toLowerCase()
-  const code = COST_CENTRE_CODES.find((item) => item.toLowerCase() === text)
+  // Accept Finance's CC-02 notation while storing the existing canonical CC02 code.
+  const canonicalCode = text.replace(/^cc-(\d{2})$/, 'cc$1')
+  const code = COST_CENTRE_CODES.find((item) => item.toLowerCase() === canonicalCode)
   if (code) return code
   const centre = COST_CENTRES.find((item) => text && (item.name.toLowerCase().includes(text) || text.includes(item.name.toLowerCase())))
   return centre?.code ?? ''
