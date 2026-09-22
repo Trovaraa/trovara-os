@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import { api } from '@/lib/api'
 
 type CareerPost = {
@@ -58,6 +59,8 @@ const EMPLOYMENT_TYPES = [
 const { t } = useI18n()
 const posts = ref<CareerPost[]>([])
 const selectedId = ref<string | null>(null)
+const editorOpen = ref(false)
+const editorRevision = ref(0)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -137,6 +140,7 @@ function resetForm() {
 }
 
 function editPost(post: CareerPost) {
+  editorOpen.value = true
   selectedId.value = post.id
   slugEdited.value = true
   form.title = post.title
@@ -212,6 +216,7 @@ async function save() {
       selectedId.value = created.post.id
       notice.value = t('careers.draftCreated')
     }
+    editorRevision.value++
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('careers.saveFailed')
@@ -242,6 +247,7 @@ async function setPublished(published: boolean) {
       body: JSON.stringify({ published }),
     })
     notice.value = published ? t('careers.published') : t('careers.unpublished')
+    editorRevision.value++
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('careers.saveFailed')
@@ -257,7 +263,9 @@ async function removePost() {
   try {
     await api(`/api/careers/${selectedId.value}`, { method: 'DELETE' })
     resetForm()
+    editorOpen.value = false
     notice.value = t('careers.deleted')
+    editorRevision.value++
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('careers.saveFailed')
@@ -279,7 +287,7 @@ onMounted(load)
       <button
         type="button"
         class="rounded-xl bg-farm-green px-4 py-2 text-sm font-bold text-white"
-        @click="resetForm"
+        @click="resetForm(); editorOpen = true"
       >
         {{ t('careers.newPost') }}
       </button>
@@ -288,12 +296,12 @@ onMounted(load)
     <p v-if="error" class="mt-4 text-sm text-red-400">{{ error }}</p>
     <p v-if="notice" class="mt-4 text-sm text-farm-green">{{ notice }}</p>
 
-    <div class="mt-6 grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-6">
+    <div class="mt-6 space-y-6">
       <div class="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wide">
           {{ t('careers.listings') }}
         </div>
-        <div v-if="loading" class="p-4 text-sm text-slate-500">{{ t('careers.loading') }}</div>
+        <div v-if="loading && !posts.length" class="p-4 text-sm text-slate-500">{{ t('careers.loading') }}</div>
         <div v-else-if="!posts.length" class="p-4 text-sm text-slate-500">{{ t('careers.empty') }}</div>
         <button
           v-for="post in posts"
@@ -311,7 +319,10 @@ onMounted(load)
         </button>
       </div>
 
-      <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+      <EditorDrawer :open="editorOpen" :title="selected ? form.title : t('careers.newPost')" :busy="saving" :reset-key="editorRevision" @close="editorOpen = false">
+      <div class="space-y-4">
+        <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
+        <p v-if="notice" role="status" class="text-farm-green">{{ notice }}</p>
         <div class="flex flex-wrap items-center justify-between gap-2">
           <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
             <span
@@ -442,6 +453,7 @@ onMounted(load)
           </button>
         </div>
       </div>
+      </EditorDrawer>
     </div>
   </AppLayout>
 </template>

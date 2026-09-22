@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -19,10 +21,13 @@ type Metadata = { jobs: { id: string; title: string; published: boolean }[]; rev
   sync: { lastSyncedAt: string | null; lastError: string | null }[] }
 
 const auth = useAuthStore()
+const { t } = useI18n()
 const canManage = computed(() => auth.hasPermission('talent.manage'))
 const canAdmin = computed(() => auth.hasPermission('talent.admin'))
 const rows = ref<Row[]>([])
 const detail = ref<Detail | null>(null)
+const editorOpen = ref(false)
+const savedDraft = ref('')
 const metadata = ref<Metadata | null>(null)
 const loading = ref(false)
 const busy = ref(false)
@@ -46,6 +51,13 @@ const retentionReason = ref('')
 const filters = reactive({ q: '', stage: '', job: '', assigned: '', review: false, from: '', to: '' })
 const form = reactive({ name: '', email: '', phone: '', location: '', stage: 'new', careerPostId: '', assignedToId: '',
   nextAction: '', dueAt: '', needsReview: true, linkExistingCandidate: false, updateSharedCandidate: false, separateCandidate: false })
+const draftSnapshot = () => JSON.stringify([form, note.value, emailSubject.value, emailBody.value, retentionDate.value, retentionReason.value])
+const draftDirty = computed(() => !!detail.value && (draftSnapshot() !== savedDraft.value || !!supportingFile.value))
+
+async function openApplication(id: string) {
+  if (detail.value && draftDirty.value && !confirm(t('editor.discard'))) return
+  await action(() => select(id))
+}
 
 function label(value: string) { return value.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) }
 function date(value: string | null) { return value ? new Date(value).toLocaleDateString() : '—' }
@@ -71,6 +83,7 @@ async function load() {
   } finally { loading.value = false }
 }
 async function select(id: string) {
+  editorOpen.value = true
   const result = await api<Detail>(`/api/talent/${id}`)
   detail.value = result
   supportingFile.value = null
@@ -82,6 +95,8 @@ async function select(id: string) {
     updateSharedCandidate: false, separateCandidate: false })
   note.value = ''; emailBody.value = ''; emailSubject.value = `Your Trovara application — ${result.application.roleLabel}`
   sendRequestId.value = crypto.randomUUID(); retentionDate.value = result.application.retentionUntil.slice(0, 10)
+  retentionReason.value = ''
+  savedDraft.value = draftSnapshot()
 }
 async function save() {
   if (!detail.value) return
@@ -145,7 +160,7 @@ async function sync() {
 async function remove() {
   if (!detail.value || !confirm('Permanently delete this application, documents and notes? The candidate profile is retained only if they have another application. This cannot be undone.')) return
   await api(`/api/talent/${detail.value.application.id}`, { method: 'DELETE' })
-  detail.value = null; await load(); notice.value = 'Application and its private documents deleted.'
+  editorOpen.value = false; detail.value = null; await load(); notice.value = 'Application and its private documents deleted.'
 }
 async function retain() {
   if (!detail.value) return
@@ -192,7 +207,7 @@ onMounted(() => action(load))
         <label>Role for this batch<select v-model="importRole"><option value="">Unassigned — decide during review</option><option v-for="job in metadata?.jobs" :key="job.id" :value="job.id">{{ job.title }}</option></select></label>
         <label>Application files<input ref="batchInput" type="file" multiple accept=".pdf,.docx,.eml" :disabled="busy" @change="selectedFiles = Array.from(($event.target as HTMLInputElement).files ?? []).slice(0, 20)" /></label>
         <button class="button primary" :disabled="busy || !selectedFiles.length" @click="action(importFiles)">{{ busy ? 'Processing…' : `Import ${selectedFiles.length || ''} files` }}</button>
-        <ul class="text-sm space-y-2" aria-live="polite"><li v-for="(result, index) in importResults" :key="index"><strong>{{ result.name }}</strong> — {{ result.status }} <button v-if="result.id" class="text-emerald-300 underline" @click="action(() => select(result.id!))">Review</button></li></ul>
+        <ul class="text-sm space-y-2" aria-live="polite"><li v-for="(result, index) in importResults" :key="index"><strong>{{ result.name }}</strong> — {{ result.status }} <button v-if="result.id" class="text-emerald-300 underline" @click="openApplication(result.id!)">Review</button></li></ul>
       </section>
       <form class="panel filters" @submit.prevent="offset = 0; action(load)">
         <label class="search">Search<input v-model="filters.q" type="search" placeholder="Name, email or role" maxlength="150" /></label>
@@ -202,13 +217,13 @@ onMounted(() => action(load))
         <label>Received from<input v-model="filters.from" type="date" /></label><label>Received to<input v-model="filters.to" type="date" /></label>
         <label class="check"><input v-model="filters.review" type="checkbox" />Needs review</label><button class="button" :disabled="busy">Filter</button>
       </form>
-      <div class="workspace" :class="{ selected: detail }">
+      <div class="workspace">
         <section class="panel applications" aria-label="Applications">
           <div class="flex justify-between gap-2 mb-4"><h2 class="font-bold">Applications</h2><span class="text-sm text-slate-400">{{ offset + (rows.length ? 1 : 0) }}–{{ offset + rows.length }}{{ hasMore ? '+' : '' }}</span></div>
-          <p v-if="loading" role="status">Loading applications…</p>
+          <p v-if="loading && !rows.length" role="status">Loading applications…</p>
           <div v-else-if="!rows.length" class="empty"><h3 class="font-semibold">No applications here yet</h3><p class="text-slate-400 mt-2">Import your existing CVs or adjust the filters. Applicants will appear here when online applications or Zoho intake are enabled.</p></div>
           <ul v-else class="space-y-2"><li v-for="row in rows" :key="row.application.id">
-            <button class="application" :class="{ active: detail?.application.id === row.application.id }" :aria-pressed="detail?.application.id === row.application.id" :disabled="busy" @click="action(() => select(row.application.id))">
+            <button class="application" :class="{ active: detail?.application.id === row.application.id }" :aria-pressed="detail?.application.id === row.application.id" :disabled="busy && !editorOpen" @click="openApplication(row.application.id)">
               <div class="flex justify-between gap-2"><strong>{{ row.candidate.name }}</strong><span class="badge">{{ label(row.application.stage) }}</span></div>
               <p class="text-sm mt-1">{{ row.application.roleLabel }}</p>
               <p class="text-xs text-slate-400 mt-2">{{ date(row.application.receivedAt) }} · {{ label(row.application.source) }}</p>
@@ -217,8 +232,12 @@ onMounted(() => action(load))
           </li></ul>
           <div class="flex justify-between gap-3 mt-5"><button class="button" :disabled="busy || offset === 0" @click="offset -= 50; action(load)">Previous</button><button class="button" :disabled="busy || !hasMore" @click="offset += 50; action(load)">Next</button></div>
         </section>
-        <section v-if="detail" class="panel detail space-y-6" aria-label="Application details">
-          <header class="flex justify-between gap-2"><div><p class="eyebrow">Application record</p><h2 class="text-xl font-bold">{{ detail.candidate.name }}</h2><p class="reference">{{ detail.application.id }}</p></div><button aria-label="Close application" class="button" @click="detail = null">Close</button></header>
+        <EditorDrawer :open="editorOpen" :title="detail?.candidate.name ?? 'Application details'" :busy="busy" :track-changes="false" :dirty="draftDirty" @close="editorOpen = false; detail = null">
+        <div class="talent">
+        <p v-if="error" role="alert" class="alert error mb-4">{{ error }}</p>
+        <p v-if="notice" role="status" class="alert mb-4">{{ notice }}</p>
+        <section v-if="detail" class="detail space-y-6" aria-label="Application details">
+          <header class="flex justify-between gap-2"><div><p class="eyebrow">Application record</p><h2 class="text-xl font-bold">{{ detail.candidate.name }}</h2><p class="reference">{{ detail.application.id }}</p></div></header>
           <form class="space-y-4" @submit.prevent="action(save)">
             <fieldset :disabled="!canManage || busy" class="fields">
               <label>Full name<input v-model="form.name" required maxlength="200" /></label><label>Email<input v-model="form.email" type="email" maxlength="320" /></label>
@@ -238,7 +257,7 @@ onMounted(() => action(load))
             <p class="text-xs text-slate-400">Extracted information is unverified until you review it. A forwarding mailbox is not the applicant’s email.</p>
             <button v-if="canManage" class="button primary" :disabled="busy">Save application</button>
           </form>
-          <section v-if="detail.otherApplications.length > 1" class="space-y-2"><h3 class="font-semibold">This candidate’s applications</h3><button v-for="application in detail.otherApplications" :key="application.id" class="block text-sm text-emerald-300 underline" :disabled="busy" @click="action(() => select(application.id))">{{ application.roleLabel }} · {{ label(application.stage) }}</button></section>
+          <section v-if="detail.otherApplications.length > 1" class="space-y-2"><h3 class="font-semibold">This candidate’s applications</h3><button v-for="application in detail.otherApplications" :key="application.id" class="block text-sm text-emerald-300 underline" :disabled="busy" @click="openApplication(application.id)">{{ application.roleLabel }} · {{ label(application.stage) }}</button></section>
           <section class="space-y-3"><h3 class="font-semibold">CVs &amp; supporting documents</h3><p v-if="!detail.documents.length" class="text-slate-400">No documents attached.</p>
             <form v-if="canManage" class="space-y-3" @submit.prevent="action(attachDocument)"><label>Add a CV or supporting document<input ref="supportingInput" type="file" accept=".pdf,.docx" :disabled="busy" @change="supportingFile = ($event.target as HTMLInputElement).files?.[0] ?? null" /></label><button class="button" :disabled="busy || !supportingFile">Attach document</button></form>
             <article v-for="document in detail.documents" :key="document.id" class="document space-y-3">
@@ -262,6 +281,8 @@ onMounted(() => action(load))
             <button v-if="canAdmin" class="button danger mt-4" :disabled="busy" @click="action(remove)">Permanently delete application</button>
           </details>
         </section>
+        </div>
+        </EditorDrawer>
       </div>
     </main>
   </AppLayout>
@@ -279,7 +300,7 @@ label { display: flex; flex-direction: column; gap: .4rem; font-size: .8rem; fon
 input:not([type=checkbox]), select, textarea { width: 100%; min-width: 0; background: #0f172a; color: #f1f5f9; border: 1px solid #475569; border-radius: .5rem; padding: .65rem; font-size: .9rem; font-weight: 400; }
 input[type=checkbox] { accent-color: #10b981; width: 1rem; height: 1rem; flex-shrink: 0; }
 .check { flex-direction: row; align-items: center; font-weight: 400; }.filters { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }.filters label { flex: 1 1 130px; }.filters .search { flex-basis: 220px; }
-.workspace { display: grid; gap: 1.5rem; }.workspace.selected { grid-template-columns: minmax(280px, .8fr) minmax(0, 1.3fr); align-items: start; }
+.workspace { display: grid; gap: 1.5rem; }
 .application { display: block; width: 100%; text-align: left; padding: 1rem; border-radius: .75rem; border: 1px solid #334155; background: #0f172a; overflow-wrap: anywhere; }
 .application:hover, .application.active { border-color: #34d399; background: #102c28; }.badge { display: inline-block; flex-shrink: 0; font-size: .65rem; border-radius: 99px; padding: .2rem .6rem; background: #334155; color: #e2e8f0; }.badge.review { color: #fde68a; background: #422006; }.badge.overdue { color: #fecaca; background: #450a0a; }
 .empty { padding: 3rem 1rem; text-align: center; }.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }.wide { grid-column: 1 / -1; }.reference { font-size: .7rem; color: #94a3b8; overflow-wrap: anywhere; margin-top: .4rem; }
@@ -295,6 +316,5 @@ html.light .talent .alert { background: #d1fae5; color: #064e3b; }
 html.light .talent .alert.error { background: #fee2e2; color: #991b1b; }
 summary { cursor: pointer; font-weight: 600; font-size: .9rem; }.timeline { border-left: 1px solid #475569; margin-left: .25rem; }.timeline li { padding: 0 0 1.5rem 1rem; }.timeline li:last-child { padding-bottom: 0; }
 :is(button, a, input, textarea, select, summary):focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
-@media (max-width: 1050px) { .workspace.selected { grid-template-columns: 1fr; }.detail { grid-row: 1; } }
 @media (max-width: 600px) { .fields { grid-template-columns: 1fr; }.panel { padding: 1rem; }.application .badge { white-space: normal; }.filters label { flex-basis: 100%; } }
 </style>

@@ -19,7 +19,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: 
 
 async function mountView() {
   const OperationsLibraryView = (await import('./OperationsLibraryView.vue')).default
-  const wrapper = mount(OperationsLibraryView)
+  const wrapper = mount(OperationsLibraryView, { global: { stubs: { teleport: true } } })
   await flushPromises()
   return wrapper
 }

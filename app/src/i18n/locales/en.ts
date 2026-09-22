@@ -1,6 +1,15 @@
 /** en UI messages for Trovara OS */
 export default {
+    editor: { close: "Close", discard: "Discard unsaved changes and close?" },
     financeTracking: {
+      saved: "Expense saved.",
+      unavailable: "This expense is no longer available. Close the drawer and refresh the list.",
+      refreshExpense: "Refresh expense",
+      details: "Expense details",
+      paymentStatus: "Payment status",
+      history: "Payment history",
+      saveDetailsFirst: "Save expense changes before updating the due date or recording a payment.",
+      retryHistory: "Retry loading payment history",
       capex: 'CAPEX', assets: 'Asset register', capexExpenses: 'CAPEX-labelled expenses',
       capexHint: 'Farm-wide view of existing assets and CAPEX-labelled expenses, independent of the expense filters. These are separate lists, not a combined valuation. Labelling an invoice does not create an asset.',
       payments: 'Payments', unpaid: 'Unpaid', partially_paid: 'Partially paid', paid: 'Paid',
@@ -1143,7 +1152,7 @@ export default {
       labels: 'Labels',
       addExpense: 'Add expense',
       editExpense: 'Edit expense',
-      approvalStatus: 'Status',
+      approvalStatus: "Approval status",
       statusHelp: 'Pending drafts need review. Approved expenses count in P&L; rejected ones do not.',
       status: {
         pending: 'Pending',

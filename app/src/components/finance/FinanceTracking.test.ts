@@ -10,6 +10,26 @@ const global = () => ({ plugins: [createI18n({ legacy: false, locale: 'en', mess
 const expense = { id: 'invoice-1', description: 'Tractor', amount: 100, currency: 'NGN', amountPaid: 40, paymentStatus: 'partially_paid', approvalStatus: 'approved', paymentDueDate: '2027-01-01' }
 beforeEach(() => { api.mockReset(); api.mockResolvedValue({ payments: [] }) })
 describe('payment controls', () => {
+  it('does not report a failed history request as an empty history and offers retry', async () => {
+    api.mockRejectedValueOnce(new Error('History unavailable'))
+    const wrapper = mount(ExpensePaymentsPanel, { props: { expense, canWrite: false }, global: global() })
+    await flushPromises()
+    expect(wrapper.text()).toContain('History unavailable')
+    expect(wrapper.text()).not.toContain('No payments recorded.')
+    await wrapper.get('button').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('No payments recorded.')
+  })
+  it('requires a changed due date to be saved and follows the refreshed server value', async () => {
+    const wrapper = mount(ExpensePaymentsPanel, { props: { expense, canWrite: true }, global: global() })
+    await flushPromises()
+    await wrapper.findAll('input[type="date"]')[0]!.setValue('2027-02-01')
+    expect(wrapper.findAll('form')[1]!.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.findAll('form')[1]!.trigger('submit')
+    expect(api.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0)
+    await wrapper.setProps({ expense: { ...expense, paymentDueDate: '2027-02-03' } })
+    expect((wrapper.findAll('input[type="date"]')[0]!.element as HTMLInputElement).value).toBe('2027-02-03')
+    expect(wrapper.findAll('form')[1]!.get('button').attributes('disabled')).toBeUndefined()
+  })
   it('shows balance and sends payment with a stable retry identifier', async () => {
     const wrapper = mount(ExpensePaymentsPanel, { props: { expense, canWrite: true }, global: global() })
     await flushPromises()

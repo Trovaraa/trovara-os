@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
+import EditorDrawer from '@/components/EditorDrawer.vue'
 import { api } from '@/lib/api'
 import { uploadBrandAsset, type BrandAssetDto } from '@/lib/brand-upload'
 import { resolveMediaUrl } from '@/lib/api'
@@ -37,7 +38,10 @@ const editingPackId = ref<string | null>(null)
 /** Assets uploaded while composing a new pack — create mode hides the farm library. */
 const sessionAssetIds = ref<string[]>([])
 const clearPassword = ref(false)
-const packFormSection = ref<HTMLElement | null>(null)
+const editorOpen = ref(false)
+const editor = ref<InstanceType<typeof EditorDrawer> | null>(null)
+const savedPack = ref('')
+const packDirty = computed(() => JSON.stringify([packForm.value, clearPassword.value]) !== savedPack.value)
 const actionIds = ref<Set<string>>(new Set())
 const assetPage = ref(1)
 const packPage = ref(1)
@@ -78,7 +82,7 @@ const ACCEPT =
   'image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/*,.heic,.heif,.mov,.mp4'
 
 async function load() {
-  loading.value = true
+  if (!editorOpen.value && !packs.value.length && !assets.value.length) loading.value = true
   error.value = null
   try {
     const [assetData, packData] = await Promise.all([
@@ -224,7 +228,8 @@ function startEditPack(pack: BrandPack) {
   }
   message.value = `${t('brandKits.editPack')}: ${pack.title}`
   error.value = null
-  packFormSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  savedPack.value = JSON.stringify([packForm.value, clearPassword.value])
+  editorOpen.value = true
 }
 
 async function savePack() {
@@ -255,6 +260,7 @@ async function savePack() {
       })
       message.value = t('brandKits.packCreated')
     }
+    editorOpen.value = false
     resetPackForm()
     await load()
   } catch (e) {
@@ -396,6 +402,11 @@ onUnmounted(stopPolling)
       <p v-if="loading" class="muted" role="status" aria-live="polite">{{ t('brandKits.loading') }}</p>
 
       <template v-else>
+        <button type="button" class="btn primary" @click="resetPackForm(); savedPack = JSON.stringify([packForm, clearPassword]); editorOpen = true">{{ t('brandKits.newPack') }}</button>
+        <EditorDrawer ref="editor" :open="editorOpen" :title="isEditingPack ? t('brandKits.editPack') : t('brandKits.newPack')" :busy="savingPack || uploading || !!replacingAssetId || actionIds.size > 0" :track-changes="false" :dirty="packDirty" @close="editorOpen = false; resetPackForm()">
+        <p v-if="error" role="alert" class="error">{{ error }}</p>
+        <p v-if="message" role="status" class="ok">{{ message }}</p>
+        <p v-if="uploadProgress" role="status" class="muted">{{ uploadProgress }}</p>
         <section class="panel">
           <div class="panel-head">
             <h2>{{ isEditingPack ? t('brandKits.library') : t('brandKits.packMedia') }}</h2>
@@ -500,10 +511,10 @@ onUnmounted(stopPolling)
           </template>
         </section>
 
-        <section ref="packFormSection" class="panel">
+        <section class="panel mt-5">
           <div class="panel-head">
             <h2>{{ isEditingPack ? t('brandKits.editPack') : t('brandKits.newPack') }}</h2>
-            <button v-if="isEditingPack" type="button" class="link" @click="resetPackForm">
+            <button v-if="isEditingPack" type="button" class="link" @click="editor?.requestClose()">
               {{ t('brandKits.cancelEdit') }}
             </button>
           </div>
@@ -562,6 +573,7 @@ onUnmounted(stopPolling)
           </form>
         </section>
 
+        </EditorDrawer>
         <section class="panel">
           <h2>{{ t('brandKits.packs') }}</h2>
           <p v-if="!packs.length" class="muted">{{ t('brandKits.noPacks') }}</p>
