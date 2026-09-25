@@ -2728,8 +2728,9 @@ export const expensePayments = pgTable('expense_payments', {
   expenseId: uuid('expense_id').notNull(),
   amount: integer('amount').notNull(),
   currency: text('currency').notNull(),
-  paidOn: date('paid_on').notNull(),
-  reference: text('reference').notNull(),
+  kind: text('kind').default('payment').notNull(),
+  paidOn: date('paid_on'),
+  reference: text('reference'),
   requestId: uuid('request_id').notNull(),
   recordedById: uuid('recorded_by_id').references(() => users.id).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -2737,6 +2738,7 @@ export const expensePayments = pgTable('expense_payments', {
   foreignKey({ columns: [t.farmId, t.expenseId], foreignColumns: [expenses.farmId, expenses.id] }),
   uniqueIndex('expense_payments_request_uq').on(t.farmId, t.requestId),
   check('expense_payments_amount_check', sql`${t.amount} > 0`),
+  check('expense_payments_kind_check', sql`(${t.kind} = 'payment' AND ${t.paidOn} IS NOT NULL AND ${t.reference} IS NOT NULL) OR (${t.kind} = 'historical_settlement' AND ${t.paidOn} IS NULL AND ${t.reference} IS NULL)`),
 ])
 
 export const expenses = pgTable(

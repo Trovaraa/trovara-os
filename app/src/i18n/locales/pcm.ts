@@ -1,5 +1,6 @@
 /** pcm UI messages for Trovara OS */
 export default {
+    historicalSettlement: {"action":"Mark am as already paid","review":"Confirm {count} invoice(s) as fully paid","explanation":"Use am only for invoices wey dem don pay outside this record. Na the balance we dey mark as settled before, no be new payment. No money go move and we no go invent payment date, reference or due date. Old payment records go remain. You no fit undo am here.","total":"Balance wey remain to close","confirmation":"I confirm say dem don fully pay every invoice for this list.","confirm":"Confirm fully paid","history":"Old settlement — confirmed say dem don pay","recordedAt":"When we record confirmation","unknownDate":"We no record the actual payment date and reference.","saved":"Selected invoices don show as paid.","notRecorded":"No record","selectPage":"Select eligible invoices for this page","selected":"{count} selected","selectInvoice":"Select invoice: {description}","select":"Select"},
     editor: { close: "Close", discard: "Leave changes wey you never save and close?" },
     financeTracking: {
       saved: "Expense don save.",

@@ -34,6 +34,84 @@ beforeAll(async () => {
 })
 beforeEach(() => { session = owner() })
 describe('Finance payments and CAPEX integration', () => {
+  const settleBody = (rows: Awaited<ReturnType<typeof invoice>>[]) => ({ confirmed: true, invoices: rows.map(r => ({
+    id: r.id, amount: r.amount, amountPaid: r.amountPaid, currency: r.currency, requestId: randomUUID(),
+  })) })
+  it('settles approved invoices in bulk with immutable actor/time evidence, not fabricated payment details', async () => {
+    const first = await invoice(), second = await invoice()
+    await request(`/${first.id}/payments`, 'POST', payment(40))
+    const body = settleBody([await read(first.id), second])
+    expect((await request('/historical-settlements', 'POST', body)).status).toBe(200)
+    expect(await read(first.id)).toMatchObject({ amountPaid: 100, paymentStatus: 'paid' })
+    expect(await read(second.id)).toMatchObject({ amountPaid: 100, paymentStatus: 'paid' })
+    const history = await (await request(`/${first.id}/payments`)).json()
+    expect(history.payments).toHaveLength(2)
+    expect(history.payments.find((r: { kind: string }) => r.kind === 'historical_settlement')).toMatchObject({
+      amount: 60, paidOn: null, reference: null, recordedById: userId, createdAt: expect.any(String),
+    })
+    await expect(db.delete(expensePayments).where(eq(expensePayments.expenseId, second.id))).rejects.toThrow()
+    expect((await request(`/${second.id}`, 'PATCH', { amount: 101 })).status).toBe(409)
+    expect((await request(`/${second.id}`, 'DELETE')).status).toBe(409)
+    const replay = await (await request('/historical-settlements', 'POST', body)).json()
+    expect(replay).toEqual({ settled: 0, alreadyRecorded: 2 })
+  })
+  it('validates the whole batch before any write and isolates farms and permissions', async () => {
+    const good = await invoice(), pending = await invoice({ approvalStatus: 'pending' })
+    for (const bad of [pending, await invoice({ approvalStatus: 'rejected' }), await invoice({ farmId: farmB, recordedById: userB })]) {
+      expect([404, 409]).toContain((await request('/historical-settlements', 'POST', settleBody([good, bad]))).status)
+      expect((await read(good.id)).amountPaid).toBe(0)
+    }
+    const body = settleBody([good]); session = null
+    expect((await request('/historical-settlements', 'POST', body)).status).toBe(401)
+    for (const role of ['field_worker', 'sales'] as const) {
+      session = { ...owner(), role, permissions: role === 'sales' ? ['finance.read'] : [] }
+      expect((await request('/historical-settlements', 'POST', body)).status).toBe(403)
+    }
+    session = owner(farmB)
+    expect((await request('/historical-settlements', 'POST', body)).status).toBe(404)
+  })
+  it('rejects malformed, duplicate, unconfirmed and stale selections without changing anything', async () => {
+    const row = await invoice(), body = settleBody([row])
+    for (const payload of [{ ...body, confirmed: false }, { ...body, invoices: [] }, { ...body, invoices: [...body.invoices, ...body.invoices] },
+      { ...body, invoices: Array(101).fill(body.invoices[0]) }, { ...body, paidOn: '2020-01-01' }]) {
+      expect((await request('/historical-settlements', 'POST', payload)).status).toBe(400)
+    }
+    for (const change of [{ amount: 101 }, { amountPaid: 1 }, { currency: 'USD' }]) {
+      expect((await request('/historical-settlements', 'POST', { ...body, invoices: [{ ...body.invoices[0], ...change }] })).status).toBe(409)
+    }
+    expect((await read(row.id)).amountPaid).toBe(0)
+  })
+  it('serializes competing batches, retries and ordinary payments without double settlement', async () => {
+    const one = await invoice(), two = await invoice(), body = settleBody([one, two])
+    const responses = await Promise.all([request('/historical-settlements', 'POST', body), request('/historical-settlements', 'POST', { ...body, invoices: [...body.invoices].reverse() })])
+    expect(responses.map(r => r.status)).toEqual([200, 200])
+    expect((await read(one.id)).amountPaid).toBe(100)
+    const row = await invoice()
+    const race = await Promise.all([request('/historical-settlements', 'POST', settleBody([row])), request(`/${row.id}/payments`, 'POST', payment(40))])
+    expect(race.filter(r => r.status === 409)).toHaveLength(1)
+    expect((await read(row.id)).amountPaid).toBeLessThanOrEqual(100)
+    const duplicate = await invoice()
+    const competing = await Promise.all([request('/historical-settlements', 'POST', settleBody([duplicate])), request('/historical-settlements', 'POST', settleBody([duplicate]))])
+    expect(competing.map(r => r.status).sort()).toEqual([200, 409])
+  })
+  it('rejects request-ID reuse for another settlement or payment', async () => {
+    const first = await invoice(), second = await invoice(), body = settleBody([first])
+    await request('/historical-settlements', 'POST', body)
+    expect((await request('/historical-settlements', 'POST', { ...body, invoices: [{ ...body.invoices[0], id: second.id }] })).status).toBe(409)
+    const ordinary = payment(10)
+    await request(`/${second.id}/payments`, 'POST', ordinary)
+    const next = settleBody([await read(second.id)]); next.invoices[0]!.requestId = ordinary.requestId
+    expect((await request('/historical-settlements', 'POST', next)).status).toBe(409)
+  })
+  it('database rejects incomplete historical settlement and fabricated date/reference fields', async () => {
+    const row = await invoice()
+    const entry = { farmId, expenseId: row.id, currency: 'NGN', kind: 'historical_settlement', recordedById: userId, requestId: randomUUID(), amount: 50 }
+    await expect(db.insert(expensePayments).values(entry)).rejects.toThrow()
+    await expect(db.insert(expensePayments).values({ ...entry, amount: 100, paidOn: '2020-01-01' })).rejects.toThrow()
+    await expect(db.insert(expensePayments).values({ ...entry, amount: 100, reference: 'invented' })).rejects.toThrow()
+    await expect(db.insert(expensePayments).values({ ...entry, amount: 100, kind: 'payment' })).rejects.toThrow()
+    expect((await read(row.id)).amountPaid).toBe(0)
+  })
   it('defaults new approved invoices to unpaid with seven-day terms', async () => {
     const row = await invoice()
     expect(row.paymentStatus).toBe('unpaid'); expect(row.amountPaid).toBe(0)
