@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import EditorDrawer from '@/components/EditorDrawer.vue'
 import CollapsibleSection from '@/components/CollapsibleSection.vue'
 import FinanceImportPanel from '@/components/finance/FinanceImportPanel.vue'
 import ExpensePaymentsPanel from '@/components/finance/ExpensePaymentsPanel.vue'
+import HistoricalSettlement from '@/components/finance/HistoricalSettlement.vue'
 import CapexPanel from '@/components/finance/CapexPanel.vue'
 import { api, resolveApiUrl } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
@@ -133,6 +134,22 @@ const pageCount = computed(() => Math.max(1, Math.ceil(expenses.value.length / P
 const visibleExpenses = computed(() =>
   expenses.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 )
+const settlementIds = ref<string[]>([])
+const showSettlement = ref(false), settlementBusy = ref(false), settlementDirty = ref(false)
+const settlementInvoices = computed(() => visibleExpenses.value.filter(r => settlementIds.value.includes(r.id)))
+const eligibleForSettlement = (r: Expense) => r.approvalStatus === 'approved' && r.amount > (r.amountPaid ?? 0)
+const eligibleOnPage = computed(() => visibleExpenses.value.filter(eligibleForSettlement))
+const pageSelected = computed(() => eligibleOnPage.value.length > 0 && eligibleOnPage.value.every(r => settlementIds.value.includes(r.id)))
+watch([page, labelFilter, costCentreFilter, entityFilter], () => { settlementIds.value = [] })
+function selectPage() { settlementIds.value = pageSelected.value ? [] : eligibleOnPage.value.map(r => r.id) }
+async function settlementSaved() {
+  showSettlement.value = false; settlementIds.value = []
+  notice.value = t('historicalSettlement.saved')
+  await refreshExpenses()
+}
+function dueDateLabel(expense: Expense) {
+  return expense.paymentDueDate ?? (expense.paymentStatus === 'paid' ? t('historicalSettlement.notRecorded') : t('financeTracking.reviewDue'))
+}
 
 const form = ref({
   entityCode: '002' as '001' | '002',
@@ -349,6 +366,7 @@ async function refreshExpenses() {
 }
 
 async function load(preserveContext = false) {
+  settlementIds.value = []
   const requestId = ++loadRequestId
   if (!preserveContext) loading.value = true
   error.value = null
@@ -472,6 +490,9 @@ onMounted(() => load())
 
 <template>
   <AppLayout>
+    <EditorDrawer :open="showSettlement" :title="t('historicalSettlement.action')" :busy="settlementBusy || refreshing" :dirty="settlementDirty" :track-changes="false" @close="showSettlement = false; settlementDirty = false">
+      <HistoricalSettlement v-if="showSettlement" review-immediately :invoices="settlementInvoices" :disabled="!canWrite || refreshing || !!error" @busy="settlementBusy = $event" @dirty="settlementDirty = $event" @saved="settlementSaved" />
+    </EditorDrawer>
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h2 class="text-2xl font-black text-os-fg">{{ t('finance.title') }}</h2>
@@ -568,7 +589,7 @@ onMounted(() => load())
           <p class="break-words font-bold sm:col-span-2">{{ editingExpense.description }}</p>
           <p>{{ t('finance.approvalStatus') }}: <strong>{{ statusLabel(editingExpense.approvalStatus) }}</strong></p>
           <p>{{ t('financeTracking.paymentStatus') }}: <strong>{{ t(`financeTracking.${editingExpense.paymentStatus ?? 'unpaid'}`) }}</strong></p>
-          <p>{{ t('financeTracking.dueDate') }}: <strong>{{ editingExpense.paymentDueDate ?? t('financeTracking.reviewDue') }}</strong></p>
+          <p>{{ t('financeTracking.dueDate') }}: <strong>{{ dueDateLabel(editingExpense) }}</strong></p>
           <p>{{ t('financeTracking.balance') }}: <strong>{{ formatAmount(editingExpense.amount - (editingExpense.amountPaid ?? 0), editingExpense.currency) }}</strong></p>
         </div>
         <div v-if="editingExpense" class="mb-5 flex gap-2" :aria-label="t('finance.editExpense')">
@@ -935,6 +956,7 @@ onMounted(() => load())
         aria-labelledby="finance-expenses-tab"
         data-testid="finance-expenses-section"
       >
+        <p v-if="notice && !showForm && !error" role="status" class="mb-4 text-emerald-300">{{ notice }}</p>
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 class="text-xl font-black text-white">{{ t('finance.expenses') }}</h3>
@@ -964,12 +986,18 @@ onMounted(() => load())
             </select>
           </div>
         </div>
+        <div v-if="canWrite && eligibleOnPage.length" class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
+          <label class="flex min-h-11 items-center gap-2 text-slate-200"><input type="checkbox" :checked="pageSelected" @change="selectPage" />{{ t('historicalSettlement.selectPage') }}</label>
+          <span class="text-slate-300">{{ t('historicalSettlement.selected', { count: settlementIds.length }) }}</span>
+          <button type="button" :disabled="!settlementInvoices.length || refreshing || !!error" class="min-h-11 rounded bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="showSettlement = true">{{ t('historicalSettlement.action') }}</button>
+        </div>
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
             v-for="expense in visibleExpenses"
             :key="expense.id"
             class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4"
           >
+            <label v-if="canWrite && eligibleForSettlement(expense)" class="mb-2 flex min-h-11 items-center gap-2 text-slate-200"><input v-model="settlementIds" type="checkbox" :value="expense.id" :aria-label="t('historicalSettlement.selectInvoice', { description: expense.description })" />{{ t('historicalSettlement.select') }}</label>
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -995,7 +1023,7 @@ onMounted(() => load())
             <p class="mt-3 font-mono text-2xl font-black tracking-tight text-red-300">
               {{ formatAmount(expense.amount, expense.currency) }}
             </p>
-            <p class="mt-2 text-sm text-slate-300">{{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }} · {{ expense.paymentDueDate ?? t('financeTracking.reviewDue') }}</p>
+            <p class="mt-2 text-sm text-slate-300">{{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }} · {{ dueDateLabel(expense) }}</p>
             <p v-if="isOverdue(expense)" class="text-sm text-amber-300">{{ t('financeTracking.overdue') }}</p>
             <button type="button" class="mt-2 min-h-11 text-sm font-bold text-farm-green" @click="showPayments(expense.id)">{{ t('financeTracking.payments') }}</button>
             <p v-if="expense.originalCurrency && expense.originalAmount != null" class="mt-1 text-xs text-slate-500">
@@ -1170,6 +1198,7 @@ onMounted(() => load())
               class="border-b border-slate-800/50"
             >
               <td class="whitespace-nowrap px-4 py-4 text-slate-400">
+                <input v-if="canWrite && eligibleForSettlement(expense)" v-model="settlementIds" type="checkbox" :value="expense.id" :aria-label="t('historicalSettlement.selectInvoice', { description: expense.description })" class="mb-2 block" />
                 {{ formatDate(expense.expenseDate) }}
                 <span class="mt-1 block text-xs text-slate-500">
                   {{ t(`finance.categories.${expense.category}`) }}
@@ -1226,7 +1255,7 @@ onMounted(() => load())
                   {{ statusLabel(expense.approvalStatus) }}
                 </span>
                 <p class="mt-2 text-xs text-slate-300">{{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }}</p>
-                <p class="mt-1 text-xs text-slate-400">{{ expense.paymentDueDate ?? t('financeTracking.reviewDue') }}</p>
+                <p class="mt-1 text-xs text-slate-400">{{ dueDateLabel(expense) }}</p>
                 <p v-if="isOverdue(expense)" class="text-xs text-amber-300">{{ t('financeTracking.overdue') }}</p>
                 <button type="button" class="mt-2 min-h-11 text-xs font-bold text-farm-green" @click="showPayments(expense.id)">{{ t('financeTracking.payments') }}</button>
               </td>

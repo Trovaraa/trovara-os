@@ -10,6 +10,16 @@ const global = () => ({ plugins: [createI18n({ legacy: false, locale: 'en', mess
 const expense = { id: 'invoice-1', description: 'Tractor', amount: 100, currency: 'NGN', amountPaid: 40, paymentStatus: 'partially_paid', approvalStatus: 'approved', paymentDueDate: '2027-01-01' }
 beforeEach(() => { api.mockReset(); api.mockResolvedValue({ payments: [] }) })
 describe('payment controls', () => {
+  it('labels a historical confirmation separately and does not ask a settled invoice for a due date', async () => {
+    api.mockResolvedValue({ payments: [{ id: 'h', kind: 'historical_settlement', amount: 100, currency: 'NGN', paidOn: null, reference: null, createdAt: '2026-09-25T12:00:00Z', recordedById: 'owner' }] })
+    const wrapper = mount(ExpensePaymentsPanel, { props: { expense: { ...expense, paymentStatus: 'paid', amountPaid: 100, paymentDueDate: null }, canWrite: true }, global: global() })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Historical settlement — confirmed already paid')
+    expect(wrapper.text()).toContain('Actual payment date and reference not recorded.')
+    expect(wrapper.text()).not.toContain('Due date needs review')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="historical-settlement"]').exists()).toBe(false)
+  })
   it('does not report a failed history request as an empty history and offers retry', async () => {
     api.mockRejectedValueOnce(new Error('History unavailable'))
     const wrapper = mount(ExpensePaymentsPanel, { props: { expense, canWrite: false }, global: global() })
