@@ -50,9 +50,8 @@ export function isAllowedPaystackCheckoutUrl(value: string | undefined): boolean
   if (!value) return false
   try {
     const parsed = new URL(value)
-    if (parsed.protocol !== 'https:') return false
-    const host = parsed.hostname.toLowerCase()
-    return host === 'checkout.paystack.com' || host.endsWith('.paystack.com')
+    // Paystack's hosted checkout uses this exact origin, not arbitrary subdomains.
+    return parsed.origin === 'https://checkout.paystack.com' && !parsed.username && !parsed.password
   } catch {
     return false
   }
@@ -76,6 +75,8 @@ async function paystackFetch<T>(
     const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline
     const res = await fetch(`${PAYSTACK_BASE}${path}`, {
       ...init,
+      // Fail closed rather than replay payment data/credentials after a redirect.
+      redirect: 'error',
       signal,
       headers: {
         Authorization: `Bearer ${key}`,
