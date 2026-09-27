@@ -1,5 +1,6 @@
 /** fr UI messages for Trovara OS */
 export default {
+    historicalSettlement: {"action":"Marquer comme déjà payé","review":"Confirmer {count} facture(s) entièrement payée(s)","explanation":"Uniquement pour les factures déjà payées hors de ce registre. Le solde restant est déclaré réglé historiquement, sans nouveau paiement ni transfert d’argent. Aucune date de paiement, référence ou échéance n’est inventée. Les paiements existants sont conservés. Cette action ne peut pas être annulée ici.","total":"Solde restant à clôturer","confirmation":"Je confirme que toutes les factures ci-dessus sont déjà entièrement payées.","confirm":"Confirmer le règlement intégral","history":"Règlement historique — confirmé déjà payé","recordedAt":"Confirmation enregistrée","unknownDate":"Date réelle du paiement et référence non renseignées.","saved":"Factures sélectionnées marquées comme payées.","notRecorded":"Non renseignée","selectPage":"Sélectionner les factures admissibles de cette page","selected":"{count} sélectionnée(s)","selectInvoice":"Sélectionner la facture : {description}","select":"Sélectionner"},
     editor: { close: "Fermer", discard: "Abandonner les modifications non enregistrées et fermer ?" },
     financeTracking: {
       saved: "Dépense enregistrée.",

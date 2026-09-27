@@ -23,6 +23,13 @@ beforeEach(() => {
   api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
     if (options?.method) {
       const payload = JSON.parse(options.body ?? '{}')
+      if (path === '/api/finance/historical-settlements') {
+        for (const selected of payload.invoices) {
+          const row = invoices.find(r => r.id === selected.id)!
+          row.amountPaid = row.amount; row.paymentStatus = 'paid'
+        }
+        return { settled: payload.invoices.length }
+      }
       const row = invoices.find(item => path === `/api/finance/${item.id}` || path === `/api/finance/${item.id}/payments`)!
       if (path.endsWith('/payments')) {
         payments.push({ ...payload, id: 'synthetic-payment' })
@@ -54,6 +61,35 @@ async function open(wrapper: ReturnType<typeof mount>, action = 'Edit') {
 }
 
 describe('expense drawer workflow', () => {
+  it('bulk selects only eligible invoices on this page and refreshes after confirmed settlement', async () => {
+    invoices = Array.from({ length: 30 }, (_, i) => ({ ...base, id: `expense-${i}`, description: `Old invoice ${i}` }))
+    invoices[0]!.approvalStatus = 'pending'; invoices[1]!.amountPaid = 1000; invoices[1]!.paymentStatus = 'paid'
+    const wrapper = await render()
+    await wrapper.get('#finance-expenses-panel > div input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('23 selected')
+    await button(wrapper, 'Mark as already paid').trigger('click'); await flushPromises()
+    expect(dialog().text()).toContain('Confirm 23 invoice(s)')
+    expect(dialog().findAll('li')).toHaveLength(23)
+    expect(writes()).toHaveLength(0)
+    await dialog().get('input[type="checkbox"]').setValue(true)
+    await button(dialog(), 'Confirm fully paid').trigger('click'); await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(invoices[0]!.paymentStatus).toBe('unpaid'); expect(invoices[25]!.paymentStatus).toBe('unpaid')
+    expect(invoices[2]!.paymentStatus).toBe('paid'); expect(wrapper.text()).toContain('Selected invoices marked as paid.')
+    expect(writes()).toHaveLength(1)
+  })
+  it('clears bulk selection when page or filters change and hides selection from readers', async () => {
+    invoices = Array.from({ length: 30 }, (_, i) => ({ ...base, id: `expense-${i}` }))
+    const wrapper = await render()
+    await wrapper.get('#finance-expenses-panel > div input[type="checkbox"]').setValue(true)
+    await button(wrapper, 'Next').trigger('click'); expect(wrapper.text()).toContain('0 selected')
+    await wrapper.get('#finance-expenses-panel > div input[type="checkbox"]').setValue(true)
+    await wrapper.get('#finance-entity-filter').setValue('002'); await flushPromises()
+    expect(wrapper.text()).toContain('0 selected')
+    access.write = false
+    const reader = await render()
+    expect(reader.find('#finance-expenses-panel input[type="checkbox"]').exists()).toBe(false)
+  })
   it('retains the selected expense when a save removes it from the active filter', async () => {
     const originalApi = api.getMockImplementation()!
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {

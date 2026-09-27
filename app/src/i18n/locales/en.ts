@@ -1,5 +1,6 @@
 /** en UI messages for Trovara OS */
 export default {
+    historicalSettlement: {"action":"Mark as already paid","review":"Confirm {count} invoice(s) as fully paid","explanation":"Use only for invoices already paid outside this ledger. This records the remaining balance as historically settled, not a new payment. No money is transferred and no payment date, reference or due date is invented. Existing payments are preserved. This cannot be undone here.","total":"Remaining balance to close","confirmation":"I confirm every invoice listed above has already been fully paid.","confirm":"Confirm fully paid","history":"Historical settlement — confirmed already paid","recordedAt":"Confirmation recorded","unknownDate":"Actual payment date and reference not recorded.","saved":"Selected invoices marked as paid.","notRecorded":"Not recorded","selectPage":"Select eligible invoices on this page","selected":"{count} selected","selectInvoice":"Select invoice: {description}","select":"Select"},
     editor: { close: "Close", discard: "Discard unsaved changes and close?" },
     financeTracking: {
       saved: "Expense saved.",

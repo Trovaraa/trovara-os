@@ -2,10 +2,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/lib/api'
+import HistoricalSettlement from './HistoricalSettlement.vue'
 const props = defineProps<{ expense: { id: string; description: string; amount: number; currency: string; amountPaid?: number; paymentStatus?: string; approvalStatus?: string; paymentDueDate?: string | null }; canWrite: boolean }>()
 const emit = defineEmits<{ saved: []; busy: [value: boolean]; dirty: [value: boolean] }>()
 const { t, locale } = useI18n()
-type Payment = { id: string; amount: number; currency: string; paidOn: string; reference: string }
+type Payment = { id: string; amount: number; currency: string; paidOn: string | null; reference: string | null; kind?: string; createdAt: string; recordedById: string }
 const payments = ref<Payment[]>([])
 const dueDate = ref(props.expense.paymentDueDate ?? '')
 const amount = ref('')
@@ -16,10 +17,11 @@ const busy = ref(false)
 const error = ref('')
 const historyLoading = ref(true)
 const historyFailed = ref(false)
+const settlementDirty = ref(false)
 watch(busy, value => emit('busy', value))
 watch(() => props.expense.paymentDueDate, value => { dueDate.value = value ?? '' })
-watch(() => [dueDate.value, props.expense.paymentDueDate, amount.value, reference.value], () => {
-  emit('dirty', dueDate.value !== (props.expense.paymentDueDate ?? '') || !!amount.value || !!reference.value)
+watch(() => [dueDate.value, props.expense.paymentDueDate, amount.value, reference.value, settlementDirty.value], () => {
+  emit('dirty', settlementDirty.value || dueDate.value !== (props.expense.paymentDueDate ?? '') || !!amount.value || !!reference.value)
 })
 const balance = computed(() => props.expense.amount - (props.expense.amountPaid ?? 0))
 const money = (value: number, currency = props.expense.currency) => new Intl.NumberFormat(locale.value, { style: 'currency', currency }).format(value)
@@ -58,10 +60,10 @@ onMounted(load)
     <h3 class="font-bold text-white">{{ t('financeTracking.payments') }}</h3>
     <p class="mt-2 text-slate-300">{{ t('financeTracking.paymentStatus') }}: {{ t(`financeTracking.${expense.paymentStatus ?? 'unpaid'}`) }} · {{ t('financeTracking.balance') }}: {{ money(balance) }}</p>
     <p class="mt-2 text-sm text-slate-400">{{ t('financeTracking.recordOnly') }}</p>
-    <p v-if="!expense.paymentDueDate" class="mt-2 text-amber-300">{{ t('financeTracking.reviewDue') }}</p>
-    <p v-else class="mt-2 text-slate-300">{{ t('financeTracking.dueDate') }}: {{ expense.paymentDueDate }}</p>
+    <p v-if="!expense.paymentDueDate && balance > 0" class="mt-2 text-amber-300">{{ t('financeTracking.reviewDue') }}</p>
+    <p v-else-if="expense.paymentDueDate" class="mt-2 text-slate-300">{{ t('financeTracking.dueDate') }}: {{ expense.paymentDueDate }}</p>
     <p v-if="error" role="alert" class="mt-3 text-red-300">{{ error }}</p>
-    <form v-if="canWrite" class="mt-4 flex flex-wrap items-end gap-3" @submit.prevent="saveDueDate">
+    <form v-if="canWrite && balance > 0" class="mt-4 flex flex-wrap items-end gap-3" @submit.prevent="saveDueDate">
       <label class="text-slate-300">{{ t('financeTracking.dueDate') }}<input v-model="dueDate" required type="date" class="ml-2 rounded bg-slate-800 p-2 text-white" /></label>
       <button :disabled="busy" class="rounded bg-slate-700 p-2 text-white">{{ t('financeTracking.saveDue') }}</button>
     </form>
@@ -75,7 +77,12 @@ onMounted(load)
     <h4 class="mt-5 font-bold text-white">{{ t('financeTracking.history') }}</h4>
     <p v-if="historyLoading" role="status" class="mt-3 text-slate-400">{{ t('finance.loading') }}</p>
     <button v-else-if="historyFailed" type="button" class="mt-3 rounded border border-slate-600 p-2 text-slate-200" @click="load">{{ t('financeTracking.retryHistory') }}</button>
-    <ul v-else class="mt-3 space-y-2"><li v-for="payment in payments" :key="payment.id" class="break-words rounded bg-slate-800 p-3 text-slate-200">{{ payment.paidOn }} · {{ money(payment.amount, payment.currency) }} · {{ payment.reference }}</li></ul>
+    <ul v-else class="mt-3 space-y-2"><li v-for="payment in payments" :key="payment.id" class="break-words rounded bg-slate-800 p-3 text-slate-200">
+      <template v-if="payment.kind === 'historical_settlement'">{{ t('historicalSettlement.history') }} · {{ money(payment.amount, payment.currency) }}<br />{{ t('historicalSettlement.recordedAt') }}: {{ new Date(payment.createdAt).toLocaleString(locale) }}<br />{{ t('historicalSettlement.unknownDate') }}</template>
+      <template v-else>{{ payment.paidOn }} · {{ money(payment.amount, payment.currency) }} · {{ payment.reference }}</template>
+    </li></ul>
     <p v-if="!historyLoading && !historyFailed && !payments.length" class="mt-4 text-sm text-slate-400">{{ t('financeTracking.noPayments') }}</p>
+    <HistoricalSettlement v-if="canWrite && expense.approvalStatus === 'approved' && balance > 0" :invoices="[expense]" :disabled="busy || historyLoading || historyFailed || !!amount || !!reference || dueDate !== (expense.paymentDueDate ?? '')"
+      @busy="busy = $event" @dirty="settlementDirty = $event" @saved="load(); emit('saved')" />
   </section>
 </template>
