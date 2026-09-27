@@ -31,4 +31,3 @@ The checkout origin matches the [Paystack transaction API documentation](https:/
 The new regression checks failed against the old redirect policy and pass with the fix. Repository checks cannot establish that every vulnerability or malware payload is absent. No fresh antivirus scan, runtime host/container audit or penetration test was performed. Production dependencies can differ from Git main; zero repository alerts does not certify the deployed server.
 
 No production deployment, main merge, manual alert dismissal, original PR closure, applicant-data access, financial changes or email actions are included. Marketing PR automation may create its normal isolated preview; production release still requires separate approval and reconciliation with deployed overlays.
-
