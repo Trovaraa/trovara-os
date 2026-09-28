@@ -11,6 +11,15 @@ afterEach(() => {
 })
 
 describe('Paystack checkout URL allowlist', () => {
+  it.each([
+    'https://other.paystack.com/abc', 'https://paystack.com/abc',
+    'https://checkout.paystack.com.evil.example/abc', 'https://checkout.paystack.com@evil.example/abc',
+    'https://user:password@checkout.paystack.com/abc', 'https://checkout.paystack.com:8443/abc',
+    'http://checkout.paystack.com/abc', 'javascript:alert(1)', '//checkout.paystack.com/abc', '',
+  ])('rejects untrusted or ambiguous destination %s', value => {
+    expect(isAllowedPaystackCheckoutUrl(value)).toBe(false)
+    expect(safePaystackCheckoutUrl(value, 'safe_code')).toBe('https://checkout.paystack.com/safe_code')
+  })
   it('accepts checkout.paystack.com and falls back from access codes', () => {
     expect(isAllowedPaystackCheckoutUrl('https://checkout.paystack.com/abc')).toBe(true)
     expect(isAllowedPaystackCheckoutUrl('https://evil.example/abc')).toBe(false)
@@ -21,6 +30,15 @@ describe('Paystack checkout URL allowlist', () => {
 })
 
 describe('Paystack request deadline', () => {
+  it('never follows provider redirects with payment payloads or credentials', async () => {
+    process.env.PAYSTACK_SECRET_KEY = 'sk_test_redirect'
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await initializeTransaction({ email: 'buyer@example.com', amountKobo: 1000, reference: 'TEST-REDIRECT' })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0][1].redirect).toBe('error')
+    expect(result.ok).toBe(false)
+  })
   it('passes an abortable deadline signal to provider calls', async () => {
     process.env.PAYSTACK_SECRET_KEY = 'sk_test_deadline'
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

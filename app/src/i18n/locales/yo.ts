@@ -1,5 +1,6 @@
 /** yo UI messages for Trovara OS */
 export default {
+    historicalSettlement: {"action":"Samisi pé a ti san tẹ́lẹ̀","review":"Jẹ́rìí pé a ti san ìwé ìsanwó {count} ní kíkún","explanation":"Lo èyí fún àwọn ìwé ìsanwó tí a ti san níta àkọsílẹ̀ yìí nìkan. A ó samisi iye tó kù gẹ́gẹ́ bí èyí tí a ti san tẹ́lẹ̀, kì í ṣe ìsanwó tuntun. Kò sí owó tí yóò lọ, a kò sì ní dá ọjọ́ ìsanwó, nọ́ńbà ìtọ́kasí tàbí ọjọ́ ìparí sílẹ̀. Àkọsílẹ̀ ìsanwó àtijọ́ yóò wà. O kò lè fagilé èyí níbí.","total":"Iye tó kù láti parí","confirmation":"Mo jẹ́rìí pé a ti san gbogbo ìwé ìsanwó tó wà lókè ní kíkún.","confirm":"Jẹ́rìí ìsanwó ní kíkún","history":"Ìsanwó àtijọ́ — a ti jẹ́rìí pé a san án","recordedAt":"Ọjọ́ àkọsílẹ̀ ìjẹ́rìí","unknownDate":"A kò kọ ọjọ́ ìsanwó gangan àti nọ́ńbà ìtọ́kasí sílẹ̀.","saved":"A ti samisi àwọn ìwé ìsanwó tí a yàn gẹ́gẹ́ bí èyí tí a ti san.","notRecorded":"A kò kọ ọ́ sílẹ̀","selectPage":"Yan àwọn ìwé ìsanwó tó yẹ lójú ìwé yìí","selected":"A yàn {count}","selectInvoice":"Yan ìwé ìsanwó: {description}","select":"Yan"},
     editor: { close: "Pa á", discard: "Pa àwọn àtúnṣe tí a kò tíì fi pamọ́ tì kí o sì pa á?" },
     financeTracking: {
       saved: "A ti fi ìnáwó pamọ́.",
