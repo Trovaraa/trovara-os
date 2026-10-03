@@ -4,6 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Row = Record<string, unknown>
 
+describe('custom-role task isolation', () => {
+  it('does not let a supervisor-based content role list farm tasks', async () => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'supervisor', permissions: ['brand.manage'] }
+    expect((await listTasks()).status).toBe(403)
+    expect(selectLog).toHaveLength(0)
+  })
+  it.each([false, true])('does not let an ungranted content role update a task (own=%s)', async own => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'supervisor', permissions: ['brand.manage'] }
+    queueSelect('tasks', [taskRow({ assignedToId: own ? 'creator' : 'someone-else', status: 'in_progress' })])
+    expect((await patchTask('task-1', { status: 'completed' })).status).toBe(403)
+    expect(updates).toHaveLength(0)
+  })
+  it('does not allow work-own permission to self-approve via a supervisor base role', async () => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'supervisor', permissions: ['tasks.work_own'] }
+    queueSelect('tasks', [taskRow({ assignedToId: 'creator', status: 'in_progress' })])
+    expect((await patchTask('task-1', { status: 'completed' })).status).toBe(403)
+    expect(updates).toHaveLength(0)
+  })
+})
+
 const nameOf = (table: unknown) => getTableName(table as never)
 
 let sessionUser: Row = {

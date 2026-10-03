@@ -816,7 +816,7 @@ financeRoutes.get('/:id/attachment', async (c) => {
 
 financeRoutes.post('/:id/retry-extraction', async (c) => {
   const user = c.get('user')
-  if (user.role !== 'owner' && user.role !== 'supervisor') {
+  if (!hasPermission(user, 'finance.extract')) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 

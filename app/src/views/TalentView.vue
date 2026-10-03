@@ -249,7 +249,7 @@ onMounted(() => action(load))
               <label class="check wide"><input v-model="form.needsReview" type="checkbox" />Needs human review — uncheck only after checking the source documents</label>
               <label class="check wide"><input v-model="form.linkExistingCandidate" :disabled="form.separateCandidate" type="checkbox" />If this email already exists, link to that candidate without replacing their profile</label>
             </fieldset>
-            <div v-if="canManage && detail.otherApplications.length > 1" class="rounded border border-amber-500 p-3 space-y-2" role="status">
+            <div v-if="canManage && detail.otherApplications.length > 1" class="rounded-sm border border-amber-500 p-3 space-y-2" role="status">
               <p>{{ detail.otherApplications.length }} applications share this profile. Contact edits apply only to this application by default. Use the applicant’s own email, or leave it blank if unknown.</p>
               <button type="button" class="button" :disabled="busy" @click="separateApplicant">Separate this applicant</button>
               <label v-if="!form.separateCandidate" class="check"><input v-model="form.updateSharedCandidate" type="checkbox" />Update contact details on all linked applications (same person only)</label>
@@ -275,7 +275,7 @@ onMounted(() => action(load))
           <details v-if="canManage"><summary>Send an email through Zoho</summary><p class="text-sm text-slate-400 my-3">From hello@trovara.farm. Review imported contact details first. Messages are sent only when you confirm.</p>
             <form class="space-y-3" @submit.prevent="action(sendEmail)"><label>Subject<input v-model="emailSubject" maxlength="200" required /></label><label>Message<textarea v-model="emailBody" rows="5" maxlength="10000" required /></label><button class="button" :disabled="busy || !metadata?.zoho.sendingEnabled">Review &amp; send</button><p v-if="!metadata?.zoho.sendingEnabled" class="text-sm text-amber-200">Zoho sending is not configured yet.</p></form>
           </details>
-          <section><h3 class="font-semibold mb-3">Activity &amp; correspondence</h3><ol class="timeline"><li v-for="event in detail.events" :key="event.id"><p class="text-xs text-slate-400">{{ label(event.kind) }} · {{ new Date(event.occurredAt).toLocaleString() }}</p><p class="whitespace-pre-wrap break-words mt-2 text-sm">{{ event.body }}</p></li></ol></section>
+          <section><h3 class="font-semibold mb-3">Activity &amp; correspondence</h3><ol class="timeline"><li v-for="event in detail.events" :key="event.id"><p class="text-xs text-slate-400">{{ label(event.kind) }} · {{ new Date(event.occurredAt).toLocaleString() }}</p><p class="whitespace-pre-wrap wrap-break-word mt-2 text-sm">{{ event.body }}</p></li></ol></section>
           <details><summary>Privacy &amp; retention</summary><p class="text-sm text-slate-400 my-3">Scheduled deletion: {{ date(detail.application.retentionUntil) }}. Applicant requests go to hello@trovara.farm. No automated hiring decisions are made.</p>
             <form v-if="canAdmin" class="space-y-3" @submit.prevent="action(retain)"><label>Retain until<input v-model="retentionDate" type="date" required /></label><label>Reason for changing retention<textarea v-model="retentionReason" minlength="10" maxlength="1000" required /></label><button class="button" :disabled="busy">Record retention decision</button></form>
             <button v-if="canAdmin" class="button danger mt-4" :disabled="busy" @click="action(remove)">Permanently delete application</button>

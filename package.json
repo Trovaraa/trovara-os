@@ -36,7 +36,7 @@
     "restore:db": "bash scripts/restore-db.sh",
     "audit": "npm audit --workspaces --audit-level=high",
     "lint": "eslint api/src app/src",
-    "test": "npm test -w api && npm test -w app && npm run test:release-tools",
+    "test": "npm test -w api && npm test -w app && node --test scripts/dependency-security.test.mjs && npm run test:release-tools",
     "test:release-tools": "bash scripts/test-release-tools.sh",
     "test:migration-upgrade": "bash scripts/test-migration-upgrade.sh",
     "test:cost-centre-migration": "node scripts/test-cost-centre-migration.mjs",
@@ -52,24 +52,24 @@
     "@eslint/js": "^9.39.5",
     "concurrently": "^10.0.5",
     "eslint": "^9.39.5",
-    "eslint-plugin-vue": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
     "glob": "13.0.6",
     "globals": "^16.5.0",
     "happy-dom": "^20.14.5",
-    "typescript-eslint": "^8.70.1",
+    "typescript-eslint": "^8.71.0",
     "vue-eslint-parser": "^10.4.1"
   },
   "overrides": {
-    "fast-uri": "3.1.6",
-    "brace-expansion": "5.0.9",
+    "fast-uri": "3.1.8",
+    "brace-expansion": "5.0.12",
     "minimatch@3.1.5": {
-      "brace-expansion": "2.1.4"
+      "brace-expansion": "2.1.7"
     },
     "glob": "$glob",
     "happy-dom": "$happy-dom",
-    "ip-address": "10.7.0",
+    "ip-address": "10.7.2",
     "geoip-country": {
-      "ip-address": "10.7.0"
+      "ip-address": "10.7.2"
     },
     "rimraf": "5.0.10"
   }

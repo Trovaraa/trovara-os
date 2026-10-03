@@ -287,7 +287,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             required
             maxlength="200"
             :placeholder="t('zones.namePlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -298,7 +298,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             type="text"
             maxlength="2000"
             :placeholder="t('zones.optional')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
       </div>
@@ -326,7 +326,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             v-model="newBlockZoneId"
             :aria-label="t('zones.zone')"
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option>
           </select>
@@ -338,7 +338,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             :aria-label="t('zones.blockName')"
             type="text"
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -348,7 +348,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             :aria-label="t('zones.blockCode')"
             type="text"
             :placeholder="t('zones.blockCodePlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -357,7 +357,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             v-model="newBlockArea"
             :aria-label="t('zones.area')"
             type="text"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div class="sm:col-span-2">
@@ -366,7 +366,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             v-model="newBlockNotes"
             :aria-label="t('zones.notes')"
             type="text"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
       </div>
@@ -495,7 +495,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
               <div v-if="s.verificationStatus === 'reported'" class="flex gap-2">
                 <button
                   type="button"
-                  class="text-xs px-2 py-1 rounded bg-farm-green/20 text-farm-green"
+                  class="text-xs px-2 py-1 rounded-sm bg-farm-green/20 text-farm-green"
                   :disabled="verifyingCensusId === s.id"
                   @click="verifyCensus(s.id, 'verified')"
                 >
@@ -503,7 +503,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
                 </button>
                 <button
                   type="button"
-                  class="text-xs px-2 py-1 rounded bg-red-900/40 text-red-300"
+                  class="text-xs px-2 py-1 rounded-sm bg-red-900/40 text-red-300"
                   :disabled="verifyingCensusId === s.id"
                   @click="verifyCensus(s.id, 'rejected')"
                 >
@@ -527,7 +527,7 @@ async function verifyCensus(surveyId: string, status: 'verified' | 'rejected') {
             class="flex items-start gap-3 border-b border-slate-800/50 pb-3 last:border-0"
           >
             <span
-              class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded shrink-0"
+              class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-sm shrink-0"
               :class="entry.type === 'task' ? 'bg-blue-900/40 text-blue-300' : 'bg-purple-900/40 text-purple-300'"
             >
               {{ entry.type === 'task' ? t('zones.task') : entry.eventType ?? t('zones.event') }}

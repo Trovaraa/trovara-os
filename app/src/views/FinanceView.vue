@@ -167,7 +167,7 @@ const form = ref({
 const canWrite = computed(() => auth.hasPermission('finance.write'))
 const canDelete = computed(() => auth.hasPermission('finance.delete'))
 const canRetryExtraction = computed(
-  () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
+  () => auth.hasPermission('finance.extract'),
 )
 const editingExpense = computed(() => editingId.value ? selectedExpense.value : null)
 const hasExpenseActions = computed(
@@ -540,7 +540,7 @@ onMounted(() => load())
         type="button"
         role="tab"
         class="min-h-11 flex-1 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors sm:flex-none"
-        :class="activeSection === 'overview' ? 'bg-farm-green text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+        :class="activeSection === 'overview' ? 'bg-farm-green text-white shadow-xs' : 'text-slate-400 hover:text-white'"
         :aria-selected="activeSection === 'overview'"
         aria-controls="finance-overview-panel"
         @click="activeSection = 'overview'"
@@ -552,7 +552,7 @@ onMounted(() => load())
         type="button"
         role="tab"
         class="min-h-11 flex-1 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors sm:flex-none"
-        :class="activeSection === 'expenses' ? 'bg-farm-green text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+        :class="activeSection === 'expenses' ? 'bg-farm-green text-white shadow-xs' : 'text-slate-400 hover:text-white'"
         :aria-selected="activeSection === 'expenses'"
         aria-controls="finance-expenses-panel"
         @click="activeSection = 'expenses'"
@@ -584,9 +584,9 @@ onMounted(() => load())
         :busy="saving || paymentBusy || addingLabel || refreshing" :track-changes="false" :dirty="formDirty || paymentDirty || !!newLabelName.trim()" @close="closeEditor">
         <p v-if="error" role="alert" class="mb-4 text-red-300">{{ error }}</p>
         <p v-if="notice && !error && !formDirty" role="status" class="mb-4 text-emerald-300">{{ notice }}</p>
-        <button v-if="error" type="button" class="mb-4 min-h-11 rounded border border-slate-600 px-3" :disabled="refreshing" @click="refreshExpenses">{{ t('financeTracking.refreshExpense') }}</button>
+        <button v-if="error" type="button" class="mb-4 min-h-11 rounded-sm border border-slate-600 px-3" :disabled="refreshing" @click="refreshExpenses">{{ t('financeTracking.refreshExpense') }}</button>
         <div v-if="editingExpense" class="mb-5 grid gap-3 rounded-xl border border-slate-700 p-4 sm:grid-cols-2">
-          <p class="break-words font-bold sm:col-span-2">{{ editingExpense.description }}</p>
+          <p class="wrap-break-word font-bold sm:col-span-2">{{ editingExpense.description }}</p>
           <p>{{ t('finance.approvalStatus') }}: <strong>{{ statusLabel(editingExpense.approvalStatus) }}</strong></p>
           <p>{{ t('financeTracking.paymentStatus') }}: <strong>{{ t(`financeTracking.${editingExpense.paymentStatus ?? 'unpaid'}`) }}</strong></p>
           <p>{{ t('financeTracking.dueDate') }}: <strong>{{ dueDateLabel(editingExpense) }}</strong></p>
@@ -989,7 +989,7 @@ onMounted(() => load())
         <div v-if="canWrite && eligibleOnPage.length" class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
           <label class="flex min-h-11 items-center gap-2 text-slate-200"><input type="checkbox" :checked="pageSelected" @change="selectPage" />{{ t('historicalSettlement.selectPage') }}</label>
           <span class="text-slate-300">{{ t('historicalSettlement.selected', { count: settlementIds.length }) }}</span>
-          <button type="button" :disabled="!settlementInvoices.length || refreshing || !!error" class="min-h-11 rounded bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="showSettlement = true">{{ t('historicalSettlement.action') }}</button>
+          <button type="button" :disabled="!settlementInvoices.length || refreshing || !!error" class="min-h-11 rounded-sm bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="showSettlement = true">{{ t('historicalSettlement.action') }}</button>
         </div>
         <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
@@ -1016,7 +1016,7 @@ onMounted(() => load())
             </div>
 
             <h4
-              class="mt-2 break-words text-base font-bold leading-6 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden"
+              class="mt-2 wrap-break-word text-base font-bold leading-6 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden"
             >
               {{ expense.description }}
             </h4>
@@ -1090,7 +1090,7 @@ onMounted(() => load())
                 <dl class="space-y-3 text-sm">
                   <div>
                     <dt class="text-xs text-slate-500">{{ t('finance.vendor') }}</dt>
-                    <dd class="mt-1 break-words text-slate-300">{{ expense.vendor ?? '—' }}</dd>
+                    <dd class="mt-1 wrap-break-word text-slate-300">{{ expense.vendor ?? '—' }}</dd>
                   </div>
                   <div v-if="expense.source === 'inbound_email'">
                     <dt class="text-xs text-slate-500">{{ t('finance.inboundSender') }}</dt>
@@ -1205,7 +1205,7 @@ onMounted(() => load())
                 </span>
               </td>
               <td class="px-4 py-4 text-white">
-                <p class="break-words font-medium">{{ expense.description }}</p>
+                <p class="wrap-break-word font-medium">{{ expense.description }}</p>
                 <p
                   class="mt-1 text-xs font-semibold"
                   :class="expense.costCentreCode ? 'text-slate-400' : 'text-amber-300'"
@@ -1228,17 +1228,17 @@ onMounted(() => load())
                   <span
                     v-for="label in expense.labels ?? []"
                     :key="label.id"
-                    class="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
+                    class="rounded-sm bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
                   >
                     {{ label.name }}
                   </span>
                 </div>
               </td>
               <td class="px-4 py-4 text-slate-400">
-                <div class="break-words">{{ expense.vendor ?? '—' }}</div>
+                <div class="wrap-break-word">{{ expense.vendor ?? '—' }}</div>
                 <div
                   v-if="expense.source === 'inbound_email' && expense.inboundSenderEmail"
-                  class="mt-1 break-words text-xs text-slate-500"
+                  class="mt-1 wrap-break-word text-xs text-slate-500"
                 >
                   {{ expense.inboundSenderName ? `${expense.inboundSenderName} · ` : '' }}{{ expense.inboundSenderEmail }}
                 </div>

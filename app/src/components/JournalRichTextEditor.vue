@@ -243,7 +243,7 @@ watch(
       <div class="ml-auto inline-flex rounded-md bg-slate-950 p-0.5">
         <button
           type="button"
-          class="rounded px-2.5 py-1 text-xs font-semibold"
+          class="rounded-sm px-2.5 py-1 text-xs font-semibold"
           :class="!sourceMode ? 'bg-slate-700 text-white' : 'text-slate-400'"
           @click="setSourceMode(false)"
         >
@@ -251,7 +251,7 @@ watch(
         </button>
         <button
           type="button"
-          class="rounded px-2.5 py-1 text-xs font-semibold"
+          class="rounded-sm px-2.5 py-1 text-xs font-semibold"
           :class="sourceMode ? 'bg-slate-700 text-white' : 'text-slate-400'"
           @click="setSourceMode(true)"
         >
@@ -266,7 +266,7 @@ watch(
       rows="18"
       :aria-label="label"
       :placeholder="placeholder"
-      class="min-h-[26rem] w-full resize-y bg-slate-950 px-4 py-3 font-mono text-sm leading-6 text-white outline-none"
+      class="min-h-104 w-full resize-y bg-slate-950 px-4 py-3 font-mono text-sm leading-6 text-white outline-hidden"
       @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     />
     <div
@@ -277,7 +277,7 @@ watch(
       aria-multiline="true"
       :aria-label="label"
       :data-placeholder="placeholder"
-      class="journal-visual-editor min-h-[26rem] px-5 py-4 text-base leading-7 text-slate-100 outline-none"
+      class="journal-visual-editor min-h-104 px-5 py-4 text-base leading-7 text-slate-100 outline-hidden"
       @input="syncFromVisual"
       @paste.prevent="handlePaste"
     />

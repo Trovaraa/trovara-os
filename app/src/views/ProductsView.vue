@@ -475,7 +475,7 @@ async function deactivate(p: Product) {
             <template v-else>{{ t('products.stockUnlinked') }}</template>
           </p>
         </div>
-        <div class="flex gap-2 flex-shrink-0">
+        <div class="flex gap-2 shrink-0">
           <button
             class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
             @click="openEdit(p)"
@@ -565,7 +565,7 @@ async function deactivate(p: Product) {
             />
           </label>
           <label class="flex items-center gap-2 text-sm text-slate-300">
-            <input v-model="editActive" type="checkbox" class="rounded" />
+            <input v-model="editActive" type="checkbox" class="rounded-sm" />
             {{ t('products.activeShown') }}
           </label>
           <label class="block">

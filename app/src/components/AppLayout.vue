@@ -433,13 +433,13 @@ async function handleRetry() {
 </script>
 
 <template>
-  <div class="h-dvh w-full max-w-[100vw] overflow-hidden flex flex-col md:flex-row bg-[var(--os-canvas)]">
+  <div class="h-dvh w-full max-w-[100vw] overflow-hidden flex flex-col md:flex-row bg-(--os-canvas)">
     <!-- Mobile header -->
-    <header class="md:hidden sticky top-0 z-40 flex items-center gap-2 px-3 py-3 bg-[var(--os-shell)]/95 backdrop-blur-xl border-b border-[color:var(--os-border)] min-w-0 max-w-full safe-area-x safe-area-pt">
+    <header class="md:hidden sticky top-0 z-40 flex items-center gap-2 px-3 py-3 bg-(--os-shell)/95 backdrop-blur-xl border-b border-(--os-border) min-w-0 max-w-full safe-area-x safe-area-pt">
       <button
         v-if="!isFieldWorker"
         type="button"
-        class="min-h-[2.25rem] min-w-[2.25rem] flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-white shrink-0"
+        class="min-h-9 min-w-9 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-white shrink-0"
         :aria-label="t('nav.menu')"
         @click="menuOpen = !menuOpen"
       >
@@ -457,7 +457,7 @@ async function handleRetry() {
         <!-- Sync status pill -->
         <div
           v-if="!onlineStatus || pendingSyncCount > 0 || syncStatus === 'error'"
-          class="flex items-center gap-1 rounded-lg border px-1.5 py-1 text-[10px] font-bold uppercase tracking-wide max-w-[5rem]"
+          class="flex items-center gap-1 rounded-lg border px-1.5 py-1 text-[10px] font-bold uppercase tracking-wide max-w-20"
           :class="{
             'border-amber-700/60 bg-amber-950/50 text-amber-300': !onlineStatus,
             'border-blue-700/60 bg-blue-950/50 text-blue-300': onlineStatus && pendingSyncCount > 0 && syncStatus !== 'error',
@@ -490,7 +490,7 @@ async function handleRetry() {
       variant="drawer"
       @close="closeMenu"
     >
-      <aside class="h-full w-72 bg-[var(--os-shell)] border-r border-[color:var(--os-border)] p-6 flex flex-col shadow-2xl">
+      <aside class="h-full w-72 bg-(--os-shell) border-r border-(--os-border) p-6 flex flex-col shadow-2xl">
         <div class="mb-6 flex items-center justify-between gap-2">
           <div id="mobile-nav-title"><TrovaraLogo /></div>
           <div class="flex items-center gap-1">
@@ -541,7 +541,7 @@ async function handleRetry() {
         <div class="pt-4 border-t border-slate-800 space-y-3">
           <p class="text-sm font-semibold text-white">{{ auth.user?.name }}</p>
           <button
-            class="text-sm text-slate-400 hover:text-red-400 transition-colors min-h-[2.75rem]"
+            class="text-sm text-slate-400 hover:text-red-400 transition-colors min-h-11"
             @click="auth.logout()"
           >
             {{ t('common.signOut') }}
@@ -555,8 +555,8 @@ async function handleRetry() {
 
     <!-- Desktop sidebar (collapsible) -->
     <aside
-      class="hidden md:flex relative z-30 shrink-0 bg-[var(--os-shell)] border-r border-[color:var(--os-border)] py-5 flex-col shadow-[18px_0_50px_rgba(0,0,0,0.12)] transition-[width,padding] duration-200 ease-out"
-      :class="sidebarCollapsed ? 'w-[4.5rem] px-2' : 'w-72 px-4'"
+      class="hidden md:flex relative z-30 shrink-0 bg-(--os-shell) border-r border-(--os-border) py-5 flex-col shadow-[18px_0_50px_rgba(0,0,0,0.12)] transition-[width,padding] duration-200 ease-out"
+      :class="sidebarCollapsed ? 'w-18 px-2' : 'w-72 px-4'"
       :aria-expanded="!sidebarCollapsed"
     >
       <div class="mb-5" :class="sidebarCollapsed ? 'px-0' : 'px-2'">
@@ -638,7 +638,7 @@ async function handleRetry() {
             v-if="group.titleKey"
             type="button"
             :aria-expanded="isExpanded(group.titleKey)"
-            class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-transparent text-[11px] font-black uppercase tracking-[0.16em] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/70"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-transparent text-[11px] font-black uppercase tracking-[0.16em] transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-farm-green/70"
             :class="isExpanded(group.titleKey)
               ? 'bg-farm-green/10 border-farm-green/20 text-slate-100'
               : 'bg-white/[0.035] text-slate-300 hover:bg-white/[0.07] hover:text-white'"
@@ -664,7 +664,7 @@ async function handleRetry() {
               :to="link.to"
               class="relative block px-3 py-2 rounded-xl text-[13px] font-semibold transition-all"
               :class="isActive(link.to)
-                ? 'bg-farm-green/15 text-farm-green shadow-sm ring-1 ring-inset ring-farm-green/20 before:content-[\'\'] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-farm-green'
+                ? 'bg-farm-green/15 text-farm-green shadow-xs ring-1 ring-inset ring-farm-green/20 before:content-[\'\'] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-farm-green'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'"
             >
               {{ t(link.labelKey) }}
@@ -729,11 +729,11 @@ async function handleRetry() {
         <LanguageSwitcher compact toggle-only />
       </div>
       <div
-        class="pt-4 border-t border-[color:var(--os-border)] flex items-center"
+        class="pt-4 border-t border-(--os-border) flex items-center"
         :class="sidebarCollapsed ? 'flex-col gap-2' : 'gap-3'"
       >
         <div
-          class="h-9 w-9 rounded-full bg-[var(--os-shell-muted)] text-farm-green grid place-items-center text-xs font-black shrink-0"
+          class="h-9 w-9 rounded-full bg-(--os-shell-muted) text-farm-green grid place-items-center text-xs font-black shrink-0"
           :title="auth.user?.name ?? ''"
         >
           {{ userInitials }}
@@ -757,7 +757,7 @@ async function handleRetry() {
       class="os-workspace flex-1 min-h-0 min-w-0 w-full max-w-full p-3 sm:p-4 md:p-8 lg:p-10 overflow-x-hidden overflow-y-auto overscroll-y-contain os-scrollbar safe-area-x"
       :class="{ 'pb-[calc(5rem+env(safe-area-inset-bottom))]': isFieldWorker || workerMode }"
     >
-      <div class="min-w-0 max-w-[90rem] mx-auto break-words">
+      <div class="min-w-0 max-w-360 mx-auto wrap-break-word">
         <slot />
       </div>
     </main>
@@ -776,12 +776,12 @@ async function handleRetry() {
     <!-- Mobile bottom nav for field workers -->
     <nav
       v-if="isFieldWorker"
-      class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--os-shell)]/95 backdrop-blur border-t border-[color:var(--os-border)] safe-area-pb"
+      class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-(--os-shell)/95 backdrop-blur-sm border-t border-(--os-border) safe-area-pb"
     >
       <div class="grid grid-cols-5">
         <RouterLink
           to="/today"
-          class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[11px] font-semibold transition-colors"
+          class="flex flex-col items-center justify-center min-h-16 gap-1 text-[11px] font-semibold transition-colors"
           :class="isActive('/today') ? 'text-farm-green' : 'text-slate-400'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -791,7 +791,7 @@ async function handleRetry() {
         </RouterLink>
         <RouterLink
           to="/worker"
-          class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[11px] font-semibold transition-colors"
+          class="flex flex-col items-center justify-center min-h-16 gap-1 text-[11px] font-semibold transition-colors"
           :class="isActive('/worker') ? 'text-farm-green' : 'text-slate-400'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -801,7 +801,7 @@ async function handleRetry() {
         </RouterLink>
         <RouterLink
           to="/field-reports"
-          class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[10px] font-semibold transition-colors"
+          class="flex flex-col items-center justify-center min-h-16 gap-1 text-[10px] font-semibold transition-colors"
           :class="isActive('/field-reports') ? 'text-farm-green' : 'text-slate-400'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -811,7 +811,7 @@ async function handleRetry() {
         </RouterLink>
         <RouterLink
           to="/assets"
-          class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[11px] font-semibold transition-colors"
+          class="flex flex-col items-center justify-center min-h-16 gap-1 text-[11px] font-semibold transition-colors"
           :class="isActive('/assets') ? 'text-farm-green' : 'text-slate-400'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -821,7 +821,7 @@ async function handleRetry() {
         </RouterLink>
         <button
           type="button"
-          class="flex flex-col items-center justify-center min-h-[4rem] gap-1 text-[11px] font-semibold transition-colors"
+          class="flex flex-col items-center justify-center min-h-16 gap-1 text-[11px] font-semibold transition-colors"
           :class="workerMoreItems.some((item) => isActive(item.to)) ? 'text-farm-green' : 'text-slate-400'"
           :aria-expanded="workerMoreOpen"
           @click="workerMoreOpen = true"

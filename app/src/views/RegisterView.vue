@@ -83,8 +83,8 @@ async function submitRegister() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
-    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
+  <div class="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
+    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl p-8 shadow-2xl">
       <div class="flex justify-end gap-2 mb-4">
         <ThemeSwitcher compact />
         <LanguageSwitcher compact />
@@ -105,7 +105,7 @@ async function submitRegister() {
             required
             autocomplete="name"
             maxlength="200"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
         <div>
@@ -118,7 +118,7 @@ async function submitRegister() {
             placeholder="you@trovara.farm"
             pattern="[^@\s]+@trovara\.farm"
             title="@trovara.farm only"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
           <p class="text-[11px] text-slate-500 mt-1">{{ t('register.emailHint') }}</p>
         </div>
@@ -130,7 +130,7 @@ async function submitRegister() {
             required
             autocomplete="tel"
             placeholder="+234…"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
           <p class="text-[10px] text-slate-500 mt-1">{{ t('register.phoneHint') }}</p>
         </div>
@@ -142,7 +142,7 @@ async function submitRegister() {
             required
             minlength="8"
             autocomplete="new-password"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
         <div>
@@ -153,7 +153,7 @@ async function submitRegister() {
             required
             minlength="8"
             autocomplete="new-password"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
         <div>
@@ -163,7 +163,7 @@ async function submitRegister() {
             type="password"
             required
             autocomplete="off"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
           <p class="text-[10px] text-slate-500 mt-1">{{ t('register.secretHint') }}</p>
         </div>
@@ -176,7 +176,7 @@ async function submitRegister() {
             v-model="privacyAccepted"
             type="checkbox"
             required
-            class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-farm-green focus:ring-farm-green/50"
+            class="mt-0.5 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-farm-green focus:ring-farm-green/50"
             @change="consentError = null"
           />
           <span class="text-xs text-slate-400 leading-5">
@@ -198,7 +198,7 @@ async function submitRegister() {
         <button
           type="submit"
           :disabled="submitting || !privacyAccepted"
-          class="w-full min-h-[3rem] py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          class="w-full min-h-12 py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {{ submitting ? t('register.submitting') : t('register.submit') }}
         </button>

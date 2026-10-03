@@ -84,6 +84,15 @@ describe('canViewAttendanceRoster', () => {
 })
 
 describe('hasPermission fail-closed', () => {
+  it('does not use legacy defaults for unresolved assigned roles', () => {
+    expect(hasPermission({ ...user('supervisor'), farmRoleId: 'custom' }, 'tasks.approve')).toBe(false)
+  })
+  it.each(['events.read', 'alerts.send', 'advisory.run', 'ai.briefing', 'finance.extract'] as const)('keeps %s explicit for custom roles', permission => {
+    expect(hasPermission(user('supervisor', ['brand.manage']), permission)).toBe(false)
+    expect(hasPermission(user('field_worker', [permission]), permission)).toBe(true)
+    expect(hasPermission(user('supervisor'), permission)).toBe(true)
+    expect(hasPermission(user('sales'), permission)).toBe(false)
+  })
   it('denies when permissions resolved to empty (non-owner)', () => {
     expect(hasPermission(user('field_worker', []), 'vault.view')).toBe(false)
     expect(hasPermission(user('supervisor', []), 'vault.view')).toBe(false)

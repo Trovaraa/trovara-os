@@ -46,7 +46,7 @@ const { t } = useI18n()
           :aria-label="t('settings.yourPhone')"
           type="tel"
           :placeholder="t('settings.phonePlaceholder')"
-          class="flex-1 min-w-[10rem] bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+          class="flex-1 min-w-40 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
         />
         <button
           type="button"

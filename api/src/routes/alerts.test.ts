@@ -4,6 +4,21 @@ import type { ProactiveAlert } from '../lib/proactive-alerts.js'
 
 type Row = Record<string, unknown>
 
+describe('custom-role alert authorization', () => {
+  it.each(['/run-proactive', '/evening-digest', '/run-health-snapshot', '/run-health-sla'])('blocks %s before sending or running anything', async path => {
+    sessionUser = { id: 'creator', farmId: FARM_ID, role: 'supervisor', permissions: ['whatsapp.send', 'telegram.send'] }
+    const { alertsRoutes } = await import('./alerts.js')
+    const server = new Hono()
+    server.onError((err, c) => c.json({ error: err.message }, err.message === 'FORBIDDEN' ? 403 : 500))
+    server.route('/alerts', alertsRoutes)
+    const response = await server.request(`/alerts${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    expect(response.status).toBe(403)
+    expect(sendWhatsAppText).not.toHaveBeenCalled()
+    expect(sendTelegramMessage).not.toHaveBeenCalled()
+    expect(executeAlertRun).not.toHaveBeenCalled()
+  })
+})
+
 /** The id owners used to receive in place of the name, verbatim from the bug report. */
 const FARM_ID = '3f7c1e8a-9b2d-4c6f-8a10-5e7d2b4c9f01'
 const FARM_NAME = 'Ola Poultry'

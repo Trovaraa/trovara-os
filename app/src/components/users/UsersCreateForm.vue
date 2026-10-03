@@ -46,7 +46,7 @@ const { t } = useI18n()
           type="email"
           required
           placeholder="worker@trovara.farm"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -58,7 +58,7 @@ const { t } = useI18n()
           required
           maxlength="200"
           :placeholder="t('users.fullName')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -67,7 +67,7 @@ const { t } = useI18n()
           v-model="newFarmRoleId"
           :aria-label="t('users.role')"
           required
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         >
           <option disabled value="">Select role bundle</option>
           <option v-for="role in assignableRoles" :key="role.id" :value="role.id">
@@ -86,7 +86,7 @@ const { t } = useI18n()
           type="text"
           maxlength="200"
           :placeholder="t('users.jobTitle')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -98,7 +98,7 @@ const { t } = useI18n()
           required
           minlength="8"
           :placeholder="t('users.min8')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -108,7 +108,7 @@ const { t } = useI18n()
           :aria-label="t('users.phone')"
           type="tel"
           placeholder="+234..."
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -117,7 +117,7 @@ const { t } = useI18n()
           v-model="newEmployeeNumber"
           :aria-label="t('users.employeeNumber')"
           type="text"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -125,7 +125,7 @@ const { t } = useI18n()
         <select
           v-model="newEmploymentType"
           :aria-label="t('users.employmentType')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         >
           <option value="">{{ t('users.optional') }}</option>
           <option value="permanent">{{ t('users.employmentPermanent') }}</option>
@@ -140,7 +140,7 @@ const { t } = useI18n()
           v-model="newEmploymentStartDate"
           :aria-label="t('users.employmentStartDate')"
           type="date"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -152,7 +152,7 @@ const { t } = useI18n()
           min="0"
           step="1"
           :placeholder="t('users.wagePlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -161,7 +161,7 @@ const { t } = useI18n()
           v-model="newMonthlyWageEffectiveFrom"
           :aria-label="t('users.wageEffectiveFrom')"
           type="date"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -170,7 +170,7 @@ const { t } = useI18n()
           v-model="newNextOfKinName"
           :aria-label="t('users.nextOfKinName')"
           type="text"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -179,7 +179,7 @@ const { t } = useI18n()
           v-model="newNextOfKinPhone"
           :aria-label="t('users.nextOfKinPhone')"
           type="tel"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -189,12 +189,12 @@ const { t } = useI18n()
           :aria-label="t('users.nextOfKinRelationship')"
           type="text"
           :placeholder="t('users.nextOfKinRelationshipPlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
     </div>
     <label class="flex items-center gap-2 text-sm text-slate-300">
-      <input v-model="newConfirmMonthlyWage" type="checkbox" class="rounded border-slate-600" />
+      <input v-model="newConfirmMonthlyWage" type="checkbox" class="rounded-sm border-slate-600" />
       {{ t('users.confirmMonthlyWage') }}
     </label>
     <div class="flex items-center gap-3">

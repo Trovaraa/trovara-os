@@ -96,7 +96,7 @@ onBeforeUnmount(restoreContext)
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[1000] flex bg-black/70"
+      class="fixed inset-0 z-1000 flex bg-black/70"
       :class="variant === 'editor' ? 'justify-end' : variant === 'drawer' ? 'justify-start' : 'items-center justify-center p-4'"
       @mousedown.self="closeOnBackdrop && close()"
       @wheel.self.prevent
@@ -109,10 +109,10 @@ onBeforeUnmount(restoreContext)
         :aria-labelledby="titleId"
         :class="
           variant === 'editor'
-            ? 'h-dvh w-full max-w-4xl overflow-y-auto overscroll-contain bg-[var(--os-shell)] text-[var(--os-fg)] shadow-2xl'
+            ? 'h-dvh w-full max-w-4xl overflow-y-auto overscroll-contain bg-(--os-shell) text-(--os-fg) shadow-2xl'
             : variant === 'drawer'
-            ? 'h-full w-72 max-w-[90vw] overflow-auto bg-[var(--os-shell)] shadow-2xl'
-            : 'max-h-[90dvh] w-full overflow-auto rounded-2xl border border-[color:var(--os-border)] bg-[var(--os-shell)] shadow-2xl'
+            ? 'h-full w-72 max-w-[90vw] overflow-auto bg-(--os-shell) shadow-2xl'
+            : 'max-h-[90dvh] w-full overflow-auto rounded-2xl border border-(--os-border) bg-(--os-shell) shadow-2xl'
         "
         tabindex="-1"
         @keydown="onKeydown"

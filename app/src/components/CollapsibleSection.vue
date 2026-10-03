@@ -43,7 +43,7 @@ function toggle() {
   >
     <button
       type="button"
-      class="flex min-h-14 w-full items-start justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-slate-800/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-farm-green sm:px-5"
+      class="flex min-h-14 w-full items-start justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-slate-800/45 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-farm-green sm:px-5"
       :aria-expanded="expanded"
       :aria-controls="contentId"
       @click="toggle"

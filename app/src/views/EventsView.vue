@@ -191,7 +191,7 @@ function formatTime(iso: string): string {
             <td class="py-4 align-top max-w-xs">
               <span
                 v-if="kindLabel(evt)"
-                class="inline-block mb-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                class="inline-block mb-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-sm"
                 :class="direction(evt) === 'outbound'
                   ? 'bg-farm-green/20 text-farm-green'
                   : 'bg-blue-500/20 text-blue-300'"
@@ -243,7 +243,7 @@ function formatTime(iso: string): string {
           <div class="flex flex-wrap items-center gap-2">
             <span
               v-if="kindLabel(selected)"
-              class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+              class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-sm"
               :class="direction(selected) === 'outbound'
                 ? 'bg-farm-green/20 text-farm-green'
                 : 'bg-blue-500/20 text-blue-300'"
@@ -254,7 +254,7 @@ function formatTime(iso: string): string {
               {{ messageRole(selected) === 'assistant' ? t('events.butler') : messageRole(selected) }}
             </span>
           </div>
-          <p class="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">{{ messageText(selected) }}</p>
+          <p class="mt-2 text-sm text-slate-200 whitespace-pre-wrap wrap-break-word">{{ messageText(selected) }}</p>
           <p v-if="messageKind(selected) === 'voice'" class="mt-2 text-[11px] text-slate-500">
             {{ t('events.transcribedNote') }}
           </p>

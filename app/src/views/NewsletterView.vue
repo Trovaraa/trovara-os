@@ -495,7 +495,7 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
                 autocomplete="off"
                 required
                 :placeholder="t('newsletter.creditsSinglePlaceholder')"
-                class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none"
+                class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden"
               />
             </label>
             <p class="mt-2 text-xs leading-5 text-slate-500">{{ t('newsletter.creditsSingleHint') }}</p>
@@ -532,38 +532,38 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
         <div class="grid gap-4 md:grid-cols-2">
           <label class="text-sm font-semibold text-slate-300">
             {{ t('newsletter.audience') }}
-            <select v-model="campaignForm.audienceType" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none">
+            <select v-model="campaignForm.audienceType" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden">
               <option value="newsletter">{{ t('newsletter.confirmedAudience') }}</option>
               <option value="product_waitlist">{{ t('newsletter.productAudience') }}</option>
             </select>
           </label>
           <label v-if="campaignForm.audienceType === 'product_waitlist'" class="text-sm font-semibold text-slate-300">
             {{ t('newsletter.product') }}
-            <select v-model="campaignForm.productKey" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none">
+            <select v-model="campaignForm.productKey" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden">
               <option v-for="product in products" :key="product.key" :value="product.key">{{ product.label }}</option>
             </select>
           </label>
           <label class="text-sm font-semibold text-slate-300" :class="campaignForm.audienceType !== 'product_waitlist' ? 'md:col-start-2' : ''">
             {{ t('newsletter.emailSubject') }}
-            <input v-model="campaignForm.subject" required maxlength="200" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.emailSubjectPlaceholder')" />
+            <input v-model="campaignForm.subject" required maxlength="200" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden" :placeholder="t('newsletter.emailSubjectPlaceholder')" />
           </label>
         </div>
         <label class="text-sm font-semibold text-slate-300">
           {{ t('newsletter.previewText') }}
-          <input v-model="campaignForm.previewText" maxlength="240" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.previewTextPlaceholder')" />
+          <input v-model="campaignForm.previewText" maxlength="240" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden" :placeholder="t('newsletter.previewTextPlaceholder')" />
         </label>
         <label class="text-sm font-semibold text-slate-300">
           {{ t('newsletter.message') }}
-          <textarea v-model="campaignForm.bodyText" required maxlength="10000" rows="6" class="mt-1.5 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.messagePlaceholder')" />
+          <textarea v-model="campaignForm.bodyText" required maxlength="10000" rows="6" class="mt-1.5 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden" :placeholder="t('newsletter.messagePlaceholder')" />
         </label>
         <div class="grid gap-4 md:grid-cols-2">
           <label class="text-sm font-semibold text-slate-300">
             {{ t('newsletter.ctaLabel') }}
-            <input v-model="campaignForm.ctaLabel" maxlength="80" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" :placeholder="t('newsletter.ctaLabelPlaceholder')" />
+            <input v-model="campaignForm.ctaLabel" maxlength="80" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden" :placeholder="t('newsletter.ctaLabelPlaceholder')" />
           </label>
           <label class="text-sm font-semibold text-slate-300">
             {{ t('newsletter.ctaUrl') }}
-            <input v-model="campaignForm.ctaUrl" type="url" maxlength="1000" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none" placeholder="https://trovara.farm/..." />
+            <input v-model="campaignForm.ctaUrl" type="url" maxlength="1000" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden" placeholder="https://trovara.farm/..." />
           </label>
         </div>
         <p class="text-xs text-slate-500">{{ t('newsletter.sendSafetyNote') }}</p>
@@ -621,14 +621,14 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
             v-model="search"
             type="search"
             :placeholder="t('newsletter.searchPlaceholder')"
-            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none"
+            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden"
           />
         </label>
         <label class="text-sm font-semibold text-slate-300 sm:w-56">
           {{ t('newsletter.filterStatus') }}
           <select
             v-model="statusFilter"
-            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
           >
             <option value="all">{{ t('newsletter.allStatuses') }}</option>
             <option v-for="status in statuses" :key="status" :value="status">
@@ -732,7 +732,7 @@ onMounted(() => Promise.all([loadSubscribers(), loadCampaigns(), loadAudienceCou
           </dl>
           <p
             v-if="subscriber.resendLastSyncError"
-            class="mt-3 break-words rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300"
+            class="mt-3 wrap-break-word rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300"
           >
             <span class="font-bold">{{ t('newsletter.syncError') }}:</span>
             {{ subscriber.resendLastSyncError }}

@@ -82,7 +82,7 @@ onMounted(load)
         </p>
       </div>
       <button
-        class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 flex-shrink-0"
+        class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 shrink-0"
         @click="load"
       >
         {{ t('insights.refresh') }}
@@ -138,7 +138,7 @@ onMounted(load)
               <p class="text-sm text-slate-200 min-w-0 truncate">
                 <span class="text-slate-500 mr-1">{{ i + 1 }}.</span>{{ q.question }}
               </p>
-              <span class="text-xs font-semibold text-farm-green flex-shrink-0"
+              <span class="text-xs font-semibold text-farm-green shrink-0"
                 >{{ q.count }}×</span
               >
             </div>

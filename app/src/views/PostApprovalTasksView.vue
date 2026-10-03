@@ -81,11 +81,11 @@ onMounted(load)
         <div class="grid gap-3 md:grid-cols-2 mt-4">
           <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
             <p class="text-xs text-slate-500 mb-2 uppercase tracking-wide">{{ t('postApproval.before') }}</p>
-            <pre class="text-xs text-slate-300 whitespace-pre-wrap break-words">{{ JSON.stringify(change.before ?? {}, null, 2) }}</pre>
+            <pre class="text-xs text-slate-300 whitespace-pre-wrap wrap-break-word">{{ JSON.stringify(change.before ?? {}, null, 2) }}</pre>
           </div>
           <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
             <p class="text-xs text-slate-500 mb-2 uppercase tracking-wide">{{ t('postApproval.after') }}</p>
-            <pre class="text-xs text-slate-300 whitespace-pre-wrap break-words">{{ JSON.stringify(change.after ?? {}, null, 2) }}</pre>
+            <pre class="text-xs text-slate-300 whitespace-pre-wrap wrap-break-word">{{ JSON.stringify(change.after ?? {}, null, 2) }}</pre>
           </div>
         </div>
       </div>

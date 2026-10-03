@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { securityEventDetails } from '@/lib/security-event-details'
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -31,13 +32,7 @@ const revokingId = ref<string | null>(null)
 const revokeMessage = ref<string | null>(null)
 
 function formatDetails(metadata: Record<string, unknown>): string {
-  const skip = new Set(['ip', 'country', 'region'])
-  const keys = Object.keys(metadata).filter((k) => !skip.has(k))
-  if (keys.length === 0) return t('security.noDetails')
-  return keys
-    .slice(0, 4)
-    .map((k) => `${k}: ${String(metadata[k])}`)
-    .join(' · ')
+  return securityEventDetails(metadata) || t('security.noDetails')
 }
 
 function metaString(metadata: Record<string, unknown>, key: string): string {
@@ -149,7 +144,7 @@ onMounted(load)
           <button
             v-if="!s.current"
             type="button"
-            class="shrink-0 px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+            class="shrink-0 px-2 py-1 rounded-sm bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
             :disabled="revokingId === s.id"
             @click="revokeOne(s.id)"
           >

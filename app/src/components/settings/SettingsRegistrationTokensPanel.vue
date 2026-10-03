@@ -63,7 +63,7 @@ function formatWhen(iso: string): string {
           v-model="label"
           type="text"
           maxlength="200"
-          class="mt-1 w-full min-w-[12rem] rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white"
+          class="mt-1 w-full min-w-48 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white"
           :placeholder="t('settings.regTokenLabelPlaceholder')"
         />
       </label>

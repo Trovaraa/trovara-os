@@ -5,6 +5,30 @@ import { briefingDateLabel } from '../lib/briefing-messages.js'
 
 type Row = Record<string, unknown>
 
+describe('custom-role operational AI authorization', () => {
+  it.each([
+    ['GET', '/briefing', undefined],
+    ['POST', '/summarize-incident', { incidentText: 'Synthetic incident description for testing.' }],
+    ['POST', '/diagnose-livestock', { symptoms: 'Synthetic symptoms for testing.' }],
+    ['POST', '/diagnose-crop', { imageUrl: 'https://example.test/crop.jpg' }],
+  ])('denies %s %s when only ordinary AI use is granted', async (method, path, body) => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'supervisor', farmRoleId: 'content-role', permissions: ['ai.use', 'brand.manage'] }
+    const server = await app()
+    server.onError((err, c) => c.json({ error: err.message }, err.message === 'FORBIDDEN' ? 403 : 500))
+    const response = await server.request(`/ai${path}`, { method: String(method), headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    expect(response.status).toBe(403)
+    expect(selectLog).toHaveLength(0)
+    expect(completeChat).not.toHaveBeenCalled()
+    expect(completeChatVision).not.toHaveBeenCalled()
+  })
+  it('permits diagnosis with explicit grants independent of the base role', async () => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'sales', permissions: ['ai.use', 'ai.diagnose'] }
+    isLlmConfigured.mockReturnValue(false)
+    const response = await (await app()).request('/ai/diagnose-livestock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ symptoms: 'Synthetic symptoms for testing.' }) })
+    expect(response.status).toBe(200)
+  })
+})
+
 const nameOf = (table: unknown) => getTableName(table as never)
 
 let sessionUser: Row = {

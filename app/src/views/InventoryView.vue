@@ -536,7 +536,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         </div>
         <button
           type="button"
-          class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-50"
+          class="rounded-sm bg-amber-900/40 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-50"
           :disabled="refreshingShrink"
           @click="refreshShrinkAlerts"
         >
@@ -571,14 +571,14 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
               <button
                 v-if="alert.status === 'open'"
                 type="button"
-                class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
+                class="rounded-sm bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
                 @click="updateShrinkAlert(alert.id, 'acknowledged')"
               >
                 Acknowledge
               </button>
               <button
                 type="button"
-                class="rounded bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
+                class="rounded-sm bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
                 @click="updateShrinkAlert(alert.id, 'resolved')"
               >
                 Resolve
@@ -625,14 +625,14 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
               <button
                 v-if="alert.status === 'open'"
                 type="button"
-                class="rounded bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
+                class="rounded-sm bg-amber-900/40 px-3 py-1.5 text-xs text-amber-200"
                 @click="updateAlert(alert.id, 'acknowledged')"
               >
                 Acknowledge
               </button>
               <button
                 type="button"
-                class="rounded bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
+                class="rounded-sm bg-farm-green/20 px-3 py-1.5 text-xs text-farm-green"
                 @click="updateAlert(alert.id, 'resolved')"
               >
                 Resolve
@@ -711,7 +711,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
         >
           <div class="text-xs text-slate-300">
             <span class="capitalize">{{ session.status }}</span>
-            <span v-if="session.hasVariance" class="ml-2 rounded bg-red-900/40 px-2 py-0.5 text-red-300">Variance</span>
+            <span v-if="session.hasVariance" class="ml-2 rounded-sm bg-red-900/40 px-2 py-0.5 text-red-300">Variance</span>
             <span class="text-slate-500">
               · {{ new Date(session.createdAt).toLocaleString() }}
               <template v-if="session.locationText"> · {{ session.locationText }}</template>
@@ -721,7 +721,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             <button
               type="button"
               :disabled="verifyingSessionId === session.id"
-              class="text-[11px] px-2 py-1 rounded bg-farm-green/20 text-farm-green"
+              class="text-[11px] px-2 py-1 rounded-sm bg-farm-green/20 text-farm-green"
               @click="verifyCountSession(session.id, 'verified')"
             >
               Verify
@@ -729,7 +729,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             <button
               type="button"
               :disabled="verifyingSessionId === session.id"
-              class="text-[11px] px-2 py-1 rounded bg-red-900/40 text-red-300"
+              class="text-[11px] px-2 py-1 rounded-sm bg-red-900/40 text-red-300"
               @click="verifyCountSession(session.id, 'rejected')"
             >
               Reject
@@ -755,7 +755,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             v-model="selectedItemId"
             :aria-label="t('inventory.item')"
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option v-for="item in items" :key="item.id" :value="item.id">
               {{ item.sku }} · {{ item.name }} ({{ item.quantity }} {{ item.unit }})
@@ -770,7 +770,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             type="number"
             required
             :placeholder="t('inventory.deltaPlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -778,7 +778,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
           <select
             v-model="reasonKind"
             :aria-label="t('inventory.reasonKind')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option value="custom">{{ t('inventory.reasonCustom') }}</option>
             <option value="spoilage">{{ t('inventory.reasonSpoilage') }}</option>
@@ -793,7 +793,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             required
             maxlength="500"
             :placeholder="t('inventory.reasonPlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         </div>
@@ -828,7 +828,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             <div class="min-w-0">
               <p class="font-mono text-[11px] text-farm-green">{{ item.sku }}</p>
               <p v-if="item.scanCode" class="mt-0.5 font-mono text-[10px] text-slate-500">{{ item.scanCode }}</p>
-              <h3 class="mt-1 break-words font-bold text-white">{{ item.name }}</h3>
+              <h3 class="mt-1 wrap-break-word font-bold text-white">{{ item.name }}</h3>
               <p class="mt-1 text-xs capitalize text-slate-500">{{ item.category }}</p>
             </div>
             <span
@@ -850,7 +850,7 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             </div>
             <div class="col-span-2">
               <dt class="text-xs text-slate-500">{{ t('inventory.linkedProduct') }}</dt>
-              <dd v-if="item.productId" class="mt-1 break-words text-slate-300">
+              <dd v-if="item.productId" class="mt-1 wrap-break-word text-slate-300">
                 <span class="font-mono text-farm-green">{{ item.productSku }}</span>
                 · {{ item.productName }}
               </dd>
@@ -858,11 +858,11 @@ async function updateAlert(alertId: string, status: 'acknowledged' | 'resolved')
             </div>
             <div v-if="item.supplier">
               <dt class="text-xs text-slate-500">{{ t('inventory.supplier') }}</dt>
-              <dd class="mt-1 break-words text-slate-300">{{ item.supplier }}</dd>
+              <dd class="mt-1 wrap-break-word text-slate-300">{{ item.supplier }}</dd>
             </div>
             <div v-if="item.storageLocation">
               <dt class="text-xs text-slate-500">{{ t('inventory.storage') }}</dt>
-              <dd class="mt-1 break-words text-slate-300">{{ item.storageLocation }}</dd>
+              <dd class="mt-1 wrap-break-word text-slate-300">{{ item.storageLocation }}</dd>
             </div>
             <div v-if="item.expiryDate">
               <dt class="text-xs text-slate-500">{{ t('inventory.expiry') }}</dt>

@@ -181,7 +181,7 @@ async function sendMessageForm() {
             type="tel"
             required
             placeholder="2348012345678"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -189,7 +189,7 @@ async function sendMessageForm() {
           <select
             v-model="templateId"
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option v-for="tpl in sendTemplates" :key="tpl.id" :value="tpl.id">
               {{ tpl.name }}
@@ -200,7 +200,7 @@ async function sendMessageForm() {
           <label class="block text-xs text-slate-500 mb-1.5">{{ t('whatsapp.languageLabel') }}</label>
           <select
             v-model="lang"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option value="en">English</option>
             <option value="yo">Yoruba</option>
@@ -214,7 +214,7 @@ async function sendMessageForm() {
             v-model="variablesJson"
             type="text"
             placeholder='{"taskTitle":"Weeding"}'
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
       </div>

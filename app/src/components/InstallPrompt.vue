@@ -10,13 +10,13 @@ const { visible, canPrompt, iosHint, install, dismiss } = useInstallPrompt()
   <Transition name="a2hs">
     <div
       v-if="visible"
-      class="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-[60] rounded-xl bg-slate-900 text-white shadow-2xl border border-slate-700 p-4"
+      class="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-60 rounded-xl bg-slate-900 text-white shadow-2xl border border-slate-700 p-4"
       role="dialog"
       :aria-label="t('pwa.installTitle')"
     >
       <div class="flex gap-3 items-start">
         <div
-          class="w-11 h-11 rounded-xl bg-[#1f6b42] flex items-center justify-center flex-shrink-0 font-black text-amber-300 text-lg"
+          class="w-11 h-11 rounded-xl bg-farm-green-dark flex items-center justify-center shrink-0 font-black text-amber-300 text-lg"
         >
           T
         </div>
@@ -32,7 +32,7 @@ const { visible, canPrompt, iosHint, install, dismiss } = useInstallPrompt()
             <button
               v-if="canPrompt"
               type="button"
-              class="text-xs px-4 py-2 rounded-lg bg-[#1f6b42] text-white font-semibold hover:bg-[#185534] transition"
+              class="text-xs px-4 py-2 rounded-lg bg-farm-green-dark text-white font-semibold hover:bg-[#185534] transition"
               @click="install"
             >
               {{ t('pwa.installAction') }}

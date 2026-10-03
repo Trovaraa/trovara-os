@@ -194,7 +194,7 @@ const { t } = useI18n()
             v-if="isOwner && selectedPurchaseOrder.status === 'draft'"
             type="button"
             :disabled="poActionId === selectedPurchaseOrder.id"
-            class="text-xs px-3 py-1.5 rounded bg-farm-green/20 text-farm-green"
+            class="text-xs px-3 py-1.5 rounded-sm bg-farm-green/20 text-farm-green"
             @click="emit('purchase-order-action', selectedPurchaseOrder.id, 'approve')"
           >
             {{ t('inventory.approvePo') }}
@@ -203,7 +203,7 @@ const { t } = useI18n()
             v-if="selectedPurchaseOrder.status === 'approved'"
             type="button"
             :disabled="poActionId === selectedPurchaseOrder.id"
-            class="text-xs px-3 py-1.5 rounded bg-slate-800 text-slate-300"
+            class="text-xs px-3 py-1.5 rounded-sm bg-slate-800 text-slate-300"
             @click="emit('purchase-order-action', selectedPurchaseOrder.id, 'send')"
           >
             {{ t('inventory.markSent') }}
@@ -212,7 +212,7 @@ const { t } = useI18n()
             v-if="isOwner && ['draft', 'approved', 'sent'].includes(selectedPurchaseOrder.status)"
             type="button"
             :disabled="poActionId === selectedPurchaseOrder.id"
-            class="text-xs px-3 py-1.5 rounded bg-red-900/40 text-red-300"
+            class="text-xs px-3 py-1.5 rounded-sm bg-red-900/40 text-red-300"
             @click="emit('purchase-order-action', selectedPurchaseOrder.id, 'cancel')"
           >
             {{ t('inventory.cancelPo') }}

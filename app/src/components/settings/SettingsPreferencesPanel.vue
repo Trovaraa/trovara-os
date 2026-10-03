@@ -69,7 +69,7 @@ const { t } = useI18n()
           :aria-checked="orderAlertsSubscribed"
           :aria-label="t('settings.orderAlertsSubscribe')"
           :disabled="savingOrderAlerts"
-          class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+          class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
           :class="orderAlertsSubscribed ? 'bg-farm-green' : 'bg-slate-700'"
           @click="
             orderAlertsSubscribed = !orderAlertsSubscribed;
@@ -77,7 +77,7 @@ const { t } = useI18n()
           "
         >
           <span
-            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
             :class="orderAlertsSubscribed ? 'translate-x-5' : 'translate-x-0'"
           />
         </button>
@@ -102,7 +102,7 @@ const { t } = useI18n()
           :aria-checked="workerAlertsSubscribed"
           :aria-label="t('settings.workerAlertsSubscribe')"
           :disabled="savingWorkerAlerts"
-          class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+          class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
           :class="workerAlertsSubscribed ? 'bg-farm-green' : 'bg-slate-700'"
           @click="
             workerAlertsSubscribed = !workerAlertsSubscribed;
@@ -110,7 +110,7 @@ const { t } = useI18n()
           "
         >
           <span
-            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
             :class="workerAlertsSubscribed ? 'translate-x-5' : 'translate-x-0'"
           />
         </button>
@@ -135,7 +135,7 @@ const { t } = useI18n()
           :aria-checked="healthSlaAlertsEnabled"
           :aria-label="t('settings.healthSlaSubscribe')"
           :disabled="savingHealthSla"
-          class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
+          class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-farm-green/60 disabled:opacity-50"
           :class="healthSlaAlertsEnabled ? 'bg-farm-green' : 'bg-slate-700'"
           @click="
             healthSlaAlertsEnabled = !healthSlaAlertsEnabled;
@@ -143,7 +143,7 @@ const { t } = useI18n()
           "
         >
           <span
-            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+            class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
             :class="healthSlaAlertsEnabled ? 'translate-x-5' : 'translate-x-0'"
           />
         </button>

@@ -134,7 +134,7 @@ const blocks = computed<Block[]>(() => {
           <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
           <code
             v-else-if="seg.type === 'code'"
-            class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+            class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
           >{{ seg.value }}</code>
           <span v-else>{{ seg.value }}</span>
         </template>
@@ -146,7 +146,7 @@ const blocks = computed<Block[]>(() => {
             <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
             <code
               v-else-if="seg.type === 'code'"
-              class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+              class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
             >{{ seg.value }}</code>
             <span v-else>{{ seg.value }}</span>
           </template>
@@ -159,7 +159,7 @@ const blocks = computed<Block[]>(() => {
             <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
             <code
               v-else-if="seg.type === 'code'"
-              class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+              class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
             >{{ seg.value }}</code>
             <span v-else>{{ seg.value }}</span>
           </template>
@@ -179,7 +179,7 @@ const blocks = computed<Block[]>(() => {
                   <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
                   <code
                     v-else-if="seg.type === 'code'"
-                    class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+                    class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
                   >{{ seg.value }}</code>
                   <span v-else>{{ seg.value }}</span>
                 </template>
@@ -201,7 +201,7 @@ const blocks = computed<Block[]>(() => {
                   <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
                   <code
                     v-else-if="seg.type === 'code'"
-                    class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+                    class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
                   >{{ seg.value }}</code>
                   <span v-else>{{ seg.value }}</span>
                 </template>
@@ -217,7 +217,7 @@ const blocks = computed<Block[]>(() => {
             <strong v-if="seg.type === 'bold'" class="font-semibold text-white">{{ seg.value }}</strong>
             <code
               v-else-if="seg.type === 'code'"
-              class="rounded bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
+              class="rounded-sm bg-slate-900 px-1 py-0.5 text-[0.85em] font-mono text-farm-green"
             >{{ seg.value }}</code>
             <span v-else>{{ seg.value }}</span>
           </template>

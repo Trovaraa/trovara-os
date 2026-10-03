@@ -387,8 +387,8 @@ function inventoryItemLabel(itemId: string): string {
         class="w-full max-w-full box-border overflow-hidden bg-slate-900 border border-slate-800 rounded-xl p-4"
       >
         <TaskStatusBadge :status="task.status" class="mb-2" />
-        <h3 class="font-bold text-white text-base leading-snug break-words">{{ task.title }}</h3>
-        <p v-if="task.description" class="text-slate-400 text-sm mt-1.5 break-words">{{ task.description }}</p>
+        <h3 class="font-bold text-white text-base leading-snug wrap-break-word">{{ task.title }}</h3>
+        <p v-if="task.description" class="text-slate-400 text-sm mt-1.5 wrap-break-word">{{ task.description }}</p>
         <p v-if="task.plotName" class="text-xs text-slate-500 mt-1.5">
           {{ t('tasks.plot', { name: task.plotName }) }}
         </p>
@@ -400,7 +400,7 @@ function inventoryItemLabel(itemId: string): string {
           <button
             v-if="task.status === 'pending'"
             type="button"
-            class="w-full min-h-[3rem] rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base transition-colors disabled:opacity-60"
+            class="w-full min-h-12 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base transition-colors disabled:opacity-60"
             :disabled="actionId === task.id"
             @click="startTask(task.id)"
           >
@@ -410,7 +410,7 @@ function inventoryItemLabel(itemId: string): string {
           <template v-if="task.status === 'in_progress'">
             <button
               type="button"
-              class="w-full min-h-[3rem] rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold text-base"
+              class="w-full min-h-12 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold text-base"
               @click="toggleNote(task.id)"
             >
               {{ t('tasks.addNote') }}
@@ -467,9 +467,9 @@ function inventoryItemLabel(itemId: string): string {
                 rows="3"
                 maxlength="2000"
                 :placeholder="t('tasks.notePlaceholder')"
-                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-farm-green/40 resize-none"
+                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base text-white placeholder:text-slate-600 focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 resize-none"
               />
-              <label class="flex items-center justify-center gap-2 min-h-[3rem] rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold text-base cursor-pointer">
+              <label class="flex items-center justify-center gap-2 min-h-12 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold text-base cursor-pointer">
                 <input
                   type="file"
                   accept="image/*"
@@ -487,7 +487,7 @@ function inventoryItemLabel(itemId: string): string {
               />
               <button
                 type="button"
-                class="w-full min-h-[3rem] rounded-xl border text-white font-semibold text-base transition-colors"
+                class="w-full min-h-12 rounded-xl border text-white font-semibold text-base transition-colors"
                 :class="recordingId === task.id
                   ? 'bg-red-900/50 border-red-700 animate-pulse'
                   : voices[task.id]
@@ -558,7 +558,7 @@ function inventoryItemLabel(itemId: string): string {
 
             <button
               type="button"
-              class="w-full min-h-[3.25rem] rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-base transition-colors disabled:opacity-60"
+              class="w-full min-h-13 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-base transition-colors disabled:opacity-60"
               :disabled="actionId === task.id"
               @click="submitTask(task.id)"
             >

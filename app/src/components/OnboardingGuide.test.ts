@@ -85,7 +85,7 @@ describe('OnboardingGuide help affordance', () => {
     expect(trigger.className).toContain('right-3')
     expect(trigger.className).toContain('bottom-[calc(1rem+env(safe-area-inset-bottom))]')
     expect(trigger.className).not.toContain('top-')
-    expect(trigger.className).not.toContain('left-[6.5rem]')
+    expect(trigger.className).not.toContain('left-26')
 
     trigger.click()
     await wrapper.vm.$nextTick()

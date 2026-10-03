@@ -104,14 +104,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <button
       v-if="!disabled && !open"
       type="button"
-      class="fixed right-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-full border border-farm-gold/45 bg-[var(--os-shell)] text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-[var(--os-shell-muted)] focus:outline-none focus:ring-2 focus:ring-farm-gold sm:right-4 sm:w-auto sm:gap-2 sm:px-4 md:bottom-6 md:right-6"
+      class="fixed right-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-full border border-farm-gold/45 bg-(--os-shell) text-sm font-black text-farm-gold shadow-xl shadow-black/30 transition hover:border-farm-gold hover:bg-(--os-shell-muted) focus:outline-hidden focus:ring-2 focus:ring-farm-gold sm:right-4 sm:w-auto sm:gap-2 sm:px-4 md:bottom-6 md:right-6"
       :class="role === 'field_worker' ? 'bottom-[calc(5.25rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(0.75rem+env(safe-area-inset-bottom))] sm:bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
       :aria-label="copy.help"
       :title="copy.help"
       data-testid="page-help-trigger"
       @click="showPageHelp"
     >
-      <svg class="h-[1.125rem] w-[1.125rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9.7 18h4.6M10 22h4m-7.6-8.8A7 7 0 1117.6 8c0 2.1-.9 3.5-2.3 4.9-.8.8-1.3 1.5-1.3 2.6h-4c0-1.1-.5-1.8-1.3-2.6a7.8 7.8 0 01-2.3-4.9" />
       </svg>
       <span class="hidden sm:inline">{{ copy.help }}</span>
@@ -121,16 +121,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[100] grid place-items-center bg-black/75 p-3 sm:p-5 backdrop-blur-sm"
+      class="fixed inset-0 z-100 grid place-items-center bg-black/75 p-3 sm:p-5 backdrop-blur-xs"
       role="presentation"
     >
       <section
-        class="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-[color:var(--os-border)] bg-[var(--os-shell)] text-os-fg shadow-2xl"
+        class="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-(--os-border) bg-(--os-shell) text-os-fg shadow-2xl"
         role="dialog"
         aria-modal="true"
         :aria-label="mode === 'page' ? copy.pageHelp : copy.welcome(userName)"
       >
-        <header class="flex items-start justify-between gap-4 border-b border-[color:var(--os-border)] px-5 py-4 sm:px-7">
+        <header class="flex items-start justify-between gap-4 border-b border-(--os-border) px-5 py-4 sm:px-7">
           <div class="flex min-w-0 items-center gap-3">
             <div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-farm-green/15 text-farm-green">
               <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -170,23 +170,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <p class="font-semibold leading-7">{{ currentGuide.summary }}</p>
           </div>
           <ol class="mt-5 space-y-3">
-            <li v-for="(action, index) in currentGuide.actions" :key="action" class="flex gap-3 rounded-2xl border border-[color:var(--os-border)] p-4">
+            <li v-for="(action, index) in currentGuide.actions" :key="action" class="flex gap-3 rounded-2xl border border-(--os-border) p-4">
               <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-farm-green text-xs font-black text-white">{{ index + 1 }}</span>
               <span class="text-sm leading-6">{{ action }}</span>
             </li>
           </ol>
           <details
             v-if="canSeeContribution"
-            class="group mt-6 rounded-2xl border border-[color:var(--os-border)] bg-[var(--os-canvas)]"
+            class="group mt-6 rounded-2xl border border-(--os-border) bg-(--os-canvas)"
             data-testid="contribution-help"
           >
-            <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-black text-farm-green focus:outline-none focus-visible:ring-2 focus-visible:ring-farm-green">
+            <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-black text-farm-green focus:outline-hidden focus-visible:ring-2 focus-visible:ring-farm-green">
               <span>{{ copy.contributionTitle }}</span>
               <svg class="h-5 w-5 shrink-0 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
               </svg>
             </summary>
-            <div class="border-t border-[color:var(--os-border)] px-5 py-5">
+            <div class="border-t border-(--os-border) px-5 py-5">
               <p class="text-sm leading-6 text-os-fg-muted">{{ copy.contributionBody }}</p>
               <ol class="mt-4 space-y-3">
                 <li v-for="(item, index) in copy.contributionSteps" :key="item" class="flex gap-3 text-sm leading-6">
@@ -206,7 +206,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs font-black uppercase tracking-[0.18em] text-farm-gold">{{ copy.assignedRole }}</p>
             <h3 class="mt-2 text-3xl font-black sm:text-4xl">{{ copy.welcome(userName) }}</h3>
             <p class="mt-4 max-w-2xl text-base leading-7 text-os-fg-muted">{{ copy.welcomeBody }}</p>
-            <div class="mt-7 rounded-2xl border border-[color:var(--os-border)] bg-[var(--os-canvas)] p-5">
+            <div class="mt-7 rounded-2xl border border-(--os-border) bg-(--os-canvas) p-5">
               <p class="mb-4 text-sm font-semibold">{{ copy.languagePrompt }}</p>
               <LanguageSwitcher />
             </div>
@@ -232,7 +232,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <h3 class="mt-2 text-3xl font-black">{{ copy.yourPages }}</h3>
             <p class="mt-3 text-sm leading-6 text-os-fg-muted">{{ copy.pagesBody }}</p>
             <div class="mt-6 grid gap-3 sm:grid-cols-2">
-              <article v-for="page in explainedPages" :key="page.to" class="rounded-2xl border border-[color:var(--os-border)] bg-[var(--os-canvas)] p-4">
+              <article v-for="page in explainedPages" :key="page.to" class="rounded-2xl border border-(--os-border) bg-(--os-canvas) p-4">
                 <h4 class="font-black text-farm-green">{{ page.label }}</h4>
                 <p class="mt-1.5 text-xs leading-5 text-os-fg-muted">{{ page.guide.summary }}</p>
               </article>
@@ -243,7 +243,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs font-black uppercase tracking-[0.18em] text-farm-gold">Trovara OS</p>
             <h3 class="mt-2 text-3xl font-black">{{ copy.basicsTitle }}</h3>
             <ol class="mt-7 space-y-4">
-              <li v-for="(item, index) in copy.basics" :key="item" class="flex gap-4 rounded-2xl border border-[color:var(--os-border)] p-5">
+              <li v-for="(item, index) in copy.basics" :key="item" class="flex gap-4 rounded-2xl border border-(--os-border) p-5">
                 <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-farm-green/15 font-black text-farm-green">{{ index + 1 }}</span>
                 <span class="text-sm font-semibold leading-6">{{ item }}</span>
               </li>
@@ -265,9 +265,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </template>
         </div>
 
-        <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--os-border)] px-5 py-4 sm:px-7">
+        <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-(--os-border) px-5 py-4 sm:px-7">
           <template v-if="mode === 'page'">
-            <button type="button" class="min-h-11 rounded-xl border border-[color:var(--os-border)] px-5 text-sm font-bold hover:bg-white/5" @click="showFullGuide">
+            <button type="button" class="min-h-11 rounded-xl border border-(--os-border) px-5 text-sm font-bold hover:bg-white/5" @click="showFullGuide">
               {{ copy.fullGuide }}
             </button>
             <button type="button" class="min-h-11 rounded-xl bg-farm-green px-6 text-sm font-black text-white hover:brightness-110" @click="open = false">
@@ -278,7 +278,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <button v-if="step === 0" type="button" class="min-h-11 px-2 text-sm font-bold text-slate-400 hover:text-white" @click="closeAndRemember">
               {{ copy.skip }}
             </button>
-            <button v-else type="button" class="min-h-11 rounded-xl border border-[color:var(--os-border)] px-5 text-sm font-bold hover:bg-white/5" @click="previousStep">
+            <button v-else type="button" class="min-h-11 rounded-xl border border-(--os-border) px-5 text-sm font-bold hover:bg-white/5" @click="previousStep">
               {{ copy.back }}
             </button>
             <button type="button" class="min-h-11 rounded-xl bg-farm-green px-6 text-sm font-black text-white hover:brightness-110" @click="nextStep">

@@ -5,6 +5,42 @@ import { renderAdvisoryFallback } from '../lib/advisory-fallback-messages.js'
 
 type Row = Record<string, unknown>
 
+describe('custom-role advisory authorization', () => {
+  it.each([
+    ['GET', '/home', undefined], ['GET', '/insights/weather', undefined],
+    ['GET', '/recommendations?bucket=open', undefined], ['GET', '/calendar', undefined],
+    ['GET', '/analysis', undefined], ['PATCH', '/recommendations/example', { status: 'accepted' }],
+    ['POST', '/observations', { tiles: ['wilting'] }], ['POST', '/run', {}],
+  ])('denies %s %s for a supervisor-based content role', async (method, path, body) => {
+    sessionUser = { id: 'creator', farmId: 'farm-1', role: 'supervisor', farmRoleId: 'content-role', permissions: ['ai.use', 'brand.manage'] }
+    const { advisoryRoutes } = await import('./advisory.js')
+    const server = new Hono()
+    server.onError((err, c) => c.json({ error: err.message }, err.message === 'FORBIDDEN' ? 403 : 500))
+    server.route('/advisory', advisoryRoutes)
+    const result = await server.request(`/advisory${path}`, { method: String(method), headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    expect(result.status).toBe(403)
+    expect(insertedObservations).toHaveLength(0)
+    expect(mockSubjects).not.toHaveBeenCalled()
+    expect(mockRecommendationsForRole).not.toHaveBeenCalled()
+  })
+  it('allows an explicit advisory grant without the supervisor base role', async () => {
+    sessionUser = { id: 'user-worker', farmId: 'farm-1', role: 'sales', permissions: ['advisory.use'] }
+    const { advisoryRoutes } = await import('./advisory.js')
+    const server = new Hono().route('/advisory', advisoryRoutes)
+    const result = await server.request('/advisory/insights/weather')
+    expect(result.status).toBe(200)
+  })
+  it('does not run the engine through GET /home without the run grant', async () => {
+    sessionUser = { id: 'user-worker', farmId: 'farm-1', role: 'supervisor', permissions: ['advisory.use'] }
+    mockRecommendationsForRole.mockResolvedValue([])
+    const { advisoryRoutes } = await import('./advisory.js')
+    const { runAdvisoryEngine } = await import('../lib/advisory-engine.js')
+    expect((await new Hono().route('/advisory', advisoryRoutes).request('/advisory/home')).status).toBe(200)
+    expect(runAdvisoryEngine).not.toHaveBeenCalled()
+    expect(mockRecommendationsForRole).toHaveBeenCalledWith('farm-1', 'field_worker', 20)
+  })
+})
+
 let sessionUser: Row = {
   id: 'user-worker',
   farmId: 'farm-1',

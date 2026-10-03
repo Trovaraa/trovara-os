@@ -5,7 +5,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farms, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import {
   cronFarmIdAllowed,
   getOwnerUserByFarmId,
@@ -126,7 +126,7 @@ async function resolveAlertActor(
   }
 
   const user = c.get('user') as SessionUser
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'alerts.send')
   return { user, usedCronSecret: false }
 }
 

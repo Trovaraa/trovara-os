@@ -58,7 +58,7 @@ const router = createRouter({
       path: '/advisory',
       name: 'advisory',
       component: () => import('@/views/AdvisoryView.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiredPermission: 'advisory.use' },
     },
     {
       path: '/worker',
@@ -315,7 +315,7 @@ const router = createRouter({
       path: '/events',
       name: 'events',
       component: () => import('@/views/EventsView.vue'),
-      meta: { requiresAuth: true, allowedRoles: ['owner', 'supervisor'] },
+      meta: { requiresAuth: true, requiredPermission: 'events.read' },
     },
     {
       path: '/ai',

@@ -141,7 +141,7 @@ const { t } = useI18n()
           class="sm:col-span-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
         />
         <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-300">
-          <input v-model="editConfirmMonthlyWage" type="checkbox" class="rounded border-slate-600" />
+          <input v-model="editConfirmMonthlyWage" type="checkbox" class="rounded-sm border-slate-600" />
           {{ t('users.confirmMonthlyWage') }}
         </label>
         <p v-if="editError" class="sm:col-span-2 text-xs text-red-400">{{ editError }}</p>

@@ -330,14 +330,14 @@ onMounted(refresh)
             v-model="search"
             type="search"
             :placeholder="t('marketingLeads.searchPlaceholder')"
-            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-none"
+            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white placeholder:text-slate-600 focus:border-farm-green focus:outline-hidden"
           />
         </label>
         <label class="text-sm font-semibold text-slate-300">
           {{ t('marketingLeads.filterType') }}
           <select
             v-model="typeFilter"
-            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
           >
             <option value="all">{{ t('marketingLeads.allTypes') }}</option>
             <option v-for="type in types" :key="type" :value="type">{{ typeLabel(type) }}</option>
@@ -347,7 +347,7 @@ onMounted(refresh)
           {{ t('marketingLeads.filterStatus') }}
           <select
             v-model="statusFilter"
-            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+            class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
           >
             <option value="all">{{ t('marketingLeads.allStatuses') }}</option>
             <option v-for="status in statuses" :key="status" :value="status">
@@ -376,7 +376,7 @@ onMounted(refresh)
           :id="`lead-${lead.id}`"
           :key="lead.id"
           tabindex="-1"
-          class="p-4 outline-none transition focus:bg-farm-green/5 focus:ring-2 focus:ring-inset focus:ring-farm-green/60 sm:p-5"
+          class="p-4 outline-hidden transition focus:bg-farm-green/5 focus:ring-2 focus:ring-inset focus:ring-farm-green/60 sm:p-5"
         >
           <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div class="min-w-0">
@@ -457,7 +457,7 @@ onMounted(refresh)
               {{ lead.leadType === 'product_waitlist' ? t('marketingLeads.product') : t('marketingLeads.subject') }}
             </p>
             <p class="mt-1 text-sm font-semibold text-slate-200">{{ detailLabel(lead) }}</p>
-            <p v-if="lead.message" class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+            <p v-if="lead.message" class="mt-3 whitespace-pre-wrap wrap-break-word text-sm leading-6 text-slate-300">
               {{ lead.message }}
             </p>
           </div>
@@ -465,7 +465,7 @@ onMounted(refresh)
           <dl class="mt-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <dt class="text-slate-500">{{ t('marketingLeads.source') }}</dt>
-              <dd class="mt-0.5 break-words text-slate-300">{{ lead.source }}</dd>
+              <dd class="mt-0.5 wrap-break-word text-slate-300">{{ lead.source }}</dd>
             </div>
             <div>
               <dt class="text-slate-500">{{ t('marketingLeads.lastSubmitted') }}</dt>
@@ -492,7 +492,7 @@ onMounted(refresh)
             {{ t('marketingLeads.assignLead') }}
             <select
               :value="lead.assignedToId || ''"
-              class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-farm-green focus:outline-none disabled:opacity-50"
+              class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-farm-green focus:outline-hidden disabled:opacity-50"
               :disabled="Boolean(activeAction)"
               @change="updateLead(lead, { assignedToId: ($event.target as HTMLSelectElement).value }, 'assign')"
             >
@@ -503,7 +503,7 @@ onMounted(refresh)
 
           <p
             v-if="lead.notificationError"
-            class="mt-3 break-words rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300"
+            class="mt-3 wrap-break-word rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300"
           >
             <span class="font-bold">{{ t('marketingLeads.notificationError') }}:</span>
             {{ lead.notificationError }}

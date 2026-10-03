@@ -2,6 +2,13 @@ import type { UserRole } from '../db/schema.js'
 
 /** Stable permission keys. Catalog is code-owned; DB stores grants only. */
 export const PERMISSION_CATALOG = [
+  { key: 'events.read', category: 'reports', description: 'Read farm-wide activity events and change details' },
+  { key: 'alerts.send', category: 'comms', description: 'Run and send farm-wide operational alerts' },
+  { key: 'advisory.use', category: 'operations', description: 'Read farm advisory data, record observations and update recommendations' },
+  { key: 'advisory.run', category: 'operations', description: 'Run the advisory engine and read supervisor recommendations' },
+  { key: 'ai.briefing', category: 'operations', description: 'Read farm-wide AI briefings and summarize incidents (also requires ai.use)' },
+  { key: 'ai.diagnose', category: 'operations', description: 'Use crop and livestock AI diagnosis (also requires ai.use)' },
+  { key: 'finance.extract', category: 'finance', description: 'Retry extraction of inbound invoice attachments' },
   { key: 'talent.read', category: 'people', description: 'Read private recruitment applications and CVs' },
   { key: 'talent.manage', category: 'people', description: 'Import applications, review candidates and manage hiring' },
   { key: 'talent.admin', category: 'people', description: 'Manage recruitment retention, deletion and Zoho intake' },
@@ -91,6 +98,13 @@ export const SYSTEM_ROLE_TEMPLATES: Record<UserRole, { name: string; permissions
   supervisor: {
     name: 'Supervisor',
     permissions: [
+      'events.read',
+      'alerts.send',
+      'advisory.use',
+      'advisory.run',
+      'ai.briefing',
+      'ai.diagnose',
+      'finance.extract',
       'users.view',
       'sessions.revoke',
       'tasks.work_own',
@@ -123,7 +137,6 @@ export const SYSTEM_ROLE_TEMPLATES: Record<UserRole, { name: string; permissions
       'orders.pii',
       'products.manage',
       'reports.read',
-      'anomalies.read',
       'whatsapp.send',
       'telegram.send',
       'ai.use',
@@ -154,6 +167,8 @@ export const SYSTEM_ROLE_TEMPLATES: Record<UserRole, { name: string; permissions
   field_worker: {
     name: 'Field worker',
     permissions: [
+      'advisory.use',
+      'ai.diagnose',
       'sessions.revoke',
       'tasks.work_own',
       'inventory.count',
