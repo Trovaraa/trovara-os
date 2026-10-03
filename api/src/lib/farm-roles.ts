@@ -114,20 +114,20 @@ export async function resolvePermissionKeys(input: {
   }
 
   if (!roleId) {
-    return [...SYSTEM_ROLE_TEMPLATES[input.role].permissions]
+    return []
   }
 
   const rows = await db
     .select({ permissionKey: farmRolePermissions.permissionKey })
     .from(farmRolePermissions)
-    .where(eq(farmRolePermissions.roleId, roleId))
+    .innerJoin(farmRoles, eq(farmRolePermissions.roleId, farmRoles.id))
+    .where(and(eq(farmRolePermissions.roleId, roleId), eq(farmRoles.farmId, input.farmId)))
 
   const roleKeys = rows
     .map((r) => r.permissionKey)
     .filter((k): k is PermissionKey => isPermissionKey(k))
-  const effective = new Set<PermissionKey>(
-    roleKeys.length ? roleKeys : SYSTEM_ROLE_TEMPLATES[input.role].permissions,
-  )
+  // Empty custom roles mean no grants, never the cloned template's privileges.
+  const effective = new Set<PermissionKey>(roleKeys)
 
   if (input.userId) {
     const [teamGrants, overrides] = await Promise.all([

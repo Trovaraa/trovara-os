@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farmEvents, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 
 export const eventRoutes = new Hono<{ Variables: AppVariables }>()
 
@@ -12,7 +12,7 @@ eventRoutes.use('*', authMiddleware)
 eventRoutes.get('/', async (c) => {
   const user = c.get('user')
   try {
-    requireRole(user, 'owner', 'supervisor')
+    requirePermission(user, 'events.read')
   } catch {
     return c.json({ error: 'Forbidden' }, 403)
   }

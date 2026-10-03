@@ -14,7 +14,7 @@ import {
   users,
 } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { canApproveTasks, canAssignTasks } from '../lib/rbac.js'
+import { canApproveTasks, canAssignTasks, hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import { canTransitionTask } from '../lib/state-machines.js'
 import type { TaskStatus } from '../db/schema.js'
@@ -190,7 +190,8 @@ taskRoutes.use('*', authMiddleware)
 
 taskRoutes.get('/', async (c) => {
   const user = c.get('user')
-  if (user.role === 'sales') {
+  const canManageTasks = canAssignTasks(user) || canApproveTasks(user)
+  if (!canManageTasks && !hasPermission(user, 'tasks.work_own')) {
     return c.json({ error: 'Forbidden' }, 403)
   }
   const rows = await db
@@ -220,11 +221,11 @@ taskRoutes.get('/', async (c) => {
     .from(tasks)
     .leftJoin(plots, eq(tasks.plotId, plots.id))
     .leftJoin(users, eq(tasks.assignedToId, users.id))
-    .where(eq(tasks.farmId, user.farmId))
+    .where(and(eq(tasks.farmId, user.farmId), canManageTasks ? undefined : eq(tasks.assignedToId, user.id)))
     .orderBy(desc(tasks.updatedAt))
 
   const filtered =
-    user.role === 'field_worker'
+    !canManageTasks
       ? rows.filter((t) => t.assignedToId === user.id)
       : rows
 
@@ -263,8 +264,8 @@ taskRoutes.get('/', async (c) => {
       ...task,
       consumptions: usageByTask.get(task.id) ?? [],
     }
-    // Defense in depth: field workers must never see other workers' evidence.
-    if (user.role === 'field_worker' && task.assignedToId !== user.id) {
+    // Defense in depth: own-task access never includes another worker's evidence.
+    if (!canManageTasks && task.assignedToId !== user.id) {
       return { ...row, photoUrl: null, voiceUrl: null, completionNote: null }
     }
     return row
@@ -377,9 +378,10 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
   const isOwnTask = existing.assignedToId === user.id
-  const performedWorkSelf = isOwnTask && (user.role === 'supervisor' || user.role === 'owner')
+  const performedWorkSelf = isOwnTask && canApproveTasks(user)
+  const canWorkOwnTask = isOwnTask && hasPermission(user, 'tasks.work_own')
 
-  if (user.role === 'field_worker' && !isOwnTask) {
+  if (!canAssignTasks(user) && !canApproveTasks(user) && !canWorkOwnTask) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -424,13 +426,13 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
   }
 
   if (body.completionNote !== undefined) {
-    if (user.role === 'field_worker' || canAssignTasks(user)) {
+    if (canWorkOwnTask || canAssignTasks(user)) {
       updates.completionNote = completionNote
     }
   }
 
   if (body.photoUrl !== undefined) {
-    if (user.role === 'field_worker' || canAssignTasks(user)) {
+    if (canWorkOwnTask || canAssignTasks(user)) {
       if (body.photoUrl !== null && body.photoUrl !== '' && !validateEvidenceRef(body.photoUrl)) {
         return c.json({ error: 'Invalid photo evidence URL' }, 400)
       }
@@ -443,7 +445,7 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
   }
 
   if (body.voiceUrl !== undefined) {
-    if (user.role === 'field_worker' || canAssignTasks(user)) {
+    if (canWorkOwnTask || canAssignTasks(user)) {
       if (body.voiceUrl !== null && body.voiceUrl !== '' && !validateEvidenceRef(body.voiceUrl)) {
         return c.json({ error: 'Invalid voice evidence URL' }, 400)
       }
@@ -456,20 +458,20 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
   }
 
   if (body.latitude !== undefined) {
-    if (user.role === 'field_worker' || canAssignTasks(user)) {
+    if (canWorkOwnTask || canAssignTasks(user)) {
       updates.latitude = String(body.latitude)
     }
   }
 
   if (body.longitude !== undefined) {
-    if (user.role === 'field_worker' || canAssignTasks(user)) {
+    if (canWorkOwnTask || canAssignTasks(user)) {
       updates.longitude = String(body.longitude)
     }
   }
 
   let consumptionEntries: { itemId: string; quantity: number }[] = []
   if (body.consumptions !== undefined) {
-    if (!(user.role === 'field_worker' || canAssignTasks(user))) {
+    if (!(canWorkOwnTask || canAssignTasks(user))) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     const dedup = new Map<string, number>()
@@ -484,7 +486,7 @@ taskRoutes.patch('/:id', zValidator('json', updateTaskSchema), async (c) => {
     const toStatus = body.status as TaskStatus
 
     if (
-      !canTransitionTask(fromStatus, toStatus, user.role, {
+      !canTransitionTask(fromStatus, toStatus, user.role === 'owner' ? 'owner' : canApproveTasks(user) ? 'supervisor' : 'field_worker', {
         isOwnTask,
         performedWorkSelf,
       })

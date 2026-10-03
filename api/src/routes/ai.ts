@@ -5,7 +5,7 @@ import { and, count, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { farms, inventoryItems, plots, tasks, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requirePermission, requireRole } from '../lib/rbac.js'
+import { requirePermission } from '../lib/rbac.js'
 import { checkRateLimit } from '../lib/rate-limit.js'
 import {
   completeChat,
@@ -418,7 +418,8 @@ aiRoutes.post('/actions/:draftId/cancel', async (c) => {
 
 aiRoutes.get('/briefing', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'ai.briefing')
 
   const [farm] = await db.select().from(farms).where(eq(farms.id, user.farmId)).limit(1)
 
@@ -570,7 +571,8 @@ async function localizeIncidentSummary(
 
 aiRoutes.post('/summarize-incident', zValidator('json', summarizeSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'ai.briefing')
 
   const body = c.req.valid('json')
 
@@ -1065,7 +1067,8 @@ const livestockSchema = z.object({
 
 aiRoutes.post('/diagnose-livestock', zValidator('json', livestockSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'ai.diagnose')
 
   const body = c.req.valid('json')
 
@@ -1144,7 +1147,8 @@ const cropSchema = z.object({
 
 aiRoutes.post('/diagnose-crop', zValidator('json', cropSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'ai.use')
+  requirePermission(user, 'ai.diagnose')
 
   const body = c.req.valid('json')
 

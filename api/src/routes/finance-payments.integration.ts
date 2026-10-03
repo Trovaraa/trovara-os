@@ -209,6 +209,12 @@ describe('Finance payments and CAPEX integration', () => {
     expect((await request(`/${randomUUID()}/retry-extraction`, 'POST')).status).toBe(404)
     expect((await request('/capex')).status).toBe(403)
   })
+  it('requires an explicit extraction grant for custom roles', async () => {
+    session = { ...owner(), role: 'supervisor', permissions: ['brand.manage'] }
+    expect((await request(`/${randomUUID()}/retry-extraction`, 'POST')).status).toBe(403)
+    session = { ...owner(), role: 'sales', permissions: ['finance.extract'] }
+    expect((await request(`/${randomUUID()}/retry-extraction`, 'POST')).status).toBe(404)
+  })
   it('shows only this farm assets and CAPEX expenses without creating assets', async () => {
     const [asset] = await db.insert(assets).values({ farmId, name: 'Synthetic tractor', category: 'vehicle', acquisitionCostMinor: 10000 }).returning()
     await db.insert(assets).values({ farmId: farmB, name: 'Other farm private asset' })

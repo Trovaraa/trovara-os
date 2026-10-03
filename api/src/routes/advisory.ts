@@ -5,7 +5,7 @@ import { and, desc, eq, gte, lte } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { advisoryObservations, farms, users } from '../db/schema.js'
 import { authMiddleware, type AppVariables } from '../middleware/auth.js'
-import { requireRole } from '../lib/rbac.js'
+import { hasPermission, requirePermission } from '../lib/rbac.js'
 import {
   listAdvisorySubjects,
   listRecommendationsForRole,
@@ -287,15 +287,17 @@ advisoryRoutes.use('*', async (c, next) => {
 
 advisoryRoutes.get('/home', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
 
   const locale = await viewerLocale(user.id)
 
-  // Generate tips if none exist yet (local/dev and first visit after seed).
-  let recommendations = await listRecommendationsForRole(user.farmId, user.role, 20)
-  if (recommendations.length === 0) {
+  // Only an engine operator may populate missing tips; read access must not
+  // bypass the explicit run permission via this GET endpoint.
+  const audience = user.role === 'owner' ? 'owner' : hasPermission(user, 'advisory.run') ? 'supervisor' : 'field_worker'
+  let recommendations = await listRecommendationsForRole(user.farmId, audience, 20)
+  if (recommendations.length === 0 && hasPermission(user, 'advisory.run')) {
     await runAdvisoryEngine(user.farmId)
-    recommendations = await listRecommendationsForRole(user.farmId, user.role, 20)
+    recommendations = await listRecommendationsForRole(user.farmId, audience, 20)
   }
 
   const [subjects, stats] = await Promise.all([
@@ -325,7 +327,7 @@ advisoryRoutes.get('/home', async (c) => {
 
 advisoryRoutes.get('/insights/:key', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
 
   const key = c.req.param('key') as InsightKey
   if (!['weather', 'inputs', 'vaccination', 'harvest'].includes(key)) {
@@ -346,7 +348,7 @@ advisoryRoutes.get('/insights/:key', async (c) => {
 
 advisoryRoutes.get('/recommendations', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
 
   const bucket = c.req.query('bucket')
   if (bucket !== 'open' && bucket !== 'completed') {
@@ -359,9 +361,9 @@ advisoryRoutes.get('/recommendations', async (c) => {
       : await listCompletedRecommendations(user.farmId, 40)
 
   const recommendations =
-    user.role === 'owner' || user.role === 'supervisor'
+    hasPermission(user, 'advisory.run')
       ? rows
-      : rows.filter((r) => (r.notifyRoles as string[]).includes(user.role))
+      : rows.filter((r) => (r.notifyRoles as string[]).includes('field_worker'))
 
   const batch = proseBatch(user.farmId, await viewerLocale(user.id))
   const localized = stageRecommendations(batch, recommendations)
@@ -372,7 +374,7 @@ advisoryRoutes.get('/recommendations', async (c) => {
 
 advisoryRoutes.get('/calendar', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
 
   const month = c.req.query('month') // YYYY-MM
   const base = month && /^\d{4}-\d{2}$/.test(month) ? new Date(`${month}-01T00:00:00Z`) : new Date()
@@ -382,7 +384,7 @@ advisoryRoutes.get('/calendar', async (c) => {
   const [locale, subjects, recommendations, observations] = await Promise.all([
     viewerLocale(user.id),
     listAdvisorySubjects(user.farmId),
-    listRecommendationsForRole(user.farmId, user.role, 100),
+    listRecommendationsForRole(user.farmId, user.role === 'owner' ? 'owner' : hasPermission(user, 'advisory.run') ? 'supervisor' : 'field_worker', 100),
     db
       .select()
       .from(advisoryObservations)
@@ -412,7 +414,7 @@ advisoryRoutes.get('/calendar', async (c) => {
 
 advisoryRoutes.get('/analysis', async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
 
   const [locale, subjects, stats, recentObs] = await Promise.all([
     viewerLocale(user.id),
@@ -451,7 +453,7 @@ advisoryRoutes.patch(
   zValidator('json', statusSchema),
   async (c) => {
     const user = c.get('user')
-    requireRole(user, 'owner', 'supervisor', 'field_worker')
+    requirePermission(user, 'advisory.use')
     const id = c.req.param('id')
     const body = c.req.valid('json')
     const row = await updateRecommendationStatus(user.farmId, id, body.status, user.id)
@@ -462,7 +464,7 @@ advisoryRoutes.patch(
 
 advisoryRoutes.post('/observations', zValidator('json', observationSchema), async (c) => {
   const user = c.get('user')
-  requireRole(user, 'owner', 'supervisor', 'field_worker')
+  requirePermission(user, 'advisory.use')
   const body = c.req.valid('json')
 
   const [[farm], locale] = await Promise.all([
@@ -540,7 +542,7 @@ advisoryRoutes.post('/run', zValidator('json', cronSchema), async (c) => {
     farmId = body.farmId!
   } else {
     const user = c.get('user')
-    requireRole(user, 'owner', 'supervisor')
+    requirePermission(user, 'advisory.run')
     farmId = user.farmId
   }
 

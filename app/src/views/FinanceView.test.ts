@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const api = vi.fn()
 const auth = {
   user: { id: 'owner-1', role: 'owner', permissions: ['finance.write', 'finance.delete'] },
-  hasPermission: (key: string) => ['finance.write', 'finance.delete'].includes(key),
+  hasPermission: (key: string) => auth.user.role === 'owner' || auth.user.permissions.includes(key),
 }
 
 vi.mock('@/lib/api', () => ({
@@ -86,6 +86,7 @@ async function mountView() {
 describe('FinanceView expense list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    auth.user = { id: 'owner-1', role: 'owner', permissions: ['finance.write', 'finance.delete'] }
     vi.stubGlobal('confirm', vi.fn(() => true))
     api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path.endsWith('/payments')) return { payments: [] }
@@ -106,6 +107,13 @@ describe('FinanceView expense list', () => {
       if (path === '/api/finance/expense-1' && options?.method === 'DELETE') return { ok: true }
       throw new Error(`Unexpected request: ${path}`)
     })
+  })
+
+  it('hides extraction from a supervisor-based role without its grant', async () => {
+    auth.user = { id: 'creator', role: 'supervisor', permissions: ['finance.read'] }
+    const wrapper = await mountView()
+    expect(wrapper.text()).not.toContain('finance.retryExtraction')
+    wrapper.unmount()
   })
 
   it('switches directly between overview and expenses without a long-page scroll', async () => {

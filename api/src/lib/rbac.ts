@@ -24,6 +24,8 @@ export function hasPermission(user: SessionUser, key: PermissionKey): boolean {
   // Defined (even empty) means auth resolved grants — do not fall through to
   // legacy defaults (empty = deny). Undefined is for tests / pre-auth callers.
   if (user.permissions !== undefined) return user.permissions.includes(key)
+  // An assigned role must be resolved before it can authorize anything.
+  if (user.farmRoleId) return false
   return legacyPermission(user, key)
 }
 
@@ -41,6 +43,15 @@ export function requirePermission(user: SessionUser, key: PermissionKey): void {
 
 function legacyPermission(user: SessionUser, key: PermissionKey): boolean {
   switch (key) {
+    case 'events.read':
+    case 'alerts.send':
+    case 'advisory.run':
+    case 'ai.briefing':
+    case 'finance.extract':
+      return user.role === 'owner' || user.role === 'supervisor'
+    case 'advisory.use':
+    case 'ai.diagnose':
+      return user.role === 'owner' || user.role === 'supervisor' || user.role === 'field_worker'
     case 'finance.read':
     case 'finance.write':
       return user.role === 'owner' || user.role === 'sales'

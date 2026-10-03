@@ -167,7 +167,7 @@ const form = ref({
 const canWrite = computed(() => auth.hasPermission('finance.write'))
 const canDelete = computed(() => auth.hasPermission('finance.delete'))
 const canRetryExtraction = computed(
-  () => auth.user?.role === 'owner' || auth.user?.role === 'supervisor',
+  () => auth.hasPermission('finance.extract'),
 )
 const editingExpense = computed(() => editingId.value ? selectedExpense.value : null)
 const hasExpenseActions = computed(
