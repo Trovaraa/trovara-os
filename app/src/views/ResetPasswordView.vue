@@ -56,7 +56,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
+  <div class="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
     <main class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
       <TrovaraLogo class="mb-5" />
       <h1 class="mt-2 text-2xl font-black text-os-fg">Reset your password</h1>
@@ -79,7 +79,7 @@ async function submit() {
           required
           autocomplete="new-password"
           placeholder="New password"
-          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white focus:border-farm-green focus:outline-none"
+          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white focus:border-farm-green focus:outline-hidden"
         />
         <input
           v-model="confirmation"
@@ -88,7 +88,7 @@ async function submit() {
           required
           autocomplete="new-password"
           placeholder="Confirm new password"
-          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white focus:border-farm-green focus:outline-none"
+          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white focus:border-farm-green focus:outline-hidden"
         />
         <p v-if="error" class="text-sm text-red-400">{{ error }}</p>
         <button

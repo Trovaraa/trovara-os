@@ -224,20 +224,20 @@ onMounted(loadCustomers)
     </section>
 
     <section class="mt-6 flex flex-wrap gap-3">
-      <label class="min-w-[14rem] flex-1 text-sm">
+      <label class="min-w-56 flex-1 text-sm">
         <span class="sr-only">{{ t('shopCustomers.search') }}</span>
         <input
           v-model="search"
           type="search"
           :placeholder="t('shopCustomers.searchPlaceholder')"
-          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-os-fg outline-none focus:border-farm-green"
+          class="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-os-fg outline-hidden focus:border-farm-green"
         />
       </label>
       <label class="text-sm">
         <span class="sr-only">{{ t('shopCustomers.filterVerified') }}</span>
         <select
           v-model="verifiedFilter"
-          class="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-os-fg outline-none focus:border-farm-green"
+          class="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-os-fg outline-hidden focus:border-farm-green"
         >
           <option value="all">{{ t('shopCustomers.allVerification') }}</option>
           <option value="yes">{{ t('shopCustomers.verified') }}</option>
@@ -248,7 +248,7 @@ onMounted(loadCustomers)
         <span class="sr-only">{{ t('shopCustomers.filterActive') }}</span>
         <select
           v-model="activeFilter"
-          class="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-os-fg outline-none focus:border-farm-green"
+          class="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-os-fg outline-hidden focus:border-farm-green"
         >
           <option value="all">{{ t('shopCustomers.allStatuses') }}</option>
           <option value="yes">{{ t('shopCustomers.active') }}</option>

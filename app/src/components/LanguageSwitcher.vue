@@ -44,8 +44,8 @@ function cycleLocale() {
       class="font-bold rounded-md transition-colors"
       :class="[
         compact
-          ? 'min-w-[1.75rem] min-h-[1.75rem] px-1 text-[10px]'
-          : 'min-w-[2.5rem] min-h-[2.25rem] px-2 text-xs',
+          ? 'min-w-7 min-h-7 px-1 text-[10px]'
+          : 'min-w-10 min-h-9 px-2 text-xs',
         locale === opt.code
           ? 'bg-farm-green text-white'
           : 'text-slate-400 hover:text-white',

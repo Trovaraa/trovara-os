@@ -26,7 +26,7 @@ const { t } = useI18n()
       </div>
     </section>
   </AppLayout>
-  <main v-else class="grid min-h-dvh place-items-center bg-[var(--os-canvas)] p-6 text-center">
+  <main v-else class="grid min-h-dvh place-items-center bg-(--os-canvas) p-6 text-center">
     <section>
       <p class="text-sm font-bold uppercase tracking-widest text-farm-green">404</p>
       <h1 class="mt-2 text-3xl font-black text-os-fg">{{ t('notFound.title') }}</h1>

@@ -190,8 +190,8 @@ async function applyForcedPasswordChange() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
-    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
+  <div class="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-950 via-slate-900 to-farm-green-dark/30 p-6">
+    <div class="w-full max-w-md bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl p-8 shadow-2xl">
       <div class="flex justify-end gap-2 mb-4">
         <ThemeSwitcher compact />
         <LanguageSwitcher compact />
@@ -216,7 +216,7 @@ async function applyForcedPasswordChange() {
             type="email"
             required
             autocomplete="username"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
         <div>
@@ -227,7 +227,7 @@ async function applyForcedPasswordChange() {
             type="password"
             required
             autocomplete="current-password"
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
 
@@ -239,7 +239,7 @@ async function applyForcedPasswordChange() {
             v-model="privacyAccepted"
             type="checkbox"
             required
-            class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-farm-green focus:ring-farm-green/50"
+            class="mt-0.5 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-farm-green focus:ring-farm-green/50"
             @change="consentError = null"
           />
           <span class="text-xs text-slate-400 leading-5">
@@ -261,7 +261,7 @@ async function applyForcedPasswordChange() {
         <button
           type="submit"
           :disabled="auth.loading || !privacyAccepted"
-          class="w-full min-h-[3rem] py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          class="w-full min-h-12 py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {{ auth.loading ? t('login.signingIn') : t('login.signIn') }}
         </button>
@@ -281,7 +281,7 @@ async function applyForcedPasswordChange() {
             pattern="[0-9]{6}"
             maxlength="6"
             required
-            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm tracking-[0.35em] text-center focus:outline-none focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm tracking-[0.35em] text-center focus:outline-hidden focus:ring-2 focus:ring-farm-green/40 focus:border-farm-green"
           />
         </div>
 
@@ -290,7 +290,7 @@ async function applyForcedPasswordChange() {
         <button
           type="submit"
           :disabled="totpSubmitting"
-          class="w-full min-h-[3rem] py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60"
+          class="w-full min-h-12 py-3 rounded-xl bg-farm-green hover:bg-farm-green-dark text-white font-bold text-sm transition-colors disabled:opacity-60"
         >
           {{ totpSubmitting ? 'Verifying…' : 'Verify code' }}
         </button>
@@ -347,7 +347,7 @@ async function applyForcedPasswordChange() {
             type="email"
             required
             placeholder="owner@trovara.farm"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
+            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:border-farm-green/50"
           />
           <button
             type="submit"
@@ -380,7 +380,7 @@ async function applyForcedPasswordChange() {
             minlength="8"
             required
             placeholder="New password"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
+            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:border-farm-green/50"
           />
           <label for="force-confirm-password" class="sr-only">Confirm new password</label>
           <input
@@ -390,7 +390,7 @@ async function applyForcedPasswordChange() {
             minlength="8"
             required
             placeholder="Confirm new password"
-            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-farm-green/50"
+            class="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:border-farm-green/50"
           />
           <p v-if="forceError" class="text-xs text-red-400">{{ forceError }}</p>
           <button

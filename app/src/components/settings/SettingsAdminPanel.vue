@@ -107,7 +107,7 @@ const { t } = useI18n()
           type="text"
           autocomplete="off"
           :placeholder="resetConfirmPhrase"
-          class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-red-500 focus:outline-none"
+          class="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-red-500 focus:outline-hidden"
           @keyup.enter="emit('confirm-reset')"
         />
         <div class="mt-5 flex justify-end gap-3">

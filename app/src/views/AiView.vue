@@ -694,7 +694,7 @@ async function draftTaskFromPrompt() {
                   v-model="feedbackDrafts[msg.id]"
                   rows="2"
                   maxlength="500"
-                  class="mt-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-farm-green/60 focus:outline-none"
+                  class="mt-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-farm-green/60 focus:outline-hidden"
                   :placeholder="t('ai.feedbackReasonPlaceholder')"
                 />
                 <div class="mt-2 flex gap-2">
@@ -804,7 +804,7 @@ async function draftTaskFromPrompt() {
             rows="1"
             :disabled="!aiStatus?.configured || recording || transcribing"
             :placeholder="recording ? t('ai.recording') : t('ai.placeholder')"
-            class="flex-1 resize-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 disabled:opacity-50 max-h-32"
+            class="flex-1 resize-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50 disabled:opacity-50 max-h-32"
             @keydown.enter.exact.prevent="send()"
           />
           <button

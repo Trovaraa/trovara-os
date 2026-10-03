@@ -32,7 +32,7 @@ async function settle() {
 </script>
 <template>
   <section class="my-4 rounded-xl border border-slate-600 bg-slate-900 p-4" data-testid="historical-settlement">
-    <button v-if="!review.length" type="button" :disabled="disabled || !eligible" class="min-h-11 rounded bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="open">{{ t('historicalSettlement.action') }}</button>
+    <button v-if="!review.length" type="button" :disabled="disabled || !eligible" class="min-h-11 rounded-sm bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="open">{{ t('historicalSettlement.action') }}</button>
     <div v-else>
       <h4 class="font-bold text-white">{{ t('historicalSettlement.review', { count: review.length }) }}</h4>
       <p class="mt-2 text-sm text-slate-300">{{ t('historicalSettlement.explanation') }}</p>
@@ -41,8 +41,8 @@ async function settle() {
       <label class="my-4 flex items-start gap-3 text-slate-200"><input v-model="confirmed" type="checkbox" :disabled="busy" class="mt-1" />{{ t('historicalSettlement.confirmation') }}</label>
       <p v-if="error" role="alert" class="my-3 text-red-300">{{ error }}</p>
       <div class="flex flex-wrap gap-3">
-        <button type="button" :disabled="busy || disabled || !confirmed" class="min-h-11 rounded bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="settle">{{ t('historicalSettlement.confirm') }}</button>
-        <button type="button" :disabled="busy" class="min-h-11 rounded border border-slate-600 px-4 py-2 text-slate-200" @click="cancel">{{ t('finance.cancel') }}</button>
+        <button type="button" :disabled="busy || disabled || !confirmed" class="min-h-11 rounded-sm bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="settle">{{ t('historicalSettlement.confirm') }}</button>
+        <button type="button" :disabled="busy" class="min-h-11 rounded-sm border border-slate-600 px-4 py-2 text-slate-200" @click="cancel">{{ t('finance.cancel') }}</button>
       </div>
     </div>
   </section>

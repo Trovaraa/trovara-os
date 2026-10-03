@@ -50,6 +50,9 @@ jobs:
       - name: Audit dependencies (high+)
         run: npm audit --workspaces --audit-level=high
 
+      - name: Check security dependency regressions
+        run: node --test scripts/dependency-security.test.mjs
+
       - name: Audit production dependencies (high+)
         run: npm audit --workspaces --omit=dev --audit-level=high
 

@@ -175,7 +175,7 @@ function summaryValue(key: string): number {
             class="w-full max-w-full box-border overflow-hidden bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-0"
           >
             <TaskStatusBadge :status="task.status" class="mb-2" />
-            <p class="font-medium text-os-fg text-base break-words leading-snug">{{ task.title }}</p>
+            <p class="font-medium text-os-fg text-base wrap-break-word leading-snug">{{ task.title }}</p>
             <p v-if="task.plotName" class="text-xs text-slate-500 mt-1">{{ task.plotName }}</p>
           </li>
         </ul>
@@ -204,7 +204,7 @@ function summaryValue(key: string): number {
         <RouterLink
           v-if="isManager || isSales"
           to="/today"
-          class="group inline-flex min-h-[3rem] items-center justify-between gap-5 rounded-2xl bg-farm-green px-5 py-3 text-sm font-black text-[#06130d] shadow-lg shadow-farm-green/10 hover:bg-emerald-400 transition-colors lg:min-w-[15rem]"
+          class="group inline-flex min-h-12 items-center justify-between gap-5 rounded-2xl bg-farm-green px-5 py-3 text-sm font-black text-[#06130d] shadow-lg shadow-farm-green/10 hover:bg-emerald-400 transition-colors lg:min-w-60"
         >
           <span>{{ t('dashboard.openToday') }}</span>
           <span class="transition-transform group-hover:translate-x-1" aria-hidden="true">↗</span>
@@ -232,7 +232,7 @@ function summaryValue(key: string): number {
             v-for="card in statCards"
             :key="card.key"
             :to="card.to"
-            class="group p-5 sm:p-6 cursor-pointer transition-colors hover:bg-white/[0.045] min-h-[9rem] flex flex-col justify-between"
+            class="group p-5 sm:p-6 cursor-pointer transition-colors hover:bg-white/4.5 min-h-36 flex flex-col justify-between"
           >
             <div class="flex items-start justify-between gap-3">
               <p class="text-xs text-slate-400 font-semibold leading-snug">{{ t(card.labelKey) }}</p>
@@ -267,7 +267,7 @@ function summaryValue(key: string): number {
       <div class="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] gap-5">
         <RouterLink
           to="/today"
-          class="rounded-[1.5rem] border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-amber-500/30"
+          class="rounded-3xl border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-amber-500/30"
         >
           <div class="flex items-center justify-between gap-3 mb-5">
             <div>
@@ -282,7 +282,7 @@ function summaryValue(key: string): number {
               :key="alert.message"
               class="flex items-start gap-3 rounded-xl bg-white/[0.035] px-4 py-3 text-sm"
             >
-              <span class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0 shadow-[0_0_0_4px_rgba(251,191,36,0.08)]" />
+              <span class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0 shadow-[0_0_0_4px_rgba(251,191,36,0.08)]" />
               <span class="text-slate-300 leading-relaxed">{{ alertText(alert) }}</span>
             </li>
           </ul>
@@ -292,7 +292,7 @@ function summaryValue(key: string): number {
 
         <RouterLink
           :to="isSales ? '/sales' : '/inventory'"
-          class="rounded-[1.5rem] border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-red-500/30"
+          class="rounded-3xl border border-slate-800 bg-slate-900 p-5 sm:p-6 block cursor-pointer transition-all hover:border-red-500/30"
         >
           <div class="flex items-center justify-between gap-3 mb-5">
             <div>
@@ -308,7 +308,7 @@ function summaryValue(key: string): number {
                 <span class="text-rose-300 font-mono text-xs whitespace-nowrap">{{ item.quantity }} / {{ item.reorderLevel }} {{ item.unit }}</span>
               </div>
               <div class="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div class="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400" :style="{ width: `${stockPercent(item)}%` }" />
+                <div class="h-full rounded-full bg-linear-to-r from-rose-500 to-amber-400" :style="{ width: `${stockPercent(item)}%` }" />
               </div>
             </li>
           </ul>

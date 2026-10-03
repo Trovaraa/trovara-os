@@ -64,20 +64,20 @@ onMounted(load)
     <p v-else-if="expense.paymentDueDate" class="mt-2 text-slate-300">{{ t('financeTracking.dueDate') }}: {{ expense.paymentDueDate }}</p>
     <p v-if="error" role="alert" class="mt-3 text-red-300">{{ error }}</p>
     <form v-if="canWrite && balance > 0" class="mt-4 flex flex-wrap items-end gap-3" @submit.prevent="saveDueDate">
-      <label class="text-slate-300">{{ t('financeTracking.dueDate') }}<input v-model="dueDate" required type="date" class="ml-2 rounded bg-slate-800 p-2 text-white" /></label>
-      <button :disabled="busy" class="rounded bg-slate-700 p-2 text-white">{{ t('financeTracking.saveDue') }}</button>
+      <label class="text-slate-300">{{ t('financeTracking.dueDate') }}<input v-model="dueDate" required type="date" class="ml-2 rounded-sm bg-slate-800 p-2 text-white" /></label>
+      <button :disabled="busy" class="rounded-sm bg-slate-700 p-2 text-white">{{ t('financeTracking.saveDue') }}</button>
     </form>
     <p v-if="expense.approvalStatus !== 'approved'" class="mt-4 text-amber-300">{{ t('financeTracking.approvalRequired') }}</p>
     <form v-if="canWrite && expense.approvalStatus === 'approved' && balance > 0" class="mt-5 grid gap-3 sm:grid-cols-3" @submit.prevent="record">
-      <label class="text-slate-300">{{ t('finance.amount') }} ({{ expense.currency }})<input v-model="amount" required type="number" min="1" :max="balance" step="1" class="mt-1 w-full rounded bg-slate-800 p-2 text-white" /></label>
-      <label class="text-slate-300">{{ t('financeTracking.paidOn') }}<input v-model="paidOn" required type="date" :max="new Date().toISOString().slice(0, 10)" class="mt-1 w-full rounded bg-slate-800 p-2 text-white" /></label>
-      <label class="text-slate-300">{{ t('financeTracking.reference') }}<input v-model="reference" required maxlength="200" class="mt-1 w-full rounded bg-slate-800 p-2 text-white" /></label>
-      <button :disabled="busy || !expense.paymentDueDate || dueDate !== expense.paymentDueDate" class="rounded bg-farm-green p-3 font-bold text-white disabled:opacity-50">{{ t('financeTracking.recordPayment') }}</button>
+      <label class="text-slate-300">{{ t('finance.amount') }} ({{ expense.currency }})<input v-model="amount" required type="number" min="1" :max="balance" step="1" class="mt-1 w-full rounded-sm bg-slate-800 p-2 text-white" /></label>
+      <label class="text-slate-300">{{ t('financeTracking.paidOn') }}<input v-model="paidOn" required type="date" :max="new Date().toISOString().slice(0, 10)" class="mt-1 w-full rounded-sm bg-slate-800 p-2 text-white" /></label>
+      <label class="text-slate-300">{{ t('financeTracking.reference') }}<input v-model="reference" required maxlength="200" class="mt-1 w-full rounded-sm bg-slate-800 p-2 text-white" /></label>
+      <button :disabled="busy || !expense.paymentDueDate || dueDate !== expense.paymentDueDate" class="rounded-sm bg-farm-green p-3 font-bold text-white disabled:opacity-50">{{ t('financeTracking.recordPayment') }}</button>
     </form>
     <h4 class="mt-5 font-bold text-white">{{ t('financeTracking.history') }}</h4>
     <p v-if="historyLoading" role="status" class="mt-3 text-slate-400">{{ t('finance.loading') }}</p>
-    <button v-else-if="historyFailed" type="button" class="mt-3 rounded border border-slate-600 p-2 text-slate-200" @click="load">{{ t('financeTracking.retryHistory') }}</button>
-    <ul v-else class="mt-3 space-y-2"><li v-for="payment in payments" :key="payment.id" class="break-words rounded bg-slate-800 p-3 text-slate-200">
+    <button v-else-if="historyFailed" type="button" class="mt-3 rounded-sm border border-slate-600 p-2 text-slate-200" @click="load">{{ t('financeTracking.retryHistory') }}</button>
+    <ul v-else class="mt-3 space-y-2"><li v-for="payment in payments" :key="payment.id" class="wrap-break-word rounded-sm bg-slate-800 p-3 text-slate-200">
       <template v-if="payment.kind === 'historical_settlement'">{{ t('historicalSettlement.history') }} · {{ money(payment.amount, payment.currency) }}<br />{{ t('historicalSettlement.recordedAt') }}: {{ new Date(payment.createdAt).toLocaleString(locale) }}<br />{{ t('historicalSettlement.unknownDate') }}</template>
       <template v-else>{{ payment.paidOn }} · {{ money(payment.amount, payment.currency) }} · {{ payment.reference }}</template>
     </li></ul>

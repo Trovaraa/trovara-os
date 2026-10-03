@@ -287,7 +287,7 @@ const stageColor: Record<string, string> = {
             required
             maxlength="100"
             :placeholder="t('crops.cropTypePlaceholder')"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -295,7 +295,7 @@ const stageColor: Record<string, string> = {
           <select
             v-model="newPlotId"
             required
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           >
             <option disabled value="">{{ t('crops.selectPlot') }}</option>
             <option v-for="plot in activePlots" :key="plot.id" :value="plot.id">
@@ -309,7 +309,7 @@ const stageColor: Record<string, string> = {
             v-model="newPlantedAt"
             type="date"
             required
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -317,7 +317,7 @@ const stageColor: Record<string, string> = {
           <input
             v-model="newExpectedHarvestAt"
             type="date"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -328,7 +328,7 @@ const stageColor: Record<string, string> = {
             min="1"
             step="1"
             :placeholder="t('crops.expectedYieldKg')"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -339,7 +339,7 @@ const stageColor: Record<string, string> = {
             min="1"
             step="1"
             :placeholder="t('crops.standsPlaceholder')"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
           <p class="mt-1 text-[11px] text-slate-500">{{ t('crops.standsHelp') }}</p>
         </div>
@@ -347,7 +347,7 @@ const stageColor: Record<string, string> = {
           <label class="block text-[11px] text-slate-500 mb-1">{{ t('crops.costCentre') }}</label>
           <select
             v-model="newCostCentre"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           >
             <option value="">{{ t('crops.costCentrePlaceholder') }}</option>
             <option v-for="costCentre in costCentres" :key="costCentre.code" :value="costCentre.code">
@@ -363,7 +363,7 @@ const stageColor: Record<string, string> = {
             type="text"
             maxlength="2000"
             :placeholder="t('crops.notesOptional')"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
       </div>
@@ -420,7 +420,7 @@ const stageColor: Record<string, string> = {
             </p>
           </div>
           <span
-            class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"
+            class="text-xs font-bold px-2.5 py-1 rounded-full capitalize shrink-0"
             :class="stageColor[cycle.stage] ?? 'bg-slate-700 text-slate-300'"
           >
             {{ formatStage(cycle.stage) }}

@@ -301,7 +301,7 @@ async function rejectTaskWithReason() {
           required
           maxlength="200"
           :placeholder="t('tasks.titlePlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <div>
@@ -312,7 +312,7 @@ async function rejectTaskWithReason() {
           rows="2"
           maxlength="2000"
           :placeholder="t('tasks.descriptionPlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-none"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50 resize-none"
         />
       </div>
       <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -384,8 +384,8 @@ async function rejectTaskWithReason() {
         class="w-full max-w-full box-border overflow-hidden bg-slate-900 border border-slate-800 rounded-xl p-4"
       >
         <TaskStatusBadge :status="task.status" class="mb-2" />
-        <h3 class="font-bold text-white text-base break-words leading-snug">{{ task.title }}</h3>
-        <p v-if="task.description" class="text-slate-400 text-sm mt-1.5 break-words">{{ task.description }}</p>
+        <h3 class="font-bold text-white text-base wrap-break-word leading-snug">{{ task.title }}</h3>
+        <p v-if="task.description" class="text-slate-400 text-sm mt-1.5 wrap-break-word">{{ task.description }}</p>
         <p class="text-xs text-slate-500 mt-1.5">
           <span v-if="task.plotName">{{ task.plotName }} · </span>
           <span v-if="task.assignedToName">{{ t('tasks.assignedTo', { name: task.assignedToName }) }}</span>
@@ -430,10 +430,10 @@ async function rejectTaskWithReason() {
             rows="2"
             maxlength="2000"
             :placeholder="t('tasks.notePlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-none"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50 resize-none"
           />
           <div class="flex flex-wrap items-center gap-3">
-            <label class="inline-flex items-center gap-2 min-h-[2.75rem] px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-300 cursor-pointer hover:border-farm-green/50">
+            <label class="inline-flex items-center gap-2 min-h-11 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-300 cursor-pointer hover:border-farm-green/50">
               <input
                 type="file"
                 accept="image/*"
@@ -455,27 +455,27 @@ async function rejectTaskWithReason() {
         <div class="flex flex-wrap gap-2 mt-4">
           <button
             v-if="task.status === 'pending' || task.status === 'in_progress'"
-            class="text-xs px-3 py-1.5 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 min-h-[2.75rem]"
+            class="text-xs px-3 py-1.5 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 min-h-11"
             @click="updateStatus(task.id, 'in_progress')"
           >
             {{ t('tasks.start') }}
           </button>
           <button
             v-if="task.status === 'in_progress' && auth.user?.role === 'field_worker'"
-            class="text-xs px-3 py-1.5 rounded-lg bg-purple-900/40 text-purple-300 hover:bg-purple-900/60 min-h-[2.75rem]"
+            class="text-xs px-3 py-1.5 rounded-lg bg-purple-900/40 text-purple-300 hover:bg-purple-900/60 min-h-11"
             @click="submitForApproval(task.id)"
           >
             {{ t('tasks.submit') }}
           </button>
           <template v-if="task.status === 'awaiting_approval' && auth.canApprove">
             <button
-              class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 min-h-[2.75rem]"
+              class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green hover:bg-farm-green/30 min-h-11"
               @click="updateStatus(task.id, 'completed')"
             >
               {{ t('tasks.approve') }}
             </button>
             <button
-              class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 min-h-[2.75rem]"
+              class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 text-red-300 hover:bg-red-900/60 min-h-11"
               @click="openRejectModal(task)"
             >
               {{ t('tasks.reject') }}
@@ -495,7 +495,7 @@ async function rejectTaskWithReason() {
           minlength="5"
           maxlength="1000"
           placeholder="Explain what needs to be corrected"
-          class="mt-3 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-none"
+          class="mt-3 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50 resize-none"
         />
         <div class="mt-4 flex items-center justify-end gap-2">
           <button

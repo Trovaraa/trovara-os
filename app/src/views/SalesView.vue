@@ -369,7 +369,7 @@ function closeCustomer() {
             <p v-if="order.notes" class="text-sm text-slate-400 mt-2">{{ order.notes }}</p>
           </div>
           <span
-            class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"
+            class="text-xs font-bold px-2.5 py-1 rounded-full capitalize shrink-0"
             :class="statusColor[order.status] ?? 'bg-slate-700'"
           >
             {{ statusLabel(order.status) }}
@@ -544,7 +544,7 @@ function closeCustomer() {
                     </span>
                   </div>
                   <span
-                    class="text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0"
+                    class="text-xs font-bold px-2.5 py-1 rounded-full capitalize shrink-0"
                     :class="statusColor[o.status] ?? 'bg-slate-700'"
                   >
                     {{ statusLabel(o.status) }}

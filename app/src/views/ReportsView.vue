@@ -159,7 +159,7 @@ function auditLocation(metadata: unknown): string {
                   {{ item.flags.join(' · ') }}
                 </span>
               </span>
-              <span class="font-mono text-xs text-slate-500 flex-shrink-0 text-right">
+              <span class="font-mono text-xs text-slate-500 shrink-0 text-right">
                 {{ t('reports.shrinkIn') }} {{ item.qtyIn }} ·
                 {{ t('reports.shrinkSale') }} {{ item.qtyOutSale }} ·
                 {{ t('reports.shrinkSold') }} {{ item.soldQty }} ·
@@ -186,7 +186,7 @@ function auditLocation(metadata: unknown): string {
             >
               <span class="text-slate-300">{{ item.name }}</span>
               <span
-                class="font-mono text-xs flex-shrink-0"
+                class="font-mono text-xs shrink-0"
                 :class="item.needsReorder ? 'text-red-400' : 'text-slate-500'"
               >
                 {{ item.quantity }} {{ item.unit }}
@@ -287,7 +287,7 @@ function auditLocation(metadata: unknown): string {
               >
                 <span class="text-slate-300">{{ item.name }}</span>
                 <span
-                  class="font-mono flex-shrink-0"
+                  class="font-mono shrink-0"
                   :class="item.lowStock ? 'text-red-400' : 'text-slate-400'"
                 >
                   {{ item.quantity }} {{ item.unit }}
@@ -312,7 +312,7 @@ function auditLocation(metadata: unknown): string {
                     </span>
                     · {{ m.reason }}
                   </span>
-                  <span class="text-slate-600 flex-shrink-0">{{ formatDate(m.createdAt) }}</span>
+                  <span class="text-slate-600 shrink-0">{{ formatDate(m.createdAt) }}</span>
                 </li>
               </ul>
               <p v-else class="text-slate-500 text-sm">{{ t('reports.noMovements') }}</p>
@@ -506,7 +506,7 @@ function auditLocation(metadata: unknown): string {
                 {{ incident.batchName }}
                 <span v-if="incident.notes" class="text-slate-500"> - {{ incident.notes }}</span>
               </span>
-              <span class="text-slate-600 text-xs flex-shrink-0">{{ formatDate(incident.createdAt) }}</span>
+              <span class="text-slate-600 text-xs shrink-0">{{ formatDate(incident.createdAt) }}</span>
             </li>
           </ul>
           <p v-else class="text-slate-500 text-sm">{{ t('reports.noIncidents') }}</p>
@@ -534,7 +534,7 @@ function auditLocation(metadata: unknown): string {
                   · {{ auditLocation(e.metadata) }}
                 </span>
               </span>
-              <span class="text-slate-600 flex-shrink-0">{{ formatDate(e.createdAt) }}</span>
+              <span class="text-slate-600 shrink-0">{{ formatDate(e.createdAt) }}</span>
             </li>
           </ul>
         </CollapsibleSection>

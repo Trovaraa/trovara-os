@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
           <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
             <div class="flex flex-col sm:flex-row sm:items-center gap-5">
               <!-- Small ring: day number only — no cramped paragraphs inside -->
-              <div class="relative mx-auto sm:mx-0 w-[7.5rem] h-[7.5rem] shrink-0">
+              <div class="relative mx-auto sm:mx-0 w-30 h-30 shrink-0">
                 <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
                   <circle cx="60" cy="60" r="52" fill="none" stroke="#1e293b" stroke-width="10" />
                   <circle

@@ -413,7 +413,7 @@ function formatDate(value: string): string {
               <span v-if="a.latestLog?.recordedByName"> - {{ a.latestLog.recordedByName }}</span>
             </p>
           </div>
-          <div class="flex flex-col gap-2 flex-shrink-0">
+          <div class="flex flex-col gap-2 shrink-0">
             <button
               class="text-xs px-3 py-1.5 rounded-lg bg-farm-green/20 text-farm-green font-semibold hover:bg-farm-green/30"
               @click="openLog(a)"

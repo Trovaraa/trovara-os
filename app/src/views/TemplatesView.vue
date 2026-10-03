@@ -182,7 +182,7 @@ async function generateTasks() {
             required
             maxlength="200"
             :placeholder="t('templates.namePlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -193,7 +193,7 @@ async function generateTasks() {
             type="text"
             maxlength="100"
             :placeholder="t('templates.cropTypePlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -205,7 +205,7 @@ async function generateTasks() {
             min="1"
             step="1"
             :placeholder="t('templates.durationPlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <div>
@@ -216,7 +216,7 @@ async function generateTasks() {
             type="text"
             maxlength="2000"
             :placeholder="t('templates.descriptionPlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
       </div>
@@ -228,7 +228,7 @@ async function generateTasks() {
           rows="3"
           maxlength="4000"
           :placeholder="t('templates.checklistPlaceholder')"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50 resize-y"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50 resize-y"
         />
       </div>
       <div class="flex items-center gap-3">

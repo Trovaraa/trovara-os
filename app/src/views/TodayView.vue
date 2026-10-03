@@ -507,7 +507,7 @@ function formatTime(iso: string) {
             class="w-full max-w-full box-border overflow-hidden bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-0"
           >
             <TaskStatusBadge :status="task.status" class="mb-2" />
-            <p class="font-medium text-white text-base break-words leading-snug">{{ task.title }}</p>
+            <p class="font-medium text-white text-base wrap-break-word leading-snug">{{ task.title }}</p>
             <p v-if="task.plotName" class="text-xs text-slate-500 mt-1">{{ task.plotName }}</p>
           </li>
         </ul>

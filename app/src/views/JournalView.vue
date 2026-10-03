@@ -423,7 +423,7 @@ onMounted(loadPosts)
       </div>
       <button
         type="button"
-        class="rounded-lg bg-farm-green px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-farm-green/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green"
+        class="rounded-lg bg-farm-green px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-farm-green/90 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green"
         @click="startNewPost"
       >
         {{ t('journal.newPost') }}
@@ -446,12 +446,12 @@ onMounted(loadPosts)
           <button type="button" class="grid h-10 w-10 place-items-center rounded-full border border-slate-700 text-white hover:border-farm-green hover:text-farm-green" :aria-label="t('journal.nextStory')" @click="moveStoryRail(1)">→</button>
         </div>
       </div>
-      <div ref="storyRail" class="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin] [scrollbar-color:rgb(51_65_85)_transparent]" tabindex="0" :aria-label="t('journal.publishedStories')">
+      <div ref="storyRail" class="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-2 scrollbar-thin [scrollbar-color:rgb(51_65_85)_transparent]" tabindex="0" :aria-label="t('journal.publishedStories')">
         <button
           v-for="post in publishedPosts"
           :key="post.id"
           type="button"
-          class="grid min-w-[17rem] max-w-[17rem] snap-start grid-cols-[4.75rem_1fr] overflow-hidden rounded-xl border text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green sm:min-w-[21rem] sm:max-w-[21rem]"
+          class="grid min-w-68 max-w-68 snap-start grid-cols-[4.75rem_1fr] overflow-hidden rounded-xl border text-left transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green sm:min-w-84 sm:max-w-84"
           :class="selectedPost?.id === post.id ? 'border-farm-green bg-farm-green/10' : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'"
           @click="selectPost(post)"
         >
@@ -484,7 +484,7 @@ onMounted(loadPosts)
           <li v-for="post in posts" :key="post.id">
             <button
               type="button"
-              class="w-full rounded-xl border p-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green"
+              class="w-full rounded-xl border p-3 text-left transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green"
               :class="
                 selectedPost?.id === post.id
                   ? 'border-farm-green/60 bg-farm-green/10'
@@ -549,7 +549,7 @@ onMounted(loadPosts)
                 required
                 maxlength="180"
                 :placeholder="t('journal.titlePlaceholder')"
-                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
               />
             </label>
             <label class="block text-sm font-semibold text-slate-300">
@@ -563,7 +563,7 @@ onMounted(loadPosts)
                 pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                 :title="t('journal.slugHint')"
                 :placeholder="t('journal.slugPlaceholder')"
-                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white focus:border-farm-green focus:outline-none"
+                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white focus:border-farm-green focus:outline-hidden"
                 @input="slugEdited = true"
                 @blur="form.slug = slugify(form.slug)"
               />
@@ -580,7 +580,7 @@ onMounted(loadPosts)
               rows="3"
               maxlength="500"
               :placeholder="t('journal.excerptPlaceholder')"
-              class="mt-1.5 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+              class="mt-1.5 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
             />
           </label>
 
@@ -594,7 +594,7 @@ onMounted(loadPosts)
                 required
                 maxlength="120"
                 :placeholder="t('journal.authorPlaceholder')"
-                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
               />
             </label>
             <label class="block text-sm font-semibold text-slate-300">
@@ -606,7 +606,7 @@ onMounted(loadPosts)
                 required
                 maxlength="80"
                 :placeholder="t('journal.categoryPlaceholder')"
-                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+                class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
               />
             </label>
           </div>
@@ -617,7 +617,7 @@ onMounted(loadPosts)
             <input
               v-model="form.tags"
               :placeholder="t('journal.tagsPlaceholder')"
-              class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-none"
+              class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white focus:border-farm-green focus:outline-hidden"
             />
             <span class="mt-1 block text-xs font-normal text-slate-500">{{ t('journal.tagsHint') }}</span>
           </label>
@@ -708,7 +708,7 @@ onMounted(loadPosts)
         </form>
 
         <details v-if="selectedPost?.published" class="group mt-6 rounded-xl border border-slate-800 bg-slate-950/40" open>
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 p-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 p-4 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-farm-green">
             <span>
               <span class="block font-bold text-white">{{ t('journal.engagement') }}</span>
               <span class="mt-1 block text-xs text-slate-400">{{ t('journal.engagementHint') }}</span>

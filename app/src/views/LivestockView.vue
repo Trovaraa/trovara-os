@@ -253,7 +253,7 @@ const vaccStatusColor: Record<string, string> = {
           required
           maxlength="200"
           :placeholder="t('livestock.namePlaceholder')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
         <input
           v-model="newSpecies"
@@ -261,7 +261,7 @@ const vaccStatusColor: Record<string, string> = {
           required
           maxlength="100"
           :placeholder="t('livestock.speciesPlaceholder')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
         <input
           v-model.number="newHeadCount"
@@ -270,11 +270,11 @@ const vaccStatusColor: Record<string, string> = {
           min="1"
           step="1"
           :placeholder="t('livestock.headCountPlaceholder')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
         <select
           v-model="newPlotId"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
         >
           <option value="">{{ t('livestock.plotOptional') }}</option>
           <option v-for="plot in activePlots" :key="plot.id" :value="plot.id">
@@ -287,7 +287,7 @@ const vaccStatusColor: Record<string, string> = {
             v-model="newAcquiredAt"
             type="date"
             required
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-farm-green/50"
           />
         </div>
         <input
@@ -295,7 +295,7 @@ const vaccStatusColor: Record<string, string> = {
           type="text"
           maxlength="2000"
           :placeholder="t('livestock.notesOptional')"
-          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-farm-green/50"
+          class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:border-farm-green/50"
         />
       </div>
       <p v-if="createError" class="text-sm text-red-400">{{ createError }}</p>
@@ -419,7 +419,7 @@ const vaccStatusColor: Record<string, string> = {
             :aria-label="`${batch.name} ${t('livestock.notesPlaceholder')}`"
             type="text"
             :placeholder="t('livestock.notesPlaceholder')"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-farm-green/50"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-farm-green/50"
           />
 
           <div class="flex flex-wrap items-center gap-2">
@@ -441,7 +441,7 @@ const vaccStatusColor: Record<string, string> = {
               min="1"
               :max="batch.headCount"
               :placeholder="t('livestock.mortalityPlaceholder')"
-              class="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50"
+              class="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-red-500/50"
             />
           </div>
         </div>

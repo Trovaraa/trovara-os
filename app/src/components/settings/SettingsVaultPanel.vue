@@ -377,7 +377,7 @@ onMounted(load)
             <button
               v-if="entry.canReveal"
               type="button"
-              class="rounded bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
+              class="rounded-sm bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
               @click="beginUnlock(entry, 'reveal')"
             >
               Reveal
@@ -385,7 +385,7 @@ onMounted(load)
             <button
               v-if="entry.canManage"
               type="button"
-              class="rounded bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
+              class="rounded-sm bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700"
               @click="beginUnlock(entry, 'edit')"
             >
               Edit
@@ -393,7 +393,7 @@ onMounted(load)
             <button
               v-if="entry.canManage"
               type="button"
-              class="rounded bg-red-900/40 px-2 py-1 text-red-300 hover:bg-red-900/60"
+              class="rounded-sm bg-red-900/40 px-2 py-1 text-red-300 hover:bg-red-900/60"
               @click="remove(entry.id)"
             >
               Delete

@@ -221,7 +221,7 @@ async function commit() {
         <article v-for="row in rows" :key="row.rowNumber" class="rounded-xl border p-4" :class="row.included && !isValid(row) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800 bg-slate-950/60'">
           <div class="flex items-center justify-between gap-3">
             <label class="flex min-h-11 items-center gap-2 text-sm font-semibold text-white">
-              <input v-model="row.included" type="checkbox" class="h-5 w-5 rounded border-slate-600" />
+              <input v-model="row.included" type="checkbox" class="h-5 w-5 rounded-sm border-slate-600" />
               {{ t('financeImport.sourceLocation', { sheet: row.sourceSheet, number: row.rowNumber }) }}
             </label>
             <span v-if="row.included && !isValid(row)" class="text-xs font-semibold text-amber-300">{{ t('financeImport.attention') }}</span>
@@ -239,7 +239,7 @@ async function commit() {
             <label class="text-xs text-slate-400">{{ t('financeImport.projectPhase') }}<input v-model="row.projectPhase" maxlength="200" class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white" /></label>
             <label class="text-xs text-slate-400">{{ t('financeImport.reference') }}<input v-model="row.receiptRef" maxlength="200" class="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-white" /></label>
             <label v-if="row.amountDerivedFromFormula" class="flex min-h-11 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 text-xs text-amber-200 lg:col-span-2">
-              <input v-model="row.amountReviewed" type="checkbox" class="h-5 w-5 rounded border-slate-600" />
+              <input v-model="row.amountReviewed" type="checkbox" class="h-5 w-5 rounded-sm border-slate-600" />
               {{ t('financeImport.formulaReview') }}
             </label>
           </div>
