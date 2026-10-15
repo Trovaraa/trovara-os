@@ -1,18 +1,46 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ completeChat: vi.fn(), isLlmConfigured: vi.fn(), checkLlmBudget: vi.fn(), consumeLlmBudget: vi.fn() }))
+const mocks = vi.hoisted(() => ({ completeChat: vi.fn(), completeChatVision: vi.fn(), isLlmConfigured: vi.fn(), checkLlmBudget: vi.fn(), consumeLlmBudget: vi.fn(), extractPdfPlainText: vi.fn() }))
 vi.mock('./llm.js', () => mocks)
 vi.mock('./llm-budget.js', () => mocks)
-import { financeEmailText, reviewFinanceEmailBody } from './finance-email-body.js'
+vi.mock('./invoice-extract.js', () => mocks)
+import { financeEmailText, isFinanceSecurityNotification, reviewFinanceAttachment, reviewFinanceEmailBody } from './finance-email-body.js'
 
 describe('finance email body review', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isLlmConfigured.mockReturnValue(true)
     mocks.checkLlmBudget.mockReturnValue({ allowed: true })
+    mocks.extractPdfPlainText.mockResolvedValue('')
   })
   it('extracts inert HTML text without scripts or remote requests', () => {
     expect(financeEmailText('', '<p>Payment &amp; receipt</p><script>steal()</script><img src="https://example.test/track"><p>NGN 500</p>').replace(/\s+/g, ' ')).toBe('Payment & receipt NGN 500')
   })
+  it.each(['New sign-in to your Zoho account', 'ZohoMail - New Login activity', 'Password reset', 'Your verification code'])('blocks security notification on both paths: %s', async subject => {
+    expect(isFinanceSecurityNotification(subject, 'Payment account')).toBe(true)
+    expect((await reviewFinanceEmailBody('farm-1', subject, 'Payment account')).relevant).toBe(false)
+    expect((await reviewFinanceAttachment({ farmId: 'farm-1', subject, body: '', mime: 'image/png', buffer: Buffer.from('logo') })).relevant).toBe(false)
+    expect(mocks.completeChatVision).not.toHaveBeenCalled()
+    expect(mocks.completeChat).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('classifies image evidence independently of a generic email body: %s', async relevant => {
+    mocks.completeChatVision.mockResolvedValue({ text: JSON.stringify({ relevant }) })
+    expect(await reviewFinanceAttachment({ farmId: 'farm-1', subject: 'Documents', body: 'Please see attached', mime: 'image/jpeg', buffer: Buffer.from('synthetic') })).toEqual({ relevant, method: 'llm' })
+    expect(mocks.completeChatVision).toHaveBeenCalledOnce()
+  })
+
+  it('classifies PDF content rather than assuming a PDF is an invoice', async () => {
+    mocks.extractPdfPlainText.mockResolvedValue('The weekly farm newsletter contains stories about farming and gardening.')
+    mocks.completeChat.mockResolvedValue({ text: '{"relevant":false}' })
+    expect((await reviewFinanceAttachment({ farmId: 'farm-1', subject: 'Document', body: '', mime: 'application/pdf', buffer: Buffer.from('pdf') })).relevant).toBe(false)
+  })
+
+  it('keeps unreadable/unclassified attachments retryable rather than silently discarding them', async () => {
+    await expect(reviewFinanceAttachment({ farmId: 'farm-1', subject: 'Document', body: '', mime: 'application/pdf', buffer: Buffer.from('pdf') })).rejects.toThrow('retry required')
+    mocks.isLlmConfigured.mockReturnValue(false)
+    await expect(reviewFinanceAttachment({ farmId: 'farm-1', subject: 'Document', body: '', mime: 'image/png', buffer: Buffer.from('png') })).rejects.toThrow('retry required')
+  })
+
   it('prefers plaintext and bounds evidence size', () => {
     expect(financeEmailText(' Plain ', '<p>HTML</p>')).toBe('Plain')
     expect(financeEmailText('a'.repeat(80_000))).toHaveLength(64_000)

@@ -10,7 +10,7 @@ import { verifyResendWebhook, resendInboundWebhookSecret } from './newsletter-re
 import { extractInvoiceFields } from './invoice-extract.js'
 import { convertToNgn, FxAmountOverflowError } from './currency-fx.js'
 import { logAudit } from './audit.js'
-import { financeEmailText, reviewFinanceEmailBody } from './finance-email-body.js'
+import { financeEmailText, isFinanceSecurityNotification, reviewFinanceAttachment, reviewFinanceEmailBody } from './finance-email-body.js'
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   'application/pdf',
@@ -365,6 +365,13 @@ export async function processFinanceInboundWebhook(params: {
   const sender = parseInboundFromHeader(from)
   const subject = (receivedData?.subject ?? data.subject ?? '').trim() ||
     `No subject (${sender.name ?? sender.email ?? 'unknown sender'}): ${bodyText.replace(/\s+/g, ' ').slice(0, 100) || 'Review email evidence'}`
+  if (isFinanceSecurityNotification(subject, bodyText)) {
+    await db.update(financeInboundEvents).set({
+      status: 'ignored', detail: 'Non-financial security notification', resendEmailId: emailId,
+      processedAt: new Date(), lockedAt: null, lockExpiresAt: null,
+    }).where(eq(financeInboundEvents.id, eventRow.id))
+    return { ok: true, ignored: true }
+  }
   const messageIdRaw = (data.message_id ?? receivedData?.message_id)?.trim()
   const receiptRef = messageIdRaw
     ? messageIdRaw.slice(0, 200)
@@ -400,6 +407,8 @@ export async function processFinanceInboundWebhook(params: {
       if (!response.ok) throw new Error('Could not download inbound attachment; retry required')
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.length === 0 || buffer.length > 25 * 1024 * 1024) continue
+      const review = await reviewFinanceAttachment({ farmId, subject, body: bodyText, mime, buffer })
+      if (!review.relevant) continue
       const stored = await storeInboundAttachment(
         farmId,
         attachment.filename ?? 'invoice.pdf',

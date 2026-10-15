@@ -5,6 +5,12 @@ import {
   processFinanceInboundWebhook,
 } from './finance-inbound.js'
 import { verifyResendWebhook } from './newsletter-resend.js'
+import { reviewFinanceAttachment } from './finance-email-body.js'
+
+vi.mock('./finance-email-body.js', async importOriginal => ({
+  ...await importOriginal<typeof import('./finance-email-body.js')>(),
+  reviewFinanceAttachment: vi.fn(),
+}))
 
 type Row = Record<string, unknown>
 
@@ -118,6 +124,9 @@ vi.mock('resend', () => ({
 describe('processFinanceInboundWebhook', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resendGet.mockReset()
+    resendAttachmentList.mockReset()
+    vi.mocked(reviewFinanceAttachment).mockReset().mockResolvedValue({ relevant: true, method: 'rules' })
     process.env.RESEND_API_KEY = 're_test'
     process.env.RESEND_INBOUND_WEBHOOK_SECRET = 'whsec_inbound_test'
     process.env.FINANCE_INBOUND_FARM_ID = 'farm-1'
@@ -184,6 +193,27 @@ describe('processFinanceInboundWebhook', () => {
       vi.fn(async () => new Response(new Uint8Array([37, 80, 68, 70]), { status: 200 })),
     )
     selectQueue.push([{ id: 'user-1' }], [])
+  })
+
+  it.each(['application/pdf', 'image/png', null])('ignores Zoho sign-in alerts before reading attachments (%s)', async mime => {
+    resendGet.mockResolvedValueOnce({ data: { subject: 'New sign-in to your Zoho account', from: 'noreply@zohoaccounts.com', text: 'Your account was accessed from a new location.' }, error: null })
+    resendAttachmentList.mockResolvedValueOnce({ data: { data: mime ? [{ content_type: mime, download_url: 'https://files.test/logo' }] : [] }, error: null })
+    const result = await processFinanceInboundWebhook({ rawBody: '{}', svixId: 'security-alert', svixTimestamp: '1', svixSignature: 'sig' })
+    expect(result).toEqual({ ok: true, ignored: true })
+    expect(resendAttachmentList).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(expenseInsertReturning).not.toHaveBeenCalled()
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'ignored', detail: 'Non-financial security notification' }))
+  })
+
+  it('does not create an expense just because an unrelated PDF is attached', async () => {
+    resendGet.mockResolvedValueOnce({ data: { subject: 'Newsletter', text: 'News from the garden' }, error: null })
+    vi.mocked(reviewFinanceAttachment).mockResolvedValueOnce({ relevant: false, method: 'llm' })
+    const result = await processFinanceInboundWebhook({ rawBody: '{}', svixId: 'non-finance-pdf', svixTimestamp: '1', svixSignature: 'sig' })
+    expect(result).toEqual({ ok: true, ignored: true })
+    expect(expenseInsertReturning).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
   })
 
   it('creates a pending draft expense from email.received', async () => {
