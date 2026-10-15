@@ -10,6 +10,7 @@ import { verifyResendWebhook, resendInboundWebhookSecret } from './newsletter-re
 import { extractInvoiceFields } from './invoice-extract.js'
 import { convertToNgn, FxAmountOverflowError } from './currency-fx.js'
 import { logAudit } from './audit.js'
+import { financeEmailText, reviewFinanceEmailBody } from './finance-email-body.js'
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   'application/pdf',
@@ -128,13 +129,15 @@ async function storeInboundAttachment(
   buffer: Buffer,
 ): Promise<{ storageKey: string; safeName: string }> {
   const ext =
-    mime === 'application/pdf'
-      ? 'pdf'
-      : mime === 'image/png'
-        ? 'png'
-        : mime === 'image/webp'
-          ? 'webp'
-          : 'jpg'
+    mime === 'text/plain'
+      ? 'txt'
+      : mime === 'application/pdf'
+        ? 'pdf'
+        : mime === 'image/png'
+          ? 'png'
+          : mime === 'image/webp'
+            ? 'webp'
+            : 'jpg'
   const safeBase = filename
     .replace(/[^a-zA-Z0-9._-]+/g, '_')
     .replace(/\.\.+/g, '_')
@@ -356,11 +359,12 @@ export async function processFinanceInboundWebhook(params: {
     message_id?: string | null
   } | null
 
-  const subject = (receivedData?.subject ?? data.subject ?? 'Inbound invoice').trim()
   const from = receivedData?.from ?? data.from ?? null
-  const bodyText = (receivedData?.text ?? '').trim() || (receivedData?.html ?? '').replace(/<[^>]+>/g, ' ')
+  const bodyText = financeEmailText(receivedData?.text, receivedData?.html)
   const fromVendorHint = extractVendor(from)
   const sender = parseInboundFromHeader(from)
+  const subject = (receivedData?.subject ?? data.subject ?? '').trim() ||
+    `No subject (${sender.name ?? sender.email ?? 'unknown sender'}): ${bodyText.replace(/\s+/g, ' ').slice(0, 100) || 'Review email evidence'}`
   const messageIdRaw = (data.message_id ?? receivedData?.message_id)?.trim()
   const receiptRef = messageIdRaw
     ? messageIdRaw.slice(0, 200)
@@ -370,8 +374,10 @@ export async function processFinanceInboundWebhook(params: {
   let attachmentStorageKey: string | null = null
   let attachmentMimeType: string | null = null
   let attachmentBuffer: Buffer | null = null
+  let bodyReviewMethod: string | null = null
 
   const attachments = await resend.emails.receiving.attachments.list({ emailId })
+  if (attachments.error) throw new Error('Could not list inbound attachments; retry required')
   if (!attachments.error) {
     const list = (attachments.data as { data?: Array<{
       id: string
@@ -390,8 +396,8 @@ export async function processFinanceInboundWebhook(params: {
       if (!ALLOWED_ATTACHMENT_TYPES.has(mime)) continue
       if (!attachment.download_url) continue
       if (!isAllowedInboundDownloadUrl(attachment.download_url)) continue
-      const response = await fetch(attachment.download_url)
-      if (!response.ok) continue
+      const response = await fetch(attachment.download_url, { redirect: 'error' })
+      if (!response.ok) throw new Error('Could not download inbound attachment; retry required')
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.length === 0 || buffer.length > 25 * 1024 * 1024) continue
       const stored = await storeInboundAttachment(
@@ -409,18 +415,28 @@ export async function processFinanceInboundWebhook(params: {
   }
 
   if (!attachmentStorageKey || !attachmentMimeType || !attachmentBuffer) {
-    await db
-      .update(financeInboundEvents)
-      .set({
-        status: 'ignored',
-        detail: 'No supported PDF, JPEG, PNG, or WebP attachment was available',
-        resendEmailId: emailId,
-        processedAt: new Date(),
-        lockedAt: null,
-        lockExpiresAt: null,
-      })
-      .where(eq(financeInboundEvents.id, eventRow.id))
-    return { ok: true, ignored: true }
+    const review = await reviewFinanceEmailBody(farmId, subject, bodyText)
+    if (review.relevant) {
+      bodyReviewMethod = review.method
+      attachmentMimeType = 'text/plain'
+      attachmentBuffer = Buffer.from(`Subject: ${subject}\nSender: ${from ?? 'Unknown'}\nReceived: ${receivedData?.created_at ?? 'Unknown'}\n\n${bodyText}`, 'utf8')
+      const stored = await storeInboundAttachment(farmId, 'finance-email.txt', attachmentMimeType, attachmentBuffer)
+      attachmentFilename = stored.safeName
+      attachmentStorageKey = stored.storageKey
+    } else {
+      await db
+        .update(financeInboundEvents)
+        .set({
+          status: 'ignored',
+          detail: 'No supported attachment or relevant finance email body was available',
+          resendEmailId: emailId,
+          processedAt: new Date(),
+          lockedAt: null,
+          lockExpiresAt: null,
+        })
+        .where(eq(financeInboundEvents.id, eventRow.id))
+      return { ok: true, ignored: true }
+    }
   }
 
   let persistedExpense = false
@@ -446,9 +462,9 @@ export async function processFinanceInboundWebhook(params: {
   }
   const isForeign = extracted.currency.toUpperCase() !== 'NGN'
 
-  const description = attachmentFilename
-    ? `Inbound invoice: ${subject}`
-    : `Inbound email (no PDF): ${subject}`
+  const description = bodyReviewMethod
+    ? `Email review required: ${subject}`
+    : `Inbound invoice: ${subject}`
 
   const [expense] = await db
     .insert(expenses)
@@ -492,9 +508,9 @@ export async function processFinanceInboundWebhook(params: {
       lockedAt: null,
       lockExpiresAt: null,
       lastError: null,
-      detail: attachmentStorageKey
-        ? `stored_attachment:${extracted.method}`
-        : `no_attachment:${extracted.method}`,
+      detail: bodyReviewMethod
+        ? `email_body_review:${bodyReviewMethod}:${extracted.method}`
+        : `stored_attachment:${extracted.method}`,
     })
     .where(eq(financeInboundEvents.id, eventRow.id))
 
@@ -513,6 +529,7 @@ export async function processFinanceInboundWebhook(params: {
       originalCurrency: converted?.originalCurrency,
       fxRate: converted?.fxRate,
       extractMethod: extracted.method,
+      bodyReviewMethod,
     },
   })
 

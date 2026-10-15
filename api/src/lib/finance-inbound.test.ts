@@ -99,7 +99,8 @@ vi.mock('./evidence-store.js', () => ({
 vi.mock('./audit.js', () => ({ logAudit: vi.fn(async () => undefined) }))
 vi.mock('./currency-fx.js', () => ({ convertToNgn }))
 
-vi.mock('node:fs/promises', () => ({ mkdir, writeFile }))
+vi.mock('node:fs/promises', () => ({ mkdir, writeFile, unlink: vi.fn(async () => undefined) }))
+vi.mock('./llm.js', () => ({ isLlmConfigured: () => false }))
 
 vi.mock('resend', () => ({
   Resend: class {
@@ -325,6 +326,7 @@ describe('processFinanceInboundWebhook', () => {
   })
 
   it('records email without a supported attachment as ignored and creates no expense', async () => {
+    resendGet.mockResolvedValueOnce({ data: { subject: 'Hello', text: 'Good morning team' }, error: null })
     resendAttachmentList.mockResolvedValueOnce({
       data: {
         data: [
@@ -351,7 +353,7 @@ describe('processFinanceInboundWebhook', () => {
       expect.objectContaining({
         status: 'ignored',
         resendEmailId: 'email-1',
-        detail: 'No supported PDF, JPEG, PNG, or WebP attachment was available',
+        detail: 'No supported attachment or relevant finance email body was available',
       }),
     )
     expect(expenseInsertReturning).not.toHaveBeenCalled()
@@ -359,6 +361,7 @@ describe('processFinanceInboundWebhook', () => {
   })
 
   it('ignores a PDF whose download host is outside the Resend allowlist', async () => {
+    resendGet.mockResolvedValueOnce({ data: { subject: 'Hello', text: 'See attachment' }, error: null })
     resendAttachmentList.mockResolvedValueOnce({
       data: {
         data: [
@@ -382,6 +385,52 @@ describe('processFinanceInboundWebhook', () => {
 
     expect(result).toEqual({ ok: true, ignored: true })
     expect(expenseInsertReturning).not.toHaveBeenCalled()
+  })
+
+  it('retains a body-only payment report as a pending draft, not a payment', async () => {
+    resendGet.mockResolvedValueOnce({ data: {
+      subject: '', from: 'Reporter <reporter@example.test>',
+      text: '107 trees dressed. NGN 48,150 has been paid for farm labour.',
+      created_at: '2026-10-15T07:30:00Z',
+    }, error: null })
+    resendAttachmentList.mockResolvedValueOnce({ data: { data: [] }, error: null })
+    const result = await processFinanceInboundWebhook({ rawBody: '{}', svixId: 'body-1', svixTimestamp: '1', svixSignature: 'sig' })
+    expect(result.expenseId).toBe('exp-1')
+    expect(insertedValues[1]).toMatchObject({
+      approvalStatus: 'pending', amount: 48150, attachmentMimeType: 'text/plain',
+      description: 'Email review required: No subject (Reporter): 107 trees dressed. NGN 48,150 has been paid for farm labour.',
+      attachmentFilename: 'finance-email.txt', source: 'inbound_email',
+    })
+    expect(insertedValues[1]).not.toHaveProperty('paymentStatus')
+    expect(insertedValues[1]).not.toHaveProperty('paidAt')
+    expect(writeFile.mock.calls[0][1].toString()).toContain('107 trees dressed')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(updates).toContainEqual(expect.objectContaining({ detail: 'email_body_review:rules:heuristic' }))
+  })
+
+  it('does not permanently ignore an email when attachment listing fails', async () => {
+    resendAttachmentList.mockResolvedValueOnce({ error: { message: 'Unavailable' } })
+    await expect(processFinanceInboundWebhook({ rawBody: '{}', svixId: 'retry', svixTimestamp: '1', svixSignature: 'sig' })).rejects.toThrow('retry required')
+    expect(expenseInsertReturning).not.toHaveBeenCalled()
+    expect(updates.some(row => row.status === 'ignored')).toBe(false)
+  })
+
+  it('retains an HTML-only payment request with unknown amount for manual review', async () => {
+    resendGet.mockResolvedValueOnce({ data: {
+      subject: 'Work payment', text: '', html: '<p>Please review payment for labour.</p><script>approve()</script>',
+    }, error: null })
+    resendAttachmentList.mockResolvedValueOnce({ data: { data: [] }, error: null })
+    await processFinanceInboundWebhook({ rawBody: '{}', svixId: 'html-review', svixTimestamp: '1', svixSignature: 'sig' })
+    expect(insertedValues[1]).toMatchObject({ amount: 0, approvalStatus: 'pending', attachmentMimeType: 'text/plain', extractionStatus: 'failed' })
+    expect(writeFile.mock.calls[0][1].toString()).not.toContain('approve()')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('does not replace an unavailable receipt with incomplete body evidence', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 503 }))
+    await expect(processFinanceInboundWebhook({ rawBody: '{}', svixId: 'retry-download', svixTimestamp: '1', svixSignature: 'sig' })).rejects.toThrow('retry required')
+    expect(expenseInsertReturning).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledWith('https://files.test/default-invoice', { redirect: 'error' })
   })
 
   it('stores a PDF from the Resend attachment CDN', async () => {
@@ -444,7 +493,7 @@ describe('processFinanceInboundWebhook', () => {
     })
 
     expect(result.expenseId).toBe('exp-1')
-    expect(fetch).toHaveBeenCalledWith('https://files.test/invoice')
+    expect(fetch).toHaveBeenCalledWith('https://files.test/invoice', { redirect: 'error' })
     expect(mkdir).toHaveBeenCalledWith(
       '/tmp/trovara-evidence-test/finance-inbound/farm-1',
       { recursive: true },
