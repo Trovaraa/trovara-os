@@ -99,6 +99,7 @@ const error = ref<string | null>(null)
 const notice = ref('')
 const labelFilter = ref('')
 const costCentreFilter = ref('')
+const approvalStatusFilter = ref<'' | 'pending' | 'approved' | 'rejected'>('')
 const entityFilter = ref<'consolidated' | '001' | '002'>('consolidated')
 const editingId = ref<string | null>(null)
 const selectedExpense = ref<Expense | null>(null)
@@ -130,9 +131,14 @@ function isOverdue(expense: Expense) {
 }
 const PAGE_SIZE = 25
 let loadRequestId = 0
-const pageCount = computed(() => Math.max(1, Math.ceil(expenses.value.length / PAGE_SIZE)))
+// The API returns the complete entity/cost-centre/label-scoped list. Filter
+// approval before pagination without changing the approved-only P&L summary.
+const filteredExpenses = computed(() => expenses.value.filter(expense =>
+  !approvalStatusFilter.value || (expense.approvalStatus ?? 'approved') === approvalStatusFilter.value,
+))
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredExpenses.value.length / PAGE_SIZE)))
 const visibleExpenses = computed(() =>
-  expenses.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+  filteredExpenses.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 )
 const settlementIds = ref<string[]>([])
 const showSettlement = ref(false), settlementBusy = ref(false), settlementDirty = ref(false)
@@ -140,7 +146,8 @@ const settlementInvoices = computed(() => visibleExpenses.value.filter(r => sett
 const eligibleForSettlement = (r: Expense) => r.approvalStatus === 'approved' && r.amount > (r.amountPaid ?? 0)
 const eligibleOnPage = computed(() => visibleExpenses.value.filter(eligibleForSettlement))
 const pageSelected = computed(() => eligibleOnPage.value.length > 0 && eligibleOnPage.value.every(r => settlementIds.value.includes(r.id)))
-watch([page, labelFilter, costCentreFilter, entityFilter], () => { settlementIds.value = [] })
+watch([page, labelFilter, costCentreFilter, entityFilter, approvalStatusFilter], () => { settlementIds.value = [] })
+watch(approvalStatusFilter, () => { page.value = 1 })
 function selectPage() { settlementIds.value = pageSelected.value ? [] : eligibleOnPage.value.map(r => r.id) }
 async function settlementSaved() {
   showSettlement.value = false; settlementIds.value = []
@@ -558,7 +565,7 @@ onMounted(() => load())
         @click="activeSection = 'expenses'"
       >
         {{ t('finance.expenses') }}
-        <span class="ml-1 text-xs opacity-80">{{ expenses.length }}</span>
+        <span class="ml-1 text-xs opacity-80">{{ filteredExpenses.length }}</span>
       </button>
       <button id="finance-capex-tab" type="button" role="tab" aria-controls="finance-capex-panel"
         :aria-selected="activeSection === 'capex'" class="min-h-11 rounded-xl px-5 py-2.5 text-sm font-bold"
@@ -960,9 +967,9 @@ onMounted(() => load())
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 class="text-xl font-black text-white">{{ t('finance.expenses') }}</h3>
-            <p class="mt-1 text-sm text-slate-500">{{ t('finance.entries', { count: expenses.length }) }}</p>
+            <p class="mt-1 text-sm text-slate-500">{{ t('finance.entries', { count: filteredExpenses.length }) }}</p>
           </div>
-          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <div class="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap [&>select]:min-w-0 [&>select]:max-w-full">
             <select
               v-model="costCentreFilter"
               :aria-label="t('finance.costCentre')"
@@ -984,6 +991,16 @@ onMounted(() => load())
               <option value="">{{ t('finance.allLabels') }}</option>
               <option v-for="label in labels" :key="label.id" :value="label.id">{{ label.name }}</option>
             </select>
+            <select
+              v-model="approvalStatusFilter"
+              :aria-label="t('finance.approvalStatus')"
+              class="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+            >
+              <option value="">{{ t('finance.allApprovalStatuses') }}</option>
+              <option value="pending">{{ t('finance.status.pending') }}</option>
+              <option value="approved">{{ t('finance.status.approved') }}</option>
+              <option value="rejected">{{ t('finance.status.rejected') }}</option>
+            </select>
           </div>
         </div>
         <div v-if="canWrite && eligibleOnPage.length" class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
@@ -991,7 +1008,7 @@ onMounted(() => load())
           <span class="text-slate-300">{{ t('historicalSettlement.selected', { count: settlementIds.length }) }}</span>
           <button type="button" :disabled="!settlementInvoices.length || refreshing || !!error" class="min-h-11 rounded-sm bg-farm-green px-4 py-2 font-bold text-white disabled:opacity-50" @click="showSettlement = true">{{ t('historicalSettlement.action') }}</button>
         </div>
-        <div v-if="expenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
+        <div v-if="filteredExpenses.length" class="space-y-3 md:hidden" data-testid="expense-cards">
           <article
             v-for="expense in visibleExpenses"
             :key="expense.id"
@@ -1179,7 +1196,7 @@ onMounted(() => load())
           </article>
         </div>
 
-        <div v-if="expenses.length" class="hidden rounded-2xl border border-slate-800 md:block">
+        <div v-if="filteredExpenses.length" class="hidden rounded-2xl border border-slate-800 md:block">
         <table class="w-full table-fixed text-sm" data-testid="expense-table">
           <thead>
             <tr class="border-b border-slate-800 bg-slate-900/70 text-left text-slate-500">
@@ -1336,7 +1353,7 @@ onMounted(() => load())
           <span>{{ t('finance.page', { current: page, total: pageCount }) }}</span>
           <button type="button" class="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-50" :disabled="page === pageCount" @click="page++">{{ t('finance.next') }}</button>
         </nav>
-        <p v-if="!expenses.length" class="text-slate-500 text-sm">{{ t('finance.noExpenses') }}</p>
+        <p v-if="!filteredExpenses.length" class="text-slate-500 text-sm">{{ approvalStatusFilter || costCentreFilter || labelFilter ? t('finance.noMatchingExpenses') : t('finance.noExpenses') }}</p>
       </section>
     </template>
   </AppLayout>

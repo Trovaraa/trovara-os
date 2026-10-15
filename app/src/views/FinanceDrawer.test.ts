@@ -61,6 +61,89 @@ async function open(wrapper: ReturnType<typeof mount>, action = 'Edit') {
 }
 
 describe('expense drawer workflow', () => {
+  it.each(['pending', 'approved', 'rejected'])('filters %s approvals in both layouts and can clear the filter', async status => {
+    invoices = ['pending', 'approved', 'rejected'].map(approvalStatus => ({ ...base, id: approvalStatus, description: `${approvalStatus} invoice`, approvalStatus }))
+    const wrapper = await render()
+    const filter = wrapper.get('select[aria-label="Approval status"]')
+    expect(filter.findAll('option').map(option => option.element.value)).toEqual(['', 'pending', 'approved', 'rejected'])
+    await filter.setValue(status)
+    expect(wrapper.get('#finance-expenses-tab').text()).toContain('1')
+    expect(wrapper.get('[data-testid="expense-cards"]').findAll('article')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="expense-table"] tbody').findAll('tr')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="expense-cards"]').text()).toContain(`${status} invoice`)
+    expect(wrapper.get('[data-testid="expense-table"]').text()).toContain(`${status} invoice`)
+    expect(writes()).toHaveLength(0)
+    await filter.setValue('')
+    expect(wrapper.get('[data-testid="expense-cards"]').findAll('article')).toHaveLength(3)
+  })
+
+  it('combines approval with cost centre, label and entity without filtering the P&L summary by approval', async () => {
+    const originalApi = api.getMockImplementation()!
+    invoices = [
+      { ...base, id: 'match', description: 'Matching pending invoice', approvalStatus: 'pending' },
+      { ...base, id: 'approved', description: 'Approved invoice' },
+      { ...base, id: 'other-centre', costCentreCode: 'CC01', approvalStatus: 'pending' },
+      { ...base, id: 'other-entity', entityCode: '001', approvalStatus: 'pending' },
+    ]
+    api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
+      if (path === '/api/finance/labels') return { labels: [{ id: 'capex', name: 'Capex' }] }
+      if (path.startsWith('/api/finance?')) {
+        const query = new URL(path, 'https://example.test').searchParams
+        return { expenses: invoices.filter(row =>
+          (!query.has('costCentreCode') || row.costCentreCode === query.get('costCentreCode')) &&
+          (!query.has('entityCode') || row.entityCode === query.get('entityCode')) &&
+          (!query.has('labelId') || ['match', 'approved'].includes(row.id)),
+        ) }
+      }
+      return originalApi(path, options)
+    })
+    const wrapper = await render()
+    await wrapper.get('select[aria-label="Approval status"]').setValue('pending')
+    await wrapper.get('select[aria-label="Cost centre"]').setValue('CC03'); await flushPromises()
+    await wrapper.get('select[aria-label="Labels"]').setValue('capex'); await flushPromises()
+    await wrapper.get('#finance-entity-filter').setValue('002'); await flushPromises()
+    expect(wrapper.get('[data-testid="expense-cards"]').findAll('article')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="expense-cards"]').text()).toContain('Matching pending invoice')
+    expect(api).toHaveBeenCalledWith('/api/finance?labelId=capex&costCentreCode=CC03&entityCode=002')
+    expect(api).toHaveBeenCalledWith('/api/finance/summary?labelId=capex&costCentreCode=CC03&entityCode=002')
+    await wrapper.get('select[aria-label="Approval status"]').setValue('rejected')
+    expect(wrapper.text()).toContain('No expenses match these filters.')
+    expect(wrapper.get('#finance-expenses-tab').text()).toContain('0')
+    expect(wrapper.find('[data-testid="expense-cards"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="expense-table"]').exists()).toBe(false)
+    expect(writes()).toHaveLength(0)
+  })
+
+  it('resets pagination and settlement selection when approval changes', async () => {
+    invoices = Array.from({ length: 30 }, (_, i) => ({ ...base, id: `expense-${i}`, description: `Invoice ${i}` }))
+    invoices.push({ ...base, id: 'pending', description: 'Pending invoice', approvalStatus: 'pending' })
+    const wrapper = await render()
+    await button(wrapper, 'Next').trigger('click')
+    await wrapper.get('#finance-expenses-panel > div input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('5 selected')
+    await wrapper.get('select[aria-label="Approval status"]').setValue('pending')
+    expect(wrapper.get('[data-testid="expense-cards"]').text()).toContain('Pending invoice')
+    expect(wrapper.find('#finance-expenses-panel input[type="checkbox"]').exists()).toBe(false)
+    await wrapper.get('select[aria-label="Approval status"]').setValue('approved')
+    expect(wrapper.text()).toContain('Page 1 of 2')
+    expect(wrapper.text()).toContain('0 selected')
+    expect(writes()).toHaveLength(0)
+  })
+
+  it('keeps the drawer usable when approving an invoice removes it from the pending filter', async () => {
+    invoices = [{ ...base, approvalStatus: 'pending' }]
+    const wrapper = await render()
+    await wrapper.get('select[aria-label="Approval status"]').setValue('pending')
+    await open(wrapper)
+    const approval = dialog().findAll('select').find(select => select.find('option[value="approved"]').exists())!
+    await approval.setValue('approved')
+    await button(dialog(), 'Save').trigger('click'); await flushPromises()
+    expect(dialog().text()).toContain('Approval status: Approved')
+    await button(dialog(), 'Close').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('No expenses match these filters.')
+    expect(wrapper.get('select[aria-label="Approval status"]').element).toHaveProperty('value', 'pending')
+  })
+
   it('bulk selects only eligible invoices on this page and refreshes after confirmed settlement', async () => {
     invoices = Array.from({ length: 30 }, (_, i) => ({ ...base, id: `expense-${i}`, description: `Old invoice ${i}` }))
     invoices[0]!.approvalStatus = 'pending'; invoices[1]!.amountPaid = 1000; invoices[1]!.paymentStatus = 'paid'

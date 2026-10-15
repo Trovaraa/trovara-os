@@ -1062,6 +1062,8 @@ export default {
       page: 'Page {current} of {total}',
       categories: { inputs: 'Inputs', labour: 'Labour', equipment: 'Equipment', transport: 'Transport', utilities: 'Utilities', feed: 'Feed', medicine: 'Medicine', other: 'Other' },
       allLabels: 'All labels',
+      allApprovalStatuses: 'All approval statuses',
+      noMatchingExpenses: 'No expense match these filters.',
       labels: 'Labels',
       addExpense: 'Add expense',
       editExpense: 'Edit expense',

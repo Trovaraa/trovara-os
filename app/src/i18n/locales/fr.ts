@@ -1134,6 +1134,8 @@ export default {
       page: 'Page {current} sur {total}',
       categories: { inputs: 'Intrants', labour: 'Main-d’œuvre', equipment: 'Équipement', transport: 'Transport', utilities: 'Services', feed: 'Alimentation', medicine: 'Médicaments', other: 'Autre' },
       allLabels: 'Tous les libellés',
+      allApprovalStatuses: 'Tous les statuts d’approbation',
+      noMatchingExpenses: 'Aucune dépense ne correspond à ces filtres.',
       labels: 'Libellés',
       addExpense: 'Ajouter une dépense',
       editExpense: 'Modifier la dépense',
