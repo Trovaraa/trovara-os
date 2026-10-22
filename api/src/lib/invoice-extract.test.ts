@@ -34,6 +34,9 @@ import {
 } from './invoice-extract.js'
 
 describe('parseMoneyHeuristic', () => {
+  it.each(['Total: NGN 48150', 'NGN 48150', '₦48150', 'Total: NGN 48,150'])('does not truncate ungrouped amounts: %s', text => {
+    expect(parseMoneyHeuristic(text)).toEqual({ amount: 48150, currency: 'NGN' })
+  })
   it('reads USD amount due from invoice-style text', () => {
     expect(
       parseMoneyHeuristic('Amount due: $20.00 USD\nSubtotal $20.00\nTotal $20.00'),
@@ -75,6 +78,12 @@ describe('extractInvoiceFields', () => {
       totalPages: 1,
       text: 'Resend\nAmount Due $20.00 USD\nDate of issue: August 10, 2026',
     })
+  })
+
+  it('can re-extract a stored plain-text email without treating it as PDF', async () => {
+    const result = await extractInvoiceFields({ farmId: 'farm-1', subject: '', bodyText: '', fromVendorHint: null, mime: 'text/plain', buffer: Buffer.from('Payment for labour. Total: NGN 48150') })
+    expect(result).toMatchObject({ amount: 48150, currency: 'NGN', method: 'heuristic' })
+    expect(getDocumentProxy).not.toHaveBeenCalled()
   })
 
   it('prefills from PDF text before calling the LLM', async () => {

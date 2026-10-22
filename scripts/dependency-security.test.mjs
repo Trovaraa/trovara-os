@@ -33,3 +33,37 @@ test('URI and IP parsers cannot regress to the vulnerable override versions', ()
   for (const version of versions('ip-address')) assert.ok(atLeast(version, '10.7.2'), version)
 })
 
+test('October parser patches are retained and sprintf-js is absent', () => {
+  for (const [name, minimum] of [['shell-quote', '1.11.0'], ['source-map-js', '1.2.2'], ['postcss-selector-parser', '7.1.6']]) {
+    assert.ok(versions(name).length > 0)
+    for (const version of versions(name)) assert.ok(atLeast(version, minimum), `${name}@${version}`)
+  }
+  assert.deepEqual(versions('sprintf-js'), [])
+  for (const version of versions('argparse')) assert.ok(atLeast(version, '2.0.1'))
+})
+
+test('Mammoth library and legacy CLI remain compatible with argparse 2', async () => {
+  const { default: JSZip } = await import('jszip')
+  const { default: mammoth } = await import('mammoth')
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const { createRequire } = await import('node:module')
+  const require = createRequire(import.meta.url)
+  const zip = new JSZip()
+  zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+  zip.file('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+  zip.file('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Synthetic farm document</w:t></w:r></w:p></w:body></w:document>')
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' })
+  assert.match((await mammoth.convertToHtml({ buffer })).value, /<p>Synthetic farm document<\/p>/)
+  const dir = await mkdtemp(join(tmpdir(), 'trovara-mammoth-test-'))
+  try {
+    const input = join(dir, 'synthetic.docx')
+    await writeFile(input, buffer)
+    const cli = require.resolve('mammoth/bin/mammoth')
+    assert.match(execFileSync(process.execPath, [cli, '--help'], { encoding: 'utf8' }), /output-format/)
+    assert.match(execFileSync(process.execPath, [cli, input, '--output-format', 'html'], { encoding: 'utf8' }), /Synthetic farm document/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+

@@ -1150,6 +1150,8 @@ export default {
         utilities: 'Utilities', feed: 'Feed', medicine: 'Medicine', other: 'Other',
       },
       allLabels: 'All labels',
+      allApprovalStatuses: 'All approval statuses',
+      noMatchingExpenses: 'No expenses match these filters.',
       labels: 'Labels',
       addExpense: 'Add expense',
       editExpense: 'Edit expense',
