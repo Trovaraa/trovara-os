@@ -1061,6 +1061,8 @@ export default {
       page: 'Ojú {current} nínú {total}',
       categories: { inputs: 'Àwọn ohun èlò', labour: 'Iṣẹ́', equipment: 'Ẹ̀rọ', transport: 'Ìrìnàjò', utilities: 'Ìpèsè', feed: 'Oúnjẹ', medicine: 'Oògùn', other: 'Òmíràn' },
       allLabels: 'Gbogbo àmì',
+      allApprovalStatuses: 'Gbogbo ipò ìfọwọ́sí',
+      noMatchingExpenses: 'Kò sí ìnáwó tó bá àwọn àlẹ̀mọ́ wọ̀nyí mu.',
       labels: 'Àwọn àmì',
       addExpense: 'Fi ìnáwó kun',
       editExpense: 'Ṣàtúnṣe ìnáwó',
