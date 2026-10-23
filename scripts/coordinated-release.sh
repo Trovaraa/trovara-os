@@ -13,7 +13,7 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 }
 # shellcheck disable=SC1091
 source "$NVM_DIR/nvm.sh"
-nvm use 22 >/dev/null
+nvm use "$(cat "$ROOT_DIR/.nvmrc")" >/dev/null
 
 cd "$ROOT_DIR"
 expected_sha="$(git rev-parse HEAD)"
