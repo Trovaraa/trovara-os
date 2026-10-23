@@ -5,10 +5,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-COPY api/package.json api/package.json
-COPY app/package.json app/package.json
+COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node api/package.json api/package.json
+COPY --chown=node:node app/package.json app/package.json
 RUN npm ci --ignore-scripts
 
-COPY api api
+COPY --chown=node:node api api
 CMD ["npm", "run", "knowledge-worker", "-w", "api"]
