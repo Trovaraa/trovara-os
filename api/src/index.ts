@@ -1,3 +1,4 @@
+import './lib/runtime-security.js'
 import './lib/env.js'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'

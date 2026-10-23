@@ -47,7 +47,7 @@ if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
 fi
 # shellcheck disable=SC1091
 source "$NVM_DIR/nvm.sh"
-nvm use 22 >/dev/null
+nvm use "$(cat "$SCRIPT_DIR/.nvmrc")" >/dev/null
 
 # --- Load config -------------------------------------------------------------
 if [[ -f "$SCRIPT_DIR/.env.deploy" ]]; then
@@ -252,7 +252,7 @@ if [[ ! -s "\$NVM_DIR/nvm.sh" ]]; then
 fi
 # shellcheck disable=SC1091
 source "\$NVM_DIR/nvm.sh"
-nvm use 22
+nvm use "\$(cat .nvmrc)"
 echo "==> [vm] node \$(node -v), npm \$(npm -v)"
 
 if [[ ! -f .env ]]; then

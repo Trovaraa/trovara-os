@@ -1,3 +1,4 @@
+import '../lib/runtime-security.js'
 import '../lib/env.js'
 import { hostname } from 'node:os'
 import { runKnowledgeWorkerOnce } from '../lib/knowledge-worker.js'
