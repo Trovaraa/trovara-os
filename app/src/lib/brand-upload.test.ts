@@ -1,0 +1,31 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { uploadBrandAsset } from './brand-upload'
+vi.mock('./api', () => ({ getCsrfToken: () => 'test-csrf', resolveApiUrl: (path: string) => path }))
+const fetchMock = vi.fn()
+beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset() })
+const session = (offset = 0) => ({ session: { id: 'session', offset, total: 4, chunkBytes: 2, completed: false } })
+const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+describe('Brand upload client', () => {
+  it('sends bounded chunks with CSRF and finalizes once', async () => {
+    fetchMock.mockResolvedValueOnce(response(session()))
+      .mockResolvedValueOnce(response(session()))
+      .mockResolvedValueOnce(response(session(2)))
+      .mockResolvedValueOnce(response(session(2)))
+      .mockResolvedValueOnce(response(session(4)))
+      .mockResolvedValueOnce(response(session(4)))
+      .mockResolvedValueOnce(response({ asset: { id: 'asset', status: 'ready' } }))
+    const result = await uploadBrandAsset(new File(['abcd'], 'clip.MOV', { type: 'video/quicktime' }))
+    expect(result.id).toBe('asset')
+    const chunks = fetchMock.mock.calls.filter(call => call[1].method === 'PATCH')
+    expect(chunks.map(call => call[1].headers['X-Upload-Offset'])).toEqual(['0', '2'])
+    expect(chunks.every(call => call[1].body.size === 2 && call[1].headers['X-CSRF-Token'] === 'test-csrf')).toBe(true)
+  })
+  it('manual retry resumes an existing session without creating a duplicate', async () => {
+    const file = new File(['abcd'], 'clip.MOV')
+    fetchMock.mockResolvedValueOnce(response(session())).mockResolvedValueOnce(response({ error: 'Sign in again' }, 401))
+    await expect(uploadBrandAsset(file)).rejects.toThrow('Sign in')
+    fetchMock.mockResolvedValueOnce(response(session(4))).mockResolvedValueOnce(response({ asset: { id: 'asset', status: 'ready' } }))
+    expect((await uploadBrandAsset(file)).id).toBe('asset')
+    expect(fetchMock.mock.calls.filter(call => call[0] === '/api/brand/assets/upload/session')).toHaveLength(1)
+  })
+})

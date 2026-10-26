@@ -1,8 +1,9 @@
 /** Shared Brand Kit upload / transcode limits. */
 
 export const BRAND_MAX_UPLOAD_BYTES = Number(
-  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 100 * 1024 * 1024,
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
 )
+export const BRAND_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 export const BRAND_MAX_FARM_STORAGE_BYTES = Number(
   process.env.BRAND_MAX_FARM_STORAGE_BYTES?.trim() || 2 * 1024 * 1024 * 1024,
 )
@@ -13,7 +14,7 @@ export const BRAND_MAX_VIDEO_DURATION_SEC = Number(
 export const BRAND_MAX_DATA_URL_DECODED = 10_000_000
 export const BRAND_MAX_DATA_URL_LENGTH = 14_000_000
 
-export const BRAND_CRF = 18
+export const BRAND_CRF = 23
 
 export type BrandMediaKind = 'image' | 'video'
 export type BrandAssetStatus = 'uploading' | 'processing' | 'ready' | 'failed'

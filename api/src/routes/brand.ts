@@ -11,7 +11,6 @@ import { hasPermission } from '../lib/rbac.js'
 import { logAudit } from '../lib/audit.js'
 import {
   brandFarmRoot,
-  assertBrandStorageCapacity,
   brandMediaAbsolutePath,
   createBrandUploadSession,
   deleteBrandMedia,
@@ -41,6 +40,7 @@ import {
 } from '../lib/brand-limits.js'
 import { enqueueBrandAssetProcessing } from '../lib/brand-processing.js'
 import { resolve } from 'node:path'
+import { getUploadSession, startUploadSession, appendUploadChunk, finishUploadSession, uploadSessionDto, UploadSessionError, assertBrandUploadCapacity } from '../lib/brand-upload-session.js'
 
 const PUBLIC_RATE = { max: 120, windowMs: 60_000 }
 const UNLOCK_MAX = 8
@@ -73,6 +73,10 @@ export const brandRoutes = new Hono<{ Variables: AppVariables }>()
 export const publicBrandRoutes = new Hono()
 
 brandRoutes.use('*', authMiddleware)
+brandRoutes.onError((error, c) => {
+  if (error instanceof UploadSessionError) return c.json({ error: error.message }, error.status)
+  throw error
+})
 
 function packIsActive(pack: typeof brandPacks.$inferSelect, now = new Date()): boolean {
   if (pack.revokedAt) return false
@@ -310,7 +314,7 @@ brandRoutes.post('/assets', zValidator('json', mediaSchema), async (c) => {
   return c.json({ asset: serializeAsset(row) }, 201)
 })
 
-async function beginStreamedUpload(params: {
+type StreamedUploadParams = {
   farmId: string
   userId: string
   assetId?: string
@@ -319,10 +323,22 @@ async function beginStreamedUpload(params: {
   originalNameHeader: string | undefined
   body: ReadableStream<Uint8Array> | null
   replace?: boolean
-}) {
+  prepared?: { assetId: string; sessionDir: string; sourcePath: string }
+}
+
+async function beginStreamedUpload(params: StreamedUploadParams) {
+  // Prepared sessions already hold the route-level lock. Legacy/replacement
+  // uploads must acquire it before any asynchronous quota or database checks.
+  if (params.prepared) return performStreamedUpload(params)
   if (activeUploadsByFarm.has(params.farmId)) {
     return { error: 'Another Brand Kit upload is already in progress for this farm', status: 429 as const }
   }
+  activeUploadsByFarm.add(params.farmId)
+  try { return await performStreamedUpload(params) }
+  finally { activeUploadsByFarm.delete(params.farmId) }
+}
+
+async function performStreamedUpload(params: StreamedUploadParams) {
   const originalName =
     params.originalNameHeader?.trim() ||
     (params.replace ? undefined : 'upload')
@@ -353,20 +369,18 @@ async function beginStreamedUpload(params: {
   // Reserve the declared size while streaming. Chunked uploads reserve the
   // hard maximum, so a second upload cannot race the per-farm quota check.
   try {
-    await assertBrandStorageCapacity(
+    if (!params.prepared) await assertBrandUploadCapacity(
       params.farmId,
       Number.isFinite(declaredLength) && declaredLength > 0 ? declaredLength : BRAND_MAX_UPLOAD_BYTES,
     )
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Upload rejected', status: 413 as const }
   }
-  activeUploadsByFarm.add(params.farmId)
-  const assetId = existing?.id ?? crypto.randomUUID()
+  const assetId = params.prepared?.assetId ?? existing?.id ?? crypto.randomUUID()
   let session: Awaited<ReturnType<typeof createBrandUploadSession>>
   try {
-    session = await createBrandUploadSession(params.farmId, assetId)
+    session = params.prepared ?? await createBrandUploadSession(params.farmId, assetId)
   } catch (error) {
-    activeUploadsByFarm.delete(params.farmId)
     return {
       error: error instanceof Error ? error.message : 'Could not prepare upload',
       status: 500 as const,
@@ -374,14 +388,12 @@ async function beginStreamedUpload(params: {
   }
 
   try {
-    await streamRequestBodyToFile(params.body, session.sourcePath, BRAND_MAX_UPLOAD_BYTES)
+    if (!params.prepared) await streamRequestBodyToFile(params.body, session.sourcePath, BRAND_MAX_UPLOAD_BYTES)
   } catch (error) {
     await removeBrandUploadSession(params.farmId, assetId)
     const message = error instanceof Error ? error.message : 'Upload failed'
     const status = message.includes('too large') ? (413 as const) : (400 as const)
     return { error: message, status }
-  } finally {
-    activeUploadsByFarm.delete(params.farmId)
   }
 
   const pendingRelative = `.tmp/${assetId}/source.part`
@@ -410,7 +422,7 @@ async function beginStreamedUpload(params: {
         .returning()
       row = updated!
     } catch (error) {
-      await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
+      if (!params.prepared) await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
       throw error
     }
   } else {
@@ -434,7 +446,8 @@ async function beginStreamedUpload(params: {
         .returning()
       row = inserted!
     } catch (error) {
-      await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
+      // Keep committed chunks available if the database is temporarily down.
+      if (!params.prepared) await removeBrandUploadSession(params.farmId, assetId).catch(() => undefined)
       throw error
     }
   }
@@ -468,6 +481,65 @@ brandRoutes.post('/assets/upload', async (c) => {
     body: c.req.raw.body,
   })
   if ('error' in result) return c.json({ error: result.error }, result.status)
+  return c.json({ asset: result.asset }, result.status)
+})
+
+// Every chunk is authenticated/authorized and serialized with legacy uploads.
+brandRoutes.use('/assets/upload/*', async (c, next) => {
+  if (!/\/assets\/upload\/session(?:\/|$)/.test(c.req.path)) return next()
+  const user = c.get('user')
+  if (!hasPermission(user, 'brand.manage')) return c.json({ error: 'Forbidden' }, 403)
+  if (activeUploadsByFarm.has(user.farmId)) return c.json({ error: 'Another upload is in progress. Retry shortly.' }, 429)
+  activeUploadsByFarm.add(user.farmId)
+  try { await next() }
+  catch (error) {
+    if (error instanceof UploadSessionError) return c.json({ error: error.message }, error.status)
+    throw error
+  } finally { activeUploadsByFarm.delete(user.farmId) }
+})
+
+brandRoutes.post('/assets/upload/session', zValidator('json', z.object({
+  name: z.string().trim().min(1).max(240),
+  mime: z.string().max(120),
+  total: z.number().int().positive(),
+})), async (c) => {
+  const user = c.get('user')
+  const session = await startUploadSession(user.farmId, user.id, c.req.valid('json'))
+  return c.json({ session: uploadSessionDto(session) }, 201)
+})
+
+brandRoutes.get('/assets/upload/session/:id', async (c) => {
+  const user = c.get('user')
+  const session = await getUploadSession(user.farmId, user.id, c.req.param('id'))
+  return c.json({ session: uploadSessionDto(session) })
+})
+
+brandRoutes.patch('/assets/upload/session/:id', async (c) => {
+  const user = c.get('user')
+  const session = await getUploadSession(user.farmId, user.id, c.req.param('id'))
+  const rawOffset = c.req.header('x-upload-offset')
+  if (!rawOffset || !/^\d+$/.test(rawOffset)) return c.json({ error: 'Invalid upload offset' }, 400)
+  const next = await appendUploadChunk(user.farmId, session, Number(rawOffset), c.req.raw.body)
+  return c.json({ session: uploadSessionDto(next) })
+})
+
+brandRoutes.post('/assets/upload/session/:id/complete', async (c) => {
+  const user = c.get('user')
+  const session = await getUploadSession(user.farmId, user.id, c.req.param('id'))
+  // Deterministic asset ID makes finalization safe to retry after a lost response.
+  const [existing] = await db.select().from(brandAssets).where(and(eq(brandAssets.id, session.id), eq(brandAssets.farmId, user.farmId))).limit(1)
+  if (existing) {
+    await finishUploadSession(user.farmId, session)
+    return c.json({ asset: serializeAsset(existing) })
+  }
+  if (session.completed || session.offset !== session.total) return c.json({ error: 'Upload is incomplete' }, 409)
+  const prepared = { assetId: session.id, ...await createBrandUploadSession(user.farmId, session.id) }
+  const result = await beginStreamedUpload({
+    farmId: user.farmId, userId: user.id, contentType: session.mime,
+    contentLength: String(session.total), originalNameHeader: session.name, body: null, prepared,
+  })
+  if ('error' in result) return c.json({ error: result.error }, result.status)
+  await finishUploadSession(user.farmId, session)
   return c.json({ asset: result.asset }, result.status)
 })
 
