@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { createHash } from 'node:crypto'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index.js'
@@ -339,7 +340,7 @@ operationGuidelineRoutes.post('/', zValidator('json', guidelineSchema), async (c
   return c.json({ guideline }, 201)
 })
 
-operationGuidelineRoutes.patch('/:id', zValidator('json', guidelineSchema.partial()), async (c) => {
+operationGuidelineRoutes.patch('/:id', zValidator('json', patchSchema(guidelineSchema)), async (c) => {
   const user = c.get('user')
   if (!hasPermission(user, 'knowledge.write')) return c.json({ error: 'Forbidden' }, 403)
   const id = c.req.param('id')

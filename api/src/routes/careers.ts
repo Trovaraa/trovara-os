@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { db } from '../db/index.js'
 import { careerPosts } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
@@ -73,8 +74,7 @@ const postFieldsSchema = z.object({
   applicationInstructions: z.string().trim().max(2_000).nullable().optional(),
 })
 
-const patchPostSchema = postFieldsSchema
-  .partial()
+export const patchPostSchema = patchSchema(postFieldsSchema)
   .extend({ published: z.boolean().optional() })
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required')
 

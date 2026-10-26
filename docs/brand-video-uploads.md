@@ -14,7 +14,7 @@ Storage checks count nested temporary files and reserve source plus output space
 - Recreate only the ClamAV service with the reviewed Compose settings: StreamMaxLength / MaxFileSize / PCREMaxFileSize 512M, MaxScanSize1024M, AlertExceedsMax yes. Preserve the existing signature volume, image and local-only port. Verify effective settings and a clean synthetic stream over 100 MiB before enabling uploads. Never bypass scanning.
 - Existing nginx Brand upload location must allow chunk requests; the example's 520m also covers legacy streamed requests. Cloudflare receives individual chunks below 100 MB; no WAF bypass or global upload-limit increase is necessary.
 - Preserve current source/config backups, private media, permissions and old hashed assets. Take an encrypted recovery backup and use the existing guarded release pattern. No real user media should be submitted by deployment tests.
-- Dependency audits must pass before production deployment. A current Zod v3 security finding requires a separately reviewed v4 migration; do not suppress that finding.
+- Dependency audits must pass before production deployment. Zod is upgraded to patched v4.6.7, with regression checks preserving omitted PATCH fields rather than applying create defaults.
 
 ## Verification on 26 October 2026
 
@@ -22,4 +22,4 @@ Both previously rejected originals were converted locally through the production
 
 Regression coverage includes committed-offset recovery, chunk/total/quota limits, farm/user ownership, expired-session cleanup, database-failure recovery, idempotent finalization, serialization with legacy uploads, sequential UI uploads, individual retry and scanner rejection/disconnect behavior. No production asset or pack was created during verification.
 
-Deployment remains blocked by GHSA-mrhx-c7xc-m3w5 in Zod <4.6.6. The audit now contains only that high-severity finding after updating fast-uri, Happy DOM and serialize-javascript. Do not describe this branch as deployed or security-clear until the Zod migration and release gates pass.
+The approved Zod v4.6.7 migration fixes GHSA-mrhx-c7xc-m3w5. Record schemas now declare string keys explicitly, and updates to assets, inventory, products, careers, journal posts, contractor engagements, the vault and operation guidelines retain their original omitted-field behavior. Create defaults remain intact. Regression coverage also checks early rejection of oversized constrained arrays. Fast-uri, Happy DOM and serialize-javascript patches are included. Deployment still requires the live scanner and runtime release checks above.

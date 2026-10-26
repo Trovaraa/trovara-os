@@ -152,7 +152,7 @@ const createTaskSchema = z.object({
   templateId: z.string().uuid().optional(),
   dueDate: z.string().datetime().optional(),
   actionType: z.string().max(100).optional(),
-  actionPayload: z.record(z.unknown()).optional(),
+  actionPayload: z.record(z.string(), z.unknown()).optional(),
 })
 
 const updateTaskSchema = z

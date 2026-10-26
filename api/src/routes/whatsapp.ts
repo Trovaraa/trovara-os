@@ -183,7 +183,7 @@ const sendSchema = z
     text: z.string().min(1).max(1000).optional(),
     overrideAllowlist: z.boolean().optional(),
     lang: z.enum(['en', 'yo', 'pcm', 'fr']).default('en'),
-    variables: z.record(z.string()).default({}),
+  variables: z.record(z.string(), z.string()).default({}),
   })
   .refine((v) => Boolean(v.templateId?.trim() || v.text?.trim()), {
     message: 'Provide templateId or text',

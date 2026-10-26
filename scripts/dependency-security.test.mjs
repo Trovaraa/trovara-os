@@ -52,6 +52,11 @@ test('URI and IP parsers cannot regress to the vulnerable override versions', ()
   for (const version of versions('ip-address')) assert.ok(atLeast(version, '10.7.2'), version)
 })
 
+test('Zod validation uses the patched v4 release in every installed copy', () => {
+  assert.ok(versions('zod').length > 0)
+  for (const version of versions('zod')) assert.ok(atLeast(version, '4.6.6'), version)
+})
+
 test('October parser patches are retained and sprintf-js is absent', () => {
   for (const [name, minimum] of [['shell-quote', '1.11.0'], ['source-map-js', '1.2.2'], ['postcss-selector-parser', '7.1.6']]) {
     assert.ok(versions(name).length > 0)

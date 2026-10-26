@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { contractorEngagements, contractors } from '../db/schema.js'
@@ -33,7 +34,7 @@ const engagementSchema = z.object({
   status: z.enum(['planned', 'active', 'completed', 'cancelled']).default('planned'),
 })
 
-const engagementUpdateSchema = engagementSchema.pick({ paidAmountMinor: true, status: true }).partial()
+export const engagementUpdateSchema = patchSchema(engagementSchema.pick({ paidAmountMinor: true, status: true }))
 
 export const contractorRoutes = new Hono<{ Variables: AppVariables }>()
 contractorRoutes.use('*', authMiddleware)
