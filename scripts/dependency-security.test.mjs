@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
+// Scoped build-tool replacement rationale: docs/dependency-maintenance-2026-10-28.md.
 const lock = JSON.parse(readFileSync(new URL('package-lock.json', root), 'utf8'))
 const entries = Object.entries(lock.packages)
 const versions = name => entries.filter(([path]) => path.endsWith('/node_modules/' + name) || path === 'node_modules/' + name).map(([, pkg]) => pkg.version)
@@ -11,6 +12,53 @@ const atLeast = (version, minimum) => {
   const a = version.split('.').map(Number), b = minimum.split('.').map(Number)
   return a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] >= b[2])))
 }
+
+test('Rollup uses the reviewed lodash.merge alias instead of vulnerable deepmerge', async () => {
+  const { createRequire } = await import('node:module')
+  const require = createRequire(new URL('package.json', root))
+  const resolverEntry = require.resolve('@rollup/plugin-node-resolve')
+  const resolverRequire = createRequire(resolverEntry)
+  const mergePackage = resolverRequire('deepmerge/package.json')
+  assert.equal(mergePackage.name, 'lodash.merge')
+  assert.equal(mergePackage.version, '4.6.2')
+  const aliases = entries.filter(([path]) => path.endsWith('/deepmerge'))
+  assert.equal(aliases.length, 1)
+  assert.equal(aliases[0][1].name, 'lodash.merge')
+  assert.match(aliases[0][1].resolved, /\/lodash\.merge\/-\/lodash\.merge-4\.6\.2\.tgz$/)
+  // This is deliberately NOT a global drop-in replacement: the reviewed resolver
+  // only deep-clones JSON-compatible defaults. Fail if upstream changes that use.
+  const resolverSource = readFileSync(resolverEntry, 'utf8')
+  assert.equal((resolverSource.match(/deepMerge\(/g) || []).length, 1)
+  assert.match(resolverSource, /deepMerge\(\{\}, defaults\)/)
+  const { DEFAULTS, nodeResolve } = require('@rollup/plugin-node-resolve')
+  assert.deepEqual(DEFAULTS.extensions, ['.mjs', '.js', '.json', '.node'])
+  assert.deepEqual(DEFAULTS.moduleDirectories, ['node_modules'])
+  assert.ok(Object.isFrozen(DEFAULTS))
+  assert.ok(Object.isFrozen(DEFAULTS.extensions))
+  assert.equal(nodeResolve().name, 'node-resolve')
+  const merge = resolverRequire('deepmerge')
+  const original = { nested: { enabled: true }, extensions: ['.mjs', '.js'] }
+  const copy = merge({}, original)
+  assert.deepEqual(copy, original)
+  assert.notEqual(copy.nested, original.nested)
+  assert.notEqual(copy.extensions, original.extensions)
+  copy.extensions.push('.test')
+  assert.deepEqual(original.extensions, ['.mjs', '.js'])
+})
+
+test('the resolver merge replacement does not poison returned or global prototypes', async () => {
+  const { createRequire } = await import('node:module')
+  const require = createRequire(new URL('package.json', root))
+  const merge = createRequire(require.resolve('@rollup/plugin-node-resolve'))('deepmerge')
+  const payload = JSON.parse('{"__proto__":{"trovaraMergePoison":true},"constructor":{"prototype":{"trovaraMergePoison":true}}}')
+  for (const target of [{}, Object.create(null), JSON.parse('{"__proto__":{"trovaraMergePoison":true}}')]) {
+    const before = Object.getPrototypeOf(target)
+    const result = merge(target, payload)
+    assert.equal(Object.getPrototypeOf(result), before)
+    assert.equal(result.trovaraMergePoison, undefined)
+    assert.equal({}.trovaraMergePoison, undefined)
+  }
+})
 
 test('Node2Shell runtime floor is pinned for builds and CI', () => {
   assert.equal(readFileSync(new URL('.nvmrc', root), 'utf8').trim(), '24.22.1')
