@@ -56,7 +56,7 @@
     "glob": "13.0.6",
     "globals": "^16.5.0",
     "happy-dom": "^21.0.4",
-    "typescript-eslint": "^8.71.2",
+    "typescript-eslint": "^8.72.0",
     "vue-eslint-parser": "^10.4.1"
   },
   "overrides": {
@@ -71,9 +71,9 @@
     },
     "glob": "$glob",
     "happy-dom": "$happy-dom",
-    "ip-address": "10.7.4",
+    "ip-address": "10.7.5",
     "geoip-country": {
-      "ip-address": "10.7.4"
+      "ip-address": "10.7.5"
     },
     "rimraf": "5.0.10"
   }
