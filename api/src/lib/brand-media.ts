@@ -86,21 +86,19 @@ function hasExpectedSignature(mime: BrandStoredMime, buffer: Buffer): boolean {
 }
 
 /** Total on-disk Brand Kit footprint, including in-progress uploads. */
-async function farmStorageBytes(farmId: string): Promise<number> {
+export async function farmStorageBytes(farmId: string): Promise<number> {
   let total = 0
   const root = brandFarmRoot(farmId)
-  try {
-    const directory = await opendir(root)
+  async function count(path: string): Promise<void> {
+    const directory = await opendir(path)
     for await (const entry of directory) {
-      const entryPath = resolve(root, entry.name)
+      const entryPath = resolve(path, entry.name)
       if (entry.isFile()) total += (await stat(entryPath)).size
-      if (entry.isDirectory()) {
-        const nested = await opendir(entryPath)
-        for await (const child of nested) {
-          if (child.isFile()) total += (await stat(resolve(entryPath, child.name))).size
-        }
-      }
+      if (entry.isDirectory()) await count(entryPath)
     }
+  }
+  try {
+    await count(root)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }

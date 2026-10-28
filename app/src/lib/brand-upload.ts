@@ -38,6 +38,7 @@ export function uploadBrandAsset(
   } = {},
 ): Promise<BrandAssetDto> {
   const { replaceAssetId, onProgress } = options
+  if (!replaceAssetId) return uploadResumable(file, onProgress)
   const path = replaceAssetId
     ? `/api/brand/assets/upload/${replaceAssetId}`
     : '/api/brand/assets/upload'
@@ -99,6 +100,69 @@ export function uploadBrandAsset(
   })
 }
 
+type Session = { id: string; offset: number; total: number; chunkBytes: number; completed: boolean }
+const sessions = new WeakMap<File, Session>()
+
+class UploadError extends Error {
+  constructor(message: string, public status: number) { super(message) }
+}
+async function uploadRequest<T>(path: string, method = 'GET', body?: BodyInit, extra: Record<string, string> = {}): Promise<T> {
+  const csrf = getCsrfToken()
+  const response = await fetch(resolveApiUrl(path), {
+    method, body, credentials: 'include', signal: AbortSignal.timeout(120_000),
+    headers: { Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}), ...extra },
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new UploadError(messageFromBody(data, response.status), response.status)
+  return data as T
+}
+
+async function uploadResumable(file: File, onProgress?: (progress: BrandUploadProgress) => void): Promise<BrandAssetDto> {
+  if (!file.size || file.size > 500 * 1024 * 1024) throw new Error('Select a file between 1 byte and 500 MiB.')
+  const base = '/api/brand/assets/upload/session'
+  let session = sessions.get(file)
+  if (!session) {
+    const result = await uploadRequest<{ session: Session }>(base, 'POST', JSON.stringify({ name: file.name, mime: file.type, total: file.size }), { 'Content-Type': 'application/json' })
+    session = result.session
+    sessions.set(file, session)
+  }
+  let failures = 0
+  while (true) {
+    try {
+      // Always ask for the committed offset: a response may have been lost.
+      session = (await uploadRequest<{ session: Session }>(`${base}/${session.id}`)).session
+      sessions.set(file, session)
+      if (session.offset >= file.size) break
+      onProgress?.({ phase: 'upload', uploadPercent: Math.round(session.offset / file.size * 100), message: `Uploading… ${Math.round(session.offset / file.size * 100)}%` })
+      session = (await uploadRequest<{ session: Session }>(`${base}/${session.id}`, 'PATCH', file.slice(session.offset, session.offset + session.chunkBytes), {
+        'Content-Type': 'application/octet-stream', 'X-Upload-Offset': String(session.offset),
+      })).session
+      sessions.set(file, session)
+      failures = 0
+    } catch (error) {
+      if (error instanceof UploadError && (error.status === 404 || (error.status === 409 && error.message.includes('expired')))) {
+        sessions.delete(file)
+        throw error
+      }
+      if (error instanceof UploadError && [400, 401, 403, 413].includes(error.status)) throw error
+      if (++failures > 3) throw error
+      await new Promise(resolve => setTimeout(resolve, failures * 1000))
+    }
+  }
+  const { asset } = await uploadRequest<{ asset: BrandAssetDto }>(`${base}/${session.id}/complete`, 'POST')
+  if (asset.status === 'failed') {
+    sessions.delete(file)
+    throw new Error(asset.processingError || 'Processing failed. Retry to upload a fresh copy.')
+  }
+  if (asset.status === 'ready') return asset
+  onProgress?.({ phase: 'processing', uploadPercent: 100, message: 'Uploaded. Scanning and optimizing video…' })
+  try { return await pollBrandAsset(asset.id, onProgress) }
+  catch (error) {
+    if (error instanceof UploadError && error.status === 422) sessions.delete(file)
+    throw error
+  }
+}
+
 async function pollBrandAsset(
   assetId: string,
   onProgress?: (progress: BrandUploadProgress) => void,
@@ -119,7 +183,7 @@ async function pollBrandAsset(
     const asset = data.asset
     if (asset.status === 'ready') return asset
     if (asset.status === 'failed') {
-      throw new Error(asset.processingError || 'Processing failed')
+      throw new UploadError(asset.processingError || 'Processing failed', 422)
     }
     onProgress?.({
       phase: 'processing',

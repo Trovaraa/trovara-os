@@ -5,6 +5,7 @@ import { getCookie, setCookie } from 'hono/cookie'
 import { zValidator } from '@hono/zod-validator'
 import { and, count, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { db } from '../db/index.js'
 import { journalComments, journalPostLikes, journalPosts } from '../db/schema.js'
 import { logAudit } from '../lib/audit.js'
@@ -66,8 +67,7 @@ const postFieldsSchema = z.object({
   coverImageUrl: coverImageSchema.optional(),
 })
 
-const patchPostSchema = postFieldsSchema
-  .partial()
+export const patchPostSchema = patchSchema(postFieldsSchema)
   .extend({ published: z.boolean().optional() })
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required')
 

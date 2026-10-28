@@ -20,10 +20,13 @@ describe('brand limits', () => {
 })
 
 describe('brand transcode flags', () => {
-  it('preserves source dimensions and uses visually-lossless CRF', () => {
+  it('bounds dimensions, frame rate and bitrate for web delivery', () => {
     const args = videoTranscodeArgs('/tmp/in.mov', '/tmp/out.mp4')
     expect(args).toContain('-vf')
-    expect(args).toContain('scale=iw:ih')
+    expect(args[args.indexOf('-vf') + 1]).toContain('min(1920,iw)')
+    expect(args[args.indexOf('-vf') + 1]).toContain('fps=30')
+    expect(args).toContain('-maxrate')
+    expect(args).toContain('-threads')
     expect(args).toContain('-crf')
     expect(args).toContain(String(BRAND_CRF))
     expect(args).toContain('libx264')

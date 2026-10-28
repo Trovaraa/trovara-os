@@ -41,7 +41,7 @@ export {
 // Brand Kit streaming uploads use a dedicated higher limit (see isBrandUploadPath).
 export const MAX_BODY_BYTES = 12 * 1024 * 1024
 export const BRAND_UPLOAD_BODY_BYTES = Number(
-  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 100 * 1024 * 1024,
+  process.env.BRAND_UPLOAD_MAX_BYTES?.trim() || 500 * 1024 * 1024,
 )
 
 /** Authenticated Brand Kit binary upload / replace paths — streamed, not JSON. */
@@ -49,7 +49,7 @@ export function isBrandUploadPath(pathname: string): boolean {
   const path = pathname.split('?')[0] ?? pathname
   return (
     path === '/api/brand/assets/upload' ||
-    /^\/api\/brand\/assets\/upload\/[^/]+$/.test(path)
+    /^\/api\/brand\/assets\/upload\/(?!session$)[^/]+$/.test(path)
   )
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { assetEvents, assets, assetLogs, users } from '../db/schema.js'
@@ -68,7 +69,7 @@ const createAssetSchema = z.object({
   active: z.boolean().default(true),
 })
 
-const updateAssetSchema = createAssetSchema.partial()
+export const updateAssetSchema = patchSchema(createAssetSchema)
 
 const createLogSchema = z.object({
   countAvailable: z.number().int().min(0),

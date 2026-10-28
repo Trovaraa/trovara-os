@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
+import { stat } from 'node:fs/promises'
 import {
   BRAND_CRF,
   BRAND_MAX_VIDEO_DURATION_SEC,
@@ -113,8 +114,7 @@ export type TranscodeResult = {
 
 /**
  * Convert iPhone HEIC/MOV/HEVC (and other inputs) to web-ready JPEG/MP4.
- * Preserves source pixel dimensions. CRF 18 is visually lossless for H.264 —
- * not mathematically lossless, and may not shrink already-efficient HEVC.
+ * Produce a bounded web copy. Originals are not altered on the user's device.
  */
 export async function transcodeBrandUpload(params: {
   sourcePath: string
@@ -188,38 +188,13 @@ export async function transcodeBrandUpload(params: {
   const outputPath = resolve(sessionDir, 'output.mp4')
   const posterPath = resolve(sessionDir, 'poster.jpg')
 
-  // Compatible H.264 already? Still remux/transcode lightly for +faststart + AAC.
-  // Preserve dimensions: no downscale filter beyond scale=iw:ih identity.
+  if (!probe.durationSec || probe.durationSec <= 0) throw new Error('Video duration could not be verified')
   await runCommand(
     ffmpegBin,
-    [
-      '-y',
-      '-i',
-      sourcePath,
-      '-map',
-      '0:v:0',
-      '-map',
-      '0:a:0?',
-      '-c:v',
-      'libx264',
-      '-crf',
-      String(BRAND_CRF),
-      '-preset',
-      'slow',
-      '-pix_fmt',
-      'yuv420p',
-      '-vf',
-      'scale=iw:ih',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '192k',
-      '-movflags',
-      '+faststart',
-      outputPath,
-    ],
+    videoTranscodeArgs(sourcePath, outputPath, probe.durationSec),
     900_000,
   )
+  if ((await stat(outputPath)).size > 200 * 1024 * 1024) throw new Error('Optimized video exceeds the 200 MiB output limit')
 
   const seek =
     probe.durationSec && probe.durationSec > 2 ? ['-ss', '1'] : ['-ss', '0']
@@ -246,10 +221,12 @@ export async function transcodeBrandUpload(params: {
   }
 }
 
-/** Exposed for tests — encoding flags that preserve resolution. */
-export function videoTranscodeArgs(sourcePath: string, outputPath: string): string[] {
+/** Bound pixel count, frame rate, CPU threads and bitrate; never upscale. */
+export function videoTranscodeArgs(sourcePath: string, outputPath: string, durationSec = 600): string[] {
+  const maxRate = Math.max(128_000, Math.min(8_000_000, Math.floor(180 * 1024 * 1024 * 8 / durationSec - 128_000)))
   return [
     '-y',
+    '-threads', '2',
     '-i',
     sourcePath,
     '-map',
@@ -261,15 +238,18 @@ export function videoTranscodeArgs(sourcePath: string, outputPath: string): stri
     '-crf',
     String(BRAND_CRF),
     '-preset',
-    'slow',
+    'fast',
+    '-threads', '2',
+    '-maxrate', String(maxRate),
+    '-bufsize', String(maxRate * 2),
     '-pix_fmt',
     'yuv420p',
     '-vf',
-    'scale=iw:ih',
+    "scale=w='min(1920,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
     '-c:a',
     'aac',
     '-b:a',
-    '192k',
+    '128k',
     '-movflags',
     '+faststart',
     outputPath,

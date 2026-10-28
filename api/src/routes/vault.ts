@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema as partialUpdateSchema } from '../lib/patch-schema.js'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { portalVaultEntries, portalVaultShares, users } from '../db/schema.js'
@@ -54,7 +55,7 @@ const entrySchema = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
 })
 
-const patchSchema = entrySchema.partial().extend(stepUpSchema.shape)
+const patchSchema = partialUpdateSchema(entrySchema).extend(stepUpSchema.shape)
 
 function metadataRow(
   row: typeof portalVaultEntries.$inferSelect,

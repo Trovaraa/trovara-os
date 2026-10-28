@@ -2317,6 +2317,9 @@ export default {
       close: 'Close dialog',
     },
     brandKits: {
+      uploadHelp: 'Originals up to 500 MiB, videos up to 10 minutes. Uploads use retryable chunks, then scan and create an optimized MP4 (up to 1920px / 30fps). Keep this page open; retry failed files here without re-uploading successful ones.',
+      retryUpload: 'Retry / resume',
+      queue: { queued: 'Queued', upload: 'Uploading', processing: 'Scanning / optimizing', ready: 'Ready', failed: 'Needs retry' },
       eyebrow: 'Brand',
       title: 'Brand kit',
       subtitle: 'Upload branded photos and videos, assemble press packs, and share a protected link.',

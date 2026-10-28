@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { inventoryItems, products, shopDeliverySlots } from '../db/schema.js'
@@ -49,7 +50,7 @@ const createProductSchema = z.object({
   sortOrder: z.number().int().min(0).default(0),
 })
 
-const updateProductSchema = createProductSchema.partial().extend({
+export const updateProductSchema = patchSchema(createProductSchema).extend({
   // Virtual field: links/unlinks a stock row (stored on inventory_items.product_id).
   inventoryItemId: z.string().uuid().nullable().optional(),
 })
@@ -160,7 +161,7 @@ productRoutes.post('/delivery-slots', zValidator('json', deliverySlotSchema), as
 
 productRoutes.patch(
   '/delivery-slots/:id',
-  zValidator('json', deliverySlotSchema.partial()),
+  zValidator('json', patchSchema(deliverySlotSchema)),
   async (c) => {
     const user = c.get('user')
     if (!canManageProducts(user)) return c.json({ error: 'Forbidden' }, 403)

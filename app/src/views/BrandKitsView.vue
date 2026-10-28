@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, markRaw, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/AppLayout.vue'
 import EditorDrawer from '@/components/EditorDrawer.vue'
@@ -28,6 +28,9 @@ const loading = ref(true)
 const { t, locale } = useI18n()
 const uploading = ref(false)
 const uploadProgress = ref<string | null>(null)
+type UploadItem = { id: number; file: File; state: 'queued' | 'upload' | 'processing' | 'ready' | 'failed'; percent: number; error: string }
+const uploadItems = ref<UploadItem[]>([])
+let uploadItemId = 0
 const replacingAssetId = ref<string | null>(null)
 const savingPack = ref(false)
 const error = ref<string | null>(null)
@@ -111,47 +114,34 @@ async function onUpload(event: Event) {
   const files = [...(input.files ?? [])]
   input.value = ''
   if (!files.length) return
+  const items: UploadItem[] = files.map(file => ({ id: ++uploadItemId, file: markRaw(file), state: 'queued', percent: 0, error: '' }))
+  uploadItems.value.push(...items)
+  await runUploads(items.map(item => item.id))
+}
+
+async function runUploads(ids: number[]) {
+  if (uploading.value) return
   uploading.value = true
-  error.value = null
-  message.value = null
-  const uploadedIds: string[] = []
   try {
-    let cursor = 0
-    const workers = Array.from({ length: Math.min(3, files.length) }, async () => {
-      while (cursor < files.length) {
-        const index = cursor++
-        const file = files[index]
-        uploadProgress.value = t('brandKits.uploadProgress', {
-          current: index + 1,
-          total: files.length,
-          name: file.name,
+    for (const id of ids) {
+      const item = uploadItems.value.find(row => row.id === id)!
+      item.error = ''
+      item.state = 'upload'
+      try {
+        const asset = await uploadBrandAsset(item.file, {
+          onProgress: progress => { item.state = progress.phase; item.percent = progress.uploadPercent },
         })
-      const asset = await uploadBrandAsset(file, {
-        onProgress: (progress) => {
-          uploadProgress.value = `${file.name}: ${progress.message}`
-        },
-      })
-      uploadedIds.push(asset.id)
-      sessionAssetIds.value = [...new Set([...sessionAssetIds.value, asset.id])]
+        item.state = 'ready'
+        item.percent = 100
+        sessionAssetIds.value = [...new Set([...sessionAssetIds.value, asset.id])]
+        assets.value = [...assets.value.filter(row => row.id !== asset.id), asset]
+        packForm.value.assetIds = [...new Set([...packForm.value.assetIds, asset.id])]
+      } catch (e) {
+        item.state = 'failed'
+        item.error = e instanceof Error ? e.message : t('brandKits.uploadFailed')
       }
-    })
-    await Promise.all(workers)
-    await load()
-    const readyUploaded = uploadedIds.filter((id) =>
-      assets.value.some((asset) => asset.id === id && asset.status === 'ready'),
-    )
-    packForm.value.assetIds = [...new Set([...packForm.value.assetIds, ...readyUploaded])]
-    message.value =
-      files.length === 1
-        ? t('brandKits.uploadedOne')
-        : t('brandKits.uploadedMany', { count: files.length })
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('brandKits.uploadFailed')
-    await load()
-  } finally {
-    uploading.value = false
-    uploadProgress.value = null
-  }
+    }
+  } finally { uploading.value = false }
 }
 
 async function onReplaceAsset(assetId: string, event: Event) {
@@ -203,6 +193,7 @@ function clearAssetSelection() {
 }
 
 function resetPackForm() {
+  uploadItems.value = []
   editingPackId.value = null
   sessionAssetIds.value = []
   clearPassword.value = false
@@ -423,6 +414,16 @@ onUnmounted(stopPolling)
             </label>
           </div>
           <p class="muted">{{ t('brandKits.subtitle') }}</p>
+          <p class="muted">{{ t('brandKits.uploadHelp') }}</p>
+          <ul v-if="uploadItems.length" class="upload-queue" aria-live="polite">
+            <li v-for="item in uploadItems" :key="item.id">
+              <strong>{{ item.file.name }}</strong>
+              <span>{{ (item.file.size / 1048576).toFixed(1) }} MiB · {{ t(`brandKits.queue.${item.state}`) }}{{ item.state === 'upload' ? ` ${item.percent}%` : '' }}</span>
+              <progress v-if="item.state === 'upload'" :value="item.percent" max="100" :aria-label="item.file.name" />
+              <p v-if="item.error" class="error">{{ item.error }}</p>
+              <button v-if="item.state === 'failed'" type="button" class="btn" :disabled="uploading" @click="runUploads([item.id])">{{ t('brandKits.retryUpload') }}</button>
+            </li>
+          </ul>
           <p v-if="!visibleAssets.length" class="muted">{{ t('brandKits.noAssets') }}</p>
           <template v-else>
             <div class="library-actions">
@@ -635,6 +636,9 @@ onUnmounted(stopPolling)
 </template>
 
 <style scoped>
+.upload-queue { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+.upload-queue li { border: 1px solid var(--border, #334155); border-radius: 0.75rem; padding: 0.75rem; display: grid; gap: 0.4rem; overflow-wrap: anywhere; }
+.upload-queue progress { width: 100%; }
 .page {
   max-width: 960px;
   margin: 0 auto;

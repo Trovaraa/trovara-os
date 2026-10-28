@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { patchSchema } from '../lib/patch-schema.js'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
@@ -73,7 +74,7 @@ const createItemSchema = z.object({
 
 // No `quantity`: stock is owned by the movement and count ledger, and a value
 // set here would move it with no movement row standing behind the change.
-const updateItemSchema = createItemSchema.omit({ quantity: true }).partial()
+export const updateItemSchema = patchSchema(createItemSchema.omit({ quantity: true }))
 
 const movementSchema = z.object({
   itemId: z.string().uuid(),

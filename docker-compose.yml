@@ -42,6 +42,13 @@ services:
     # OrbStack can emulate it on Apple Silicon; production x86_64 runs natively.
     platform: linux/amd64
     container_name: trovara-os-clamav
+    environment:
+      # Larger Brand originals must be scanned, not skipped at the old 100 MiB cap.
+      CLAMD_CONF_StreamMaxLength: 512M
+      CLAMD_CONF_MaxFileSize: 512M
+      CLAMD_CONF_MaxScanSize: 1024M
+      CLAMD_CONF_PCREMaxFileSize: 512M
+      CLAMD_CONF_AlertExceedsMax: "yes"
     restart: unless-stopped
     ports:
       - "127.0.0.1:3310:3310"
