@@ -28,7 +28,7 @@
     "@node-rs/argon2": "^2.2.2",
     "@types/qrcode": "^1.5.6",
     "dotenv": "^16.5.0",
-    "drizzle-orm": "^1.0.0-rc.5-5935859",
+    "drizzle-orm": "^1.0.0-rc.5",
     "geoip-country": "^5.0.202610240156",
     "hono": "^4.13.14",
     "ip-address": "10.7.5",
