@@ -60,13 +60,51 @@ test('the resolver merge replacement does not poison returned or global prototyp
   }
 })
 
-test('Node2Shell runtime floor is pinned for builds and CI', () => {
-  assert.equal(readFileSync(new URL('.nvmrc', root), 'utf8').trim(), '24.22.1')
-  assert.equal(JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).engines.node, '>=24.22.1 <25')
-  assert.equal(lock.packages[''].engines.node, '>=24.22.1 <25')
+test('November patched Node runtime floor is pinned for builds and CI', () => {
+  assert.equal(readFileSync(new URL('.nvmrc', root), 'utf8').trim(), '24.22.3')
+  assert.equal(JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).engines.node, '>=24.22.3 <25')
+  assert.equal(lock.packages[''].engines.node, '>=24.22.3 <25')
   assert.equal(process.versions.node.split('.')[0], '24')
-  assert.ok(atLeast(process.versions.node, '24.22.1'), 'Use patched Node from .nvmrc')
-  assert.match(readFileSync(new URL('Dockerfile.knowledge-worker', root), 'utf8'), /^FROM node:24\.22\.1-bookworm-slim/m)
+  assert.ok(atLeast(process.versions.node, '24.22.3'), 'Use patched Node from .nvmrc')
+  assert.match(readFileSync(new URL('Dockerfile.knowledge-worker', root), 'utf8'), /^FROM node:24\.22\.3-bookworm-slim/m)
+})
+
+test('glob cancellation and minimatch amplification patches are retained', () => {
+  assert.ok(versions('glob').length > 0)
+  for (const version of versions('glob')) assert.ok(atLeast(version, '14.0.2'), version)
+  for (const version of versions('minimatch')) {
+    // The advisory affects majors 7-10. Legacy consumers retain their old API.
+    const major = Number(version.split('.')[0])
+    if (major >= 7) assert.ok(atLeast(version, '11.0.1'), version)
+  }
+})
+
+test('scoped minimatch upgrades preserve Vue codegen and EditorConfig matching', async () => {
+  const { createRequire } = await import('node:module')
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const require = createRequire(new URL('package.json', root))
+  for (const consumer of ['@vue/language-core', 'editorconfig']) {
+    const scoped = createRequire(require.resolve(consumer))
+    assert.equal(scoped('minimatch/package.json').version, '11.0.9')
+    assert.equal(scoped('minimatch').minimatch('Farm.vue', '*.{vue,ts}'), true)
+  }
+  const fixture = mkdtempSync(join(tmpdir(), 'trovara-editorconfig-'))
+  try {
+    mkdirSync(join(fixture, 'components'))
+    writeFileSync(join(fixture, '.editorconfig'), 'root = true\n\n[*.{vue,ts}]\nindent_style = space\nindent_size = 2\n')
+    const result = require('editorconfig').parseSync(join(fixture, 'components/Farm.vue'))
+    assert.equal(result.indent_style, 'space')
+    assert.equal(result.indent_size, 2)
+  } finally { rmSync(fixture, { recursive: true, force: true }) }
+})
+
+test('Hono and its Node adapter include the November request-handling fixes', () => {
+  for (const [name, minimum] of [['hono', '4.13.16'], ['@hono/node-server', '2.1.6']]) {
+    assert.ok(versions(name).length > 0)
+    for (const version of versions(name)) assert.ok(atLeast(version, minimum), `${name}@${version}`)
+  }
 })
 
 test('Vite and Vitest mocker include October security fixes in every installed copy', () => {

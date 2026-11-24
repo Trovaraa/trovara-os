@@ -97,7 +97,7 @@ export async function syncTalentZoho(farmId: string, actorId?: string) {
   if (!talentZohoStatus(farmId).configured) throw new Error('Zoho recruitment intake is not configured for this farm')
   const config = talentZohoConfig()
   return db.transaction(async (lock) => {
-    const rows = await lock.execute(sql`select pg_try_advisory_xact_lock(hashtext(${`talent-zoho:${farmId}`})) as acquired`)
+    const rows = await lock.execute<{ acquired: boolean }>(sql`select pg_try_advisory_xact_lock(hashtext(${`talent-zoho:${farmId}`})) as acquired`)
     if (!rows[0]?.acquired) return { imported: 0, duplicates: 0, failed: 0, busy: true }
     let imported = 0; let duplicates = 0; let failed = 0
     for (const folderId of config.folderIds) {

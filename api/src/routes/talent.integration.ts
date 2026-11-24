@@ -6,13 +6,14 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono, type Context, type Next } from 'hono'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import JSZip from 'jszip'
 import { db } from '../db/index.js'
 import { farms, users, careerPosts, talentApplications, talentCandidates, talentDocuments, talentEvents, rateLimitBuckets } from '../db/schema.js'
 import { cvImportKey, ingestTalentApplication, importTalentEmail, processNextTalentDocument, deleteTalentApplication, purgeExpiredTalent } from '../lib/talent.js'
 import { digest, prepareTalentDocument } from '../lib/talent-documents.js'
+import { syncTalentZoho } from '../lib/talent-zoho.js'
 import type { SessionUser } from '../lib/session.js'
 
 let session: SessionUser | null = null
@@ -67,6 +68,30 @@ afterAll(async () => {
 })
 
 describe('Talent database and HTTP integration', () => {
+  it('keeps concurrent Zoho intake busy without contacting the provider', async () => {
+    const settings = {
+      TALENT_FARM_ID: farmId, TALENT_ZOHO_ACCOUNT_ID: '123', TALENT_ZOHO_FOLDER_IDS: '456',
+      TALENT_ZOHO_CLIENT_ID: 'synthetic-client', TALENT_ZOHO_CLIENT_SECRET: 'synthetic-secret',
+      TALENT_ZOHO_REFRESH_TOKEN: 'synthetic-refresh',
+    }
+    const before = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]))
+    const fetch = vi.fn(() => { throw new Error('Busy intake must not contact Zoho') })
+    vi.stubGlobal('fetch', fetch)
+    Object.assign(process.env, settings)
+    try {
+      await db.transaction(async lock => {
+        await lock.execute(sql`select pg_advisory_xact_lock(hashtext(${`talent-zoho:${farmId}`}))`)
+        expect(await syncTalentZoho(farmId)).toEqual({ imported: 0, duplicates: 0, failed: 0, busy: true })
+        expect(fetch).not.toHaveBeenCalled()
+      })
+    } finally {
+      for (const [key, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      vi.unstubAllGlobals()
+    }
+  })
   it('dry-runs and atomically repairs an eight-record cohort without changing stages or source evidence', async () => {
     const repairFarm = randomUUID()
     await db.insert(farms).values({ id: repairFarm, name: 'Disposable repair fixture', slug: `repair-${repairFarm}`, location: 'Test' })
