@@ -50,7 +50,7 @@
     "@types/mailparser": "^3.9.0",
     "@types/node": "^24.19.2",
     "@types/pdfkit": "^0.17.7",
-    "drizzle-kit": "1.0.0-rc.5-5935859",
+    "drizzle-kit": "1.0.0-rc.5",
     "tsx": "^4.23.15",
     "typescript": "^5.8.3",
     "vitest": "^4.1.12"
