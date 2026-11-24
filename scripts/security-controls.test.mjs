@@ -18,7 +18,7 @@ test('scanner download is SHA-256 verified before extraction/execution', () => {
   assert.match(workflow, /SHA256=[a-f0-9]{64}/)
   assert.ok(workflow.indexOf('sha256sum --check --strict') < workflow.indexOf('tar -xzf gitleaks.tar.gz'))
   assert.doesNotMatch(workflow, /\|\s*tar\s/)
-  assert.match(workflow, /osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2\.7\.0/)
+  assert.match(workflow, /osv-scanner-action@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2\.7\.1/)
 })
 
 test('secret scanning detects newly introduced secrets in docs and tests', () => {
