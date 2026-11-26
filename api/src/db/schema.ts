@@ -2241,6 +2241,7 @@ export const customerRecurringOrders = pgTable(
     items: jsonb('items')
       .$type<Array<{ productId: string; quantity: number }>>()
       .notNull(),
+    familyBasketActive: boolean('family_basket_active').default(false).notNull(),
     deliverySlotId: uuid('delivery_slot_id').references(() => shopDeliverySlots.id, {
       onDelete: 'set null',
     }),
